@@ -31,6 +31,7 @@ import { findPartyCraft } from '@lib/craft-catalog'
 import { weekKeyFor } from '@lib/kit-dates'
 import { releaseWeekClaim } from '@lib/kit-store'
 import { createLogger } from '@lib/logger'
+import { alertOwners } from '@lib/owner-alert'
 import { formatSlotLabel } from '@lib/studio-time'
 import { formatMoney } from '@lib/money'
 import type { By } from '@lib/staff-auth'
@@ -38,7 +39,8 @@ import {
   getPartyRecord, isOurs, PartyNotFoundError, updatePartyRecord,
   type PartyItem, type PartyRecord,
 } from '@lib/party-store'
-import { dueCents, paymentState } from './money'
+import { dueCents, paidCents, paymentState } from './money'
+import { sendPartyBookedEmail } from './checkout'
 import { checkStart, PARTY_TIMES_UNREADABLE } from './open-times'
 import { holdsBetween, moveTime, releaseTime, resizeTime } from './party-book'
 import { localDate, startsOn } from './party-times'
@@ -54,13 +56,13 @@ const MINUTE = 60_000
 
 export const LEGACY_PARTY = 'This party was booked in Square. Change it there.'
 export const NO_SUCH_PARTY = 'That party does not exist.'
-export const PAYMENT_GOING_THROUGH = 'A payment is going through. Try again in a few minutes.'
 export const PARTY_CANCELLED = 'This party was cancelled.'
 export const NOTHING_REFUNDED = 'Nothing was refunded.'
 export const PAID_EXTRA = 'That extra is paid. Use Refund on the Payments tab if they should get money back.'
 export const UNREACHABLE = "The party couldn't be reached. Try again."
 export const SAME_TIME = "That's already this party's time."
 export const STARTED = 'This party has already started, so its time can’t change.'
+export const STARTED_NO_MOVE = 'This party has already started, so it can’t be moved.'
 export const CHANGED_MEANWHILE = 'Someone else changed this party at the same moment. Check it and try again.'
 
 /** A refusal the owner reads: an HTTP status, a sentence, and anything extra for the sheet. */
@@ -77,8 +79,13 @@ const firstOf = (r: PartyRecord) => r.hostName.split(' ')[0] || 'the host'
 
 /** What the owner reads after a move: where it went, and that the host still has to be told. */
 export const movedMessage = (r: PartyRecord) => `Moved to ${partyWhenLabel(r.startIso)}. Nothing was sent to ${firstOf(r)}, so let them know.`
-/** After a cancel: nothing refunded, nothing sent. */
-export const cancelledMessage = (r: PartyRecord) => `Cancelled. ${NOTHING_REFUNDED} Nothing was sent to ${firstOf(r)}, so let them know. To give money back, use Refund on the Payments tab.`
+/** After a cancel: nothing refunded, nothing sent. Refunds are mentioned only when money is still with us. */
+export function cancelledMessage(r: PartyRecord): string {
+  const tell = `Nothing was sent to ${firstOf(r)}, so let them know.`
+  if (paidCents(r) > 0) return `Cancelled. ${NOTHING_REFUNDED} ${tell} To give money back, use Refund on the Payments tab.`
+  if ((r.charges ?? []).length > 0) return `Cancelled. Everything paid was already refunded. ${tell}`
+  return `Cancelled. Nothing had been paid. ${tell}`
+}
 /** After the link went out (or didn't). */
 export function linkMessage(r: PartyRecord, dueCents: number, email: boolean, text: boolean): string {
   const how = email && text ? 'by email and text' : email ? 'by email' : text ? 'by text' : null
@@ -98,6 +105,31 @@ const plus = (iso: string, minutes: number) => new Date(Date.parse(iso) + minute
 export function paymentGoingThrough(r: PartyRecord, now: Date): boolean {
   return !!r.paying && Date.parse(r.paying.until) > now.getTime()
 }
+
+/**
+ * Why Move, Cancel or a new payment has to wait, said plainly: whose payment,
+ * how much, how, and what to do. A charge Square never answered keeps the
+ * party's payment slot for up to 24 hours (UNCLEAR_HOLD_HOURS): it settles by
+ * itself when Square's payment event lands, or when that time runs out and
+ * the next payment first asks Square about it.
+ */
+export function paymentWaitMessage(r: PartyRecord, now: Date): string {
+  const p = r.paying
+  const first = firstOf(r)
+  if (!p) return `A payment on ${first}’s party is going through. Check Payments on this party, then try again.`
+  const cents = p.quotedCents ?? 0
+  const what = `${first}’s ${cents > 0 ? `${formatMoney(cents)} ` : ''}${p.via === 'admin-card' ? 'card payment' : 'payment by link'}`
+  if (p.state === 'unclear') {
+    return `Square didn’t give a clear answer on ${what}. Move, Cancel and new payments on this party wait until that’s settled. Look in Square under Payments for it. If Square shows it paid, it shows up on this party by itself. If Square shows no payment, this clears on ${partyWhenLabel(p.until)}.`
+  }
+  const mins = Math.max(1, Math.ceil((Date.parse(p.until) - now.getTime()) / MINUTE))
+  return `${what[0].toUpperCase()}${what.slice(1)} is going through right now. Wait ${mins === 1 ? 'a minute' : `${mins} minutes`}, then check Payments on this party and try again.`
+}
+
+/** The owner-tapped "Email Stefanie the new details" offer (never sent automatically, S2-R7). */
+export interface SendDetailsOffer { action: 'send-details'; label: string }
+export const sendDetailsOffer = (r: PartyRecord, changed: boolean): SendDetailsOffer =>
+  ({ action: 'send-details', label: `Email ${firstOf(r)} the ${changed ? 'new ' : ''}details` })
 
 /** After an extra goes on: what it costs and the next step (it is due until paid). */
 const addedMessage = (it: PartyItem) => (it.cents > 0
@@ -170,7 +202,11 @@ export interface AdminPartyView {
   overlap: boolean
   /** a payment claimed and still inside its time (Move and Cancel wait) */
   paymentGoingThrough: boolean
+  /** that payment, for the sheet to explain: charging now, or Square never answered (kept up to 24 h) */
+  paymentInFlight: { state: 'charging' | 'unclear'; via: 'link' | 'admin-card'; cents: number; until: string; message: string } | null
   cancelled: PartyRecord['cancelled'] | null
+  /** "Email Stefanie the details" (re-sends the confirmation with the current time); null when it can't be sent */
+  sendDetails: SendDetailsOffer | null
 }
 
 export function adminPartyView(r: PartyRecord, now: Date = new Date()): AdminPartyView {
@@ -200,7 +236,14 @@ export function adminPartyView(r: PartyRecord, now: Date = new Date()): AdminPar
     linkSent: r.linkSent ?? [],
     overlap: r.overlap === true,
     paymentGoingThrough: paymentGoingThrough(r, now),
+    paymentInFlight: !legacy && r.paying && paymentGoingThrough(r, now)
+      ? {
+          state: r.paying.state === 'unclear' ? 'unclear' : 'charging', via: r.paying.via ?? 'link', cents: r.paying.quotedCents ?? 0,
+          until: r.paying.until, message: paymentWaitMessage(r, now),
+        }
+      : null,
     cancelled: r.cancelled ?? null,
+    sendDetails: !legacy && r.status !== 'cancelled' ? sendDetailsOffer(r, false) : null,
   }
 }
 
@@ -218,23 +261,66 @@ export async function partyRefundRequests(id: string): Promise<ReturnType<typeof
 
 // ── Move ────────────────────────────────────────────────────────────────────
 
-export interface MoveResult { party: AdminPartyView; hostToTell: HostToTell; from: string; to: string; message: string; warning?: string }
+export interface MoveResult {
+  party: AdminPartyView; hostToTell: HostToTell; from: string | null; to: string; message: string
+  /** the owner may tap it to email the host the new time and a fresh calendar file (S2-R7: never automatic) */
+  sendDetails: SendDetailsOffer
+  replay?: true; warning?: string
+}
+
+/** The party as it is saved now; null when it can't be read (the caller then keeps both times held). */
+async function reread(id: string): Promise<PartyRecord | null> {
+  try {
+    return await getPartyRecord(id)
+  } catch (e) {
+    logger.error('Party unreadable while finishing a move', { partyId: id, error: String(e) })
+    return null
+  }
+}
+const sameStart = (a: string, b: string) => Date.parse(a) === Date.parse(b)
+
+/** Lets a time of this party's go; false when the party book couldn't be written. Idempotent. */
+const letGo = (id: string, iso: string) => releaseTime(id, iso).then(() => true, (err) => {
+  logger.error('Party time not let go', { partyId: id, startIso: iso, error: String(err) })
+  return false
+})
 
 /**
  * Moves a party of ours to `startIso` (its length kept). Order: the new time
  * is written in the party book (locked, checked), then the record (only if
  * it still has the old start and no payment is going through), then the old
- * time is let go. A record that refuses lets the new time go again.
+ * time is let go.
+ *
+ * Safe to tap twice or retry: a party already on the new time is the same
+ * successful answer (`replay`), never a refusal, and the new time is let go
+ * only after re-reading the record shows the party is not on it. When the
+ * record can't be re-read, both times stay held (nobody can book either),
+ * the owners get a text, and the reply says how to finish it. `fromIso` (the
+ * start the sheet showed) lets a retry of a move that already landed let
+ * that old time go.
  */
-export async function moveParty(body: { id?: unknown; startIso?: unknown }, by: By, request: Request, now: Date = new Date()): Promise<MoveResult> {
+export async function moveParty(body: { id?: unknown; startIso?: unknown; fromIso?: unknown }, by: By, request: Request, now: Date = new Date()): Promise<MoveResult> {
   const r = await writable(body.id, request)
   notCancelled(r)
-  if (paymentGoingThrough(r, now)) throw new PartyActionError(409, PAYMENT_GOING_THROUGH)
   const toMs = typeof body.startIso === 'string' ? Date.parse(body.startIso) : NaN
   if (!Number.isFinite(toMs)) throw new PartyActionError(400, 'Pick the new time.', { field: 'startIso' })
-  const from = r.startIso
   const to = new Date(toMs).toISOString()
-  if (toMs === Date.parse(from)) throw new PartyActionError(400, SAME_TIME, { field: 'startIso' })
+  const reply = (saved: PartyRecord, from: string | null, extra: { replay?: true; warning?: string } = {}): MoveResult => ({
+    party: adminPartyView(saved, now), hostToTell: hostOf(saved), from, to, message: movedMessage(saved), sendDetails: sendDetailsOffer(saved, true), ...extra,
+  })
+
+  // Already on that time: a double tap or a retry of a move that went through. The same answer.
+  if (sameStart(r.startIso, to)) {
+    const shown = typeof body.fromIso === 'string' && Number.isFinite(Date.parse(body.fromIso)) ? new Date(Date.parse(body.fromIso)).toISOString() : null
+    let warning: string | undefined
+    if (shown && !sameStart(shown, to) && !(await letGo(r.bookingId, shown))) {
+      warning = `${movedMessage(r)} ${partyWhenLabel(shown)} still shows as held for this party. The daily warnings will list it.`
+    }
+    return reply(r, shown, { replay: true, ...(warning ? { warning } : {}) })
+  }
+  if (paymentGoingThrough(r, now)) throw new PartyActionError(409, paymentWaitMessage(r, now))
+  if (Date.parse(r.startIso) <= now.getTime()) throw new PartyActionError(409, STARTED_NO_MOVE)
+  const from = r.startIso
   const minutes = partyMinutesOf(r)
   const toEnd = plus(to, minutes)
   // A themed table is reserved for its week: moving it to another week would need a new table.
@@ -251,80 +337,119 @@ export async function moveParty(body: { id?: unknown; startIso?: unknown }, by: 
   }
   if (!open.ok) throw new PartyActionError(409, open.message, { field: 'startIso' })
 
+  /** Both times stay held: the record couldn't be checked, so neither may be let go. */
+  const bothHeld = async (): Promise<never> => {
+    await alertOwners(
+      `Party move unclear: ${r.hostName}'s party ${r.bookingId} was being moved from ${partyWhenLabel(from)} to ${partyWhenLabel(to)}, and the party couldn't be checked. Both times are held for it. Open it on /admin and tap Move to ${partyWhenLabel(to)} again to finish.`,
+    ).catch(() => undefined)
+    throw new PartyActionError(503, `The move may not have finished, and the party couldn’t be checked just now. For now both ${partyWhenLabel(from)} and ${partyWhenLabel(to)} are held for it, so nobody else can book either. In a minute, open the party and tap Move to ${partyWhenLabel(to)} again. That finishes it either way.`)
+  }
+  /** The record refused or failed: if the party is now on the new time anyway, the move happened. Else the new time goes. */
+  const afterFailure = async (): Promise<PartyRecord | 'not-moved'> => {
+    const cur = await reread(r.bookingId)
+    if (!cur) return bothHeld()
+    if (sameStart(cur.startIso, to)) return cur
+    return 'not-moved'
+  }
+
   let moved: Awaited<ReturnType<typeof moveTime>>
   try {
     moved = await moveTime(r.bookingId, { startIso: from }, { startIso: to, endIso: toEnd }, open.busy, now)
   } catch (e) {
-    // It may or may not have been written: try to let the new time go. A retry finishes the move either way.
     logger.error('Party move did not finish in the party book', { partyId: r.bookingId, error: String(e) })
-    const freed = await releaseTime(r.bookingId, to).then(() => true, () => false)
+    const cur = await afterFailure()
+    if (cur !== 'not-moved') return finishMove(cur, true)
+    const freed = await letGo(r.bookingId, to)
     throw new PartyActionError(503, freed
       ? `The move didn’t finish. The party is still on ${partyWhenLabel(from)}. Try Move again.`
       : `The move didn’t finish. The party is still on ${partyWhenLabel(from)}, but ${partyWhenLabel(to)} may show as held for it. Try Move again to finish it.`)
   }
-  if (!moved.ok) throw new PartyActionError(409, moved.message, { field: 'startIso' })
+  if (!moved.ok) {
+    // Another tap of this same move may have finished first (it let the old time go).
+    const cur = await reread(r.bookingId)
+    if (cur && sameStart(cur.startIso, to)) return finishMove(cur, true)
+    throw new PartyActionError(409, moved.message, { field: 'startIso' })
+  }
 
   let saved: PartyRecord
+  let replayed = false
   try {
     saved = await update(r.bookingId, (cur) => {
+      replayed = false // a compare-and-set retry runs this again
+      if (sameStart(cur.startIso, to)) { replayed = true; return null }
       if (cur.status === 'cancelled') stop(409, PARTY_CANCELLED)
-      if (paymentGoingThrough(cur, now)) stop(409, PAYMENT_GOING_THROUGH)
-      if (Date.parse(cur.startIso) !== Date.parse(from)) stop(409, CHANGED_MEANWHILE)
+      if (paymentGoingThrough(cur, now)) stop(409, paymentWaitMessage(cur, now))
+      if (!sameStart(cur.startIso, from)) stop(409, CHANGED_MEANWHILE)
       return { ...cur, startIso: to, endIso: toEnd }
     }, `Moved from ${formatSlotLabel(from)} to ${formatSlotLabel(to)}`, by)
   } catch (e) {
-    // The party stays where it was: let the new time go.
-    await releaseTime(r.bookingId, to).catch((err) => logger.error('PARTY MOVE: new time not let go after the record refused', { partyId: r.bookingId, error: String(err) }))
+    // Re-read before letting the new time go: the write may have landed, or another tap moved it there.
+    const cur = await afterFailure()
+    if (cur !== 'not-moved') return finishMove(cur, true)
+    await letGo(r.bookingId, to)
     throw e
   }
-  let warning: string | undefined
-  try {
-    await releaseTime(r.bookingId, from)
-  } catch (e) {
-    logger.error('PARTY MOVE: old time not let go', { partyId: r.bookingId, error: String(e) })
-    warning = `${movedMessage(saved)} ${partyWhenLabel(from)} still shows as held for this party. The daily warnings will list it.`
+  return finishMove(saved, replayed)
+
+  /** The party is on the new time: the old time goes (idempotent), audited once. */
+  async function finishMove(cur: PartyRecord, replay: boolean): Promise<MoveResult> {
+    let warning: string | undefined
+    if (!(await letGo(cur.bookingId, from))) {
+      logger.error('PARTY MOVE: old time not let go', { partyId: cur.bookingId })
+      warning = `${movedMessage(cur)} ${partyWhenLabel(from)} still shows as held for this party. The daily warnings will list it.`
+    }
+    if (!replay) await audit(by, 'party-move', cur, { from, to })
+    return reply(cur, from, { ...(replay ? { replay: true as const } : {}), ...(warning ? { warning } : {}) })
   }
-  await audit(by, 'party-move', saved, { from, to })
-  return { party: adminPartyView(saved, now), hostToTell: hostOf(saved), from, to, message: movedMessage(saved), ...(warning ? { warning } : {}) }
 }
 
 // ── Cancel ──────────────────────────────────────────────────────────────────
 
 export interface CancelResult { party: AdminPartyView; hostToTell: HostToTell; message: string; replay?: true; warning?: string }
 
+/** A cancelled party's time and themed table go (idempotent: safe again on a retry). What didn't, said plainly. */
+async function letCancelledGo(rec: PartyRecord): Promise<string[]> {
+  const warnings: string[] = []
+  if (!(await letGo(rec.bookingId, rec.startIso))) {
+    warnings.push(`${partyWhenLabel(rec.startIso)} still shows as held. Tap Cancel again to let it go, or the daily warnings will list it.`)
+  }
+  if (rec.theme) {
+    const t = kitThemes.find((k) => k.id === rec.theme!.themeId)
+    try {
+      await releaseWeekClaim(t?.ledgerThemeId ?? rec.theme.themeId, weekKeyFor(localDate(rec.startIso)), rec.theme.claimRef)
+    } catch (e) {
+      logger.error('PARTY CANCEL: themed table not released', { partyId: rec.bookingId, error: String(e) })
+      warnings.push('The themed table is still reserved for that week. Tap Cancel again to let it go.')
+    }
+  }
+  return warnings
+}
+
 /**
  * Cancels a party of ours: status cancelled, its time let go, its themed
  * table released. Never refunds, never messages anyone. Its charges stay
- * refundable (Refund on the Payments tab).
+ * refundable (Refund on the Payments tab). Cancelling again (a retry after a
+ * reply that never came) lets the time and table go again, so nothing stays
+ * held for a cancelled party.
  */
 export async function cancelParty(body: { id?: unknown; note?: unknown }, by: By, request: Request, now: Date = new Date()): Promise<CancelResult> {
   const r = await writable(body.id, request)
   const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : ''
   if (r.status === 'cancelled') {
-    return { party: adminPartyView(r, now), hostToTell: hostOf(r), message: `Already cancelled. ${NOTHING_REFUNDED}`, replay: true }
-  }
-  if (paymentGoingThrough(r, now)) throw new PartyActionError(409, PAYMENT_GOING_THROUGH)
-  const saved = await update(r.bookingId, (cur) => {
-    if (cur.status === 'cancelled') return null
-    if (paymentGoingThrough(cur, now)) stop(409, PAYMENT_GOING_THROUGH)
-    return { ...cur, status: 'cancelled', cancelled: { at: now.toISOString(), by, note } }
-  }, `Cancelled${note ? `: ${note}` : ''}. Nothing was refunded`, by)
-  const warnings: string[] = []
-  try {
-    await releaseTime(saved.bookingId, saved.startIso)
-  } catch (e) {
-    logger.error('PARTY CANCEL: time not let go', { partyId: saved.bookingId, error: String(e) })
-    warnings.push(`${partyWhenLabel(saved.startIso)} still shows as held. The daily warnings will list it.`)
-  }
-  if (saved.theme) {
-    const t = kitThemes.find((k) => k.id === saved.theme!.themeId)
-    try {
-      await releaseWeekClaim(t?.ledgerThemeId ?? saved.theme.themeId, weekKeyFor(localDate(saved.startIso)), saved.theme.claimRef)
-    } catch (e) {
-      logger.error('PARTY CANCEL: themed table not released', { partyId: saved.bookingId, error: String(e) })
-      warnings.push('The themed table is still reserved for that week.')
+    const warnings = await letCancelledGo(r)
+    const message = `Already cancelled. ${paidCents(r) > 0 ? NOTHING_REFUNDED : 'Nothing had been paid.'}`
+    return {
+      party: adminPartyView(r, now), hostToTell: hostOf(r), message, replay: true,
+      ...(warnings.length ? { warning: `${message} ${warnings.join(' ')}` } : {}),
     }
   }
+  if (paymentGoingThrough(r, now)) throw new PartyActionError(409, paymentWaitMessage(r, now))
+  const saved = await update(r.bookingId, (cur) => {
+    if (cur.status === 'cancelled') return null
+    if (paymentGoingThrough(cur, now)) stop(409, paymentWaitMessage(cur, now))
+    return { ...cur, status: 'cancelled', cancelled: { at: now.toISOString(), by, note } }
+  }, `Cancelled${note ? `: ${note}` : ''}. Nothing was refunded`, by)
+  const warnings = await letCancelledGo(saved)
   await audit(by, 'party-cancel', saved, { note: note || null, refunded: false })
   return {
     party: adminPartyView(saved, now), hostToTell: hostOf(saved), message: cancelledMessage(saved),
@@ -438,7 +563,7 @@ export async function removePartyExtra(body: { id?: unknown; itemId?: unknown },
     const it = cur.items?.find((x) => x.id === itemId)
     if (!it || it.kind !== 'addon') stop(404, 'That extra isn’t on this party.')
     if (it!.chargeId !== null) stop(409, PAID_EXTRA)
-    if (paymentGoingThrough(cur, now) && cur.paying?.itemIds?.includes(itemId)) stop(409, PAYMENT_GOING_THROUGH)
+    if (paymentGoingThrough(cur, now) && cur.paying?.itemIds?.includes(itemId)) stop(409, paymentWaitMessage(cur, now))
     removed = it!
     const extra = it!.extraMinutes
     return {
@@ -473,7 +598,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
  */
 export async function editPartyDetails(
   body: { id?: unknown; hostName?: unknown; hostPhone?: unknown; hostEmail?: unknown; guests?: unknown; craftId?: unknown }, by: By, request: Request, now: Date = new Date(),
-): Promise<{ party: AdminPartyView; message: string; warning?: string }> {
+): Promise<{ party: AdminPartyView; message: string; sendDetails?: SendDetailsOffer; warning?: string }> {
   const r = await writable(body.id, request)
   notCancelled(r)
   const patch: Partial<PartyRecord> = {}
@@ -532,7 +657,8 @@ export async function editPartyDetails(
   const warning = perGuest.length
     ? `Saved. ${perGuest.join(' and ')} ${perGuest.length === 1 ? 'is' : 'are'} paid for ${r.guestCount} guests. To cover the ${added} new ${added === 1 ? 'guest' : 'guests'}, use + Add an extra.`
     : undefined
-  return { party: adminPartyView(saved, now), message: 'Saved.', ...(warning ? { warning } : {}) }
+  // The host's confirmation still shows the old details: the owner may email the new ones (never automatic, S2-R7).
+  return { party: adminPartyView(saved, now), message: 'Saved.', sendDetails: sendDetailsOffer(saved, true), ...(warning ? { warning } : {}) }
 }
 
 // ── Payment link ────────────────────────────────────────────────────────────
@@ -554,6 +680,82 @@ export async function sendPartyLink(body: { id?: unknown }, by: By, request: Req
     party: adminPartyView(sent.rec, now), url: sent.url, email: sent.email, text: sent.text, message,
     ...(!sent.email && !sent.text ? { warning: message } : {}),
   }
+}
+
+// ── Email the host the details ──────────────────────────────────────────────
+
+/** What the re-sent confirmation says about money (D1: studio fee and extras; crafts at the studio). */
+export function detailsCostNote(r: PartyRecord): string {
+  const due = dueCents(r)
+  if (due > 0) return `There’s ${formatMoney(due)} still to pay for ${whatIsDue(r)}.`
+  return paidCents(r) > 0 ? 'Nothing is due before your party.' : ''
+}
+
+export interface SendDetailsResult { party: AdminPartyView; sent: boolean | null; message: string; replay?: true; warning?: string }
+
+const detailsMessage = (r: PartyRecord, sent: boolean | null): string => (sent === true
+  ? `Emailed ${firstOf(r)} the party details for ${partyWhenLabel(r.startIso)}, with a new calendar invite.`
+  : sent === false
+    ? `The email to ${firstOf(r)} didn’t go out. Check the email address on the party, then tap Email ${firstOf(r)} the details again.`
+    : `That email may not have gone out. Tap Email ${firstOf(r)} the details again to send it.`)
+
+/**
+ * "Email Stefanie the new details": re-sends the party confirmation with the
+ * party as it is now (time, craft, host page, invite link) and a fresh
+ * calendar file. Only when an owner taps it (S2-R7: nothing is sent
+ * automatically after a move or an edit). Also how a party booked by phone
+ * and paid at the counter gets its confirmation.
+ *
+ * One email per tap: `createKey` (minted by the sheet for each tap) is noted
+ * on the party before anything is sent, so a double tap or a retry of the
+ * same tap answers the first one's result and never sends twice.
+ */
+export async function sendPartyDetails(body: { id?: unknown; createKey?: unknown }, by: By, request: Request, now: Date = new Date()): Promise<SendDetailsResult> {
+  const r = await writable(body.id, request)
+  notCancelled(r)
+  if (typeof body.createKey !== 'string' || !CREATE_KEY_RE.test(body.createKey)) throw new PartyActionError(400, 'Reload the page and try again.')
+  const key = body.createKey
+  const answer = (rec: PartyRecord, sent: boolean | null, replay: boolean): SendDetailsResult => {
+    const message = detailsMessage(rec, sent)
+    return { party: adminPartyView(rec, now), sent, message, ...(replay ? { replay: true as const } : {}), ...(sent !== true ? { warning: message } : {}) }
+  }
+  const prior = r.detailsSent?.find((d) => d.key === key)
+  if (prior) return answer(r, prior.sent, true)
+
+  let mine = false
+  const at = now.toISOString()
+  const claimed = await update(r.bookingId, (cur) => {
+    mine = false // a compare-and-set retry runs this again
+    if (cur.detailsSent?.some((d) => d.key === key)) return null
+    if (cur.status === 'cancelled') stop(409, PARTY_CANCELLED)
+    mine = true
+    return { ...cur, detailsSent: [...(cur.detailsSent ?? []), { key, at, by, startIso: cur.startIso, sent: null }].slice(-20) }
+  }, 'Emailing the party details', by)
+  if (!mine) return answer(claimed, claimed.detailsSent?.find((d) => d.key === key)?.sent ?? null, true)
+
+  let minGuests: number | undefined
+  try {
+    minGuests = (await getPartySettings()).packages.find((p) => p.id === claimed.packageId)?.minGuests
+  } catch { /* the config's minimum stands in */ }
+  const last = claimed.charges?.length ? claimed.charges[claimed.charges.length - 1] : null
+  const sent = await sendPartyBookedEmail({
+    partyId: claimed.bookingId, rec: claimed, draft: claimed, firstName: claimed.hostName.split(' ')[0] ?? '', email: claimed.hostEmail,
+    origin: new URL(request.url).origin, chargedCents: paidCents(claimed), receiptUrl: last?.receiptUrl ?? null,
+    themeName: claimed.theme?.displayName, ...(minGuests ? { minGuests } : {}), updated: { costNote: detailsCostNote(claimed) },
+  })
+  let saved = claimed
+  try {
+    saved = await updatePartyRecord(claimed.bookingId, (cur) => ({
+      ...cur,
+      detailsSent: (cur.detailsSent ?? []).map((d) => (d.key === key ? { ...d, sent } : d)),
+      // A party that never had its confirmation (booked by phone) has it now: its first payment sends a plain receipt.
+      ...(sent && !cur.confirmation ? { confirmation: { at, sent: true } } : {}),
+    }), sent ? 'Party details emailed' : 'Party details email did not send', by)
+  } catch (e) {
+    logger.error('Party details email result not noted', { partyId: claimed.bookingId, error: String(e) })
+  }
+  await audit(by, 'party-details', saved, { sent, startIso: claimed.startIso })
+  return answer(saved, sent, false)
 }
 
 // ── Parties setup: what a save takes away ───────────────────────────────────

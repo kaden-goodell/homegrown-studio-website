@@ -87,13 +87,20 @@ export interface PayInput {
 }
 
 export type PayOutcome =
-  | { kind: 'paid'; rec: PartyRecord; charge: PartyCharge | null; already: boolean; replay: boolean }
+  | {
+      kind: 'paid'; rec: PartyRecord; charge: PartyCharge | null; already: boolean; replay: boolean
+      /** the host's email for this charge, when this call sent it: the booking confirmation or a receipt, and whether it went */
+      emailed?: HostEmailed | null
+    }
   | { kind: 'refused'; status: 400 | 402 | 404 | 409 | 410 | 503; code: CheckoutErrorCode | 'in_progress' | 'not_found' | 'cancelled' | 'amount_changed'; message: string; extra?: Record<string, unknown> }
   | { kind: 'unknown'; partyId: string }
 
 const refuse = (
   status: 400 | 402 | 404 | 409 | 410 | 503, code: Extract<PayOutcome, { kind: 'refused' }>['code'], message: string, extra?: Record<string, unknown>,
 ): PayOutcome => ({ kind: 'refused', status, code, message, ...(extra ? { extra } : {}) })
+
+/** Which email the host got for a payment, and whether it went out. */
+export type HostEmailed = { kind: 'confirmation' | 'receipt'; sent: boolean }
 
 /** Constant-time match of a link key against the party's payment key (never the host page key). */
 export function payKeyMatches(rec: PartyRecord | null, key: unknown): boolean {
@@ -244,8 +251,8 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
   if (input.pay.kind === 'simulated') {
     logger.warn('Payment bypassed (simulated link payment)', { partyId })
     const out = await recordLinkCharge(partyId, paying, { orderId: `sim-${attemptId}`, paymentId: `sim-${attemptId}`, cents: quotedCents, receiptUrl: null, simulated: true }, now)
-    if (out.rec) await tellLinkPaid(out.rec, out.charge, originOf(input.requestUrl))
-    return paidAnswer(out, rec)
+    const emailed = out.rec ? await tellLinkPaid(out.rec, out.charge, originOf(input.requestUrl)) : null
+    return paidAnswer(out, rec, emailed)
   }
 
   // ── One Square order ──────────────────────────────────────────────────────
@@ -299,8 +306,8 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
     const out = await recordLinkCharge(partyId, paying, {
       orderId: order.id, paymentId: payment.id, cents: payment.amount || order.totalAmount, receiptUrl: payment.receiptUrl ?? null,
     }, now)
-    if (out.rec) await tellLinkPaid(out.rec, out.charge, originOf(input.requestUrl))
-    return paidAnswer(out, rec!)
+    const emailed = out.rec ? await tellLinkPaid(out.rec, out.charge, originOf(input.requestUrl)) : null
+    return paidAnswer(out, rec!, emailed)
   }
 
   /** The charge may have gone through: keep the payment slot 24 hours, tell the owners, say we're not sure. */
@@ -321,8 +328,8 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
   }
 }
 
-function paidAnswer(out: { rec: PartyRecord | null; charge: PartyCharge }, fallback: PartyRecord): PayOutcome {
-  return { kind: 'paid', rec: out.rec ?? fallback, charge: out.charge, already: false, replay: false }
+function paidAnswer(out: { rec: PartyRecord | null; charge: PartyCharge }, fallback: PartyRecord, emailed: HostEmailed | null = null): PayOutcome {
+  return { kind: 'paid', rec: out.rec ?? fallback, charge: out.charge, already: false, replay: false, emailed }
 }
 
 /**
@@ -416,7 +423,7 @@ function originOf(requestUrl?: string): string {
  * the payment link): its first payment sends the full confirmation (host
  * page, invite link, calendar, crafts per person) instead of a plain receipt.
  */
-export async function tellLinkPaid(rec: PartyRecord, charge: PartyCharge, origin: string = siteConfig.url): Promise<void> {
+export async function tellLinkPaid(rec: PartyRecord, charge: PartyCharge, origin: string = siteConfig.url): Promise<HostEmailed | null> {
   let mine = true
   try {
     let claimed = false
@@ -430,34 +437,43 @@ export async function tellLinkPaid(rec: PartyRecord, charge: PartyCharge, origin
   } catch (err) {
     logger.error('Could not mark a link payment told — telling anyway', { partyId: rec.bookingId, error: String(err) })
   }
-  if (!mine) return
+  if (!mine) return null
   const whenLabel = partyWhenLabel(rec.startIso)
   const how = charge.via === 'admin-card' ? 'by card in /admin' : 'by payment link'
   const paidFor = whatIsDue(rec, (rec.items ?? []).filter((it) => charge.itemIds.includes(it.id)))
   if (rec.status === 'cancelled') {
     await alertOwners(`Paid after it was cancelled. Check it. ${rec.hostName} paid ${dollars(charge.cents)} (${paidFor}) ${how} for the cancelled party on ${whenLabel}. Party ${rec.bookingId}. Nothing was refunded.`).catch(() => undefined)
-    return
+    return null
   }
+  let emailed: HostEmailed
   const givenName = rec.hostName.split(' ')[0] ?? ''
   if (!rec.confirmation) {
     // First payment on a party booked without paying: the booking confirmation, once.
+    let minGuests: number | undefined
+    try {
+      minGuests = (await getPartySettings()).packages.find((p) => p.id === rec.packageId)?.minGuests
+    } catch { /* the config's minimum stands in */ }
     const sent = await sendPartyBookedEmail({
       partyId: rec.bookingId, rec, draft: rec, firstName: givenName, email: rec.hostEmail, origin,
-      chargedCents: charge.cents, receiptUrl: charge.receiptUrl, themeName: rec.theme?.displayName,
+      chargedCents: charge.cents, receiptUrl: charge.receiptUrl, themeName: rec.theme?.displayName, ...(minGuests ? { minGuests } : {}),
     })
     await confirmationDone(rec.bookingId, rec, sent, charge.simulated === true)
+    emailed = { kind: 'confirmation', sent }
   } else {
+    let sent = false
     try {
-      await sendPartyPaidEmail({
+      sent = (await sendPartyPaidEmail({
         to: rec.hostEmail, givenName, whenLabel, paidCents: charge.cents, receiptUrl: charge.receiptUrl, stillDueCents: dueCents(rec), what: paidFor,
-      })
+      })).sent
     } catch (err) {
       logger.error('Link payment email failed (payment recorded)', { partyId: rec.bookingId, error: String(err) })
     }
+    emailed = { kind: 'receipt', sent }
   }
   // An owner took this card themselves: they already know.
-  if (charge.via === 'admin-card') return
+  if (charge.via === 'admin-card') return emailed
   await alertOwners(`Party paid: ${rec.hostName} paid ${dollars(charge.cents)} for ${paidFor} by payment link, party on ${whenLabel}. Party ${rec.bookingId}.`).catch(() => undefined)
+  return emailed
 }
 
 /**

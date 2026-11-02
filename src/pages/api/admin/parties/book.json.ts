@@ -2,11 +2,11 @@ import type { APIRoute } from 'astro'
 import { adminActor, adminAuthorized } from '@lib/admin-auth'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 import { isAttemptId } from '@lib/checkout-attempt'
-import { partyMessages } from '@lib/checkout-messages'
 import { CREATE_KEY_RE } from '@lib/booking-core/ids'
 import { recordAudit } from '@lib/audit'
 import { createLogger } from '@lib/logger'
-import { bookParty, IN_PROGRESS_MESSAGE, type BookInput } from '@lib/parties/checkout'
+import { bookParty, type BookInput } from '@lib/parties/checkout'
+import { ownerBookMessage, ownerBookUnknown } from '@lib/parties/owner-messages'
 import { adminPartyView, json, linkMessage } from '@lib/parties/admin-actions'
 import { dueCents } from '@lib/parties/money'
 import { partyWhenLabel } from '@lib/parties/payment-link'
@@ -85,15 +85,17 @@ export const POST: APIRoute = async ({ request }) => {
     out = await bookParty(input)
   } catch (err) {
     logger.error('Owner party booking failed', { error: err instanceof Error ? err.message : String(err) })
-    return json(500, { error: partyMessages.unknown_outcome, code: 'unknown_outcome' })
+    // Owners read what happened and what to do, never the customer's "text us" (I1).
+    if (pay.kind === 'link') return json(500, { error: 'Something on our side didn’t answer, so we can’t tell if the party was booked. Look for it on the calendar before trying again.', code: 'unknown_outcome' })
+    return json(500, { error: ownerBookUnknown(host.firstName), code: 'unknown_outcome' })
   }
   switch (out.kind) {
     case 'refused':
-      return json(out.status, { error: out.message, code: out.code, ...(out.field ? { field: out.field } : {}), ...out.extra })
+      return json(out.status, { error: ownerBookMessage(out.code, out.message, host.firstName), code: out.code, ...(out.field ? { field: out.field } : {}), ...out.extra })
     case 'in_progress':
-      return json(409, { error: IN_PROGRESS_MESSAGE, code: 'in_progress' })
+      return json(409, { error: ownerBookMessage('in_progress', '', host.firstName), code: 'in_progress' })
     case 'unknown':
-      return json(502, { error: partyMessages.unknown_outcome, code: 'unknown_outcome', partyId: out.partyId })
+      return json(502, { error: ownerBookUnknown(host.firstName), code: 'unknown_outcome', partyId: out.partyId })
   }
 
   const rec = out.rec

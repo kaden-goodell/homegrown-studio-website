@@ -18,7 +18,9 @@ import { getStudioDays } from '@lib/studio-settings'
 import { studioDayUtcRange } from '@lib/studio-time'
 import { busyBetween, clashes, clashMessage, type Busy } from '@lib/classes/studio-schedule'
 import type { StudioDays } from '@config/studio-days'
-import { bookableDates, bookableOn, localDate, localToUtcISO, partyStartsForDate, partyStartsInRange, PARTY_CLEANUP_MINUTES } from './party-times'
+import { STUDIO_HOURS, WEEKDAYS, formatRange } from '@config/hours'
+import { partyConfig } from '@config/party.config'
+import { bookableDates, bookableOn, localDate, localToUtcISO, partyStartsForDate, partyStartsInRange, PARTY_CLEANUP_MINUTES, startsOn } from './party-times'
 import { formatDay } from '@lib/studio-time'
 import { getPartySettings } from './settings-store'
 import type { PartySettings } from './types'
@@ -173,11 +175,41 @@ const PAST = 'That time has already passed. Pick a later time.'
 const MIDNIGHT = 'A party and its hour of cleanup have to finish by midnight.'
 const beforeOpening = (opensYmd: string) => `Parties start on ${formatDay(localToUtcISO(opensYmd, '12:00'))}. Pick that day or later, or add this day in Parties setup.`
 
+/** The earliest and latest start for a party on a day with no studio hours ("Another time", OWNER-3). */
+export const NO_HOURS_EARLIEST = '08:00'
+export const NO_HOURS_LATEST = '20:00'
+const toMin = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5))
+const localHhmm = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { timeZone: partyConfig.timezone, hour: '2-digit', minute: '2-digit', hour12: false })
+const clockLabel = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone: partyConfig.timezone, hour: 'numeric', minute: '2-digit' })
+
+/**
+ * The owner's "Another time" sanity guard (catches AM/PM slips). A party
+ * time from Parties setup always passes. Any other start: on a day with
+ * studio hours the party has to fit inside them; on a day without (a
+ * Tuesday by phone) it has to start between 8 AM and 8 PM. The refusal, or
+ * null when it's fine.
+ */
+export function ownerTimeRefusal(settings: PartySettings, iso: string, minutes: number): string | null {
+  const ymd = localDate(iso)
+  const hhmm = localHhmm(iso)
+  if (startsOn(settings.times, ymd).includes(hhmm)) return null
+  const weekday = WEEKDAYS[new Date(`${ymd}T12:00:00Z`).getUTCDay()]
+  const hours = STUDIO_HOURS.find((h) => h.days.includes(weekday))
+  const start = toMin(hhmm)
+  if (hours) {
+    if (start >= toMin(hours.opens) && start + minutes <= toMin(hours.closes)) return null
+    return `On ${weekday}s the studio is open ${formatRange(hours.opens, hours.closes)}, and a party at ${clockLabel(iso)} doesn’t fit inside that. Check AM and PM, or pick a time inside those hours.`
+  }
+  if (start >= toMin(NO_HOURS_EARLIEST) && start <= toMin(NO_HOURS_LATEST)) return null
+  return `On a day the studio is usually closed, a party has to start between 8 AM and 8 PM. ${clockLabel(iso)} is outside that. Check AM and PM.`
+}
+
 /**
  * Can a party of `minutes` start at exactly `startIso`? Online: only an
  * offered party time, and the refusal never names who is in the way. Owners
  * (`admin`): any time not in the past (R37) that the shared schedule allows
- * (OWNER-3), never before the first party day, and the refusal names the clash.
+ * (OWNER-3) and that passes the AM/PM sanity guard (ownerTimeRefusal), never
+ * before the first party day, and the refusal names the clash.
  * Throws when anything can't be read.
  */
 export async function isStartOpen(
@@ -209,6 +241,10 @@ export async function checkStart(
   // Owners too: nothing before the first party day (a dated party day before it is fine).
   if (opts.admin && bookableOn(settings.times, localDate(iso), now, days) === 'before_opening') {
     return { ok: false, message: beforeOpening(settings.times.opensDate) }
+  }
+  if (opts.admin) {
+    const odd = ownerTimeRefusal(settings, iso, minutes)
+    if (odd) return { ok: false, message: odd }
   }
   if (!opts.admin) {
     const offered = partyStartsForDate(settings, localDate(iso), now, days, { minutes })

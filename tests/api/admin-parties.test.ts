@@ -26,6 +26,10 @@ const m = vi.hoisted(() => ({
   text: vi.fn(),
   legacy: vi.fn(),
   bypass: { on: false },
+  testSite: { on: false },
+  releaseClaim: vi.fn(),
+  /** store faults for the party records: a write that lands then throws; a write that throws without landing; reads that throw */
+  fault: { landThenThrow: 0, throwOnSet: 0, getFailsAfterSetThrow: 0, getFails: 0 },
   paid: new Map<string, any>(),
   data: new Map<string, { value: string; etag: string }>(),
   n: 0,
@@ -34,15 +38,22 @@ const m = vi.hoisted(() => ({
 vi.mock('@lib/blob-store', async (orig) => {
   const real = await orig<typeof import('@lib/blob-store')>()
   const put = (k: string, v: string) => m.data.set(k, { value: v, etag: `e${++m.n}` })
+  const readFault = () => { if (m.fault.getFails > 0) { m.fault.getFails--; throw new Error('store read timed out') } }
   const mem = {
-    async get(k: string) { return m.data.get(k)?.value ?? null },
+    async get(k: string) { readFault(); return m.data.get(k)?.value ?? null },
     async set(k: string, v: string) { put(k, v) },
-    async getWithMeta(k: string) { const h = m.data.get(k); return { value: h?.value ?? null, etag: h?.etag ?? null } },
+    async getWithMeta(k: string) { readFault(); const h = m.data.get(k); return { value: h?.value ?? null, etag: h?.etag ?? null } },
     async setIfMatch(k: string, v: string, etag: string | null, exists: boolean) {
       await new Promise((r) => setTimeout(r, 0))
       const cur = m.data.get(k)
       if (!exists ? cur : cur?.etag !== etag) return false
+      if (m.fault.throwOnSet > 0) {
+        m.fault.throwOnSet--
+        m.fault.getFails += m.fault.getFailsAfterSetThrow
+        throw new Error('store write timed out')
+      }
       put(k, v)
+      if (m.fault.landThenThrow > 0) { m.fault.landThenThrow--; throw new Error('store write timed out after landing') }
       return true
     },
     async list() { return [...m.data.keys()] },
@@ -84,6 +95,14 @@ vi.mock('@lib/craft-catalog', async (orig) => ({
       : id === 'craft-2' ? { id, name: 'Clay Pots', perHeadCents: 2500, perHeadMaxCents: 2500, description: '', imageUrl: null }
         : null),
 }))
+vi.mock('@lib/classes/test-site-guard', async (orig) => {
+  const real = await orig<typeof import('@lib/classes/test-site-guard')>()
+  return { ...real, classWritesRefusal: (req?: Request) => (m.testSite.on ? real.NO_TEST_STORE : real.classWritesRefusal(req)) }
+})
+vi.mock('@lib/kit-store', async (orig) => ({
+  ...(await orig<typeof import('@lib/kit-store')>()),
+  releaseWeekClaim: (...a: any[]) => m.releaseClaim(...a),
+}))
 vi.mock('@lib/parties/legacy-square', async (orig) => ({
   ...(await orig<typeof import('@lib/parties/legacy-square')>()),
   legacyRemaining: (...a: any[]) => m.legacy(...a),
@@ -104,8 +123,9 @@ import { resetPartySettingsCache, savePartySettings } from '@lib/parties/setting
 import { dueCents } from '@lib/parties/money'
 import { partyIdFor } from '@lib/parties/checkout'
 import {
-  LEGACY_PARTY, NOTHING_REFUNDED, PAID_EXTRA, PAYMENT_GOING_THROUGH,
+  LEGACY_PARTY, NOTHING_REFUNDED, PAID_EXTRA, STARTED_NO_MOVE,
 } from '@lib/parties/admin-actions'
+import { NO_TEST_STORE } from '@lib/classes/test-site-guard'
 import { STILL_BOOKED } from '@pages/api/admin/parties/settings.json'
 
 const NOW = new Date('2027-02-01T15:00:00.000Z') // Mon, Feb 1 2027
@@ -116,8 +136,14 @@ const BAGS = { id: 'add_bags', label: 'Goodie bags', priceCents: 500, per: 'gues
 
 // Each test its own weekend: Sat 2:00 and 4:30, Sun 1:00 and 3:30.
 let week = 0
-function weekend() {
-  const sat = new Date(Date.UTC(2027, 1, 6 + 7 * week++))
+// Weekends some tests book by date: never handed out.
+const TAKEN = new Set(['2027-08-07', '2027-09-25', '2027-10-02'])
+function weekend(): ReturnType<typeof weekendAt> {
+  const w = weekendAt(week++)
+  return TAKEN.has(w.satYmd) ? weekend() : w
+}
+function weekendAt(n: number) {
+  const sat = new Date(Date.UTC(2027, 1, 6 + 7 * n))
   const satYmd = sat.toISOString().slice(0, 10)
   const sunYmd = new Date(sat.getTime() + 86_400_000).toISOString().slice(0, 10)
   return {
@@ -148,7 +174,7 @@ const cardBody = (startIso: string, over: Record<string, unknown> = {}) => ({
 })
 async function linkParty(startIso: string, over: Record<string, unknown> = {}) {
   const r = await book(linkBody(startIso, over))
-  expect(r.status).toBe(200)
+  expect(r.status, JSON.stringify(r.body)).toBe(200)
   return r.body.data.party.bookingId as string
 }
 const holdsOf = async (id: string) => (await holdsBetween('2027-01-01T00:00:00.000Z', '2028-01-01T00:00:00.000Z', NOW)).filter((h) => h.partyId === id)
@@ -179,6 +205,9 @@ beforeEach(() => {
   vi.setSystemTime(NOW)
   m.paid.clear()
   m.bypass.on = false
+  m.testSite.on = false
+  Object.assign(m.fault, { landThenThrow: 0, throwOnSet: 0, getFailsAfterSetThrow: 0, getFails: 0 })
+  m.releaseClaim.mockReset().mockResolvedValue(undefined)
   m.alert.mockReset().mockResolvedValue(undefined)
   m.audit.mockReset().mockResolvedValue(undefined)
   m.linkEmail.mockReset().mockResolvedValue({ sent: true })
@@ -377,11 +406,11 @@ describe('move', () => {
     await updatePartyRecord(id, (r) => ({ ...r, paying: { attemptId: randomUUID(), until: new Date(NOW.getTime() + 10 * 60_000).toISOString(), via: 'link', state: 'charging' } }), 'Payment started (link)', null)
     const r = await act({ id, action: 'move', startIso: w.sun1 })
     expect(r.status).toBe(409)
-    expect(r.body.error).toBe(PAYMENT_GOING_THROUGH)
+    expect(r.body.error).toBe('Stefanie’s payment by link is going through right now. Wait 10 minutes, then check Payments on this party and try again.')
     expect((await holdsOf(id)).map((h) => h.startIso)).toEqual([new Date(w.sat2).toISOString()])
     const c = await act({ id, action: 'cancel' })
     expect(c.status).toBe(409)
-    expect(c.body.error).toBe(PAYMENT_GOING_THROUGH)
+    expect(c.body.error).toBe(r.body.error)
   })
 })
 
@@ -521,7 +550,7 @@ describe('details, link and card', () => {
     const r = await act({ id, action: 'take-card', attemptId: randomUUID(), paymentToken: 'cnon:ok', expectedCents: 30000 })
     expect(r.status).toBe(200)
     expect(r.body.data).toMatchObject({ paidCents: 30000 })
-    expect(r.body.data.message).toBe('Charged $300 for the studio fee. Stefanie gets the booking confirmation by email. Crafts are paid at the studio after the party.')
+    expect(r.body.data.message).toBe('Charged $300 for the studio fee. Stefanie got the booking confirmation by email. Crafts are paid at the studio after the party.')
     const rec = (await getPartyRecord(id))!
     expect(rec.charges![0]).toMatchObject({ via: 'admin-card', by: KADEN })
     expect(dueCents(rec)).toBe(0)
@@ -636,5 +665,377 @@ describe('the party id', () => {
     const r = await book(body)
     expect(r.status, JSON.stringify(r.body)).toBe(200)
     expect(r.body.data.party.bookingId).toBe(partyIdFor(body.createKey))
+  })
+})
+
+// ── Task 11 fix round 1 ──────────────────────────────────────────────────────
+
+const NO_CUSTOMER_WORDS = /text us|check your email|don’t pay again|\(256\)/i
+const unclearCharge = () => m.processPayment.mockImplementationOnce(async () => { throw new Error('socket hang up') })
+
+describe('move: double taps and retries (C1)', () => {
+  it('two moves to the same time at once: both answer 200, the party keeps one hold on the new time', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    const [a, b] = await Promise.all([
+      act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 }),
+      act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 }),
+    ])
+    expect([a.status, b.status]).toEqual([200, 200])
+    expect([a.body.data.message, b.body.data.message]).toEqual([
+      expect.stringMatching(/^Moved to Sun, .* Nothing was sent to Stefanie, so let them know\.$/), a.body.data.message,
+    ])
+    expect([a.body.data.replay, b.body.data.replay].filter(Boolean)).toHaveLength(1)
+    expect((await getPartyRecord(id))!.startIso).toBe(new Date(w.sun1).toISOString())
+    expect((await holdsOf(id)).map((h) => h.startIso)).toEqual([new Date(w.sun1).toISOString()])
+    expect(audits('party-move')).toHaveLength(1)
+  })
+
+  it('a retry after the move went through is the same answer (replay); a retry carrying the old time lets it go', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    const first = await act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 })
+    const again = await act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 })
+    expect(again.status).toBe(200)
+    expect(again.body.data).toMatchObject({ replay: true, message: first.body.data.message })
+    expect(again.body.data.sendDetails).toEqual({ action: 'send-details', label: 'Email Stefanie the new details' })
+    expect((await holdsOf(id)).map((h) => h.startIso)).toEqual([new Date(w.sun1).toISOString()])
+    expect(audits('party-move')).toHaveLength(1)
+  })
+
+  it('the record write lands but the store throws: the new time is kept, the old one let go, a plain success', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    m.fault.landThenThrow = 1
+    const r = await act({ id, action: 'move', startIso: w.sun1 })
+    expect(r.status).toBe(200)
+    expect(r.body.data.message).toMatch(/^Moved to Sun/)
+    expect((await getPartyRecord(id))!.startIso).toBe(new Date(w.sun1).toISOString())
+    expect((await holdsOf(id)).map((h) => h.startIso)).toEqual([new Date(w.sun1).toISOString()])
+  })
+
+  it('the record write fails and the party can’t be re-read: both times stay held, the owners are texted, and Move again finishes it', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    m.fault.throwOnSet = 1
+    m.fault.getFailsAfterSetThrow = 1
+    const r = await act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 })
+    expect(r.status).toBe(503)
+    expect(r.body.error).toMatch(/^The move may not have finished, and the party couldn’t be checked just now\. For now both Sat, .* and Sun, .* are held for it/)
+    expect((await holdsOf(id)).map((h) => h.startIso).sort()).toEqual([new Date(w.sat2).toISOString(), new Date(w.sun1).toISOString()].sort())
+    expect(m.alert.mock.calls.some(([t]) => /Party move unclear/.test(String(t)))).toBe(true)
+    const again = await act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 })
+    expect(again.status).toBe(200)
+    expect((await getPartyRecord(id))!.startIso).toBe(new Date(w.sun1).toISOString())
+    expect((await holdsOf(id)).map((h) => h.startIso)).toEqual([new Date(w.sun1).toISOString()])
+  })
+
+  it('a record write that fails without landing (the party re-reads on the old time) lets the new time go again', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    m.fault.throwOnSet = 1
+    const r = await act({ id, action: 'move', startIso: w.sun1 })
+    expect(r.status).toBe(503)
+    expect((await getPartyRecord(id))!.startIso).toBe(new Date(w.sat2).toISOString())
+    expect((await holdsOf(id)).map((h) => h.startIso)).toEqual([new Date(w.sat2).toISOString()])
+  })
+
+  it('a party that has started can’t be moved (M3)', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    vi.setSystemTime(new Date(Date.parse(w.sat2) + 10 * 60_000))
+    const r = await act({ id, action: 'move', startIso: w.sun1 })
+    expect(r.status).toBe(409)
+    expect(r.body.error).toBe(STARTED_NO_MOVE)
+  })
+})
+
+describe('cancel retry and wording (I3, M2)', () => {
+  it('cancelling again after a cancel whose time never got let go lets it go now', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    // The cancel's record write landed, but the reply (and the release) never happened.
+    await updatePartyRecord(id, (r) => ({ ...r, status: 'cancelled', cancelled: { at: NOW.toISOString(), by: KADEN, note: '' } }), 'Cancelled', KADEN)
+    expect(await holdsOf(id)).toHaveLength(1)
+    const again = await act({ id, action: 'cancel' })
+    expect(again.status).toBe(200)
+    expect(again.body.data).toMatchObject({ replay: true, message: 'Already cancelled. Nothing had been paid.' })
+    expect(await holdsOf(id)).toHaveLength(0)
+    expect(again.body.warning).toBeUndefined()
+  })
+
+  it('an unpaid party: the cancel says nothing had been paid and doesn’t mention refunds', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    const r = await act({ id, action: 'cancel' })
+    expect(r.body.data.message).toBe('Cancelled. Nothing had been paid. Nothing was sent to Stefanie, so let them know.')
+  })
+
+  it('a themed table: moving to another week is refused; cancelling (and cancelling again) releases the claim', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    await updatePartyRecord(id, (r) => ({ ...r, theme: { themeId: 'gilded', displayName: 'The Gilded Table', serves: 12, claimRef: 'clm_1' } }), 'theme', null)
+    const far = await act({ id, action: 'move', startIso: localToUtcISO('2027-09-25', '14:00') })
+    expect(far.status).toBe(409)
+    expect(far.body.error).toBe('This party has a themed table for its week. Pick a time in the same week.')
+    expect((await act({ id, action: 'move', startIso: w.sun1 })).status).toBe(200)
+    m.releaseClaim.mockRejectedValueOnce(new Error('kit store down'))
+    const c = await act({ id, action: 'cancel' })
+    expect(c.status).toBe(200)
+    expect(c.body.warning).toMatch(/themed table is still reserved for that week\. Tap Cancel again/)
+    const again = await act({ id, action: 'cancel' })
+    expect(again.body.warning).toBeUndefined()
+    expect(m.releaseClaim).toHaveBeenCalledTimes(2)
+    expect(m.releaseClaim.mock.calls[1][2]).toBe('clm_1')
+  })
+})
+
+describe('take-card (M1, M5) and owner wording (I1, I2)', () => {
+  it('the same attemptId twice: one charge, the second answer says nothing more was charged', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    const body = { id, action: 'take-card', attemptId: randomUUID(), paymentToken: 'cnon:ok', expectedCents: 30000 }
+    expect((await act(body)).status).toBe(200)
+    const again = await act(body)
+    expect(again.status).toBe(200)
+    expect(again.body.data).toMatchObject({ replay: true, message: 'That card was already charged $300 for the studio fee. Nothing more was charged.' })
+    expect(m.processPayment).toHaveBeenCalledTimes(1)
+    expect(m.confirmEmail).toHaveBeenCalledTimes(1)
+  })
+
+  it('Square never answers: 502 in owner words; the party shows the unclear payment; Move and Cancel say what is true', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    unclearCharge()
+    const r = await act({ id, action: 'take-card', attemptId: randomUUID(), paymentToken: 'cnon:ok', expectedCents: 30000 })
+    expect(r.status).toBe(502)
+    expect(r.body.code).toBe('unknown_outcome')
+    expect(r.body.error).toMatch(/^Square didn’t answer, so we can’t tell yet if Stefanie’s card was charged \$300\. Don’t charge it again\. The party keeps its time\./)
+    expect(r.body.error).toMatch(/at most until Tue, Feb 2 at/)
+    expect(r.body.error).not.toMatch(NO_CUSTOMER_WORDS)
+    const rec = (await getPartyRecord(id))!
+    expect(rec.paying).toMatchObject({ state: 'unclear', via: 'admin-card' })
+    const view = (await act({ id, action: 'edit-details', guests: 10 })).body.data.party
+    expect(view.paymentInFlight).toMatchObject({ state: 'unclear', via: 'admin-card', cents: 30000 })
+    const mv = await act({ id, action: 'move', startIso: w.sun1 })
+    expect(mv.status).toBe(409)
+    expect(mv.body.error).toMatch(/^Square didn’t give a clear answer on Stefanie’s \$300 card payment\. Move, Cancel and new payments on this party wait until that’s settled\. Look in Square under Payments for it\./)
+    expect(mv.body.error).toMatch(/this clears on Tue, Feb 2 at/)
+    expect(mv.body.error).not.toMatch(/few minutes/)
+    expect(view.paymentInFlight.message).toBe(mv.body.error)
+    const again = await act({ id, action: 'take-card', attemptId: randomUUID(), paymentToken: 'cnon:ok', expectedCents: 30000 })
+    expect(again.status).toBe(409)
+    expect(again.body.error).toBe(mv.body.error)
+  })
+
+  it('a cancelled party: 410, nothing charged, in owner words', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    await act({ id, action: 'cancel' })
+    const r = await act({ id, action: 'take-card', attemptId: randomUUID(), paymentToken: 'cnon:ok', expectedCents: 30000 })
+    expect(r.status).toBe(410)
+    expect(r.body.error).toBe('This party was cancelled, so nothing was charged. Nothing is due on a cancelled party.')
+    expect(m.processPayment).not.toHaveBeenCalled()
+  })
+
+  it('a party that already had its confirmation gets a plain receipt; an email that fails is never claimed', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    await act({ id, action: 'add-extra', addOnId: 'add_bags', count: 1, createKey: `x_${randomUUID()}` })
+    await updatePartyRecord(id, (r) => ({ ...r, confirmation: { at: NOW.toISOString(), sent: true } }), 'confirmed', null)
+    m.paidEmail.mockResolvedValueOnce({ sent: false })
+    const r = await act({ id, action: 'take-card', attemptId: randomUUID(), paymentToken: 'cnon:ok', expectedCents: 35000 })
+    expect(r.status).toBe(200)
+    expect(m.confirmEmail).not.toHaveBeenCalled()
+    expect(m.paidEmail).toHaveBeenCalledTimes(1)
+    expect(r.body.data.message).toBe('Charged $350 for the studio fee and Goodie bags. The email to Stefanie didn’t go out. Check the email address on the party. Crafts are paid at the studio after the party.')
+  })
+
+  it('the amount changed since the sheet opened, a declined card, and a price mismatch read in owner words', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    const changed = await act({ id, action: 'take-card', attemptId: randomUUID(), paymentToken: 'cnon:ok', expectedCents: 25000 })
+    expect(changed.status).toBe(409)
+    expect(changed.body.error).toMatch(/^What’s due changed since you opened this/)
+    m.processPayment.mockImplementationOnce(async () => { throw Object.assign(new Error('declined'), { statusCode: 402, errors: [{ code: 'CARD_DECLINED' }] }) })
+    const declined = await act({ id, action: 'take-card', attemptId: randomUUID(), paymentToken: 'cnon:ok', expectedCents: 30000 })
+    expect(declined.status).toBe(402)
+    expect(declined.body.error).toBe('The card was declined, so nothing was charged. Try another card, or use Send payment link.')
+    m.createOrder.mockImplementationOnce(async (p: any) => ({ id: 'ord-x', version: 1, lineItems: p.lineItems, discounts: [], totalAmount: 99999, currency: 'USD', status: 'open' }))
+    const mismatch = await act({ id, action: 'take-card', attemptId: randomUUID(), paymentToken: 'cnon:ok', expectedCents: 30000 })
+    expect(mismatch.status).toBe(503)
+    expect(mismatch.body.error).toMatch(/^Square’s total didn’t match our price, so nothing was charged\. The owners got a text/)
+    for (const e of [changed.body.error, declined.body.error, mismatch.body.error]) expect(e).not.toMatch(NO_CUSTOMER_WORDS)
+  })
+
+  it('book by card: Square never answers → owner words naming To decide; declined and in-progress too', async () => {
+    const w = weekend()
+    unclearCharge()
+    const r = await book(cardBody(w.sat2))
+    expect(r.status).toBe(502)
+    expect(r.body.error).toBe('Square didn’t answer, so we can’t tell yet if Stefanie’s card was charged. Don’t charge it again. The time stays held for Stefanie. In a few minutes, look in Square under Payments. The party is also listed in To decide, where you confirm it or say it wasn’t paid.')
+    m.processPayment.mockImplementationOnce(async () => { throw Object.assign(new Error('declined'), { statusCode: 402, errors: [{ code: 'CARD_DECLINED' }] }) })
+    const declined = await book(cardBody(w.sun1))
+    expect(declined.status).toBe(402)
+    expect(declined.body.error).toBe('The card was declined, so nothing was charged and the time was let go. Try another card, or book with Send payment link.')
+    expect(declined.body.error).not.toMatch(NO_CUSTOMER_WORDS)
+  })
+})
+
+describe('R41: a test site sharing the live stores writes nothing', () => {
+  it('book, every action and the settings save are refused; nothing stored, nothing sent', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    const before = m.data.get(id)!.value
+    m.testSite.on = true
+    const b = await book(linkBody(w.sun1))
+    expect(b.status).toBe(503)
+    expect(b.body.error).toBe(NO_TEST_STORE)
+    for (const body of [
+      { action: 'move', startIso: w.sun1 }, { action: 'cancel' }, { action: 'add-extra', addOnId: 'add_half', count: 1, createKey: `x_${randomUUID()}` },
+      { action: 'send-link' }, { action: 'edit-details', guests: 12 }, { action: 'send-details', createKey: `d_${randomUUID()}` },
+      { action: 'take-card', attemptId: randomUUID(), paymentToken: 'cnon:ok', expectedCents: 30000 },
+    ]) {
+      const r = await act({ id, ...body })
+      expect(r.status, body.action).toBe(503)
+      expect(r.body.error, body.action).toBe(NO_TEST_STORE)
+    }
+    m.testSite.on = false
+    const cur = (await call(settingsRoute, 'GET', '/api/admin/parties/settings.json')).body.data.settings
+    m.testSite.on = true
+    const s = await call(settingsRoute, 'POST', '/api/admin/parties/settings.json', { ...cur, expectedUpdatedAt: cur.updatedAt })
+    expect(s.status).toBe(503)
+    expect(m.data.get(id)!.value).toBe(before)
+    expect((await holdsOf(id)).map((h) => h.startIso)).toEqual([new Date(w.sat2).toISOString()])
+    expect(m.processPayment).not.toHaveBeenCalled()
+    expect(m.linkEmail).toHaveBeenCalledTimes(1)
+    expect(m.confirmEmail).not.toHaveBeenCalled()
+  })
+})
+
+describe('other edge cases (M5)', () => {
+  it('Parties setup: turning the Square read off while Square can’t be read → 503', async () => {
+    m.legacy.mockRejectedValue(new Error('square down'))
+    const cur = (await call(settingsRoute, 'GET', '/api/admin/parties/settings.json')).body.data.settings
+    const r = await call(settingsRoute, 'POST', '/api/admin/parties/settings.json', { ...cur, readSquareBookings: false, expectedUpdatedAt: cur.updatedAt })
+    expect(r.status).toBe(503)
+    m.legacy.mockResolvedValue([])
+    expect((await call(settingsRoute, 'GET', '/api/admin/parties/settings.json')).body.data.settings.readSquareBookings).toBe(true)
+  })
+
+  it('an extra a payment in flight is paying for can’t come off', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    const added = await act({ id, action: 'add-extra', addOnId: 'add_half', count: 1, createKey: `x_${randomUUID()}` })
+    const itemId = added.body.data.item.id
+    await updatePartyRecord(id, (r) => ({ ...r, paying: { attemptId: randomUUID(), until: new Date(NOW.getTime() + 10 * 60_000).toISOString(), via: 'link', state: 'charging', itemIds: [itemId], quotedCents: 35000 } }), 'paying', null)
+    const r = await act({ id, action: 'remove-extra', itemId })
+    expect(r.status).toBe(409)
+    expect(r.body.error).toBe('Stefanie’s $350 payment by link is going through right now. Wait 10 minutes, then check Payments on this party and try again.')
+    expect((await getPartyRecord(id))!.items!.some((it) => it.id === itemId)).toBe(true)
+  })
+
+  it('extra time: a record write that fails shrinks the hold back to the party’s saved end', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sun1)
+    m.fault.throwOnSet = 1
+    const r = await act({ id, action: 'add-extra', addOnId: 'add_half', count: 1, createKey: `x_${randomUUID()}` })
+    expect(r.status).toBe(503)
+    const rec = (await getPartyRecord(id))!
+    expect(rec.items).toHaveLength(1)
+    expect((await holdsOf(id))[0].endIso).toBe(rec.endIso)
+  })
+})
+
+describe('“Another time” sanity guard (M4)', () => {
+  it('on a day with studio hours the party has to fit inside them; a party time always passes', async () => {
+    const w = weekend()
+    const early = await book(linkBody(localToUtcISO(w.satYmd, '07:00')))
+    expect(early.status).toBe(409)
+    expect(early.body.error).toBe('On Saturdays the studio is open 9 AM – 9 PM, and a party at 7:00 AM doesn’t fit inside that. Check AM and PM, or pick a time inside those hours.')
+    const late = await book(linkBody(localToUtcISO(w.satYmd, '20:00')))
+    expect(late.status).toBe(409)
+    expect((await book(linkBody(localToUtcISO(w.satYmd, '18:00')))).status).toBe(200)
+    expect((await book(linkBody(w.sun1))).status).toBe(200)
+  })
+
+  it('on a day without studio hours it has to start between 8 AM and 8 PM; Move is checked the same way', async () => {
+    const tue = '2027-03-09'
+    const r = await book(linkBody(localToUtcISO(tue, '02:00')))
+    expect(r.status).toBe(409)
+    expect(r.body.error).toBe('On a day the studio is usually closed, a party has to start between 8 AM and 8 PM. 2:00 AM is outside that. Check AM and PM.')
+    expect((await book(linkBody(localToUtcISO(tue, '08:00')))).status).toBe(200)
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    const mv = await act({ id, action: 'move', startIso: localToUtcISO('2027-03-10', '06:00') })
+    expect(mv.status).toBe(409)
+    expect(mv.body.error).toMatch(/^On a day the studio is usually closed/)
+  })
+})
+
+describe('Email the host the new details (I4)', () => {
+  it('offered after Move and Edit details; sends the confirmation with the current time and a new calendar file, once per tap', async () => {
+    const w = weekend()
+    const id = (await book(cardBody(w.sat2))).body.data.party.bookingId
+    m.confirmEmail.mockClear()
+    const mv = await act({ id, action: 'move', startIso: w.sun1 })
+    expect(mv.body.data.sendDetails).toEqual({ action: 'send-details', label: 'Email Stefanie the new details' })
+    expect(m.confirmEmail).not.toHaveBeenCalled()
+    const ed = await act({ id, action: 'edit-details', craftId: 'craft-2' })
+    expect(ed.body.data.sendDetails).toEqual({ action: 'send-details', label: 'Email Stefanie the new details' })
+    expect(m.confirmEmail).not.toHaveBeenCalled()
+
+    const key = `d_${randomUUID()}`
+    const r = await act({ id, action: 'send-details', createKey: key })
+    expect(r.status).toBe(200)
+    expect(r.body.data).toMatchObject({ sent: true })
+    expect(r.body.data.message).toMatch(/^Emailed Stefanie the party details for Sun, .*, with a new calendar invite\.$/)
+    expect(m.confirmEmail).toHaveBeenCalledTimes(1)
+    const sent = m.confirmEmail.mock.calls[0][0]
+    expect(sent).toMatchObject({ to: 'stef@example.com', craftName: 'Clay Pots', updated: { costNote: 'Nothing is due before your party.' } })
+    const stamp = new Date(w.sun1).toISOString().replace(/[-:]/g, '').slice(0, 15)
+    expect(sent.icsContent).toContain(`DTSTART:${stamp}`)
+    expect(sent.hostPageUrl).toMatch(new RegExp(`/party/${id}\\?key=`))
+    expect(audits('party-details')).toHaveLength(1)
+    // The same tap again (a double tap, a retry): the first answer, no second email.
+    const again = await act({ id, action: 'send-details', createKey: key })
+    expect(again.body.data).toMatchObject({ replay: true, sent: true, message: r.body.data.message })
+    expect(m.confirmEmail).toHaveBeenCalledTimes(1)
+    const [x, y] = await Promise.all([1, 2].map(() => act({ id, action: 'send-details', createKey: `d_same_${id}` })))
+    expect([x.status, y.status]).toEqual([200, 200])
+    expect(m.confirmEmail).toHaveBeenCalledTimes(2)
+  })
+
+  it('a phone booking with nothing paid: says what is still to pay (studio fee, never “balance”), and its first payment then sends a receipt', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    const view = (await act({ id, action: 'edit-details', guests: 10 })).body.data.party
+    expect(view.sendDetails).toEqual({ action: 'send-details', label: 'Email Stefanie the details' })
+    const r = await act({ id, action: 'send-details', createKey: `d_${randomUUID()}` })
+    expect(r.status).toBe(200)
+    const costNote = m.confirmEmail.mock.calls[0][0].updated.costNote
+    expect(costNote).toBe('There’s $300 still to pay for the studio fee.')
+    expect(costNote).not.toMatch(/balance|:/i)
+    expect(m.confirmEmail.mock.calls[0][0].totalChargedCents).toBe(0)
+    m.confirmEmail.mockClear()
+    await act({ id, action: 'take-card', attemptId: randomUUID(), paymentToken: 'cnon:ok', expectedCents: 30000 })
+    expect(m.confirmEmail).not.toHaveBeenCalled()
+    expect(m.paidEmail).toHaveBeenCalledTimes(1)
+  })
+
+  it('an email that fails is said plainly; cancelled and Square-booked parties are refused; a tap key is required', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    m.confirmEmail.mockResolvedValueOnce({ sent: false })
+    const r = await act({ id, action: 'send-details', createKey: `d_${randomUUID()}` })
+    expect(r.status).toBe(200)
+    expect(r.body.warning).toBe('The email to Stefanie didn’t go out. Check the email address on the party, then tap Email Stefanie the details again.')
+    expect((await act({ id, action: 'send-details' })).status).toBe(400)
+    await act({ id, action: 'cancel' })
+    expect((await act({ id, action: 'send-details', createKey: `d_${randomUUID()}` })).status).toBe(409)
+    const legacy = await legacyParty(w.sun1)
+    const l = await act({ id: legacy, action: 'send-details', createKey: `d_${randomUUID()}` })
+    expect(l.status).toBe(409)
+    expect(l.body.error).toBe(LEGACY_PARTY)
   })
 })

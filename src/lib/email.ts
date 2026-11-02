@@ -137,9 +137,17 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
   /** One sentence on refunds for THIS date (see refund-lines.ts). */
   refundLine?: string
   directionsUrl?: string
+  /**
+   * An owner re-sending it after a move or an edit: titled "Your party
+   * details", says to use the new calendar invite, and `costNote` (what is
+   * paid or still due) replaces "Studio fee paid today".
+   */
+  updated?: { costNote: string }
 }): Promise<{ sent: boolean }> {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
   const fee = dollars(input.totalChargedCents)
+  const updated = input.updated ?? null
+  const feeSentence = updated ? updated.costNote : `Studio fee paid today: ${fee}.`
   const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
   const phone = siteConfig.contactPhone
   // "$25" or "$30–$40" per person, matching the booking panel's label.
@@ -151,14 +159,16 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
   // Craft description: keep the guest's paragraph breaks, drop stray CRs.
   const description = (input.craftDescription ?? '').replace(/\r/g, '').trim()
   const costLine = perPerson
-    ? `Studio fee paid today: ${fee}. ${input.craftName} is ${perPerson} per person, paid at the studio for whoever crafts.`
-    : `Studio fee paid today: ${fee}. Crafts are paid at the studio based on who comes.`
+    ? `${feeSentence} ${input.craftName} is ${perPerson} per person, paid at the studio for whoever crafts.`.trim()
+    : `${feeSentence} Crafts are paid at the studio based on who comes.`.trim()
+  const updatedLine = 'If you added the party to your calendar before, use the new invite in this email.'
   const arriveLine = input.arriveEarlyMinutes ? `Arrive up to ${input.arriveEarlyMinutes} minutes early to set up.` : ''
   const headcountLine = `About a week before, we'll text you to check your headcount. It's for our prep only: you pay for who comes${input.minGuests ? `, minimum ${input.minGuests}` : ''}.`
   const noPageLine = `Your party page is being set up. ${phone ? `Text us at ${phone} and we'll send you the link.` : "We'll send you the link."}`
 
   const text = [
-    `You're booked! ${input.craftName} · ${input.slotLabel}`,
+    updated ? `Your party details. ${input.craftName} · ${input.slotLabel}` : `You're booked! ${input.craftName} · ${input.slotLabel}`,
+    ...(updated ? [``, updatedLine] : []),
     ``,
     `Where: Hometown Studio, ${address}`,
     ...(input.directionsUrl ? [`Directions: ${input.directionsUrl}`] : []),
@@ -201,15 +211,16 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
   const html = `
 <div style="max-width:560px;margin:0 auto;padding:8px 4px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
   <p style="margin:0 0 2px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#7a4a2e;font-weight:700;">Hometown Studio</p>
-  <h1 style="margin:0 0 2px;font-size:22px;color:#3d3630;">You&rsquo;re booked!</h1>
+  <h1 style="margin:0 0 2px;font-size:22px;color:#3d3630;">${updated ? 'Your party details' : 'You&rsquo;re booked!'}</h1>
   <p style="margin:0 0 16px;font-size:15px;font-weight:600;color:#3d3630;">${esc(input.craftName)} &middot; ${esc(input.slotLabel)}</p>
+  ${updated ? `<p style="${P}margin-bottom:14px;">${esc(updatedLine)}</p>` : ''}
   ${input.craftImageUrl ? `<img src="${esc(input.craftImageUrl)}" alt="${esc(input.craftName)}" width="552" style="display:block;width:100%;max-width:552px;border-radius:12px;margin:0 0 14px;" />` : ''}
   <p style="${LABEL}">Where</p>
   <p style="${P}">Hometown Studio, ${esc(address)}${input.directionsUrl ? `<br /><a href="${esc(input.directionsUrl)}" style="${LINK}font-size:13px;">Get directions</a>` : ''}</p>
   ${arriveLine ? `<p style="${P}">${esc(arriveLine)}</p>` : ''}
   <div style="height:10px;"></div>
   ${descriptionHtml ? `<p style="${LABEL}">About your craft</p>${descriptionHtml}<div style="height:10px;"></div>` : ''}
-  <p style="${P}"><strong>Studio fee paid today: ${esc(fee)}.</strong>${perPerson ? ` ${esc(input.craftName)} is <strong>${esc(perPerson)} per person</strong>, paid at the studio for whoever crafts.` : ' Crafts are paid at the studio based on who comes.'}</p>
+  <p style="${P}">${feeSentence ? `<strong>${esc(feeSentence)}</strong>` : ''}${perPerson ? ` ${esc(input.craftName)} is <strong>${esc(perPerson)} per person</strong>, paid at the studio for whoever crafts.` : ' Crafts are paid at the studio based on who comes.'}</p>
   ${
     input.hostPageUrl
       ? `<div style="margin:18px 0 6px;">
@@ -236,7 +247,7 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
   // Slot in the subject: more useful at a glance, and unique subjects keep
   // Gmail from threading multiple bookings and trimming "repeated" content.
   return sendConfirmation(input, 'party', {
-    subject: `You're booked — ${safeCraftName}, ${input.slotLabel}`,
+    subject: `${updated ? 'Your party details' : "You're booked"} — ${safeCraftName}, ${input.slotLabel}`,
     html,
     text,
     attachments: input.icsContent

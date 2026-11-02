@@ -365,6 +365,8 @@ async function agreementLineFor(email: string): Promise<string | undefined> {
 export async function sendPartyBookedEmail(input: {
   partyId: string; rec: PartyRecord | null; draft: PartyRecord; firstName: string; email: string; origin: string
   chargedCents: number; receiptUrl: string | null; craft?: CatalogCraft | null; themeName?: string; onFile?: string | null; minGuests?: number
+  /** An owner re-sending it (after a move or an edit): "Your party details", and what is paid or still due in place of "paid today". */
+  updated?: { costNote: string }
 }): Promise<boolean> {
   const { partyId, draft, origin } = input
   let craft = input.craft ?? null
@@ -406,6 +408,7 @@ export async function sendPartyBookedEmail(input: {
       minGuests: input.minGuests ?? partyConfig.minGuests,
       refundLine: partyRefundLine(draft.startIso, new Date(), input.chargedCents > 0 ? input.chargedCents : undefined),
       directionsUrl: STUDIO_DIRECTIONS_URL,
+      ...(input.updated ? { updated: input.updated } : {}),
     })
     return sent
   } catch (err) {

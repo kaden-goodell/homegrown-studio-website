@@ -86,6 +86,8 @@ export interface PartyRecord {
   cancelled?: { at: string; by: By; note: string }
   /** The host's booking confirmation: whether it went out (written by whoever recorded the party paid). */
   confirmation?: { at: string; sent: boolean }
+  /** "Email the details" taps (owner, after a move or an edit): one email per tap key; sent null while it goes out */
+  detailsSent?: { key: string; at: string; by: By | null; startIso: string; sent: boolean | null }[]
   /** R6: paid after its time was taken by someone else; warned, never refunded automatically. */
   overlap?: true
   /** oldest first, capped at PARTY_HISTORY_CAP */
