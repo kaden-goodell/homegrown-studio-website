@@ -25,3 +25,34 @@ describe('StaffConsole — Switch person', () => {
     expect(await screen.findByRole('button', { name: /Ava/, expanded: false })).toBeInTheDocument()
   })
 })
+
+describe('StaffConsole — My shifts', () => {
+  it('a My shifts tab after Calendar shows whose shifts these are, and switching person reloads them for the new person', async () => {
+    history.replaceState(null, '', '/staff')
+    const shiftsFor = (id: string, name: string) => ({
+      me: { id, name }, mine: [], open: [], feed: { has: false },
+      availability: { staffId: id, name, weekly: {}, dates: {}, updatedAt: null, history: [] },
+    })
+    let current = { id: 'a', name: 'Kaden', role: 'owner' }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init?: any) => {
+      const href = String(url)
+      const ok = (data: unknown) => ({ ok: true, status: 200, json: async () => ({ data }) }) as Response
+      if (href.includes('/api/staff/me.json')) return ok({ staff: current })
+      if (href.includes('/api/staff/shifts.json')) return ok(shiftsFor(current.id, current.name))
+      if (href.includes('/api/staff/switch.json') && init?.method === 'POST') { current = { id: 'c', name: 'Ava', role: 'crew' }; return ok({ staff: current }) }
+      if (href.includes('/api/staff/switch.json')) return ok({ staff: [{ id: 'a', name: 'Kaden', role: 'owner' }, { id: 'c', name: 'Ava', role: 'crew' }] })
+      return ok({ events: [], sources: {}, count: 0, parties: [], incidents: [], items: [] })
+    })
+    render(<StaffConsole />)
+    const tabs = await screen.findByRole('navigation', { name: 'Staff sections' })
+    const labels = within(tabs).getAllByRole('button').map((b) => b.textContent)
+    expect(labels.indexOf('My shifts')).toBe(labels.indexOf('Calendar') + 1)
+    fireEvent.click(within(tabs).getByRole('button', { name: 'My shifts' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Kaden’s shifts' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Not Kaden? Switch' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Switch person' })
+    fireEvent.click(await within(sheet).findByRole('button', { name: 'Ava' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Ava’s shifts' })).toBeInTheDocument()
+  })
+})
+
