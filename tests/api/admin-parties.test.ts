@@ -1785,3 +1785,53 @@ describe('merge follow-ups (Task 13 into admin-d)', () => {
     expect(m.confirmEmail).not.toHaveBeenCalled(); expect(m.text).not.toHaveBeenCalled(); expect(m.linkEmail).not.toHaveBeenCalled()
   })
 })
+
+describe('fix round 2 (Task 13 re-review 1)', () => {
+  const fenceAfter = (n: number) => { m.fence.passes = n }
+  beforeEach(() => { m.fence.passes = -1 })
+
+  it('Minor B: a server that stalls past its lease after saving a move never frees the old time (another server may have moved the party back to it)', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    // The lease check before the party book write and the record write pass; the one before letting the old time go finds it taken.
+    fenceAfter(2)
+    const r = await act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 })
+    fenceAfter(-1)
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    expect((await getPartyRecord(id))!.startIso).toBe(new Date(w.sun1).toISOString())
+    // The old time is still held (the safe side): the reply says so and points at the button.
+    expect((await holdsOf(id)).map((h) => h.startIso).sort()).toEqual([new Date(w.sat2).toISOString(), new Date(w.sun1).toISOString()].sort())
+    expect(r.body.warning ?? r.body.data.warning).toMatch(/may still show as held for this party\. Open the party again and tap Free the old time if it does\./)
+  })
+
+  it('Minor B: taking extra time off after the lease was lost never shrinks the hold (it could cut time another server just added)', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat430)
+    const added = await act({ id, action: 'add-extra', addOnId: 'add_half', count: 1, createKey: `x_${randomUUID()}` })
+    expect(added.status, JSON.stringify(added.body)).toBe(200)
+    const longEnd = (await holdsOf(id))[0].endIso
+    const itemId = added.body.data.item.id
+    fenceAfter(1)
+    const r = await act({ id, action: 'remove-extra', itemId })
+    fenceAfter(-1)
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    expect((await holdsOf(id))[0].endIso).toBe(longEnd)
+    expect(r.body.warning ?? r.body.data.warning).toMatch(/tap Put the end time back/)
+  })
+
+  it('Minor D: moving a party whose time isn’t held says to tap Hold this time again first, with the button offered', async () => {
+    const { releaseTime } = await import('@lib/parties/party-book')
+    const { NOT_HELD_TO_MOVE } = await import('@lib/parties/admin-actions')
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    await releaseTime(id, w.sat2)
+    const r = await act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 })
+    expect(r.status).toBe(409)
+    expect(r.body.error).toBe(NOT_HELD_TO_MOVE)
+    expect(r.body.holdAgain).toBe(true)
+    expect(NOT_HELD_TO_MOVE).toBe('This party’s time isn’t held on the calendar, so there’s nothing to move yet. Tap Hold this time again first, then move it.')
+    // Held again, the move goes through.
+    expect((await act({ id, action: 'hold-again' })).status).toBe(200)
+    expect((await act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 })).status).toBe(200)
+  })
+})

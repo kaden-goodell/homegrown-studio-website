@@ -497,6 +497,20 @@ function MovePanel({ party: p, onClose, onMoved }: { party: AdminParty; onClose:
   // The record couldn't be checked after a move (both times held): "Finish the move" sends it again with the
   // times the server named, which finishes it whichever time the party is on.
   const [finish, setFinish] = useState<{ from: string; to: string } | null>(null)
+  // The party's time isn't held (Minor D): the refusal comes with Hold this time again, right here.
+  const [holdFirst, setHoldFirst] = useState(false)
+  async function holdAgain() {
+    if (busy) return
+    setBusy(true)
+    setRefusal('')
+    const r = await api<{ message: string }>(PARTY_ACTIONS, { id: p.bookingId, action: 'hold-again' })
+    setBusy(false)
+    if (!r.ok || !r.data) return setRefusal(r.error ?? DIDNT_SAVE)
+    setHoldFirst(false)
+    applied(r.data)
+    toast(r.data.message)
+    retry()
+  }
   async function move(target?: { from: string; to: string }) {
     const to = target?.to ?? startIso
     if (!to || busy) return
@@ -506,6 +520,7 @@ function MovePanel({ party: p, onClose, onMoved }: { party: AdminParty; onClose:
     setBusy(false)
     if (!r.ok || !r.data) {
       setRefusal(r.error ?? DIDNT_SAVE)
+      setHoldFirst(r.extra?.holdAgain === true)
       const both = r.extra?.both as { from: string; to: string } | undefined
       setFinish(both && typeof both.from === 'string' && typeof both.to === 'string' ? both : null)
       // Someone else moved it, or it may have moved: show the party as it is now.
@@ -514,6 +529,7 @@ function MovePanel({ party: p, onClose, onMoved }: { party: AdminParty; onClose:
       return
     }
     setFinish(null)
+    setHoldFirst(false)
     applied(r.data)
     toast(r.data.message)
     // Nothing moved (already on that time): a plain "Nothing changed" heading.
@@ -550,6 +566,9 @@ function MovePanel({ party: p, onClose, onMoved }: { party: AdminParty; onClose:
       {other && <span className="adm-small">{ANOTHER_TIME_HINT}</span>}
       <button type="button" className="adm-quiet" onClick={() => { setOther(!other); setRefusal('') }}>{other ? 'Back to the free party times' : 'Another time'}</button>
       {refusal && <p className="adm-error" role="alert">{refusal}</p>}
+      {holdFirst && !finish && (
+        <button type="button" className="adm-btn is-pri" disabled={busy} onClick={holdAgain}>{busy ? 'Holding…' : 'Hold this time again'}</button>
+      )}
       {finish
         ? (
           <div className="adm-two">

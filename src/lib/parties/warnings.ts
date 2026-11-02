@@ -56,6 +56,19 @@ export const LEFTOVER_HOLD_ACTION = 'Open the party on /admin and tap Free the o
 /** A held time with no party at all: To decide's "Free this time". */
 export const ORPHAN_HOLD_ACTION = 'Open To decide on /admin and tap Free this time.'
 
+/**
+ * Parties booked in Square before the switch-over are read-only here (S2-R9): the one place they can
+ * still be changed is Square itself, and only until the switch-over finishes. Said plainly.
+ */
+export const SQUARE_ONLY = 'was booked in Square before we moved bookings here, so it can only be moved in Square.'
+
+/** Two parties at once: `ours` names a party of ours (null when it is a Square booking), `sq` a Square-booked one. */
+function twoPartiesAction(oursA: string | null, oursB: string | null, sq: string | null): string {
+  if (!sq) return 'Move one of them on /admin.'
+  if (!oursA && !oursB) return 'Move one of them in Square. Both were booked in Square before we moved bookings here, so they can only be moved there.'
+  return `Move ${oursA ?? oursB} on /admin. ${capitalize(sq)} ${SQUARE_ONLY}`
+}
+
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 const first = (name: string) => name.trim().split(/\s+/)[0] || 'them'
 const possessive = (name: string) => `${name.trim() || 'Someone'}’s`
@@ -110,7 +123,7 @@ export async function partyWarnings(from: string, to: string, now: Date, opts: {
     if (!r) {
       out.push({
         code: 'party-hold-no-party', eventKind: 'party', eventId: '', when: h.startIso, title: 'A held party time',
-        detail: `${time} is held for a party that isn’t on the books (${h.partyId}), so nobody can book that time.`,
+        detail: `${time} is held for a party that isn’t on the books, so nobody can book that time.`,
         action: ORPHAN_HOLD_ACTION,
       })
     } else if (r.status === 'cancelled') {
@@ -170,11 +183,11 @@ export async function partyWarnings(from: string, to: string, now: Date, opts: {
       const a = spans[i], b = spans[j]
       if (a.id === b.id || !overlaps(intervalOf(a), intervalOf(b), PARTY_CLEANUP_MINUTES)) continue
       const na = spanName(a, 'a party'), nb = spanName(b, 'another party')
-      const square = squareIds.has(a.id) || squareIds.has(b.id)
+      const sqA = squareIds.has(a.id), sqB = squareIds.has(b.id)
       out.push({
         code: 'two-parties', eventKind: 'party', eventId: a.id, when: a.startIso, title: capitalize(na),
         detail: `${capitalize(na)} ${formatTimeSpan(a.startIso, a.endIso)} and ${nb} ${formatTimeSpan(b.startIso, b.endIso)} are booked at the same time, or without the hour between them for cleanup.`,
-        action: square ? 'Move one of them, on /admin (or in Square if it was booked there).' : 'Move one of them on /admin.',
+        action: twoPartiesAction(sqA ? null : na, sqB ? null : nb, sqA ? na : sqB ? nb : null),
       })
     }
   }
@@ -190,7 +203,7 @@ export async function partyWarnings(from: string, to: string, now: Date, opts: {
         out.push({
           code: 'class-over-party', eventKind: 'workshop', eventId: cls.id, when: s.startIso, title: cls.content.name,
           detail: `${cls.content.name} ${formatTimeSpan(s.startIso, s.endIso)} is within an hour of ${spanName(p, 'a party')} ${formatTime(p.startIso)}.`,
-          action: squareIds.has(p.id) ? 'Move the class on /admin, or the party in Square.' : 'Move one of them on /admin.',
+          action: squareIds.has(p.id) ? `Move the class on /admin. ${capitalize(spanName(p, 'the party'))} ${SQUARE_ONLY}` : 'Move one of them on /admin.',
         })
       }
     }

@@ -155,24 +155,26 @@ describe('listWarnings', () => {
     expect(list.map((w) => w.code)).toEqual(['oversold', 'party-on-closed-day'])
   })
 
-  it('throws when classes cannot be read, so no one mistakes it for all clear', async () => {
+  // Re-review Minor A: a Square read failure is said in one line (never an all clear), and our own checks still run.
+  const codes = async () => (await listWarnings(WINDOW)).map((w) => w.code)
+  it('classes that cannot be read are said in one line, so no one mistakes it for all clear', async () => {
     mockListAllWorkshops.mockRejectedValue(new Error('Square Classes API error: 503'))
-    await expect(listWarnings(WINDOW)).rejects.toThrow('503')
+    expect(await codes()).toContain('classes-unreadable')
   })
 
-  it('throws when bookings cannot be read', async () => {
+  it('bookings that cannot be read: Square’s classes and parties each get their line', async () => {
     mockListBookings.mockRejectedValue(new Error('Square 500'))
-    await expect(listWarnings(WINDOW)).rejects.toThrow('500')
+    expect((await codes()).sort()).toEqual(['classes-unreadable', 'parties-unreadable'])
   })
 
-  it('throws when the booking provider cannot list bookings', async () => {
+  it('a booking provider that cannot list bookings is said, never an all clear', async () => {
     delete mockProviders.booking.listBookings
-    await expect(listWarnings(WINDOW)).rejects.toThrow('cannot list bookings')
+    expect(await codes()).toContain('classes-unreadable')
   })
 
-  it('throws when the workshop provider cannot list all classes', async () => {
+  it('a workshop provider that cannot list all classes is said, never an all clear', async () => {
     delete mockProviders.workshop.listAllWorkshops
-    await expect(listWarnings(WINDOW)).rejects.toThrow('Classes cannot be read')
+    expect(await codes()).toContain('classes-unreadable')
   })
 
   it('does not warn when seats sold equals capacity', async () => {
@@ -300,9 +302,9 @@ describe('listWarnings — picks-missing', () => {
     await expect(listWarnings(WINDOW)).rejects.toThrow('store down')
   })
 
-  it('throws when the event meta cannot be read', async () => {
+  it('event settings that cannot be read are said in one line, never an all clear', async () => {
     mockGetEventMeta.mockRejectedValue(new Error('meta down'))
-    await expect(listWarnings(WINDOW)).rejects.toThrow('meta down')
+    expect((await listWarnings(WINDOW)).map((w) => w.code)).toContain('classes-unreadable')
   })
 })
 
@@ -398,7 +400,8 @@ describe('listWarnings — our parties (stage 2 Task 13)', () => {
     await hold(id)
     const [w] = await partyLines()
     expect(w).toMatchObject({ code: 'party-hold-no-party', eventId: '' })
-    expect(warningLine(w)).toBe(`Sat Oct 17 · 2:00 PM is held for a party that isn’t on the books (${id}), so nobody can book that time. Open To decide on /admin and tap Free this time.`)
+    expect(warningLine(w)).toBe('Sat Oct 17 · 2:00 PM is held for a party that isn’t on the books, so nobody can book that time. Open To decide on /admin and tap Free this time.')
+    expect(w.detail).not.toContain(id)
   })
 
   it('a cancelled party that still holds its time is named', async () => {
@@ -514,7 +517,7 @@ describe('listWarnings — our parties (stage 2 Task 13)', () => {
     const lines = (await partyLines()).filter((w) => w.code === 'two-parties')
     expect(lines).toHaveLength(1)
     expect(lines[0].detail).toMatch(/the Lopez party|The Lopez party/)
-    expect(lines[0].action).toBe('Move one of them, on /admin (or in Square if it was booked there).')
+    expect(lines[0].action).toBe('Move the Justice party on /admin. The Lopez party was booked in Square before we moved bookings here, so it can only be moved in Square.')
   })
 
   it('Square’s party list can’t be read: the party warnings still run, with one line saying Square parties weren’t checked', async () => {
@@ -524,6 +527,25 @@ describe('listWarnings — our parties (stage 2 Task 13)', () => {
     const lines = await partyWarnings(WINDOW.from, WINDOW.to, NOW, { squareParties: Promise.reject(new Error('square down')) })
     expect(lines.map((w) => w.code).sort()).toEqual(['parties-unreadable', 'party-no-hold'])
     expect(lines.find((w) => w.code === 'parties-unreadable')!.detail).toBe('Parties booked in Square couldn’t be checked against our parties and classes just now.')
+  })
+
+  it('fix round 2 (Minor E): two parties both booked in Square point to Square only, and say why', async () => {
+    RECORDS.list = []
+    mockListBookings.mockResolvedValue([party('bk_lopez', SAT2), party('bk_ruiz', '2026-10-17T19:30:00.000Z')])
+    const lines = (await partyLines()).filter((w) => w.code === 'two-parties')
+    expect(lines).toHaveLength(1)
+    expect(lines[0].action).toBe('Move one of them in Square. Both were booked in Square before we moved bookings here, so they can only be moved there.')
+  })
+
+  it('fix round 2 (Minor A): Square’s lists can’t be read: one line for Square’s classes, one for Square’s parties, and every check of our own parties still runs', async () => {
+    const id = pid()
+    RECORDS.list = [rec(id)] // booked, its time not held
+    mockListAllWorkshops.mockRejectedValue(new Error('square down'))
+    mockListBookings.mockRejectedValue(new Error('square down'))
+    const list = await listWarnings(WINDOW, { now: NOW })
+    expect(list.map((w) => w.code).sort()).toEqual(['classes-unreadable', 'parties-unreadable', 'party-no-hold'])
+    expect(list.find((w) => w.code === 'classes-unreadable')!.detail).toBe('Classes booked in Square couldn’t be checked for problems just now.')
+    expect(list.find((w) => w.code === 'parties-unreadable')!.detail).toBe('Parties booked in Square couldn’t be checked against our parties and classes just now.')
   })
 
   it('parties that can’t be read: one line, the rest still shows', async () => {

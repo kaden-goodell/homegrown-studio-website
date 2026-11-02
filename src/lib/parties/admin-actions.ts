@@ -42,7 +42,7 @@ import {
 import { dueCents, paidCents, paymentState } from './money'
 import { sendPartyBookedEmail } from './checkout'
 import { checkStart, PARTY_TIMES_UNREADABLE } from './open-times'
-import { holdsBetween, moveTime, releaseTime, resizeTime } from './party-book'
+import { holdsBetween, moveTime, NO_HOLD, releaseTime, resizeTime } from './party-book'
 import { localDate, startsOn } from './party-times'
 import { PaymentLinkError, partyWhenLabel, payLinkUrl, sendPaymentLink, whatIsDue } from './payment-link'
 import { quoteAddOn } from './pricing'
@@ -374,6 +374,21 @@ const letGo = (id: string, iso: string) => releaseTime(id, iso).then(() => true,
 })
 
 /**
+ * Cleanup writes to the party book (letting a time go, shrinking a hold back)
+ * run only while this action still holds the party's lease, checked fresh
+ * right before the write (re-review Minor B). A server that stalled past its
+ * lease could otherwise free the time another server just moved the party
+ * back to. When it isn't ours any more the write is skipped: a leftover hold
+ * is the safe side (the daily warnings and the party sheet's buttons list it).
+ */
+async function leaseStillMine(): Promise<boolean> {
+  if (partyLockTaken()) return false
+  return assertPartyLockHeld().then(() => true, () => false)
+}
+/** letGo, fenced: false (nothing written) when the lease isn't ours any more. */
+const letGoFenced = async (id: string, iso: string) => ((await leaseStillMine()) ? letGo(id, iso) : false)
+
+/**
  * Moves a party of ours to `startIso` (its length kept). Order: the new time
  * is written in the party book (locked, checked), then the record (only if
  * it still has the old start and no payment is going through), then the old
@@ -484,12 +499,16 @@ async function moveLocked(body: { id?: unknown; startIso?: unknown; fromIso?: un
     const cur = await afterFailure()
     if (cur !== 'not-moved') return finishMove(cur, true)
     // The write may have landed (this request's own), and the record isn't on it: let it go.
-    const freed = await letGo(r.bookingId, to)
+    const freed = await letGoFenced(r.bookingId, to)
     throw new PartyActionError(503, freed
       ? `The move didn’t finish. The party is still on ${partyWhenLabel(from)}. Try Move again.`
       : `The move didn’t finish. The party is still on ${partyWhenLabel(from)}, but ${partyWhenLabel(to)} may show as held for it. Try Move again to finish it.`)
   }
-  if (!moved.ok) throw new PartyActionError(409, moved.message, { field: 'startIso' })
+  if (!moved.ok) {
+    // The party's own time isn't held: the move has nothing to move. Point at the button that puts it back (Minor D).
+    if (moved.message === NO_HOLD) throw new PartyActionError(409, NOT_HELD_TO_MOVE, { holdAgain: true })
+    throw new PartyActionError(409, moved.message, { field: 'startIso' })
+  }
   const wrote = moved.wrote
 
   let saved: PartyRecord
@@ -511,7 +530,7 @@ async function moveLocked(body: { id?: unknown; startIso?: unknown; fromIso?: un
     // This request's own write landed (nobody else changes the party inside the lock): audited as its move (M-e).
     if (cur !== 'not-moved') return finishMove(cur, false)
     // Only a time this request wrote is let go; one the party already held stays (a leftover, the daily warnings name it).
-    if (wrote) await letGo(r.bookingId, to)
+    if (wrote) await letGoFenced(r.bookingId, to)
     throw e
   }
   return finishMove(saved, replayed)
@@ -519,14 +538,17 @@ async function moveLocked(body: { id?: unknown; startIso?: unknown; fromIso?: un
   /** The party is on the new time: the old time goes (idempotent), audited once. */
   async function finishMove(cur: PartyRecord, replay: boolean): Promise<MoveResult> {
     let warning: string | undefined
-    if (!(await letGo(cur.bookingId, from))) {
+    if (!(await letGoFenced(cur.bookingId, from))) {
       logger.error('PARTY MOVE: old time not let go', { partyId: cur.bookingId })
-      warning = `${movedMessage(cur)} ${partyWhenLabel(from)} still shows as held for this party. The daily warnings will list it.`
+      warning = `${movedMessage(cur)} ${partyWhenLabel(from)} may still show as held for this party. Open the party again and tap Free the old time if it does.`
     }
     if (!replay) await audit(by, 'party-move', cur, { from, to })
     return reply(cur, from, { ...(replay ? { replay: true as const } : {}), ...(warning ? { warning } : {}) })
   }
 }
+
+/** Move on a party whose time isn't held (re-review Minor D). The sheet offers Hold this time again with it. */
+export const NOT_HELD_TO_MOVE = 'This party’s time isn’t held on the calendar, so there’s nothing to move yet. Tap Hold this time again first, then move it.'
 
 /** The lease was lost before the record was saved (N2c): what stands, and how to let a left-behind time go. */
 function moveStoppedMessage(e: unknown, from: string, held: string | null): PartyActionError {
@@ -553,7 +575,7 @@ export interface CancelResult { party: AdminPartyView; hostToTell: HostToTell; m
 /** A cancelled party's time and themed table go (idempotent: safe again on a retry). What didn't, said plainly. */
 async function letCancelledGo(rec: PartyRecord): Promise<string[]> {
   const warnings: string[] = []
-  if (!(await letGo(rec.bookingId, rec.startIso))) {
+  if (!(await letGoFenced(rec.bookingId, rec.startIso))) {
     warnings.push(`${partyWhenLabel(rec.startIso)} still shows as held. Tap Free this time on this party to let it go.`)
   }
   if (rec.theme) {
@@ -698,7 +720,7 @@ async function addExtraLocked(
       // Back to the party's end as saved now (another extra may have grown it meanwhile); unreadable → leave it longer (safe).
       try {
         const cur = await getPartyRecord(r.bookingId)
-        if (cur && cur.startIso === r.startIso) await resizeTime(r.bookingId, r.startIso, endOf(cur), [], now)
+        if (cur && cur.startIso === r.startIso && (await leaseStillMine())) await resizeTime(r.bookingId, r.startIso, endOf(cur), [], now)
       } catch (err) {
         logger.error('PARTY EXTRA: hold not shrunk back after the record refused', { partyId: r.bookingId, error: String(err) })
       }
@@ -740,11 +762,13 @@ async function removeExtraLocked(body: { id?: unknown; itemId?: unknown }, by: B
   let warning: string | undefined
   if (removed.extraMinutes > 0) {
     try {
+      // Fenced: a stalled server must never cut extra time another server just added.
+      if (!(await leaseStillMine())) throw new Error('party lease not ours any more')
       const shrunk = await resizeTime(saved.bookingId, saved.startIso, endOf(saved), [], now)
       if (!shrunk.ok) throw new Error(shrunk.message)
     } catch (e) {
       logger.error('PARTY EXTRA: hold not shrunk after taking extra time off', { partyId: saved.bookingId, error: String(e) })
-      warning = 'Taken off. The party’s time still shows the extra time on the calendar; the daily warnings will list it.'
+      warning = 'Taken off. The calendar may still hold the extra time after the party. Open the party again and tap Put the end time back if it shows.'
     }
   }
   await audit(by, 'party-extra', saved, { removed: removed.label, cents: removed.cents, extraMinutes: -removed.extraMinutes })

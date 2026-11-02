@@ -72,7 +72,9 @@ import { assertClassWritesAllowed, TestSiteStoreError } from './test-site-guard'
 import { onStaffConsole } from './staff-view'
 import { getPartyRecord, isOurs, listParties, PartyNotFoundError, updatePartyRecord, type PartyRecord } from '@lib/party-store'
 import { clearPartyRefundRequest, partyLabel } from '@lib/parties/refunds'
-import { PARTY_SCOPE } from '@lib/booking-core/refund-runner'
+import { PAID_ELSEWHERE_SCOPE, PARTY_SCOPE } from '@lib/booking-core/refund-runner'
+import { applyPaidElsewhere, canTakePayment, PaidElsewhereError, refundPaidElsewhere } from '@lib/parties/paid-elsewhere'
+import { dueCents } from '@lib/parties/money'
 import { deleteCheckout, deletePaidElsewhere, listCheckouts } from '@lib/parties/party-checkouts'
 import { confirmUnclearParty, notPaidUnclearParty, paidElsewhereWhy, PartyUnclearError } from '@lib/parties/square-orders'
 import { recordLinkCharge, tellLinkPaid } from '@lib/parties/pay-balance'
@@ -249,6 +251,8 @@ async function refundItems(cache: ClassCache, skip: Set<string>): Promise<ToDeci
   for (const f of await listRefundFlags()) {
     const id = tokenOf(f.id)
     if (skip.has(id)) continue
+    // A refund of a payment on no party: its own "Party payment to check" item covers it (never "A class").
+    if (f.classId === PAID_ELSEWHERE_SCOPE) continue
     if (f.classId === PARTY_SCOPE) {
       const item = await partyRefundItem(f, id)
       if (item) out.push(item)
@@ -410,13 +414,23 @@ async function partyItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]>
     const id = tokenOf(elsewhere ? `ppe-${safeKey(c.orderId ?? '')}` : `ppu-${c.partyId}`)
     if (skip.has(id)) continue
     const cents = c.squareCents ?? c.quotedCents
+    // Paid elsewhere on a party of ours that still owes at least this much: it can go toward that party (DV12).
+    const party = elsewhere && c.why === 'other-payment' ? await getPartyRecord(c.partyId).catch(() => null) : null
+    const canApply = elsewhere && c.why === 'other-payment' && canTakePayment(party, cents)
     out.push({
       id, kind: 'party-paid-unclear', title: elsewhere ? 'Party payment to check' : 'Party payment unclear', at: c.updatedAt,
       head: elsewhere
         ? `Square shows ${money(cents)} paid for a party (${who}, ${when}), but ${paidElsewhereWhy(c.why)}. Nothing was refunded.`
         : `${who}’s ${money(cents)} party payment for ${when} got no answer from Square. The time is held, not confirmed.`,
-      hint: elsewhere ? 'Check it in Square' : 'Check Square, then confirm the party or say it wasn’t paid',
-      detail: { partyId: c.partyId, orderId: c.orderId, cents, elsewhere, why: c.why ?? null, startIso: c.startIso, email: c.host.email, phone: c.host.phone },
+      hint: elsewhere ? (canApply ? 'Refund it, or put it toward the party' : 'Refund it') : 'Check Square, then confirm the party or say it wasn’t paid',
+      detail: {
+        partyId: c.partyId, orderId: c.orderId, cents, elsewhere, why: c.why ?? null, startIso: c.startIso, email: c.host.email, phone: c.host.phone,
+        ...(elsewhere ? {
+          paymentId: c.paymentId ?? null, canApply,
+          name: `${c.host.firstName} ${c.host.lastName}`.trim() || party?.hostName || '',
+          ...(party ? { partyDay: studioDate(party.startIso), dueCents: dueCents(party) } : {}),
+        } : {}),
+      },
     })
   }
   return out
@@ -601,7 +615,7 @@ const ACTIONS: Record<ToDecideKind, string[]> = {
   'below-minimum': ['keep-running', 'texted'],
   'door-unpaid': ['paid', 'free'],
   'counter-match-check': ['confirm', 'move'],
-  'party-paid-unclear': ['confirm', 'not-paid', 'sorted'],
+  'party-paid-unclear': ['confirm', 'not-paid', 'sorted', 'refund', 'apply'],
   'paid-not-seated': ['seat', 'sorted'],
   'party-not-told': ['told'],
   'party-payment-unclear': ['went-through', 'did-not-go-through'],
@@ -892,12 +906,30 @@ async function decideItem(item: ToDecideItem, action: string, body: any, by: By,
     case 'party-paid-unclear': {
       const partyId = str(d.partyId)
       if (d.elsewhere === true) {
+        const orderId = str(d.orderId)
+        if (action === 'refund') {
+          // Exactly that Square payment, through the shared refund runner (saved first, never twice, emailed once, audited).
+          const reason = typeof body?.reason === 'string' && body.reason.trim() ? body.reason.trim().slice(0, 500) : 'Paid twice (To decide)'
+          const out = await asRefund(() => refundPaidElsewhere(orderId, reason, by))
+          const who = out.firstName || firstWord(str(d.name)) || 'them'
+          return { decided: await record(item, `Refunded ${money(out.cents)} to ${who}${out.emailed ? ' (emailed)' : ''}`, by, action) }
+        }
+        if (action === 'apply') {
+          try {
+            const out = await applyPaidElsewhere(orderId, by, now)
+            const left = out.dueLeft > 0 ? `, ${money(out.dueLeft)} still to pay` : ''
+            return { decided: await record(item, `Put ${money(out.cents)} toward ${out.firstName ? `${out.firstName}’s` : 'the'} party${left}`, by, action) }
+          } catch (e) {
+            if (e instanceof PaidElsewhereError) throw new DecideError(e.status, e.message)
+            throw e
+          }
+        }
         if (action !== 'sorted') throw new DecideError(400, 'That isn’t one of the choices for this.')
         await assertPartyLockHeld()
-        await deletePaidElsewhere(str(d.orderId))
-        return { decided: await record(item, 'Checked in Square', by, action) }
+        await deletePaidElsewhere(orderId)
+        return { decided: await record(item, 'Already sorted', by, action) }
       }
-      if (action === 'sorted') throw new DecideError(400, 'That isn’t one of the choices for this.')
+      if (action === 'sorted' || action === 'refund' || action === 'apply') throw new DecideError(400, 'That isn’t one of the choices for this.')
       try {
         await assertPartyLockHeld()
         if (action === 'confirm') {
@@ -938,6 +970,7 @@ export const PARTY_PAY_NOT_FOUND = 'Square shows no payment on this order yet, s
 export const PARTY_PAY_FOUND = 'Square shows this payment went through. Choose It went through, so it’s recorded on the party.'
 export const PARTY_PAY_NO_ORDER = 'We can’t tell which Square order this payment made, so it can’t be checked from here. Look for it in Square. If it was paid, it shows up on the party by itself once Square tells us. If not, this clears by itself within a day.'
 export const PARTY_PAY_ASK_FAILED = 'Square couldn’t be asked just now. Try again in a minute.'
+/** The same words as square-orders' PAYMENT_GOING_THROUGH (the new-party path). */
 export const PARTY_PAY_GOING_THROUGH = 'Square shows a payment still going through. Try again in a few minutes. Nothing was changed.'
 
 /**
@@ -968,7 +1001,8 @@ async function decidePartyPayment(partyId: string, attemptId: string, wentThroug
   if (asked.kind === 'unpaid') {
     let inFlight = asked.pending === true
     if (!inFlight && providers.payment.orderPaymentInFlight) {
-      const orderId = p.orderId
+      // The order Square gave back (also when only the order request was saved, never its id: Minor C1).
+      const orderId = asked.order?.orderId || p.orderId
       if (orderId) {
         try {
           inFlight = await providers.payment.orderPaymentInFlight(orderId)

@@ -17,4 +17,13 @@ describe('inviteHead (the guest invite page and its link preview)', () => {
     expect(h.description).toBe('Slime · Sat, Nov 14 at 2:00 PM CT · at Hometown Studio. Tap to RSVP.')
     expect(h.showDetails).toBe(true)
   })
+
+  it('fix round 2 (Minor F): a party whose record can’t be read just now is never "invited" (it may be cancelled or moved): a neutral line, no details', () => {
+    const h = inviteHead({ cancelled: false, hasDetails: true, title: 'Mia turns 9', craft: 'Slime', when: 'Sat, Nov 14 at 2:00 PM CT', unreadable: true })
+    expect(h).toEqual({
+      eyebrow: 'Party invite', headline: 'We couldn’t load this party right now.', subline: 'Try again in a minute.',
+      pageTitle: 'Party invite', description: 'A craft party at Hometown Studio.', showDetails: false,
+    })
+    expect(JSON.stringify(h)).not.toMatch(/invited|RSVP|Nov 14|2:00|Slime|Mia/i)
+  })
 })

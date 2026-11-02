@@ -28,6 +28,7 @@ import { flowPropsFor } from '@lib/waiver-page'
 import { listWaiversByEvent } from '@lib/waiver-store'
 import { POST as sign } from '@pages/api/waiver/sign.json'
 import { GET as ics } from '@pages/api/party/invite.ics'
+import { GET as roster } from '@pages/api/party/roster.json'
 
 const NOW = new Date('2026-11-02T15:00:00.000Z')
 let n = 0
@@ -76,6 +77,23 @@ describe('a cancelled party', () => {
     const res = await ics({ url: new URL(`http://localhost/api/party/invite.ics?party=${p.bookingId}`), clientAddress: '1.1.1.1' } as any)
     expect(res.status).toBe(410)
     expect(await res.text()).toBe('This party was cancelled.')
+    expect(res.headers.get('Cache-Control')).toBe('no-store')
+  })
+})
+
+describe('calendar files are never cached (Task 14 follow-up)', () => {
+  it('the guest .ics and the host page’s calendar data say no-store, so a moved party’s new time reaches everyone at once', async () => {
+    const p = await party()
+    const res = await ics({ url: new URL(`http://localhost/api/party/invite.ics?party=${p.bookingId}`), clientAddress: '1.1.1.3' } as any)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Cache-Control')).toBe('no-store')
+    const missing = await ics({ url: new URL('http://localhost/api/party/invite.ics?party=pty_nope000000000000'), clientAddress: '1.1.1.4' } as any)
+    expect(missing.status).toBe(404)
+    expect(missing.headers.get('Cache-Control')).toBe('no-store')
+    const host = await roster({ url: new URL(`http://localhost/api/party/roster.json?party=${p.bookingId}&key=host-key`) } as any)
+    expect(host.status).toBe(200)
+    expect(host.headers.get('Cache-Control')).toBe('no-store')
+    expect((await host.json()).data.party).toMatchObject({ startIso: p.startIso, calendarSeq: 3 })
   })
 })
 

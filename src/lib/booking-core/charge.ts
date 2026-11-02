@@ -123,8 +123,11 @@ export async function paidOnOrder(
   makeOrder: () => Promise<{ orderId: string; totalCents: number }>,
 ): Promise<
   | { kind: 'paid'; payment: Payment; order: { orderId: string; totalCents: number } }
-  /** pending: Square returned a payment on the order that is neither completed nor failed (still going through) */
-  | { kind: 'unpaid'; pending?: true }
+  /**
+   * pending: Square returned a payment on the order that is neither completed nor failed (still going through).
+   * `order`: the order Square gave back, so a caller can ask whether a payment on it is still going through.
+   */
+  | { kind: 'unpaid'; pending?: true; order: { orderId: string; totalCents: number } }
   | { kind: 'unknown'; error?: unknown }
 > {
   let order: { orderId: string; totalCents: number }
@@ -135,7 +138,7 @@ export async function paidOnOrder(
   } catch (error) {
     return { kind: 'unknown', error }
   }
-  if (found && found.status !== 'completed' && found.status !== 'failed') return { kind: 'unpaid', pending: true }
-  if (!found || found.status !== 'completed') return { kind: 'unpaid' }
+  if (found && found.status !== 'completed' && found.status !== 'failed') return { kind: 'unpaid', pending: true, order }
+  if (!found || found.status !== 'completed') return { kind: 'unpaid', order }
   return { kind: 'paid', payment: found, order }
 }

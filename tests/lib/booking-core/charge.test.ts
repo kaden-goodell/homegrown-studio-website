@@ -201,17 +201,17 @@ describe('paidOnOrder', () => {
 
   it('no payment → unpaid', async () => {
     mockFindOrderPayment.mockResolvedValue(null)
-    expect(await paidOnOrder(async () => order)).toEqual({ kind: 'unpaid' })
+    expect(await paidOnOrder(async () => order)).toEqual({ kind: 'unpaid', order })
   })
 
   it('a payment still going through → unpaid, marked pending', async () => {
     mockFindOrderPayment.mockResolvedValue({ ...paidPayment, status: 'pending' })
-    expect(await paidOnOrder(async () => order)).toEqual({ kind: 'unpaid', pending: true })
+    expect(await paidOnOrder(async () => order)).toEqual({ kind: 'unpaid', pending: true, order })
   })
 
   it('a failed payment → unpaid (not pending)', async () => {
     mockFindOrderPayment.mockResolvedValue({ ...paidPayment, status: 'failed' })
-    expect(await paidOnOrder(async () => order)).toEqual({ kind: 'unpaid' })
+    expect(await paidOnOrder(async () => order)).toEqual({ kind: 'unpaid', order })
   })
 
   it('order create throws → unknown', async () => {

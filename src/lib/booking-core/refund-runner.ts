@@ -105,6 +105,11 @@ type Actor = { by: By; role: 'owner' | 'crew' }
 
 /** The scope reserved for parties: never a class. */
 export const PARTY_SCOPE = 'party'
+/**
+ * The scope of a refund of a party payment that is on no party ("Party payment to check", parties/paid-elsewhere):
+ * bookingId = the Square order id. Never a class.
+ */
+export const PAID_ELSEWHERE_SCOPE = 'party-paid-elsewhere'
 
 /**
  * Finds the book that writes refunds for a scope (the static list is

@@ -16,11 +16,14 @@ const partyId = params.get('party') ?? ''
 // Attempt a server-side lookup when a party id is present; server data beats
 // query params. Falls back to query params for old/mangled links.
 let record: PartyRecord | null = null
+// The record couldn't be read: its state is unknown (it may be cancelled or moved), so the link's own
+// details are never shown as if current. A neutral "couldn't load" line instead (re-review Minor F).
+let unreadable = false
 if (partyId) {
   try {
     record = await getPartyRecord(partyId)
   } catch {
-    /* transient lookup failure — fall back to query params below */
+    unreadable = true
   }
 }
 
@@ -39,9 +42,9 @@ const isPast = record
 // A cancelled party: say so, and no RSVP or calendar (the host's details and payments are never on this page).
 const isCancelled = record?.status === 'cancelled'
 
-const hasDetails = Boolean(partyId && craft && when)
+const hasDetails = !unreadable && Boolean(partyId && craft && when)
 // A cancelled party leads with that (and in link previews): no "You're invited", no date or time.
-const { eyebrow, headline, subline, pageTitle, description, showDetails } = inviteHead({ cancelled: isCancelled, hasDetails, title, craft, when })
+const { eyebrow, headline, subline, pageTitle, description, showDetails } = inviteHead({ cancelled: isCancelled, hasDetails, title, craft, when, unreadable })
 
 const waiverHref = partyId ? `/waiver?party=${encodeURIComponent(partyId)}` : '/waiver'
 const ctaLabel = hasDetails ? c.rsvp.cta : c.fallback.cta
@@ -54,7 +57,7 @@ const details = !showDetails ? [] : [
 
 // Build calendar links when we have a start time, so guests can add the party.
 let calendar: { google: string; ics: string } | null = null
-if (start && !isPast && !isCancelled) {
+if (start && !isPast && !isCancelled && !unreadable) {
   const event = {
     title: title ? `${title} — Hometown Studio` : `${craft} Party — Hometown Studio`,
     startIso: start,
@@ -136,7 +139,16 @@ if (start && !isPast && !isCancelled) {
         class="mt-8"
         style="border-top: 1px solid rgba(var(--color-primary-rgb),0.14); padding-top: 1.75rem;"
       >
-        {isCancelled ? (
+        {unreadable ? (
+          <a
+            href={Astro.url.pathname + Astro.url.search}
+            data-testid="party-unreadable"
+            class="inline-block"
+            style="padding: 0.9rem 1.75rem; border-radius: 0.875rem; background: var(--color-button); color: #fff; font-size: 1rem; font-weight: 600; text-decoration: none;"
+          >
+            Try again
+          </a>
+        ) : isCancelled ? (
           <p class="text-base max-w-md mx-auto" data-testid="party-cancelled" style="color: var(--color-dark); font-weight: 600;">
             {PARTY_CANCELLED_NOTICE}
           </p>

@@ -54,7 +54,7 @@ import { seatsLabelFor } from './checkout'
 import { claimConfirmation, markConfirmationRetry, releaseConfirmation, sendClassConfirmation, takeConfirmationRetry } from './confirmation'
 import { bookingCap, freeSeatOnly, onSeatFreed } from './refunds'
 import { claimSquareRefund } from '@lib/booking-core/refund-books'
-import { PARTY_SCOPE } from '@lib/booking-core/refund-runner'
+import { PAID_ELSEWHERE_SCOPE, PARTY_SCOPE } from '@lib/booking-core/refund-runner'
 import { allRefundRequests, listRefundRequests, UNCONFIRMED_AFTER_MS, type SavedRefundRequest } from './refund-requests'
 import { getClass } from './class-store'
 import { isComing, isPaidLine, leftOn } from './seat-status'
@@ -1043,6 +1043,9 @@ const checkedButUnfinished = (r: SavedRefundRequest) => r.status === 'sent' && !
 export async function flagUnconfirmedRequests(now: Date): Promise<number> {
   let open = 0
   for (const r of await allRefundRequests()) {
+    // A refund of a party payment that is on no party: its "Party payment to check" item stays in To decide until
+    // the refund is done, and tapping Refund it again re-sends the same saved request (never a second refund).
+    if (r.classId === PAID_ELSEWHERE_SCOPE) continue
     if (checkedButUnfinished(r) && now.getTime() - Date.parse(r.cleared!.at) >= UNFINISHED_AFTER_MS) {
       open++
       const id = `flag-refund-unfinished-${safeKey(r.id)}`

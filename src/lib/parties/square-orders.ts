@@ -142,7 +142,7 @@ export class PartyUnclearError extends Error {
  * this try's order can't be looked up from here. Throws PartyUnclearError
  * when Square can't be read.
  */
-async function paymentOf(c: PartyCheckout): Promise<{ orderId: string; payment: Payment | null; orderUnknown?: true }> {
+async function paymentOf(c: PartyCheckout): Promise<{ orderId: string; payment: Payment | null; orderUnknown?: true; inFlight?: true }> {
   try {
     let orderId = c.orderId
     // Never got its order id back: the same request gives back the same order.
@@ -156,11 +156,18 @@ async function paymentOf(c: PartyCheckout): Promise<{ orderId: string; payment: 
     }
     if (!orderId) return { orderId: '', payment: null, orderUnknown: true }
     const payment = await providers.payment.findOrderPayment(orderId)
-    return { orderId, payment: payment && payment.status === 'completed' ? payment : null }
+    if (payment && payment.status === 'completed') return { orderId, payment }
+    // Not paid yet: a payment still going through (APPROVED / PENDING) is neither paid nor unpaid (Minor C2).
+    const inFlight = (!!payment && payment.status !== 'failed')
+      || (providers.payment.orderPaymentInFlight ? await providers.payment.orderPaymentInFlight(orderId) : false)
+    return { orderId, payment: null, ...(inFlight ? { inFlight: true as const } : {}) }
   } catch {
     throw new PartyUnclearError(503, 'Couldn’t reach Square to check that payment. Try again.')
   }
 }
+
+/** A payment Square shows as still going through: neither choice is taken until it settles. */
+export const PAYMENT_GOING_THROUGH = 'Square shows a payment still going through. Try again in a few minutes. Nothing was changed.'
 
 /** Owners' words when this try's order can't be found from here. */
 export const ORDER_UNKNOWN_MESSAGE = 'We can’t tell which Square order this try made, so it can’t be confirmed from here. Look for the payment in Square. If it was paid, the party is booked here by itself once Square tells us (by the next morning). If it wasn’t, choose It wasn’t paid.'
@@ -172,8 +179,9 @@ export const ORDER_UNKNOWN_MESSAGE = 'We can’t tell which Square order this tr
 export async function confirmUnclearParty(partyId: string, now: Date = new Date()): Promise<{ partyId: string; overlap: boolean }> {
   const c = await getCheckout(partyId)
   if (!c?.draft) throw new PartyUnclearError(404, 'This isn’t waiting any more.')
-  const { orderId, payment, orderUnknown } = await paymentOf(c)
+  const { orderId, payment, orderUnknown, inFlight } = await paymentOf(c)
   if (orderUnknown) throw new PartyUnclearError(409, ORDER_UNKNOWN_MESSAGE)
+  if (!payment && inFlight) throw new PartyUnclearError(409, PAYMENT_GOING_THROUGH)
   if (!payment) throw new PartyUnclearError(409, 'Square doesn’t show this order paid. If it wasn’t paid, choose It wasn’t paid.')
   const paid = await recordPaidParty(c, { orderId, paymentId: payment.id, cents: payment.amount || c.squareCents || c.quotedCents, receiptUrl: payment.receiptUrl ?? null }, now)
   if (paid.created) await tellBooked(c, paid.rec, paid.charge.cents, paid.charge.receiptUrl)
@@ -188,8 +196,9 @@ export async function confirmUnclearParty(partyId: string, now: Date = new Date(
 export async function notPaidUnclearParty(partyId: string): Promise<void> {
   const c = await getCheckout(partyId)
   if (!c) throw new PartyUnclearError(404, 'This isn’t waiting any more.')
-  const { payment } = await paymentOf(c)
+  const { payment, inFlight } = await paymentOf(c)
   if (payment) throw new PartyUnclearError(409, 'Square shows this order paid. Confirm the party instead.')
+  if (inFlight) throw new PartyUnclearError(409, PAYMENT_GOING_THROUGH)
   await releaseTime(partyId, c.startIso)
   await deleteCheckout(partyId)
 }

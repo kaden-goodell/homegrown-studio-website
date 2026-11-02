@@ -152,6 +152,26 @@ describe('Party sheet', () => {
     expect(posts(f, ACT)[1].body).toEqual({ id: ID, action: 'move', startIso: NEW, fromIso: OLD })
   })
 
+  it('fix round 2 (Minor D): a move refused because the time isn’t held offers Hold this time again right there; then the move goes through', async () => {
+    const f = server(party(), {
+      [ACT]: [
+        { status: 409, body: { error: 'This party’s time isn’t held on the calendar, so there’s nothing to move yet. Tap Hold this time again first, then move it.', holdAgain: true } },
+        { body: { data: { party: party(), message: 'Sat, Mar 15 at 2:00 PM is held for Stefanie’s party again. Nothing was sent to Stefanie.' } } },
+        { body: { data: { party: party({ startIso: NEW }), hostToTell: tell, message: 'Moved to Sun, Mar 16 at 1:00 PM.', sendDetails: null, from: T1, to: NEW } } },
+      ],
+    })
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: 'Move' }))
+    fireEvent.change(await screen.findByLabelText('New day and time'), { target: { value: NEW } })
+    fireEvent.click(screen.getByRole('button', { name: 'Move party' }))
+    expect(await screen.findByText(/Tap Hold this time again first, then move it\./)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Hold this time again' }))
+    await waitFor(() => expect(posts(f, ACT)[1].body).toEqual({ id: ID, action: 'hold-again' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Hold this time again' })).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: 'Move party' }))
+    await screen.findByRole('heading', { name: 'Moved Stefanie’s party' })
+  })
+
   it('Another time on Move says any day, 8 AM to 8 PM', async () => {
     server()
     open()

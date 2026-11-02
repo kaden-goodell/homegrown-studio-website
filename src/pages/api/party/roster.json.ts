@@ -32,12 +32,14 @@ export function hostPayment(rec: PartyRecord, origin: string): { cents: number; 
   return { cents, what: whatIsDue(rec), url: payLinkUrl(origin, rec) }
 }
 
+const NO_STORE = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+
 export const GET: APIRoute = async ({ url }) => {
   const partyId = url.searchParams.get('party') ?? ''
   const key = url.searchParams.get('key') ?? ''
 
   if (!partyId) {
-    return new Response(JSON.stringify({ error: 'Missing party' }), { status: 400 })
+    return new Response(JSON.stringify({ error: 'Missing party' }), { status: 400, headers: NO_STORE })
   }
 
   // Storage throws (transient Blobs outage) become a 503 the client can retry.
@@ -47,7 +49,7 @@ export const GET: APIRoute = async ({ url }) => {
     if (!hostTokenValid(party, key)) {
       // Same response whether the party is missing or the token is wrong — don't
       // leak which parties exist.
-      return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 })
+      return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: NO_STORE })
     }
 
     const waivers = await listWaiversByParty(partyId)
@@ -130,10 +132,11 @@ export const GET: APIRoute = async ({ url }) => {
           households: responseHouseholds,
         },
       }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } },
+      // The host page builds its calendar file from this reply: never cached, so a moved or cancelled party shows at once.
+      { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
     )
   } catch (err) {
     logger.error('Roster load failed', { partyId, error: err instanceof Error ? err.message : String(err) })
-    return new Response(JSON.stringify({ error: 'Couldn’t load the roster — please try again.' }), { status: 503 })
+    return new Response(JSON.stringify({ error: 'Couldn’t load the roster — please try again.' }), { status: 503, headers: NO_STORE })
   }
 }

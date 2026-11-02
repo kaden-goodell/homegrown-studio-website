@@ -250,7 +250,7 @@ They show on the party itself, in Home, "Needs you", **To decide**, on
 | <time> still held, after a move | The party moved, but its old time is still blocked. | **Free the old time** (the party stays where it is). |
 | Party time held, no party (To decide) | A time is blocked with no party on the books. | **Free this time**. It waits if a payment might still be going through. |
 | Party payment unclear (To decide) | Square never answered about a payment. | Look in Square, then **It went through** or **It didn't go through**. The site checks Square agrees. |
-| Party payment to check (To decide) | Square shows a payment the site couldn't book a party from (often a customer who paid, changed their mind and paid again). | Look it up in Square; refund a double payment there; then **Sorted it in Square**. |
+| Party payment to check (To decide) | Square shows a payment the site couldn't book a party from (often a customer who paid, changed their mind and paid again). | **Refund it** (the whole payment goes back to their card and they get a refund email), or, when the party still owes at least that much, **Put it toward the party** (recorded as paid, no money moves). Already settled another way: **It’s already sorted**. |
 | Party booked, no confirmation (To decide) | Paid and booked, but the confirmation email didn't go. | Open the party, **Email <name> the details**, then **Done**. |
 | Two parties at once / class within an hour of a party | Two things clash. | **Move** one of them. |
 | Paid after the party was cancelled | Money came in after a cancel. | Open the party; **Refund** on Payments if it should go back. |

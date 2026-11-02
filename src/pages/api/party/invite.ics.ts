@@ -21,20 +21,20 @@ const logger = createLogger('api:party:invite-ics')
  */
 export const GET: APIRoute = async ({ url, clientAddress }) => {
   if (rateLimited(`invite-ics:${clientAddress}`, 30, 60_000)) {
-    return new Response('Too many requests — give it a minute.', { status: 429 })
+    return new Response('Too many requests — give it a minute.', { status: 429, headers: { 'Cache-Control': 'no-store' } })
   }
   const partyId = url.searchParams.get('party')?.trim() ?? ''
-  if (!partyId) return new Response('Missing party', { status: 400 })
+  if (!partyId) return new Response('Missing party', { status: 400, headers: { 'Cache-Control': 'no-store' } })
 
   let party
   try {
     party = await getPartyRecord(partyId)
   } catch (err) {
     logger.error('Party lookup failed', { partyId, error: String(err) })
-    return new Response('Couldn’t load the party — try again.', { status: 503 })
+    return new Response('Couldn’t load the party — try again.', { status: 503, headers: { 'Cache-Control': 'no-store' } })
   }
-  if (!party) return new Response('Not found', { status: 404 })
-  if (party.status === 'cancelled') return new Response('This party was cancelled.', { status: 410 })
+  if (!party) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } })
+  if (party.status === 'cancelled') return new Response('This party was cancelled.', { status: 410, headers: { 'Cache-Control': 'no-store' } })
 
   const origin = url.origin
   const slotLabel = formatSlotLabel(party.startIso)
@@ -55,7 +55,8 @@ export const GET: APIRoute = async ({ url, clientAddress }) => {
     headers: {
       'Content-Type': 'text/calendar; charset=utf-8',
       'Content-Disposition': 'attachment; filename="hometown-party.ics"',
-      'Cache-Control': 'public, max-age=300',
+      // Never cached (Task 14): a moved party's new time and a cancel (410) reach the guest at once.
+      'Cache-Control': 'no-store',
     },
   })
 }

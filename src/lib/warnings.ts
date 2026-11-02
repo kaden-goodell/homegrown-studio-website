@@ -401,9 +401,21 @@ export async function listWarnings({ from, to }: { from: string; to: string }, o
       detail: 'Our parties couldn’t be checked for problems.', action: 'Refresh to try again.',
     }]
   })
+  // Square's lists can't be read (re-review Minor A): the Square class checks become one line, the party
+  // checks say so in their own "couldn't check Square parties" line, and every check of ours still runs.
+  const scanOrNull = scanned.then((x) => x, (e): null => {
+    logger.error('Square scan for warnings failed', { error: e instanceof Error ? e.message : String(e) })
+    return null
+  })
   // The owners' closed days (config until they first save on /admin).
-  const [s, own, parties, closed] = await Promise.all([scanned, ownOrError, partiesOrError, getClosures()])
-  return [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s, closed), ...(await seatCounts(s)), ...own, ...parties].sort((a, b) =>
+  const [s, own, parties, closed] = await Promise.all([scanOrNull, ownOrError, partiesOrError, getClosures()])
+  const squareLines: Warning[] = s
+    ? [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s, closed), ...(await seatCounts(s))]
+    : [{
+      code: 'classes-unreadable', eventKind: 'workshop', eventId: '', when: now.toISOString(), title: 'Classes in Square',
+      detail: 'Classes booked in Square couldn’t be checked for problems just now.', action: 'Refresh to try again.',
+    }]
+  return [...squareLines, ...own, ...parties].sort((a, b) =>
     a.when.localeCompare(b.when),
   )
 }

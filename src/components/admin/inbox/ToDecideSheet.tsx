@@ -177,13 +177,7 @@ function Unconfirmed({ item }: { item: ToDecideItem }) {
 function PartyPaidUnclear({ item }: { item: ToDecideItem }) {
   const d = item.detail as Detail & { elsewhere?: boolean; cents?: number; why?: string | null }
   const { send, busy, error } = useDecide(item)
-  if (d.elsewhere) {
-    return (
-      <OneChoiceParty item={item} note={d.why === 'retired'
-        ? 'Square shows this order paid, but it was an earlier try the customer changed and started again, so it isn’t booked. Look it up in Square: if they paid twice, refund the extra payment there. Nothing is sent to Square from here.'
-        : 'Square shows this party order paid, and there is nothing here to book it from. Look it up in Square and sort it out there. Nothing is sent to Square from here.'} send={send} busy={busy} error={error} />
-    )
-  }
+  if (d.elsewhere) return <PartyPaidElsewhere item={item} />
   return (
     <SheetFrame
       title={item.title}
@@ -198,6 +192,71 @@ function PartyPaidUnclear({ item }: { item: ToDecideItem }) {
       <Head item={item} />
       {kv('Payment', formatMoney(d.cents ?? 0))}
       <p className="adm-note adm-gap-top">Look for the payment in Square. Confirm the party once Square shows it paid: the time is booked and the host gets their confirmation. If it wasn’t paid, the held time is let go. Nothing is charged or refunded from here.</p>
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}
+
+/**
+ * "Party payment to check" (paid elsewhere, DV12): money Square took on a party order that is on no party.
+ * Refund it (exactly that payment, through the refund runner, after a confirm naming who and how much),
+ * or, when the party still owes at least that much, put it toward the party (recorded here, no Square call).
+ */
+function PartyPaidElsewhere({ item }: { item: ToDecideItem }) {
+  const d = item.detail as Detail & { cents?: number; why?: string | null; name?: string; canApply?: boolean; dueCents?: number }
+  const { send, busy, error, setError } = useDecide(item)
+  const [asking, setAsking] = useState<null | 'refund' | 'apply'>(null)
+  const cents = d.cents ?? 0
+  const amount = formatMoney(cents)
+  const named = (d.name ?? '').trim()
+  const who = named || 'the customer'
+  const first = named ? named.split(/\s+/)[0] : ''
+  const theirs = first ? `${first}’s` : 'the'
+  const note = d.why === 'other-payment'
+    ? `Square shows ${amount} paid on ${theirs} party, but the party was already paid by another order, so this payment isn’t on the party. ${d.canApply ? 'Refund it, or put it toward what the party still owes.' : 'Refund it to give it back.'}`
+    : d.why === 'retired'
+      ? `Square shows ${amount} paid on an earlier try that ${first || 'the customer'} changed and started again, so it isn’t booked. If they paid twice, refund it.`
+      : `Square shows ${amount} paid for a party, but there is nothing here to book it from. Refund it to give it back.`
+  const keep = () => { setAsking(null); setError('') }
+  const footer = asking === 'refund'
+    ? (
+      <div className="adm-panel is-warn" role="group" aria-label={`Refund ${amount} to ${who}?`}>
+        <b>{`Refund ${amount} to ${who}?`}</b>
+        <span className="adm-small">{`The whole payment goes back to their card${first ? `, and ${first} gets a refund email` : ''}. Tapping twice never refunds twice.`}</span>
+        <div className="adm-two">
+          <button type="button" className="adm-btn is-ghost" onClick={keep}>Keep it</button>
+          <button type="button" className="adm-btn is-danger" disabled={!!busy} onClick={() => send({ action: 'refund' })}>{label(busy, 'refund', `Refund ${amount}`, 'Refunding…')}</button>
+        </div>
+      </div>
+    )
+    : asking === 'apply'
+      ? (
+        <div className="adm-panel is-warn" role="group" aria-label={`Put ${amount} toward ${theirs} party?`}>
+          <b>{`Put ${amount} toward ${theirs} party?`}</b>
+          <span className="adm-small">{`It’s recorded as paid on the party${typeof d.dueCents === 'number' ? `, which owes ${formatMoney(d.dueCents)} now` : ''}. No money moves and nothing is sent to ${first || 'the host'}.`}</span>
+          <div className="adm-two">
+            <button type="button" className="adm-btn is-ghost" onClick={keep}>Keep it</button>
+            <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'apply' })}>{label(busy, 'apply', 'Put it toward the party', 'Saving…')}</button>
+          </div>
+        </div>
+      )
+      : (
+        <div className="adm-stack">
+          <div className="adm-two">
+            {d.canApply && <button type="button" className="adm-btn is-ghost" onClick={() => { setAsking('apply'); setError('') }}>Put it toward the party</button>}
+            <button type="button" className="adm-btn is-pri" onClick={() => { setAsking('refund'); setError('') }}>Refund it</button>
+          </div>
+          <button type="button" className="adm-quiet" disabled={!!busy} onClick={() => send({ action: 'sorted' })}>{label(busy, 'sorted', 'It’s already sorted', 'Saving…')}</button>
+        </div>
+      )
+  return (
+    <SheetFrame title={item.title} subtitle="To decide" footer={footer}>
+      <Head item={item} />
+      {kv('Payment', amount)}
+      {typeof d.dueCents === 'number' && kv('The party owes', formatMoney(d.dueCents))}
+      <p className="adm-note adm-gap-top">{note}</p>
+      <p className="adm-note">Already settled another way? Tap It’s already sorted to clear this.</p>
+      <OpenParty item={item} />
       <ErrorLine text={error} />
     </SheetFrame>
   )
@@ -301,17 +360,6 @@ function PartyNoConfirmation({ item }: { item: ToDecideItem }) {
       <Head item={item} />
       <p className="adm-note adm-gap-top">The party is paid and on the calendar. Open the party and tap the button that emails the host the details, so they get their host page, invite link and calendar. Then tap Done here.</p>
       <OpenParty item={item} />
-      <ErrorLine text={error} />
-    </SheetFrame>
-  )
-}
-
-function OneChoiceParty({ item, note, send, busy, error }: { item: ToDecideItem; note: string } & Pick<ReturnType<typeof useDecide>, 'send' | 'busy' | 'error'>) {
-  return (
-    <SheetFrame title={item.title} subtitle="To decide" footer={<button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'sorted' })}>{label(busy, 'sorted', 'Sorted it in Square', 'Saving…')}</button>}>
-      <Head item={item} />
-      {kv('Payment', formatMoney(((item.detail as { cents?: number }).cents) ?? 0))}
-      <p className="adm-note adm-gap-top">{note}</p>
       <ErrorLine text={error} />
     </SheetFrame>
   )

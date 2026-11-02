@@ -366,10 +366,41 @@ describe('To decide sheets', () => {
     await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_nc', action: 'sorted' }]))
   })
 
-  it('Task 13: a paid party order from an earlier try the customer changed says so', async () => {
-    const t = item({ id: 'td_rt', kind: 'party-paid-unclear', title: 'Party payment to check', detail: { partyId: 'pty_x', orderId: 'O', cents: 30000, elsewhere: true, why: 'retired' } })
+  it('Task 13: a paid party order from an earlier try the customer changed says so, with Refund it (never “refund it in Square”)', async () => {
+    const t = item({ id: 'td_rt', kind: 'party-paid-unclear', title: 'Party payment to check', detail: { partyId: 'pty_x', orderId: 'O', cents: 30000, elsewhere: true, why: 'retired', name: 'Alice Smith', canApply: false } })
     show([t], {}, 'td_rt')
-    expect(await screen.findByText(/it was an earlier try the customer changed and started again, so it isn’t booked/)).toBeInTheDocument()
+    expect(await screen.findByText(/paid on an earlier try that Alice changed and started again, so it isn’t booked/)).toBeInTheDocument()
+    expect(within(footer()).getByRole('button', { name: 'Refund it' })).toBeInTheDocument()
+    expect(within(footer()).queryByRole('button', { name: 'Put it toward the party' })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/refund[^.]*in Square|Sorted it in Square/i)
+  })
+
+  it('fix round 2: Refund it asks first, naming who and how much, then sends; Keep it sends nothing', async () => {
+    const t = item({ id: 'td_pe', kind: 'party-paid-unclear', title: 'Party payment to check', detail: { partyId: 'pty_x', orderId: 'O', cents: 30000, elsewhere: true, why: 'retired', name: 'Alice Smith', canApply: false } })
+    const { f } = show([t], {}, 'td_pe')
+    fireEvent.click(await screen.findByRole('button', { name: 'Refund it' }))
+    expect(screen.getByText('Refund $300 to Alice Smith?')).toBeInTheDocument()
+    expect(screen.getByText(/goes back to their card, and Alice gets a refund email/)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Keep it' }))
+    expect(decisions(f)).toEqual([])
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Refund it' }))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Refund $300' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_pe', action: 'refund' }]))
+  })
+
+  it('fix round 2: a payment the party still owes can go toward it, confirmed first; Square’s refusal shows in the sheet', async () => {
+    const t = item({ id: 'td_pa', kind: 'party-paid-unclear', title: 'Party payment to check', detail: { partyId: 'pty_x', partyDay: '2026-11-14', orderId: 'O', cents: 30000, elsewhere: true, why: 'other-payment', name: 'Stefanie Justice', canApply: true, dueCents: 30000 } })
+    const { f } = show([t], { decide: (b) => (b.action === 'refund' ? refuse(502, { error: "Square didn't confirm the refund. Try again. It won't refund twice." }) : null) }, 'td_pa')
+    expect(await screen.findByText('The party owes')).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Refund it' }))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Refund $300' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent("It won't refund twice.")
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Keep it' }))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Put it toward the party' }))
+    expect(screen.getByText('Put $300 toward Stefanie’s party?')).toBeInTheDocument()
+    expect(screen.getByText(/No money moves and nothing is sent to Stefanie/)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Put it toward the party' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_pa', action: 'refund' }, { id: 'td_pa', action: 'apply' }]))
   })
   it('fix round: the Square order is its own row with Copy', async () => {
     const t = item({ id: 'td_po', kind: 'party-payment-unclear', title: 'Party payment unclear', detail: { partyId: 'pty_abc123', partyDay: '2026-11-14', cents: 30000, via: 'link', orderId: 'ORD_123' } })

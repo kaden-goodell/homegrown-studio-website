@@ -294,7 +294,7 @@ export async function resizeTime(
   })
 }
 
-const NO_HOLD = 'That party has no time held to move.'
+export const NO_HOLD = 'That party has no time held to move.'
 const SAME_START = "That's already this party's time."
 
 /**
