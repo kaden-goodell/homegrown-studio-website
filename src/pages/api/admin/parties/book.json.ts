@@ -2,12 +2,15 @@ import type { APIRoute } from 'astro'
 import { adminActor, adminAuthorized } from '@lib/admin-auth'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 import { isAttemptId } from '@lib/checkout-attempt'
-import { partyMessages } from '@lib/checkout-messages'
 import { CREATE_KEY_RE } from '@lib/booking-core/ids'
 import { recordAudit } from '@lib/audit'
 import { createLogger } from '@lib/logger'
-import { bookParty, IN_PROGRESS_MESSAGE, type BookInput } from '@lib/parties/checkout'
-import { adminPartyView, json } from '@lib/parties/admin-actions'
+import { bookParty, type BookInput } from '@lib/parties/checkout'
+import { ownerBookMessage, ownerBookUnknown } from '@lib/parties/owner-messages'
+import { adminPartyView, json, linkMessage } from '@lib/parties/admin-actions'
+import { dueCents } from '@lib/parties/money'
+import { partyWhenLabel } from '@lib/parties/payment-link'
+import { formatMoney } from '@lib/money'
 import { PaymentLinkError, sendPaymentLink } from '@lib/parties/payment-link'
 import { partyLabel } from '@lib/parties/refunds'
 
@@ -58,6 +61,11 @@ export const POST: APIRoute = async ({ request }) => {
   if (host.phone.replace(/\D/g, '').length < 10) return json(400, { error: 'Add a phone number with the area code.', field: 'host.phone' })
   if (typeof body.craftId !== 'string' || !body.craftId) return json(400, { error: 'Pick a craft.', field: 'craftId' })
   const guests = typeof body.guests === 'number' ? body.guests : Number.NaN
+  // The pay-now total the sheet showed (I1): a different saved price refuses with the new amount, nothing charged.
+  const expectedCents = body.expectedCents
+  if (expectedCents !== undefined && (typeof expectedCents !== 'number' || !Number.isInteger(expectedCents) || expectedCents < 0)) {
+    return json(400, { error: 'Reload the page and try again.' })
+  }
   const addOns = body.addOns && typeof body.addOns === 'object' && !Array.isArray(body.addOns)
     ? Object.fromEntries(Object.entries(body.addOns as Record<string, unknown>).map(([k, v]) => [String(k), Number(v)]))
     : undefined
@@ -75,6 +83,7 @@ export const POST: APIRoute = async ({ request }) => {
     by,
     origin: new URL(request.url).origin,
     requestUrl: request.url,
+    ...(typeof expectedCents === 'number' ? { expectedCents } : {}),
   }
 
   let out: Awaited<ReturnType<typeof bookParty>>
@@ -82,31 +91,50 @@ export const POST: APIRoute = async ({ request }) => {
     out = await bookParty(input)
   } catch (err) {
     logger.error('Owner party booking failed', { error: err instanceof Error ? err.message : String(err) })
-    return json(500, { error: partyMessages.unknown_outcome, code: 'unknown_outcome' })
+    // Owners read what happened and what to do, never the customer's "text us" (I1).
+    if (pay.kind === 'link') return json(500, { error: 'Something on our side didn’t answer, so we can’t tell if the party was booked. Look for it on the calendar before trying again.', code: 'unknown_outcome' })
+    return json(500, { error: ownerBookUnknown(host.firstName), code: 'unknown_outcome' })
   }
   switch (out.kind) {
     case 'refused':
-      return json(out.status, { error: out.message, code: out.code, ...(out.field ? { field: out.field } : {}), ...out.extra })
+      if (out.extra?.why === 'price_changed') {
+        const now$ = formatMoney(Number(out.extra.newCents))
+        return json(409, {
+          error: `The price changed to ${now$} since this opened, so nothing was ${pay.kind === 'card' ? 'charged or booked' : 'booked or sent'}. The sheet now shows the new price. Check it with ${host.firstName}, then book again.`,
+          code: out.code, field: 'price', ...out.extra,
+        })
+      }
+      return json(out.status, { error: ownerBookMessage(out.code, out.message, host.firstName), code: out.code, ...(out.field ? { field: out.field } : {}), ...out.extra })
     case 'in_progress':
-      return json(409, { error: IN_PROGRESS_MESSAGE, code: 'in_progress' })
+      return json(409, { error: ownerBookMessage('in_progress', '', host.firstName), code: 'in_progress' })
     case 'unknown':
-      return json(502, { error: partyMessages.unknown_outcome, code: 'unknown_outcome', partyId: out.partyId })
+      return json(502, { error: ownerBookUnknown(host.firstName), code: 'unknown_outcome', partyId: out.partyId })
   }
 
   const rec = out.rec
   let link: { url: string; email: boolean; text: boolean } | null = null
   let warning: string | undefined
   let party = rec
-  if (pay.kind === 'link' && !out.replay) {
+  const first = rec.hostName.split(' ')[0] || 'the host'
+  const booked = `Booked ${first}’s party for ${partyWhenLabel(rec.startIso)}.`
+  let message = booked
+  // The link goes out once: on the first answer, or on a retry whose first try never got it out.
+  const neverSent = !(rec.linkSent ?? []).some((l) => l.email || l.text)
+  if (pay.kind === 'link' && (!out.replay || neverSent) && rec.status === 'booked' && dueCents(rec) > 0) {
     try {
       const sent = await sendPaymentLink(rec, new URL(request.url).origin, by)
       link = { url: sent.url, email: sent.email, text: sent.text }
       party = sent.rec
-      if (!sent.email && !sent.text) warning = 'Booked. The link didn’t go out by email or text. Use Send payment link on the party.'
+      message = `${booked} ${linkMessage(sent.rec, dueCents(sent.rec), sent.email, sent.text)}`
+      if (!sent.email && !sent.text) warning = `${booked} The payment link didn’t go out by email or text. On the Payments tab, tap Copy payment link and send it to ${first} yourself, or tap Send it again.`
     } catch (err) {
       logger.error('Payment link not sent after an owner booking', { partyId: rec.bookingId, error: String(err) })
-      warning = err instanceof PaymentLinkError ? `Booked. ${err.message}` : 'Booked. The link didn’t go out. Use Send payment link on the party.'
+      warning = err instanceof PaymentLinkError
+        ? `${booked} ${err.message}`
+        : `${booked} The payment link didn’t go out. Use Send payment link on the party.`
     }
+  } else if (pay.kind === 'card' && out.charge) {
+    message = `${booked} Charged ${formatMoney(out.charge.cents)} for the studio fee${(rec.items ?? []).some((it) => it.kind === 'addon') ? ' and extras' : ''}. ${out.emailSent ? `${first} gets the confirmation email.` : `The confirmation email didn’t go out. Check ${first}’s email address on the party.`} Crafts are paid at the studio after the party.`
   }
   if (!out.replay) {
     await recordAudit({
@@ -116,11 +144,12 @@ export const POST: APIRoute = async ({ request }) => {
   }
   return json(200, {
     data: {
-      party: adminPartyView(party),
+      party: adminPartyView(party, new Date(), new URL(request.url).origin),
       replay: out.replay,
       link,
       charge: out.charge ? { cents: out.charge.cents, receiptUrl: out.charge.receiptUrl, ...(out.charge.simulated ? { simulated: true } : {}) } : null,
       emailSent: out.emailSent,
+      message,
     },
     ...(warning ? { warning } : {}),
   })

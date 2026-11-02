@@ -204,8 +204,13 @@ describe('paidOnOrder', () => {
     expect(await paidOnOrder(async () => order)).toEqual({ kind: 'unpaid' })
   })
 
-  it('a payment not completed → unpaid', async () => {
+  it('a payment still going through → unpaid, marked pending', async () => {
     mockFindOrderPayment.mockResolvedValue({ ...paidPayment, status: 'pending' })
+    expect(await paidOnOrder(async () => order)).toEqual({ kind: 'unpaid', pending: true })
+  })
+
+  it('a failed payment → unpaid (not pending)', async () => {
+    mockFindOrderPayment.mockResolvedValue({ ...paidPayment, status: 'failed' })
     expect(await paidOnOrder(async () => order)).toEqual({ kind: 'unpaid' })
   })
 

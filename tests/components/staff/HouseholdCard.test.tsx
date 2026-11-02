@@ -4,9 +4,13 @@
  * shows `● here 4:12 PM` with a small Undo. No pickup panel, no "collected by",
  * no code, no "All picked up", no Reset.
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import HouseholdCard, { type Household } from '@components/staff/HouseholdCard'
+
+// The agreement is valid until Aug 1, 2027: pin the clock to the party day so it never lapses here (only Date is faked).
+beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'], shouldAdvanceTime: true }); vi.setSystemTime(new Date('2026-09-05T20:00:00.000Z')) })
+afterEach(() => { vi.useRealTimers() })
 
 function household(presence: Household['checkin']['presence'] = {}, over: Partial<Household> = {}): Household {
   return {

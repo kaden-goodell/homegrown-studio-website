@@ -270,11 +270,11 @@ export async function extendHold(
   })
 }
 
-/** Lets the time go, held or booked. */
-export async function releaseTime(partyId: string, startIso: string): Promise<void> {
-  await mutate(monthOf(startIso), (cur) => {
-    if (!cur.holds.some((h) => sameTime(h, partyId, startIso))) return { next: null, result: undefined }
-    return { next: { ...cur, holds: cur.holds.filter((h) => !sameTime(h, partyId, startIso)) }, result: undefined }
+/** Lets the time go, held or booked. True when a hold of this party was removed; false when it held nothing there. */
+export async function releaseTime(partyId: string, startIso: string): Promise<boolean> {
+  return mutate<boolean>(monthOf(startIso), (cur) => {
+    if (!cur.holds.some((h) => sameTime(h, partyId, startIso))) return { next: null, result: false }
+    return { next: { ...cur, holds: cur.holds.filter((h) => !sameTime(h, partyId, startIso)) }, result: true }
   })
 }
 
@@ -298,7 +298,8 @@ const NO_HOLD = 'That party has no time held to move.'
 const SAME_START = "That's already this party's time."
 
 /**
- * Writes the party's new time (CAS), keeping its state and expiry. The old
+ * Writes the party's new time (CAS), keeping its state and expiry; `wrote`
+ * says whether this call wrote it (false: the party already held it). The old
  * time stays held: the caller updates the party record, then calls
  * releaseTime(partyId, from.startIso). A move to the party's own start is
  * refused (an end change there is resizeTime): the caller's release would
@@ -313,7 +314,7 @@ const SAME_START = "That's already this party's time."
  */
 export async function moveTime(
   partyId: string, from: { startIso: string }, to: { startIso: string; endIso: string }, others: Busy[], now: Date,
-): Promise<Changed> {
+): Promise<{ ok: true; wrote: boolean } | { ok: false; message: string }> {
   checkSpan(to.startIso, to.endIso)
   if (Date.parse(from.startIso) === Date.parse(to.startIso)) return { ok: false, message: SAME_START }
   const fromMonth = monthOf(from.startIso), toMonth = monthOf(to.startIso)
@@ -322,15 +323,16 @@ export async function moveTime(
     ? null
     : await withLock(keyOf(fromMonth), async () => liveOld(parse(fromMonth, await timed(kv.get(keyOf(fromMonth)))).holds) ?? null)
   if (fromMonth !== toMonth && !oldElsewhere) return { ok: false, message: NO_HOLD }
-  return mutate<Changed>(toMonth, (cur) => {
+  return mutate<{ ok: true; wrote: boolean } | { ok: false; message: string }>(toMonth, (cur) => {
     const old = oldElsewhere ?? liveOld(cur.holds)
     if (!old) return { next: null, result: { ok: false, message: NO_HOLD } }
     const live = cur.holds.filter((h) => !isExpired(h, now))
-    if (live.some((h) => sameTime(h, partyId, to.startIso))) return { next: null, result: { ok: true } } // a retry after a move that went through
+    // Already held there (a retry after a move that went through): `wrote` false, so the caller never lets it go as its own.
+    if (live.some((h) => sameTime(h, partyId, to.startIso))) return { next: null, result: { ok: true, wrote: false } }
     // The party's own old time does not block its move.
     const c = check(to, live, others, (h) => h.partyId === partyId, partyId)
     if (!c.ok) return { next: null, result: { ok: false, message: c.message } }
     const moved: PartyHold = { ...old, startIso: toIso(to.startIso), endIso: toIso(to.endIso), at: now.toISOString() }
-    return { next: { ...cur, holds: [...live, moved] }, result: { ok: true } }
+    return { next: { ...cur, holds: [...live, moved] }, result: { ok: true, wrote: true } }
   })
 }

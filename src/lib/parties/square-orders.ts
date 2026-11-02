@@ -40,7 +40,7 @@ export const IN_FLIGHT_MS = 5 * 60_000
 export type PartyOrderOutcome =
   | { action: 'ignored'; why: 'not-paid' | 'recorded' | 'in-flight' | 'unreadable' }
   | { action: 'recorded'; partyId: string }
-  | { action: 'flagged'; why: 'no-checkout' | 'other-payment' }
+  | { action: 'flagged'; why: 'no-checkout' | 'other-payment' | 'retired' }
 
 const dollars = (c: number) => `$${(c / 100).toFixed(2)}`
 
@@ -91,7 +91,7 @@ async function handle(order: any, now: Date, opts: { paymentId?: string }): Prom
   }
   if (!rec && c && c.state === 'charging') return { action: 'ignored', why: 'in-flight' }
 
-  const why = rec ? 'other-payment' : 'no-checkout'
+  const why = rec ? 'other-payment' : c?.state === 'retired' ? 'retired' : 'no-checkout'
   const entry: PartyCheckout & { orderId: string } = {
     partyId, state: 'paid-elsewhere', why, startIso: rec?.startIso ?? c?.startIso ?? '', endIso: rec?.endIso ?? c?.endIso ?? '',
     draft: null, order: null, orderId, quotedCents: 0, squareCents: payment.amount, paymentId: payment.id,
@@ -101,10 +101,17 @@ async function handle(order: any, now: Date, opts: { paymentId?: string }): Prom
   if (await savePaidElsewhere(entry)) {
     logger.error('PARTY PAID IN SQUARE WITH NOTHING TO RECORD IT FROM', { partyId, orderId, why })
     await alertOwners(
-      `Party payment to check: Square shows ${dollars(payment.amount)} paid on order ${orderId} for party ${partyId}, but ${why === 'other-payment' ? 'that party is already paid by another order' : 'there is nothing here to book it from'}. Nothing was refunded. Open /admin › To decide.`,
+      `Party payment to check: Square shows ${dollars(payment.amount)} paid on order ${orderId} for party ${partyId}, but ${paidElsewhereWhy(why)}. Nothing was refunded. Open /admin › To decide.`,
     ).catch(() => undefined)
   }
   return { action: 'flagged', why }
+}
+
+/** Why a paid party order can't be recorded, in owners' words (owner text and To decide). */
+export function paidElsewhereWhy(why: PartyCheckout['why']): string {
+  if (why === 'other-payment') return 'that party is already paid by another order'
+  if (why === 'retired') return 'it was an earlier try the customer changed and started again, so it isn’t booked'
+  return 'there is nothing here to book it from'
 }
 
 /** The host's confirmation (once: only the call that created the record) and the owners' text. */

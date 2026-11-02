@@ -328,4 +328,66 @@ describe('To decide sheets', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Didn’t save. Try again.')
     expect(screen.getAllByText("Didn't save. Try again.").length).toBeGreaterThan(0)
   })
+
+  it('a host not told yet (DV8): open the party, or I told them, which posts told and shows Done', async () => {
+    const t = item({ kind: 'party-not-told', title: 'Host not told yet', head: 'Stefanie hasn’t been told about the new time (Sun Mar 16 1 PM). Nothing is sent to them on its own.', className: 'the Justice party',
+      detail: { partyId: 'pty_0123456789abcdef', partyDay: '2031-03-16', notToldAt: '2031-03-05T15:00:00Z', cancelled: false, host: 'Stefanie Justice' } })
+    const { f, sheet } = show([t])
+    expect(await screen.findByText(t.head)).toBeInTheDocument()
+    expect(screen.getByText(/Open the party to email them the new details and a calendar invite/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open the party' }))
+    expect(sheet.open).toHaveBeenCalledWith({ kind: 'party', day: '2031-03-16', id: 'pty_0123456789abcdef' })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'I told them' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'told' }]))
+    expect(await screen.findByText(/^Done · /)).toBeInTheDocument()
+  })
+
+  it('Task 13: an unclear payment on a booked party: It went through / It didn’t go through, Open the party; Square’s refusal shows in the sheet', async () => {
+    const t = item({ id: 'td_pp', kind: 'party-payment-unclear', title: 'Party payment unclear', head: 'Stefanie Justice’s $300 payment (payment link) for their party on Sat Nov 14 2 PM got no answer from Square.',
+      detail: { partyId: 'pty_abc123', partyDay: '2026-11-14', cents: 30000, via: 'link', until: '2026-11-03T15:00:00.000Z' } })
+    const one = show([t], { decide: (b) => (b.action === 'went-through' ? refuse(409, { error: 'Square shows no payment on this order yet, so nothing was recorded.' }) : null) }, 'td_pp')
+    expect(await screen.findByText('$300')).toBeInTheDocument()
+    expect(screen.getByText(/Nothing is charged or refunded from here\./)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'It went through' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Square shows no payment on this order yet, so nothing was recorded.')
+    fireEvent.click(within(footer()).getByRole('button', { name: 'It didn’t go through' }))
+    await waitFor(() => expect(decisions(one.f)).toEqual([{ id: 'td_pp', action: 'went-through' }, { id: 'td_pp', action: 'did-not-go-through' }]))
+    one.unmount()
+    const two = show([t], {}, 'td_pp')
+    fireEvent.click(await screen.findByRole('button', { name: 'Open the party' }))
+    expect(two.sheet.open).toHaveBeenCalledWith({ kind: 'party', day: '2026-11-14', id: 'pty_abc123' })
+  })
+
+  it('Task 13: a paid party with no confirmation: open the party to email the details, then Done', async () => {
+    const t = item({ id: 'td_nc', kind: 'party-no-confirmation', title: 'Party booked, no confirmation', head: 'Alice Smith’s party is paid and booked, but the booking stopped before their confirmation email went out.', detail: { partyId: 'pty_abc', partyDay: '2026-11-14' } })
+    const { f } = show([t], {}, 'td_nc')
+    expect(await screen.findByText(/Open the party and tap the button that emails the host the details/)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Done' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_nc', action: 'sorted' }]))
+  })
+
+  it('Task 13: a paid party order from an earlier try the customer changed says so', async () => {
+    const t = item({ id: 'td_rt', kind: 'party-paid-unclear', title: 'Party payment to check', detail: { partyId: 'pty_x', orderId: 'O', cents: 30000, elsewhere: true, why: 'retired' } })
+    show([t], {}, 'td_rt')
+    expect(await screen.findByText(/it was an earlier try the customer changed and started again, so it isn’t booked/)).toBeInTheDocument()
+  })
+  it('fix round: the Square order is its own row with Copy', async () => {
+    const t = item({ id: 'td_po', kind: 'party-payment-unclear', title: 'Party payment unclear', detail: { partyId: 'pty_abc123', partyDay: '2026-11-14', cents: 30000, via: 'link', orderId: 'ORD_123' } })
+    show([t], {}, 'td_po')
+    expect(await screen.findByText('ORD_123')).toBeInTheDocument()
+    expect(screen.getByText('Square order')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument()
+  })
+
+  it('fix round: a held time with no party: Free this time asks first, then sends; a refusal shows in the sheet', async () => {
+    const t = item({ id: 'td_ho', kind: 'party-hold-orphan', title: 'Party time held, no party', head: 'Sat Nov 14 2 PM is held for a party that isn’t on the books, so nobody can book that time.',
+      detail: { partyId: 'pty_orphan', startIso: '2026-11-14T20:00:00.000Z', endIso: '2026-11-14T21:30:00.000Z' } })
+    const { f } = show([t], { decide: () => refuse(409, { error: 'This time was held only a few minutes ago, so it may be a booking still being paid.' }) }, 'td_ho')
+    fireEvent.click(await screen.findByRole('button', { name: 'Free this time' }))
+    expect(decisions(f)).toEqual([])
+    expect(screen.getByText(/so nobody is told and no money moves/)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Free this time' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_ho', action: 'free' }]))
+    expect(await screen.findByRole('alert')).toHaveTextContent('it may be a booking still being paid')
+  })
 })

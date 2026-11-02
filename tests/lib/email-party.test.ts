@@ -96,6 +96,46 @@ describe('sendPartyConfirmationEmail', () => {
     expect(mockSendMail.mock.calls[0][0].html).not.toContain('<script>')
   })
 
+  it('re-sent after a move: the subject and heading say the time changed and the body names the old time', async () => {
+    await sendPartyConfirmationEmail({
+      ...input, slotLabel: 'Sun, Oct 18 · 1:00 PM CT',
+      updated: { costNote: 'Nothing is due before your party.', moved: { from: 'Sat, Oct 17 at 2:00 PM', to: 'Sun, Oct 18 at 1:00 PM' } },
+    })
+    expect(mockSendMail.mock.calls[0][0].subject).toBe('Your party has a new time — Bubble Letter Keychains, Sun, Oct 18 · 1:00 PM CT')
+    for (const body of bodies()) {
+      expect(body).toContain('Your party has a new time')
+      expect(body).toContain('Your party moved from Sat, Oct 17 at 2:00 PM to Sun, Oct 18 at 1:00 PM. If you added it to your calendar, delete the old one and add this new invite.')
+      expect(body).toContain('Nothing is due before your party.')
+      expect(body).not.toMatch(/birthday|balance/i)
+    }
+  })
+
+  it('re-sent after extra time changed the end (m10): says to delete the old calendar event, since Google keeps it', async () => {
+    await sendPartyConfirmationEmail({ ...input, updated: { costNote: '', endChanged: true } })
+    expect(mockSendMail.mock.calls[0][0].subject).toMatch(/^Your party details — /)
+    const [text, html] = bodies()
+    expect(text).toContain('Your party’s end time changed. If you added it to your calendar, delete the old one and add this new invite.')
+    expect(html).toMatch(/end time changed/)
+  })
+
+  it('re-sent with no move: “Your party details”; still to pay always comes with the pay link (never one without the other)', async () => {
+    await sendPartyConfirmationEmail({
+      ...input, totalChargedCents: 0,
+      updated: { costNote: 'There’s $300 still to pay for the studio fee.', pay: { url: 'https://ourhometownstudio.com/party/pay/bk-1?k=pay-key', label: 'Pay $300' } },
+    })
+    expect(mockSendMail.mock.calls[0][0].subject).toBe('Your party details — Bubble Letter Keychains, Sat, Oct 17 · 2:00 PM CT')
+    const [text, html] = bodies()
+    expect(text).toContain('There’s $300 still to pay for the studio fee.')
+    expect(text).toContain('Pay $300 here\nhttps://ourhometownstudio.com/party/pay/bk-1?k=pay-key')
+    expect(html).toContain('href="https://ourhometownstudio.com/party/pay/bk-1?k=pay-key"')
+    expect(html).toContain('>Pay $300</a>')
+    expect(text).not.toContain('moved from')
+    mockSendMail.mockClear()
+    // a pay link with no note is never shown alone
+    await sendPartyConfirmationEmail({ ...input, updated: { costNote: '', pay: { url: 'https://x/pay', label: 'Pay $300' } } })
+    for (const body of bodies()) expect(body).not.toContain('https://x/pay')
+  })
+
   it('reports honestly when email is not set up', async () => {
     delete process.env.GMAIL_USER
     vi.resetModules()

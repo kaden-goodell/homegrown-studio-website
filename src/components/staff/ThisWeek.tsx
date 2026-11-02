@@ -5,7 +5,7 @@ import { card, btn, Badge } from '@components/staff/ui'
 import { cafeOn } from '@lib/cafe-days'
 import { formatRange } from '@config/hours'
 import { addDays } from '@lib/kit-dates'
-import { formatTime, formatCalendarDay, studioDate } from '@lib/studio-time'
+import { formatTime, formatTimeSpan, formatCalendarDay, studioDate } from '@lib/studio-time'
 import type { StaffMember } from '@lib/staff-auth'
 import type { EventKind } from '@lib/events'
 import type { PrepOption } from '@lib/seat-options'
@@ -23,6 +23,10 @@ export interface WeekRow {
   capacity?: number
   /** Guests booked (parties). */
   guests?: number
+  /** Parties: when it ends, extra time included. */
+  endIso?: string
+  /** Parties of ours with something still to pay. */
+  waitingOnPayment?: boolean
   prep?: PrepOption[]
   /** Our own classes: each day of theirs this week, with that day's start, seats and prep. */
   byDay?: Record<string, { startIso: string; sold: number; capacity: number; prep?: PrepOption[] }>
@@ -117,8 +121,9 @@ export default function ThisWeek({
                         <span aria-hidden="true">{ICON[e.kind]}</span>
                         <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{e.title}</span>
                         {e.dropOff && <Badge tone="alert">DROP-OFF</Badge>}
+                        {e.waitingOnPayment && <Badge tone="warn">Waiting on payment</Badge>}
                       </span>
-                      <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{formatTime(e.startIso)}</span>
+                      <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{e.kind === 'party' && e.endIso ? formatTimeSpan(e.startIso, e.endIso) : formatTime(e.startIso)}</span>
                     </span>
                     <span style={{ display: 'block', margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
                       {e.kind === 'party'

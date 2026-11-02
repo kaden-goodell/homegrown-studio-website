@@ -70,9 +70,15 @@ describe('sendPaymentLink', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const sms = JSON.parse(fetchMock.mock.calls[0][1].body)
     expect(sms.to).toEqual(['+12565551234'])
-    expect(sms.content).toBe(`Hometown Studio here. Your party on Sun, Nov 8 at 1:30 PM is held for you. Pay $300 here to finish booking ${out.url}`)
+    expect(sms.content).toBe(`Hometown Studio here. Your party on Sun, Nov 8 at 1:30 PM is held for you. Pay $300 for the studio fee here to finish booking. Crafts are paid at the studio. ${out.url}`)
+    // D1: the email names the studio fee too, and never says "balance".
+    expect(mail.subject).toBe('Pay the studio fee for your party')
+    expect(mail.text).toContain('Pay $300 for the studio fee here to finish booking.')
+    expect(mail.text).toContain('Crafts are paid at the studio for whoever comes.')
+    expect(`${mail.subject} ${mail.text} ${sms.content}`).not.toMatch(/balance/i)
     const saved = await getPartyRecord(rec.bookingId)
-    expect(saved!.linkSent).toEqual([{ at: expect.any(String), by: KADEN, email: true, text: true }])
+    // the time the link's text named, so a later details email can say the party moved from it (m9)
+    expect(saved!.linkSent).toEqual([{ at: expect.any(String), by: KADEN, email: true, text: true, startIso: rec.startIso }])
     expect(saved!.history!.at(-1)).toMatchObject({ by: KADEN, change: 'Payment link emailed and texted' })
   })
 
@@ -108,21 +114,25 @@ describe('sendPaymentLink', () => {
   it('only extras due (the party is paid): the second wording, by text and email', async () => {
     const base = party()
     const rec = party({ items: [{ ...base.items![0], chargeId: 'chg_x' }, { ...base.items![0], id: 'itm_2', kind: 'addon', label: 'Balloons', cents: 2500, unitCents: 2500, chargeId: null }] })
-    expect(paymentLinkText(rec, 'U')).toBe('Hometown Studio here. Pay $25 here for the extras added to your party on Sun, Nov 8 at 1:30 PM U')
+    expect(paymentLinkText(rec, 'U')).toBe('Hometown Studio here. Pay $25 for balloons, added to your party on Sun, Nov 8 at 1:30 PM. U')
     await createPartyRecord(rec)
     await sendPaymentLink(rec, 'https://x.example', KADEN)
     const mail = m.sendMail.mock.calls[0][0]
     expect(mail.subject).toBe('Pay for the extras on your party')
-    expect(mail.text).toContain('Pay $25 here for them.')
+    expect(mail.text).toContain('We added balloons to your party on Sun, Nov 8 at 1:30 PM.')
+    expect(mail.text).toContain('Pay $25 here for balloons.')
     expect(mail.text).not.toContain('to finish booking')
   })
 })
 
 describe('sendPartyPaidEmail', () => {
-  it('says the party is paid only when nothing is still due', async () => {
-    await sendPartyPaidEmail({ to: 'a@example.com', givenName: 'Alice', whenLabel: 'Sun, Nov 8 at 1:30 PM', paidCents: 30000, receiptUrl: null })
-    await sendPartyPaidEmail({ to: 'a@example.com', givenName: 'Alice', whenLabel: 'Sun, Nov 8 at 1:30 PM', paidCents: 30000, receiptUrl: null, stillDueCents: 2500 })
-    expect(m.sendMail.mock.calls.map(([x]) => x.subject)).toEqual(['Your party is paid', 'We got your payment'])
+  it('names what was paid; says nothing else is due only when nothing is (crafts are still paid at the studio)', async () => {
+    await sendPartyPaidEmail({ to: 'a@example.com', givenName: 'Alice', whenLabel: 'Sun, Nov 8 at 1:30 PM', paidCents: 2500, receiptUrl: null, what: 'Balloons' })
+    await sendPartyPaidEmail({ to: 'a@example.com', givenName: 'Alice', whenLabel: 'Sun, Nov 8 at 1:30 PM', paidCents: 30000, receiptUrl: null, stillDueCents: 2500, what: 'the studio fee' })
+    expect(m.sendMail.mock.calls.map(([x]) => x.subject)).toEqual(['We got your payment', 'We got your payment'])
+    expect(m.sendMail.mock.calls[0][0].text).toContain('Thank you! We got your $25 payment for Balloons. Your party is on Sun, Nov 8 at 1:30 PM.')
+    expect(m.sendMail.mock.calls[0][0].text).toContain('Nothing else is due before your party.')
+    expect(m.sendMail.mock.calls[0][0].text).toContain('Crafts are paid at the studio for whoever comes.')
     expect(m.sendMail.mock.calls[1][0].text).toContain('There is still $25 to pay for extras added since.')
   })
 })

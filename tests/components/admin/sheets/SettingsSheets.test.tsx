@@ -120,6 +120,16 @@ describe('More › Hours & Craft Café', () => {
     await waitFor(() => expect(dirty()).toBe(false))
   })
 
+  it('a newly added café day starts at the Saturday café hours, 9 AM to 1 PM', async () => {
+    vi.stubGlobal('fetch', server())
+    sheet(<HoursSheet />)
+    await findGroup('Saturdays')
+    fireEvent.change(screen.getByLabelText('Add another day'), { target: { value: 'Sunday' } })
+    const sun = group('Sundays')
+    expect(within(sun).getByLabelText('Opens')).toHaveValue('09:00')
+    expect(within(sun).getByLabelText('Closes')).toHaveValue('13:00')
+  })
+
   it('closing before it opens is caught before sending', async () => {
     const f = server()
     vi.stubGlobal('fetch', f)

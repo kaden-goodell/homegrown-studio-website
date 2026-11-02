@@ -118,5 +118,5 @@ export function homeTabOf(s: Sheet): Tab {
 
 /** Sheets that hold a long form: on an iPad they open as a centred card, not a side panel. (A class's own sheet stays a panel.) */
 export function isFormSheet(s: Sheet): boolean {
-  return s.kind === 'new' || s.kind === 'again' || s.kind === 'libedit' || s.kind === 'libsched'
+  return s.kind === 'new' || s.kind === 'again' || s.kind === 'libedit' || s.kind === 'libsched' || s.kind === 'book-party'
 }

@@ -82,10 +82,24 @@ export interface PartyRecord {
   payToken?: string
   /** One payment in flight (link or admin card); see claimPaying in ./parties/money. */
   paying?: PartyPaying | null
-  linkSent?: { at: string; by: By | null; email: boolean; text: boolean }[]
+  /** `startIso`: the time the link's text named (newer entries), so a later details email can say the party moved from it (m9) */
+  linkSent?: { at: string; by: By | null; email: boolean; text: boolean; startIso?: string }[]
   cancelled?: { at: string; by: By; note: string }
   /** The host's booking confirmation: whether it went out (written by whoever recorded the party paid). */
-  confirmation?: { at: string; sent: boolean }
+  confirmation?: { at: string; sent: boolean; /** the start it named (a later "new details" email says the party moved from it) */ startIso?: string; /** the end it named (newer entries) */ endIso?: string }
+  /** "Email the details" taps (owner, after a move or an edit): one email per tap key; sent null while it goes out */
+  detailsSent?: { key: string; at: string; by: By | null; startIso: string; endIso?: string; sent: boolean | null }[]
+  /**
+   * The host hasn't been told about a change an owner made (DV8, T12 review I3):
+   * set by Move, Cancel, Change details and extra-time changes (nothing is sent
+   * automatically, S2-R7); cleared when "Email the details" goes out, or an owner
+   * taps "I told them". `what`: 'time' | 'details' | 'cancelled'.
+   */
+  notTold?: { at: string; by: By | null; what: ('time' | 'details' | 'cancelled')[]; /** the start before the first untold move */ fromStartIso?: string } | null
+  /** The last time the host was told (email, or an owner who said so). */
+  told?: { at: string; by: By | null; how: 'email' | 'owner' }
+  /** The calendar file's SEQUENCE (UID is the booking id): bumped on every move, edit and extra-time change, so a re-sent invite replaces the old one. */
+  calendarSeq?: number
   /** R6: paid after its time was taken by someone else; warned, never refunded automatically. */
   overlap?: true
   /** oldest first, capped at PARTY_HISTORY_CAP */
@@ -180,6 +194,13 @@ const ATTEMPTS = 3
 
 function needId(id: string): void {
   if (typeof id !== 'string' || id.trim() === '') throw new Error('A party needs an id.')
+}
+
+/** The party's end: our record's own (extra time included), else start + its length; undefined when neither is known. */
+export function partyEndIso(p: Pick<PartyRecord, 'startIso' | 'endIso' | 'durationMinutes'>): string | undefined {
+  if (p.endIso) return p.endIso
+  if (typeof p.durationMinutes === 'number' && p.durationMinutes > 0) return new Date(Date.parse(p.startIso) + p.durationMinutes * 60_000).toISOString()
+  return undefined
 }
 
 /** Ours (stage 2) rather than booked in Square. */

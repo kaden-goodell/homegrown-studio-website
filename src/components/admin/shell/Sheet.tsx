@@ -68,11 +68,18 @@ export function SheetFrame({ title, subtitle, footer, tall, children }: {
 }) {
   const api = useSheet()
   const id = useId()
+  const head = useRef<HTMLHeadingElement>(null)
+  // A sheet that swaps its loading frame for the loaded one draws a new frame: keep focus in the sheet, not lost on
+  // the page. It lands on the sheet's title (read out first), not on "Close" (T12 review m15).
+  useEffect(() => {
+    const at = document.activeElement
+    if (!at || at === document.body) head.current?.focus({ preventScroll: true })
+  }, [])
   return (
     <div className={`adm-sheet${tall ? ' is-tall' : ''}`} role="dialog" aria-modal={api.modal} aria-labelledby={id}>
       <div className="adm-sheet-head">
         <div className="adm-tt">
-          <h2 id={id}>{title}</h2>
+          <h2 id={id} ref={head} tabIndex={-1}>{title}</h2>
           {subtitle && <small>{subtitle}</small>}
         </div>
         <button type="button" className="adm-x" aria-label="Close" data-sheet-close="" onClick={api.close}>×</button>

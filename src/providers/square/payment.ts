@@ -236,6 +236,19 @@ export class SquarePaymentProvider implements PaymentProvider {
     return null
   }
 
+  async orderPaymentInFlight(orderId: string): Promise<boolean> {
+    const response = await this.client.orders.get({ orderId })
+    const order = ((response as any)?.order ?? response) as any
+    for (const tender of order?.tenders ?? []) {
+      const paymentId = tender?.paymentId ?? tender?.id
+      if (!paymentId) continue
+      const paymentResponse = await this.client.payments.get({ paymentId })
+      const payment = ((paymentResponse as any)?.payment ?? paymentResponse) as any
+      if (payment?.status === 'APPROVED' || payment?.status === 'PENDING') return true
+    }
+    return false
+  }
+
   async refundPayment(input: {
     paymentId: string
     amountCents: number

@@ -21,6 +21,7 @@
  *
  * Server only.
  */
+import type { PartyDetailsUpdate } from '@lib/email'
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
@@ -39,7 +40,7 @@ import { reportBooking } from '@lib/posthog-server'
 import { cleanAttribution } from '@lib/attribution'
 import { sendPartyConfirmationEmail } from '@lib/email'
 import { issueEmailFixTicket, onFileToAskAbout } from '@lib/email-fix'
-import { partyInviteUrl, googleCalendarUrl, buildIcs } from '@lib/party-share'
+import { partyInviteUrl, googleCalendarUrl, buildIcs, partyCalendarIds } from '@lib/party-share'
 import { formatSlotLabel, formatCalendarDate } from '@lib/studio-time'
 import { lookupHouseholdEntry } from '@lib/waiver-store'
 import { withUtm } from '@lib/utm'
@@ -94,6 +95,12 @@ export interface BookInput {
   posthogId?: unknown
   origin: string
   requestUrl: string
+  /**
+   * Owners (/admin): the pay-now total the sheet showed (T12 review I1). When
+   * the saved prices make it something else, nothing is held or charged and
+   * the refusal carries the new amount (`extra.newCents`, `extra.why: 'price_changed'`).
+   */
+  expectedCents?: number
 }
 
 export type BookOutcome =
@@ -110,7 +117,12 @@ export const PRICE_MISMATCH_MESSAGE = 'Pricing mismatch — your card was not ch
 export const CRAFT_GONE_MESSAGE = 'That craft isn’t available any more. Nothing was charged. Pick another craft.'
 export const PARTY_CANCELLED_MESSAGE = 'That party was cancelled. Nothing was charged. Start a new booking, or text us.'
 
+/** The themed table couldn't be reserved; Square couldn't start the order (owner-messages maps both). */
+export const THEME_NOT_RESERVED_MESSAGE = "We couldn't reserve the themed table. Your card was not charged — please try again."
+export const ORDER_FAILED_MESSAGE = "We couldn't start the payment, so we released the date. Your card was not charged — please try again."
 // DRAFT copy (new, for Kaden): a retry whose choices changed since an earlier, unpaid try.
+/** Owners only: the saved prices changed since the Book sheet opened (the admin route words it with the amounts). */
+export const PRICE_CHANGED_MESSAGE = 'The price changed since this opened. Nothing was charged or booked.'
 export const CHOICES_CHANGED_MESSAGE = 'Something changed. Nothing was charged. Please try again.'
 
 /** The Square order lines for a quote (and themed table). */
@@ -268,7 +280,7 @@ export async function recordPaidParty(
   } catch (err) {
     logger.error('PAID PARTY TIME NOT MARKED BOOKED', { partyId, error: String(err) })
     await alertOwners(
-      `Party paid, but its time couldn't be marked booked in the party book: ${whoOf(c.host)}, ${slot}, party ${partyId}. The party is recorded; check its time on /admin.`,
+      `Party paid, but its time couldn't be marked booked in the party book: ${whoOf(c.host)}, ${slot}. The party is recorded; check its time on /admin.`,
     ).catch(() => undefined)
   }
   const chargeId = idFor('chg', pay.paymentId)
@@ -296,7 +308,7 @@ export async function recordPaidParty(
   }
   if (!saved) {
     await alertOwners(
-      `Party booked and paid, but its party page could not be set up: ${whoOf(c.host)}, ${slot}, party ${partyId}, order ${pay.orderId}. They were told to text us for the link.`,
+      `Party booked and paid, but its party page could not be set up: ${whoOf(c.host)}, ${slot}, Square order ${pay.orderId}. They were told to text us for the link.`,
     ).catch(() => undefined)
   }
   if (!pay.simulated) {
@@ -339,7 +351,17 @@ export async function recordPaidParty(
  */
 export async function confirmationDone(partyId: string, rec: PartyRecord | null, sent: boolean, simulated = false): Promise<void> {
   if (!rec) return
-  await updatePartyRecord(partyId, (r) => ({ ...r, confirmation: { at: new Date().toISOString(), sent } }), sent ? 'Confirmation emailed' : 'Confirmation email did not send', null)
+  const at = new Date().toISOString()
+  await updatePartyRecord(partyId, (r) => ({
+    ...r,
+    // What the email named: the party as it was when the email was made (`rec`).
+    confirmation: { at, sent, startIso: rec.startIso, ...(rec.endIso ? { endIso: rec.endIso } : {}) },
+    // A full confirmation (first payment on a phone booking, DV4) told the host everything as of
+    // `rec`: the Not told yet reminder it covered goes; a change made after stays (T12 re-review N4).
+    ...(sent && r.notTold && rec.notTold && r.notTold.at === rec.notTold.at && Date.parse(r.startIso) === Date.parse(rec.startIso)
+      ? { notTold: null, told: { at, by: null, how: 'email' as const } }
+      : {}),
+  }), sent ? 'Confirmation emailed' : 'Confirmation email did not send', null)
     .catch((err) => logger.error('Party confirmation not noted', { partyId, error: String(err) }))
   if (!simulated) await deleteCheckout(partyId).catch((err) => logger.error('Party checkout not cleared', { partyId, error: String(err) }))
 }
@@ -365,6 +387,8 @@ async function agreementLineFor(email: string): Promise<string | undefined> {
 export async function sendPartyBookedEmail(input: {
   partyId: string; rec: PartyRecord | null; draft: PartyRecord; firstName: string; email: string; origin: string
   chargedCents: number; receiptUrl: string | null; craft?: CatalogCraft | null; themeName?: string; onFile?: string | null; minGuests?: number
+  /** An owner re-sending it (after a move or an edit): "Your party details", and what is paid or still due in place of "paid today". */
+  updated?: PartyDetailsUpdate
 }): Promise<boolean> {
   const { partyId, draft, origin } = input
   let craft = input.craft ?? null
@@ -397,7 +421,8 @@ export async function sendPartyBookedEmail(input: {
       totalChargedCents: input.chargedCents,
       receiptUrl: input.receiptUrl,
       googleCalendarUrl: googleCalendarUrl(calEvent),
-      icsContent: buildIcs(calEvent),
+      // One calendar event per booking (UID from the booking id), its SEQUENCE bumped by every move or edit: a re-sent invite replaces the old one.
+      icsContent: buildIcs(calEvent, partyCalendarIds(partyId, draft.calendarSeq)),
       bookingRef: partyId,
       bookingId: partyId,
       ...(input.onFile ? { alsoTo: input.onFile } : {}),
@@ -406,6 +431,7 @@ export async function sendPartyBookedEmail(input: {
       minGuests: input.minGuests ?? partyConfig.minGuests,
       refundLine: partyRefundLine(draft.startIso, new Date(), input.chargedCents > 0 ? input.chargedCents : undefined),
       directionsUrl: STUDIO_DIRECTIONS_URL,
+      ...(input.updated ? { updated: input.updated } : {}),
     })
     return sent
   } catch (err) {
@@ -542,6 +568,17 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
       quotedCents = prior.quotedCents
     }
   }
+  // The price the owner's sheet showed (I1): checked only on a fresh attempt. A retry of an attempt
+  // still going through (its hold, or its unpaid order carried on) charges what it started with; a
+  // "price changed" there could be false and would start a second booking (T12 re-review N3).
+  // Left as is on purpose (T12 re-review 2, Nit 2): a payment-link booking retried after its first try
+  // already held the time (`mine`) skips this check too and goes ahead at the price quoted now. Refusing
+  // there would strand the first try's payment-link hold, and the link and its email carry the amount
+  // actually quoted, so what the host pays is what they are shown. The window is a few seconds.
+  if (!mine && !reuse && input.expectedCents !== undefined && input.expectedCents !== quotedCents) {
+    logger.info('Owner booking refused: the price changed since the sheet opened', { partyId, expected: input.expectedCents, quoted: quotedCents })
+    return refuse(409, 'invalid', PRICE_CHANGED_MESSAGE, 'price', { why: 'price_changed', newCents: quotedCents, oldCents: input.expectedCents })
+  }
   const minutes = reuse ? Math.round((Date.parse(reuse.endIso) - startMs) / MINUTE) : q.minutes
 
   // ── 2. The time is free (fails closed) ─────────────────────────────────────
@@ -645,7 +682,7 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
     } catch (err) {
       logger.error('claimWeek failed', { error: String(err) })
       await letGo('theme claim failed')
-      return refuse(503, 'unavailable', "We couldn't reserve the themed table. Your card was not charged — please try again.")
+      return refuse(503, 'unavailable', THEME_NOT_RESERVED_MESSAGE)
     }
   }
 
@@ -714,7 +751,7 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
     logger.error('Party order failed — releasing the time', { partyId, error: err instanceof Error ? err.message : String(err) })
     await letGo('order failed')
     await forget()
-    return refuse(503, 'unavailable', "We couldn't start the payment, so we released the date. Your card was not charged — please try again.")
+    return refuse(503, 'unavailable', ORDER_FAILED_MESSAGE)
   }
   checkout.orderId = order.id
   checkout.squareCents = order.totalAmount

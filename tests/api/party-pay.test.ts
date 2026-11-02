@@ -17,6 +17,7 @@ const m = vi.hoisted(() => ({
   fromNonce: vi.fn(),
   alert: vi.fn(),
   paidEmail: vi.fn(),
+  confirmEmail: vi.fn(),
   sendEmail: vi.fn(),
   bypass: { on: false },
   paid: new Map<string, any>(),
@@ -61,7 +62,7 @@ vi.mock('@config/providers', () => ({
 }))
 vi.mock('@lib/owner-alert', () => ({ alertOwners: (...a: any[]) => m.alert(...a) }))
 vi.mock('@lib/email', () => ({
-  sendPartyConfirmationEmail: vi.fn(async () => ({ sent: true })),
+  sendPartyConfirmationEmail: (...a: any[]) => m.confirmEmail(...a),
   sendPartyPaidEmail: (...a: any[]) => m.paidEmail(...a),
   sendPartyPaymentLinkEmail: vi.fn(async () => ({ sent: true })),
   sendEmail: (...a: any[]) => m.sendEmail(...a),
@@ -139,6 +140,7 @@ beforeEach(() => {
   m.beforePay = null
   m.alert.mockReset().mockResolvedValue(undefined)
   m.paidEmail.mockReset().mockResolvedValue({ sent: true })
+  m.confirmEmail.mockReset().mockResolvedValue({ sent: true })
   m.sendEmail.mockReset().mockResolvedValue({ sent: true })
   m.fromNonce.mockReset()
   m.createOrder.mockReset().mockImplementation(async (p: any) => {
@@ -208,9 +210,13 @@ describe('POST /api/party/pay.json', () => {
     expect(rec.charges![0]).toMatchObject({ via: 'link', cents: 30000, quotedCents: 30000, itemIds: [p.rec.items![0].id] })
     expect(rec.items!.every((it) => it.chargeId === rec.charges![0].id)).toBe(true)
     expect(await partyForPayment(rec.charges![0].paymentId)).toEqual({ partyId: p.id, chargeId: rec.charges![0].id })
-    expect(m.paidEmail).toHaveBeenCalledTimes(1)
-    expect(m.paidEmail.mock.calls[0][0]).toMatchObject({ to: 'alice@example.com', paidCents: 30000 })
-    expect(m.alert.mock.calls.some(([t]) => /^Balance paid/.test(String(t)))).toBe(true)
+    // A party booked by phone had no confirmation yet: its first payment sends the full one (host page, invite), not a plain receipt.
+    expect(m.confirmEmail).toHaveBeenCalledTimes(1)
+    expect(m.confirmEmail.mock.calls[0][0]).toMatchObject({ to: 'alice@example.com', totalChargedCents: 30000, hostPageUrl: expect.stringContaining(`/party/${p.id}?key=`) })
+    expect(m.paidEmail).not.toHaveBeenCalled()
+    expect((await getPartyRecord(p.id))!.confirmation).toMatchObject({ sent: true })
+    expect(m.alert.mock.calls.some(([t]) => /^Party paid: Alice Smith paid \$300\.00 for the studio fee by payment link/.test(String(t)))).toBe(true)
+    expect(m.alert.mock.calls.some(([t]) => /balance/i.test(String(t)))).toBe(false)
     expect((await balance(p.id, p.k)).json.data).toMatchObject({ state: 'paid', dueCents: 0, items: [] })
   })
 
@@ -340,7 +346,7 @@ describe('POST /api/party/pay.json', () => {
     }
     expect((await pay(payBody(p))).status).toBe(200)
     expect((await getPartyRecord(p.id))!.charges).toHaveLength(1)
-    expect(m.alert.mock.calls.some(([t]) => /^Paid after it was cancelled\. Check it\./.test(String(t)) && String(t).includes(p.id))).toBe(true)
+    expect(m.alert.mock.calls.some(([t]) => /^Paid after it was cancelled\. Check it\./.test(String(t)) && !String(t).includes(p.id))).toBe(true) // m12: no party id in owner texts
     expect(m.paidEmail).not.toHaveBeenCalled()
   })
 
@@ -350,8 +356,9 @@ describe('POST /api/party/pay.json', () => {
     const rec = (await getPartyRecord(p.id))!
     expect(rec.charges![0].toldAt).toBeTruthy()
     await tellLinkPaid(rec, rec.charges![0])
-    expect(m.paidEmail).toHaveBeenCalledTimes(1)
-    expect(m.alert.mock.calls.filter(([t]) => /^Balance paid/.test(String(t)))).toHaveLength(1)
+    expect(m.confirmEmail).toHaveBeenCalledTimes(1)
+    expect(m.paidEmail).not.toHaveBeenCalled()
+    expect(m.alert.mock.calls.filter(([t]) => /^Party paid/.test(String(t)))).toHaveLength(1)
   })
 
   it('gate closed still lets a link payment through (S2-R16)', async () => {
@@ -433,7 +440,7 @@ describe('no answer from Square', () => {
     const rec = (await getPartyRecord(p.id))!
     expect(rec.paying).toMatchObject({ attemptId: b.attemptId, state: 'unclear' })
     expect(Date.parse(rec.paying!.until) - NOW.getTime()).toBe(24 * 3600_000)
-    expect(m.alert.mock.calls.some(([t]) => /unclear/.test(String(t)) && String(t).includes(p.id))).toBe(true)
+    expect(m.alert.mock.calls.some(([t]) => /unclear/.test(String(t)) && !String(t).includes(p.id))).toBe(true) // m12: host and time, no party id
     // Another attempt hours later: refused before any order.
     vi.setSystemTime(new Date(NOW.getTime() + 3 * 3600_000))
     m.createOrder.mockClear()
@@ -448,7 +455,7 @@ describe('no answer from Square', () => {
     expect(after.paying).toBeNull()
     expect(after.charges![0]).toMatchObject({ paymentId: 'pay-late', via: 'link' })
     expect(await partyForPayment('pay-late')).toMatchObject({ partyId: p.id })
-    expect(m.paidEmail).toHaveBeenCalledTimes(1)
+    expect(m.confirmEmail).toHaveBeenCalledTimes(1)
     expect((await listCheckouts()).some((c) => c.partyId === p.id)).toBe(false)
     // The same event again: nothing new.
     expect(await handlePartyOrder({ id: orderId, reference_id: p.id, state: 'COMPLETED', tenders: [{ payment_id: 'pay-late' }] }, new Date())).toEqual({ action: 'ignored', why: 'recorded' })

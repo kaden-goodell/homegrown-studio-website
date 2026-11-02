@@ -12,7 +12,7 @@ describe('Upcoming', () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => ({
       ok: true,
       json: async () => String(url).startsWith('/api/staff/parties.json')
-        ? { data: { parties: [row('later', '2026-11-08T19:00:00Z'), row('past', '2026-10-03T22:00:00Z'), row('soon', '2026-11-07T19:30:00Z')] } }
+        ? { data: { parties: [{ ...row('later', '2026-11-08T19:00:00Z'), endIso: '2026-11-08T21:00:00Z', waitingOnPayment: true }, row('past', '2026-10-03T22:00:00Z'), row('soon', '2026-11-07T19:30:00Z')] } }
         : { data: { events: [], sources: {} } },
     })))
   })
@@ -24,5 +24,12 @@ describe('Upcoming', () => {
     expect(screen.queryByText('Party past')).toBeNull()
     const titles = screen.getAllByText(/^Party /).map((n) => n.textContent)
     expect(titles).toEqual(['Party soon', 'Party later'])
+  })
+
+  it('a party with something still to pay says "Waiting on payment", and shows its end with extra time', async () => {
+    render(<Upcoming staff={{ id: 's', name: 'Sam', role: 'crew' }} onOpenRoster={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Party later')).toBeTruthy())
+    expect(screen.getAllByText('Waiting on payment')).toHaveLength(1)
+    expect(screen.getByText('Sun, Nov 8 · 1–3 PM')).toBeTruthy()
   })
 })

@@ -273,3 +273,33 @@ describe('GET /api/staff/roster.json — seat picks (spec D)', () => {
     expect((await res.json()).data.choices).toBeUndefined()
   })
 })
+
+describe('GET /api/staff/roster.json — our parties (stage 2 Task 13)', () => {
+  it('carries the payments the crew can refund and what is still to pay', async () => {
+    const { createPartyRecord } = await import('@lib/party-store')
+    const id = 'pty_rosterm00000001'
+    await createPartyRecord({
+      bookingId: id, hostToken: 'h', craftName: 'Suncatchers', startIso: '2026-11-14T20:00:00.000Z', durationMinutes: 90, hostName: 'Stefanie Justice',
+      hostEmail: 's@x.com', guestCount: 10, title: null, dropOff: false, createdAt: '2026-11-01T00:00:00Z', source: 'ours', status: 'booked',
+      items: [
+        { id: 'itm_p', kind: 'package', refId: 'pkg_whole', label: 'Whole studio', qty: 1, unitCents: 30000, cents: 30000, extraMinutes: 0, chargeId: 'chg_1', addedAt: '', by: null },
+        { id: 'itm_x', kind: 'addon', refId: 'add_bags', label: 'Goodie bags', qty: 10, unitCents: 500, cents: 5000, extraMinutes: 0, chargeId: null, addedAt: '', by: null },
+      ],
+      charges: [
+        { id: 'chg_1', via: 'online', orderId: 'o1', paymentId: 'p1', cents: 30000, quotedCents: 30000, itemIds: ['itm_p'], receiptUrl: null, at: '2026-11-01T19:00:00Z', by: null },
+        { id: 'chg_sim', via: 'online', orderId: 'o2', paymentId: 'p2', cents: 100, quotedCents: 100, itemIds: [], receiptUrl: null, at: '2026-11-01T19:00:00Z', by: null, simulated: true },
+      ],
+      refunds: [{ id: 'prf_1', chargeId: 'chg_1', paymentId: 'p1', cents: 5000, reason: 'r', by: null, role: 'owner', squareRefundId: 'sq', requestId: null, at: '2026-11-02T00:00:00Z' }],
+    })
+    mockGetEvent.mockResolvedValue({ ...partyEvent, id })
+    const res = await GET(ctx(`?kind=party&id=${id}`))
+    const { data } = await res.json()
+    expect(data.partyMoney).toMatchObject({ payer: 'Stefanie Justice', dueCents: 5000, cancelled: false, waiting: null })
+    expect(data.partyMoney.charges).toEqual([{ id: 'chg_1', left: 25000, label: expect.stringMatching(/^Paid online when booked · Sun, Nov 1 1:00 PM · \$300$/) }])
+  })
+
+  it('a party booked in Square has no payments here', async () => {
+    const res = await GET(ctx('?kind=party&id=party-1'))
+    expect((await res.json()).data.partyMoney).toBeUndefined()
+  })
+})

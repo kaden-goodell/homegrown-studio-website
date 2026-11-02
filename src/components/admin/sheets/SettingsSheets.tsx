@@ -216,7 +216,7 @@ function HoursForm({ view }: { view: SettingsView }) {
             value=""
             onChange={(e) => {
               const d = e.target.value as Weekday
-              if (d) { setWeekly([...weekly, { weekday: d, opens: '09:00', closes: '12:00' }].sort(byWeek)); setWeeklyError('') }
+              if (d) { setWeekly([...weekly, { weekday: d, opens: '09:00', closes: '13:00' }].sort(byWeek)); setWeeklyError('') }
             }}
           >
             <option value="">Pick a day</option>

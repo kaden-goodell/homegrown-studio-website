@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ party: vi.fn(), parties: vi.fn(), waivers: vi.fn(), rsvps: vi.fn() }))
-vi.mock('@lib/party-store', () => ({ getPartyRecord: mocks.party, listParties: mocks.parties }))
+vi.mock('@lib/party-store', async (orig) => ({ ...(await orig<typeof import('@lib/party-store')>()), getPartyRecord: mocks.party, listParties: mocks.parties }))
 vi.mock('@lib/waiver-store', () => ({ listWaiversByEvent: mocks.waivers }))
 vi.mock('@lib/rsvp-store', () => ({ listRsvpsByEvent: mocks.rsvps }))
 
@@ -84,7 +84,21 @@ describe('reports', () => {
       now,
     )
     // Nov 1 04:30Z is Oct 31 11:30 PM studio time: this month.
-    expect(r).toEqual({ month: '2026-10', seatsSold: 3, classSalesCents: 3 * 3815, refunds: 1, refundedCents: 1635, partiesBooked: 1 })
+    expect(r).toEqual({ month: '2026-10', seatsSold: 3, classSalesCents: 3 * 3815, refunds: 1, refundedCents: 1635, partiesBooked: 1, partyFeesCents: 0 })
+  })
+  it('parties (stage 2 Task 13): cancelled ones of ours aren’t counted as booked; party fees = charges − refunds this month', () => {
+    const now = new Date('2026-10-19T15:00:00Z')
+    const charge = (id: string, cents: number, at: string, over = {}) => ({ id, via: 'online', orderId: 'o', paymentId: id, cents, quotedCents: cents, itemIds: [], receiptUrl: null, at, by: null, ...over })
+    const refund = (chargeId: string, cents: number, at: string) => ({ id: `prf_${chargeId}`, chargeId, paymentId: chargeId, cents, reason: '', by: null, role: 'owner', squareRefundId: 's', requestId: null, at })
+    const r = reports.monthReport([], [
+      { source: 'ours', status: 'booked', createdAt: '2026-10-03T12:00:00Z', charges: [charge('c1', 30000, '2026-10-03T12:00:00Z'), charge('c2', 5000, '2026-10-10T12:00:00Z')], refunds: [refund('c2', 5000, '2026-10-12T12:00:00Z')] },
+      { source: 'ours', status: 'cancelled', createdAt: '2026-10-04T12:00:00Z', charges: [charge('c3', 30000, '2026-10-04T12:00:00Z')], refunds: [refund('c3', 30000, '2026-10-05T12:00:00Z')] },
+      { source: 'ours', status: 'booked', createdAt: '2026-09-20T12:00:00Z', charges: [charge('c4', 30000, '2026-09-20T12:00:00Z')], refunds: [refund('c4', 10000, '2026-10-06T12:00:00Z')] },
+      { source: 'ours', status: 'booked', createdAt: '2026-10-07T12:00:00Z', charges: [charge('c5', 100, '2026-10-07T12:00:00Z', { simulated: true })], refunds: [] },
+      { createdAt: '2026-10-08T12:00:00Z' },
+    ] as any, now)
+    expect(r.partiesBooked).toBe(3) // two of ours (one a test booking) + one booked in Square; the cancelled one left out
+    expect(r.partyFeesCents).toBe(30000 + 5000 - 5000 + 30000 - 30000 - 10000)
   })
   it('owners only; a storage failure is a 503 with a sentence', async () => {
     expect((await get(reports, '/api/admin/reports.json', false)).status).toBe(401)

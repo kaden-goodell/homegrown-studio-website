@@ -360,3 +360,227 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
     </div>
   )
 }
+
+// ── Amount mode: parties ─────────────────────────────────────────────────────
+
+/** One payment on a party that can be refunded: what Square took and what's left on it. */
+export interface AmountCharge {
+  id: string
+  /** what is left to refund on it */
+  left: number
+  /** "Card · Sat Oct 17 · $300" */
+  label: string
+}
+
+/** A party refund saved and sent to Square that never got an answer (the server's describePartyRequest). */
+export interface WaitingAmountRefund {
+  requestId: string
+  cents: number
+  at: string
+  by: { id: string; name: string }
+  chargeId: string | null
+}
+
+export const ADMIN_PARTY_REFUND = '/api/admin/parties/refund.json'
+export const STAFF_PARTY_REFUND = '/api/staff/party-refund.json'
+
+const givenName = (name: string) => name.trim().split(/\s+/)[0] || 'they'
+
+/**
+ * Refund all or part of one payment on a party (S2-R25: a refund is one
+ * charge). Shared by /admin and /staff (crew: reason required): pick the
+ * payment when there is more than one, all that's left or another amount, an
+ * optional reason, then one tap on a button that names the money and the
+ * person ("Refund $300 to Stefanie Justice? This sends money back to their
+ * card."). The server checks the amount against the payment again.
+ *
+ * The same flows as RefundPanel: one attempt token across retries, "Already
+ * refunded" with Refund again (R31), and a refund still waiting on Square
+ * turns into "It went through / It didn't go through" (R29).
+ */
+export function AmountRefundPanel({ partyId, payer, charges, endpoint = ADMIN_PARTY_REFUND, reasonRequired = false, waiting: waitingProp = null, send = api, onDone, cancelled = false }: {
+  partyId: string
+  /** who the money goes back to: "Stefanie Justice" */
+  payer: string
+  charges: AmountCharge[]
+  endpoint?: string
+  reasonRequired?: boolean
+  waiting?: WaitingAmountRefund | null
+  send?: Send
+  /** after a refund or a check: the sentence shown (so the sheet can keep it when this panel goes away, m4) */
+  onDone?: (message: string) => void
+  /** the party was cancelled: the confirm never says it stays booked (I5) */
+  cancelled?: boolean
+}) {
+  const refundable = charges.filter((c) => c.left > 0)
+  const [open, setOpen] = useState(false)
+  const [chargeId, setChargeId] = useState(refundable[0]?.id ?? '')
+  const [all, setAll] = useState(true)
+  const [amount, setAmount] = useState('')
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [done, setDone] = useState('')
+  const [already, setAlready] = useState('')
+  const [againOf, setAgainOf] = useState<{ of: string; token: string } | null>(null)
+  const [attempt, setAttempt] = useState(newAttempt)
+  const [waiting, setWaiting] = useState<WaitingAmountRefund | null>(waitingProp)
+  useEffect(() => { setWaiting(waitingProp) }, [waitingProp?.requestId])
+  const [seen, setSeen] = useState('')
+  // A different ask is not the one already made.
+  useEffect(() => { setAlready(''); setAgainOf(null) }, [chargeId, all, amount])
+  useEffect(() => { if (!refundable.some((c) => c.id === chargeId) && refundable[0]) setChargeId(refundable[0].id) }, [refundable.map((c) => c.id).join()])
+
+  const charge = refundable.find((c) => c.id === chargeId) ?? refundable[0]
+  const left = charge?.left ?? 0
+  const typed = Math.round(Number(amount) * 100)
+  const cents = all ? left : Number.isFinite(typed) && typed > 0 ? typed : 0
+  const tooMuch = cents > left
+  const reasonOk = !reasonRequired || reason.trim().length >= 3
+  const canGo = !!charge && cents > 0 && !tooMuch && reasonOk && !busy
+  const missing = !reasonOk ? 'Add a reason to refund.' : !all && cents === 0 ? 'Add an amount to refund.' : null
+  const first = givenName(payer)
+
+  if (!refundable.length && !waiting) return done ? <p role="status" style={{ margin: 0, fontWeight: 600 }}>{done}</p> : null
+
+  async function go(again = false) {
+    if (!charge) return
+    setBusy(true)
+    setError('')
+    const body: Record<string, unknown> = { partyId, chargeId: charge.id, cents, reason: reason.trim(), attempt }
+    if (again && againOf) body.again = againOf
+    const r = await send<{ cents: number; emailed: boolean; already?: { message: string; askedId?: string; latest: { requestId: string; cents: number } } }>(endpoint, body)
+    setBusy(false)
+    if (!r.ok || !r.data) {
+      setError(r.error ?? '')
+      if (r.extra?.pending) setWaiting(r.extra.pending as WaitingAmountRefund)
+      return
+    }
+    if (r.data.already && again && againOf && r.data.already.askedId === r.data.already.latest.requestId) {
+      finished(r.data.already.latest.cents, false)
+      return
+    }
+    if (r.data.already) {
+      setAlready(r.data.already.message)
+      setAgainOf({ of: r.data.already.latest.requestId, token: newAttempt() })
+      return
+    }
+    finished(r.data.cents, r.data.emailed)
+  }
+
+  function finished(c: number, emailed: boolean) {
+    setAlready('')
+    setAgainOf(null)
+    const text = `Refunded ${formatMoney(c)} to ${payer}.${emailed ? ` ${first} got an email about it.` : ''}`
+    setDone(text)
+    setAttempt(newAttempt())
+    setOpen(false)
+    setReason('')
+    setAmount('')
+    setAll(true)
+    onDone?.(text)
+  }
+
+  async function check(outcome: 'went-through' | 'did-not-go-through') {
+    if (!waiting) return
+    setBusy(true)
+    setError('')
+    const r = await send<{ status: string }>(endpoint, { action: 'clear', partyId, requestId: waiting.requestId, outcome, reason: seen.trim() })
+    setBusy(false)
+    if (!r.ok) { setError(r.error ?? ''); return }
+    const text = outcome === 'went-through' ? `Saved. ${formatMoney(waiting.cents)} refunded.` : 'Saved. That refund didn’t go through, so you can refund again.'
+    setDone(text)
+    setWaiting(null)
+    setSeen('')
+    onDone?.(text)
+  }
+
+  if (waiting) {
+    const seenOk = !reasonRequired || seen.trim().length >= 3
+    const when = new Date(waiting.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' })
+    return (
+      <div role="group" aria-label="Check a refund in Square" style={{ ...box, borderColor: '#b45309' }}>
+        <p style={{ margin: 0, fontWeight: 700 }}>A refund is waiting on Square</p>
+        <p style={{ margin: 0 }}>{`${formatMoney(waiting.cents)} back to ${payer}, asked by ${waiting.by.name} on ${when}. Square never said whether it went through. Look for it in Square, then say what you saw.`}</p>
+        <label style={{ display: 'grid', gap: '0.3rem' }}>
+          <span style={fieldLabel}>{reasonRequired ? 'What you saw in Square' : 'What you saw in Square (optional)'}</span>
+          <input type="text" value={seen} maxLength={500} onChange={(e) => setSeen(e.target.value)} style={input} />
+        </label>
+        {error && <p role="alert" style={errorText}>{error}</p>}
+        <div style={row}>
+          <button type="button" className="btn btn-primary" disabled={busy || !seenOk} style={dim(busy || !seenOk)} onClick={() => check('went-through')}>It went through</button>
+          <button type="button" className="btn btn-secondary" disabled={busy || !seenOk} style={dim(busy || !seenOk)} onClick={() => check('did-not-go-through')}>It didn’t go through</button>
+        </div>
+        {!seenOk && <p data-testid="refund-hint" style={hintText}>Add what you saw in Square.</p>}
+      </div>
+    )
+  }
+
+  if (!open) {
+    return (
+      <div style={row}>
+        <button type="button" className="btn btn-secondary" onClick={() => { setOpen(true); setDone('') }}>Refund</button>
+        {done && <span role="status" style={{ fontWeight: 600 }}>{done}</span>}
+      </div>
+    )
+  }
+
+  const name = `refund-${partyId}`
+  return (
+    <div role="group" aria-label="Refund" style={{ ...box, borderColor: 'var(--color-primary)' }}>
+      <p style={{ margin: 0, fontWeight: 700 }}>Refund</p>
+      {refundable.length > 1 && (
+        <fieldset style={{ border: 0, padding: 0, margin: 0, display: 'grid', gap: '0.3rem' }}>
+          <legend style={{ ...fieldLabel, padding: 0, marginBottom: '0.2rem' }}>Which payment</legend>
+          {refundable.map((c) => (
+            <label key={c.id} style={checkRow}>
+              <input type="radio" name={`${name}-charge`} checked={charge?.id === c.id} onChange={() => setChargeId(c.id)} />
+              {`${c.label} · ${formatMoney(c.left)} left`}
+            </label>
+          ))}
+        </fieldset>
+      )}
+      <fieldset style={{ border: 0, padding: 0, margin: 0, display: 'grid', gap: '0.3rem' }}>
+        <legend style={{ ...fieldLabel, padding: 0, marginBottom: '0.2rem' }}>How much</legend>
+        <label style={checkRow}>
+          <input type="radio" name={`${name}-amount`} checked={all} onChange={() => setAll(true)} />
+          {`All that’s left (${formatMoney(left)})`}
+        </label>
+        <label style={checkRow}>
+          <input type="radio" name={`${name}-amount`} checked={!all} onChange={() => setAll(false)} />
+          Another amount
+        </label>
+      </fieldset>
+      {!all && (
+        <label style={{ display: 'grid', gap: '0.3rem' }}>
+          <span style={fieldLabel}>{`Amount (up to ${formatMoney(left)})`}</span>
+          <input type="number" inputMode="decimal" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} style={input} />
+        </label>
+      )}
+      <label style={{ display: 'grid', gap: '0.3rem' }}>
+        <span style={fieldLabel}>{reasonRequired ? 'Reason' : 'Reason (optional)'}</span>
+        <input type="text" value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} style={input} />
+      </label>
+      {tooMuch && <p role="alert" style={errorText}>That is more than is left to refund on this payment.</p>}
+      {cents > 0 && !tooMuch && (
+        <p style={{ margin: 0, fontWeight: 600 }}>{`Refund ${formatMoney(cents)} to ${payer}? This sends money back to their card.${cancelled ? ' The party stays cancelled.' : ' The party stays booked.'}`}</p>
+      )}
+      {error && <p role="alert" style={errorText}>{error}</p>}
+      {already ? (
+        <>
+          <p role="status" style={{ margin: 0, fontWeight: 600 }}>{already}</p>
+          <div style={row}>
+            <button type="button" className="btn btn-primary" disabled={busy || !againOf} style={dim(busy || !againOf)} onClick={() => go(true)}>{busy ? 'Refunding…' : 'Refund again'}</button>
+            <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setOpen(false); setAlready(''); setAgainOf(null); setError('') }}>Back</button>
+          </div>
+        </>
+      ) : (
+        <div style={row}>
+          <button type="button" className="btn btn-primary" disabled={!canGo} style={dim(!canGo)} onClick={() => go()}>{busy ? 'Refunding…' : cents > 0 && !tooMuch ? `Refund ${formatMoney(cents)}` : 'Refund'}</button>
+          <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setOpen(false); setError('') }}>Back</button>
+        </div>
+      )}
+      {!already && missing && <p data-testid="refund-hint" style={hintText}>{missing}</p>}
+    </div>
+  )
+}

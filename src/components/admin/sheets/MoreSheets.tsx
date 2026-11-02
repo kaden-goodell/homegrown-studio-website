@@ -1,85 +1,15 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { MonthReport } from '@pages/api/admin/reports.json'
-import { clock, clockRange } from '../shell/time'
-import { partyConfig, partyDateOverrides, partyDays } from '@config/party.config'
 import { OWNERS, type Owner } from '@lib/admin-who'
 import { formatMoney } from '@lib/money'
 import { api, REPORTS, SEED } from '../classes/api'
-import { dayLabel, monthLabel, today } from '../classes/dates'
+import { monthLabel } from '../classes/dates'
 import { Failed, Seg, Skeleton } from '../shell/items'
 import { SheetFrame, useSheet } from '../shell/Sheet'
 import { useToast } from '../shell/Toast'
 
 /** Who is using /admin, and how to change it (More › Using as). */
 export const WhoContext = createContext<{ who: Owner | null; setWho: (o: Owner) => void }>({ who: null, setWho: () => {} })
-
-const WEEKDAY_PLURAL = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays']
-
-/** The party start times a day shape gives: every party-plus-cleanup from the first start until the last wrap. */
-export function startsFor(cfg: { firstStart: string; lastWrap: string }): string[] {
-  const mins = (s: string) => { const [h, m] = s.split(':').map(Number); return h * 60 + m }
-  const step = partyConfig.durationMinutes + partyConfig.cleanupBufferMinutes
-  const out: string[] = []
-  for (let t = mins(cfg.firstStart); t + step <= mins(cfg.lastWrap); t += step) {
-    out.push(`${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`)
-  }
-  return out
-}
-
-interface Craft { id: string; name: string; perHeadCents: number; perHeadMaxCents: number }
-
-const kv = (k: string, v: string, key?: string) => (
-  <div key={key ?? k} className="adm-kv"><span>{k}</span><span>{v}</span></div>
-)
-
-/** Parties setup, read only in stage 1: when parties run, the package, and the party crafts from Square. */
-export function PartiesSetupSheet() {
-  const [crafts, setCrafts] = useState<Craft[] | null>(null)
-  const [error, setError] = useState('')
-  const [tries, setTries] = useState(0)
-  useEffect(() => {
-    let live = true
-    setError('')
-    api<{ crafts: Craft[] }>('/api/party/service-info.json').then((r) => {
-      if (!live) return
-      if (r.ok && r.data) setCrafts(r.data.crafts)
-      else setError(r.ok ? 'The party crafts didn’t load.' : r.error ?? '')
-    })
-    return () => { live = false }
-  }, [tries])
-  const now = today()
-  const weekly = [4, 5, 6, 0].filter((d) => partyDays[d]).map((d) => [WEEKDAY_PLURAL[d], startsFor(partyDays[d]).map(clock).join(', ')] as const)
-  const oneOff = Object.entries(partyDateOverrides).filter(([d]) => d >= now).sort(([a], [b]) => a.localeCompare(b))
-  const price = formatMoney(partyConfig.basePriceCents)
-  return (
-    <SheetFrame tall title="Parties setup" subtitle={`Whole studio · ${price} · ${partyConfig.minGuests}–${partyConfig.maxGuests} guests`}>
-      <p className="adm-note">Editing party times comes with party booking.</p>
-      <p className="adm-lbl">Party days and times</p>
-      {weekly.map(([d, t]) => kv(d, t))}
-      {oneOff.length > 0 && (
-        <>
-          <p className="adm-lbl">One-off days</p>
-          {oneOff.map(([d, cfg]) => kv(dayLabel(d), startsFor(cfg).map(clock).join(', '), d))}
-        </>
-      )}
-      <p className="adm-lbl">Whole-studio package</p>
-      {kv('Price', price)}
-      {kv('Length', `${partyConfig.durationMinutes} minutes, then ${partyConfig.cleanupBufferMinutes} to clean up`)}
-      {kv('Guests', `${partyConfig.minGuests} to ${partyConfig.maxGuests}`)}
-      {kv('Booking', `${partyConfig.minLeadDays} days ahead at the soonest, ${partyConfig.bookingWindowDays} at the most`)}
-      <p className="adm-note" style={{ marginTop: '0.75rem' }}>Crafts are charged per guest on top of the package, at the studio.</p>
-      <p className="adm-lbl">Party crafts</p>
-      {error && <Failed message={error} onRetry={() => setTries((n) => n + 1)} />}
-      {!error && !crafts && <Skeleton rows={3} label="Loading the party crafts" />}
-      {crafts && crafts.length === 0 && <p className="adm-empty">No party crafts in Square yet.</p>}
-      {crafts?.map((c) => kv(
-        c.name,
-        `${c.perHeadMaxCents > c.perHeadCents ? `${formatMoney(c.perHeadCents)}–${formatMoney(c.perHeadMaxCents)}` : formatMoney(c.perHeadCents)} a guest`,
-        c.id,
-      ))}
-    </SheetFrame>
-  )
-}
 
 export function ComingSheet({ title, stage, what }: { title: string; stage: number; what: string }) {
   return (
@@ -115,11 +45,16 @@ export function ReportsSheet() {
             <div><b>{formatMoney(r.classSalesCents)}</b><small>class sales, before refunds</small></div>
           </div>
           <div className="adm-sum">
-            <div><b>{formatMoney(r.refundedCents)}</b><small>{`refunds (${r.refunds})`}</small></div>
+            <div><b>{formatMoney(r.refundedCents)}</b><small>{`class refunds (${r.refunds})`}</small></div>
             <div><b>{r.partiesBooked}</b><small>parties booked</small></div>
           </div>
+          {typeof r.partyFeesCents === 'number' && (
+            <div className="adm-sum">
+              <div><b>{formatMoney(r.partyFeesCents)}</b><small>party fees taken, less refunds</small></div>
+            </div>
+          )}
           <p className="adm-note" style={{ marginTop: '0.75rem' }}>
-            Covers our own classes (seats booked online, at the door and on the POS this month, with tax and extras; comps count as seats at $0) and parties booked on the website this month. Refunds are this month’s, whenever the seat was sold. Craft Café, party crafts and anything else rung up in Square are in Square’s reports.
+            Covers our own classes (seats booked online, at the door and on the POS this month, with tax and extras; comps count as seats at $0) and parties booked this month (cancelled ones left out). Party fees are the studio fees and extras paid this month, less party refunds made this month. Refunds are this month’s, whenever the seat was sold. Craft Café, party crafts and anything else rung up in Square are in Square’s reports.
           </p>
         </>
       )}
@@ -190,20 +125,6 @@ export function SandboxSheet() {
           {seed.commands.map((cmd) => <code key={cmd} style={{ display: 'block', overflowWrap: 'anywhere', userSelect: 'all', fontSize: '0.85rem' }}>{cmd}</code>)}
         </div>
       )}
-    </SheetFrame>
-  )
-}
-
-/** "Book a party" in stage 1: booking for someone happens on the party page, the one customers use. */
-export function BookPartySheet({ day }: { day?: string }) {
-  const href = `/book${day ? `?date=${day}` : ''}`
-  return (
-    <SheetFrame
-      title="Book a party"
-      subtitle={day ? `On ${dayLabel(day)}` : `Whole studio · ${formatMoney(partyConfig.basePriceCents)} + crafts`}
-      footer={<a className="adm-btn is-pri" href={href} target="_blank" rel="noopener">Open the party booking page</a>}
-    >
-      <p className="adm-note">For now, booking a party for someone happens on the party booking page, the same one customers use. It opens in a new tab{day ? ' on this day' : ''}. Booking it right here comes with the next stage.</p>
     </SheetFrame>
   )
 }

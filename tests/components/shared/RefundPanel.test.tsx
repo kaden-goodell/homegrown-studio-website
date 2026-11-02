@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import RefundPanel, { STAFF_REFUND } from '@components/shared/RefundPanel'
+import RefundPanel, { AmountRefundPanel, STAFF_PARTY_REFUND, STAFF_REFUND } from '@components/shared/RefundPanel'
 
 const booking: any = {
   bookingId: 'bkg_1', customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com', phone: '' },
@@ -265,3 +265,92 @@ describe('RefundPanel', () => {
   })
 })
 
+
+describe('AmountRefundPanel (parties)', () => {
+  const charges = [
+    { id: 'chg_1', left: 30000, label: 'Card, taken here · Sat Mar 1 · $300' },
+    { id: 'chg_2', left: 5000, label: 'Paid by payment link · Sun Mar 2 · $50' },
+  ]
+  const already = { at: '2031-03-03T15:00:00Z', by: { id: 'owner-catherine', name: 'Catherine' }, message: 'Already refunded on Mar 3 by Catherine.', count: 1, latest: { requestId: 'req_latest', at: '2031-03-03T15:00:00Z', by: { id: 'owner-catherine', name: 'Catherine' }, cents: 5000 } }
+
+  it('pick the payment, all or another amount; the confirm names the person and the money', async () => {
+    const f = vi.fn(async () => ok({ data: { cents: 2500, emailed: true } }))
+    vi.stubGlobal('fetch', f)
+    const onDone = vi.fn()
+    render(<AmountRefundPanel partyId="pty_1" payer="Stefanie Justice" charges={charges} onDone={onDone} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Refund' }))
+    expect(screen.getByText('Refund $300 to Stefanie Justice? This sends money back to their card. The party stays booked.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('radio', { name: /Paid by payment link/ }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Another amount' }))
+    expect(screen.getByTestId('refund-hint')).toHaveTextContent('Add an amount to refund.')
+    fireEvent.change(screen.getByLabelText('Amount (up to $50)'), { target: { value: '60' } })
+    expect(screen.getByRole('alert')).toHaveTextContent('That is more than is left to refund on this payment.')
+    fireEvent.change(screen.getByLabelText('Amount (up to $50)'), { target: { value: '25' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Refund $25' }))
+    await waitFor(() => expect(onDone).toHaveBeenCalled())
+    expect(JSON.parse((f.mock.calls[0] as any)[1].body)).toEqual({ partyId: 'pty_1', chargeId: 'chg_2', cents: 2500, reason: '', attempt: expect.stringMatching(/^[A-Za-z0-9_-]{6,80}$/) })
+    expect(await screen.findByText('Refunded $25 to Stefanie Justice. Stefanie got an email about it.')).toBeInTheDocument()
+  })
+
+  it('the same refund already made: says so; Refund again names it and keeps one token across retries', async () => {
+    const f = vi.fn()
+      .mockResolvedValueOnce(ok({ data: { cents: 5000, emailed: true, already } }))
+      .mockResolvedValueOnce({ ok: false, status: 502, json: async () => ({ error: "Square didn't confirm the refund. Try again. It won't refund twice." }) })
+      .mockResolvedValue(ok({ data: { cents: 5000, emailed: false } }))
+    vi.stubGlobal('fetch', f)
+    render(<AmountRefundPanel partyId="pty_1" payer="Stefanie Justice" charges={[charges[1]]} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Refund' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refund $50' }))
+    expect(await screen.findByText('Already refunded on Mar 3 by Catherine.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Refund again' }))
+    expect(await screen.findByText(/It won't refund twice/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Refund again' }))
+    await screen.findByText(/Refunded \$50 to Stefanie Justice/)
+    const [b1, b2, b3] = f.mock.calls.map((c: any) => JSON.parse(c[1].body))
+    expect(b1.again).toBeUndefined()
+    expect(b2.again).toEqual({ of: 'req_latest', token: expect.any(String) })
+    expect(b3.again).toEqual(b2.again)
+    expect(b3.attempt).toBe(b1.attempt)
+  })
+
+  it('a refund waiting on Square: It went through / It didn’t go through, posted as a clear', async () => {
+    const f = vi.fn(async () => ok({ data: { status: 'done', refunds: [], refundable: {} } }))
+    vi.stubGlobal('fetch', f)
+    const onDone = vi.fn()
+    render(<AmountRefundPanel partyId="pty_1" payer="Stefanie Justice" charges={charges} onDone={onDone}
+      waiting={{ requestId: 'req_w', cents: 30000, at: '2031-03-03T15:00:00Z', by: { id: 'owner-kaden', name: 'Kaden' }, chargeId: 'chg_1' }} />)
+    expect(screen.getByText(/\$300 back to Stefanie Justice, asked by Kaden on Mar 3\. Square never said whether it went through\./)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'It went through' }))
+    await waitFor(() => expect(onDone).toHaveBeenCalled())
+    expect(JSON.parse((f.mock.calls[0] as any)[1].body)).toEqual({ action: 'clear', partyId: 'pty_1', requestId: 'req_w', outcome: 'went-through', reason: '' })
+    expect(screen.getByText('Saved. $300 refunded.')).toBeInTheDocument()
+  })
+
+  it('a new refund refused because one is waiting on Square turns into the check', async () => {
+    const pending = { requestId: 'req_p', cents: 5000, at: '2031-03-03T15:00:00Z', by: { id: 'owner-kaden', name: 'Kaden' }, chargeId: 'chg_2' }
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 409, json: async () => ({ error: 'A refund on this party is waiting on Square.', pending }) })))
+    render(<AmountRefundPanel partyId="pty_1" payer="Stefanie Justice" charges={charges} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Refund' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refund $300' }))
+    expect(await screen.findByRole('group', { name: 'Check a refund in Square' })).toBeInTheDocument()
+  })
+
+  it('crew: a reason is needed, and it goes to the staff route', async () => {
+    const f = vi.fn(async () => ok({ data: { cents: 30000, emailed: false } }))
+    vi.stubGlobal('fetch', f)
+    render(<AmountRefundPanel partyId="pty_1" payer="Stefanie Justice" charges={[charges[0]]} endpoint={STAFF_PARTY_REFUND} reasonRequired />)
+    fireEvent.click(screen.getByRole('button', { name: 'Refund' }))
+    expect(screen.getByRole('button', { name: 'Refund $300' })).toBeDisabled()
+    expect(screen.getByTestId('refund-hint')).toHaveTextContent('Add a reason to refund.')
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Host was sick' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Refund $300' }))
+    await waitFor(() => expect(f).toHaveBeenCalled())
+    expect((f.mock.calls[0] as any)[0]).toBe(STAFF_PARTY_REFUND)
+    expect(JSON.parse((f.mock.calls[0] as any)[1].body).reason).toBe('Host was sick')
+  })
+
+  it('nothing left to refund: no Refund button', () => {
+    render(<AmountRefundPanel partyId="pty_1" payer="Stefanie Justice" charges={[{ ...charges[0], left: 0 }]} />)
+    expect(screen.queryByRole('button', { name: 'Refund' })).toBeNull()
+  })
+})

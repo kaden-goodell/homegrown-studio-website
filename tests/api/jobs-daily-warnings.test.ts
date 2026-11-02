@@ -72,6 +72,15 @@ describe('POST /api/jobs/daily-warnings.json', () => {
     expect(mail.html).toContain('Pumpkin Pails: 27 seats sold, 25 capacity.')
   })
 
+  it('party lines (stage 2 Task 13) go out like any other: a party with no time held', async () => {
+    const P = { code: 'party-no-hold', eventKind: 'party', eventId: 'pty_1', when: '2026-10-18T19:00:00.000Z', title: 'The Justice party',
+      detail: 'Stefanie Justice’s party on Sun, Oct 18 at 2:00 PM isn’t held on the calendar, so that time could be booked by someone else.',
+      action: 'Open the party on /admin, tap Move, choose Another time and pick the same day and time, or tell Kaden.' }
+    mockListWarnings.mockResolvedValue([P])
+    await POST(ctx(dailyWarningsJobKey(SECRET)))
+    expect(mockSendEmail.mock.calls[0][0].text).toContain(`Sun Oct 18 · ${P.detail} ${P.action}`)
+  })
+
   it('answers 503 and tells the owners when the scan cannot run, so silence never reads as all clear', async () => {
     mockListWarnings.mockRejectedValue(new Error('Square 500'))
     expect((await POST(ctx(dailyWarningsJobKey(SECRET)))).status).toBe(503)

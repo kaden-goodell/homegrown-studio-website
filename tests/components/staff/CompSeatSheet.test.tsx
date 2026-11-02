@@ -247,7 +247,11 @@ describe('CompSeatSheet on our own classes (Task 14)', () => {
   beforeEach(() => {
     fetchMock.mockReset()
     vi.stubGlobal('fetch', fetchMock)
+    // The sessions are Oct 20 and 21: pin the clock before them so the counter quote never ages out (only Date is faked).
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-19T15:00:00.000Z'))
   })
+  afterEach(() => { vi.useRealTimers() })
 
   function serveClass(...replies: any[]) {
     fetchMock.mockImplementation(async (url: string, init?: any) => {
