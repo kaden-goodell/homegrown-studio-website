@@ -272,6 +272,49 @@ export const HELP_SECTIONS: HelpSection[] = [
     ],
   },
   {
+    id: 'connections',
+    title: 'Emails, texts and Square',
+    intro: 'The website sends emails through the studio’s Google account, texts through Quo, and takes payments through Square. If one stops, Home says so.',
+    points: [
+      'More › **Email, texts and Square** shows whether each one is working, with **Send me a test email**, **Send me a test text** and **Check Square**. The test email and text go to your own email and mobile in More › Staff › People.',
+      'When one stops, Home shows a warning with the same buttons and **What to do**. The owners also hear the other way: a text when emails stop, an email when texts stop. The warning clears by itself as soon as one goes through.',
+      'Nothing booked is lost while one is down. Call or text anyone waiting on an email, and take payments on the Square app on the iPad if the website can’t.',
+    ],
+  },
+  {
+    id: 'email-broken',
+    title: 'If emails stop going out',
+    intro: 'Usually because the password of the Google account that sends them changed, or its 2-Step Verification was turned off. Then no confirmations, payment links, refund emails or morning emails go out.',
+    points: [
+      'First tap **Send me a test email**. If it arrives, it’s working again.',
+      'If not, make a new app password: sign in to the sending Google account on a computer › myaccount.google.com › Security › check 2-Step Verification is on › App passwords › create one called Website › copy the 16 letters.',
+      'Then put it in the website: sign in to the website’s hosting account on a computer (the login is on the studio’s accounts sheet) › Site configuration › Environment variables › GMAIL_APP_PASSWORD › Edit › paste it as the Production value › Save, then Deploys › Trigger deploy › Deploy site. Settings only count after that, and it takes about 3 minutes.',
+      'Tap **Send me a test email** again. Until it works, call or text customers who are waiting on an email.',
+    ],
+  },
+  {
+    id: 'texts-broken',
+    title: 'If texts stop going out',
+    intro: 'Texts go out from the studio number through Quo. They stop when the Quo key stops working or the Quo plan runs out.',
+    points: [
+      'First tap **Send me a test text**.',
+      'If not: open Quo on a computer (quo.com, signed in as the account owner) › check the plan and credits are paid › Settings › API › create a new key › copy it.',
+      'Then put it in the website: sign in to the website’s hosting account on a computer (the login is on the studio’s accounts sheet) › Site configuration › Environment variables › QUO_API_KEY › Edit › paste it as the Production value › Save, then Deploys › Trigger deploy › Deploy site. Settings only count after that, and it takes about 3 minutes.',
+      'Tap **Send me a test text** again. Until it works, text customers from the studio phone yourself.',
+    ],
+  },
+  {
+    id: 'square-broken',
+    title: 'If Square refuses the website',
+    intro: 'The website uses one Square key to take payments, refund and read bookings. It doesn’t run out by itself. It stops only if someone replaced it, removed the studio’s app in Square, or the Square account owner changed.',
+    points: [
+      'First tap **Check Square**. Square sometimes has a bad few minutes; if it answers, all is well.',
+      'If Square keeps refusing: sign in at developer.squareup.com on a computer as the Square account owner › Applications › the studio’s app › Credentials › Production › copy the access token. Only tap Replace if there’s no token to copy: it stops the old one at once.',
+      'Then put it in the website: sign in to the website’s hosting account on a computer (the login is on the studio’s accounts sheet) › Site configuration › Environment variables › SQUARE_ACCESS_TOKEN › Edit › paste it as the Production value › Save, then Deploys › Trigger deploy › Deploy site. Settings only count after that, and it takes about 3 minutes.',
+      'Tap **Check Square** again. Until it works, take payments on the Square app on the iPad and write bookings down.',
+    ],
+  },
+  {
     id: 'admin-access',
     title: 'Owners and the admin passcode',
     points: [
@@ -379,6 +422,12 @@ export const HELP_ROWS: HelpRow[] = [
   { id: 'staffing-unreadable', see: 'Couldn’t check staffing', where: HOME_STAFF, means: 'The staffing check couldn’t run just now.', tap: '**Try again**, or **Open Staff** to look yourself.', buttons: ['Try again', 'Open Staff'], comingWith: 'staffing' },
   { id: 'staff-passcode-guesses', see: 'Lots of wrong staff passcodes today', where: 'Home “Needs you”', means: 'Someone typed the wrong /staff passcode many times today. It may be someone guessing.', tap: '**Change the staff passcode**, then tell the crew the new one.', buttons: ['Change the staff passcode'], comingWith: 'staffing' },
   { id: 'staff-passcode-damaged', see: 'The staff passcode can’t be read', where: 'Home “Needs you”', means: 'Nobody can sign in to /staff until a new passcode is set.', tap: '**Set a new staff passcode**, type it twice, **Save new passcode**.', buttons: ['Set a new staff passcode', 'Save new passcode'], comingWith: 'staffing' },
+
+  // Emails, texts and Square (G2): shown on Home, not on the warnings list.
+  { id: 'email-failing', see: 'Emails aren’t going out', where: 'Home “Needs you”, a text to the owners', means: 'The website can’t send emails: customers aren’t getting confirmations, payment links or refund emails.', tap: '**Send me a test email**. If it doesn’t arrive, **What to do** has the steps (a new app password for the studio’s Google account).', buttons: ['Send me a test email', 'What to do'] },
+  { id: 'texts-failing', see: 'Texts aren’t going out', where: 'Home “Needs you”, an email to the owners', means: 'The website can’t send texts (Quo).', tap: '**Send me a test text**. If it doesn’t arrive, **What to do** has the steps (a new Quo key, or pay the Quo plan).', buttons: ['Send me a test text', 'What to do'] },
+  { id: 'square-failing', see: 'Square is refusing the website', where: 'Home “Needs you”, a text and an email to the owners', means: 'Online bookings, payments and refunds can’t go through.', tap: '**Check Square**. If it still refuses, **What to do** has the steps (copy the key from Square into the website).', buttons: ['Check Square', 'What to do'] },
+  { id: 'service-not-set', see: 'Emails / Texts / Square aren’t set up on this site', where: 'Home “Needs you”', means: 'The website has no password or key for it, so nothing goes out that way.', tap: '**What to do** has the steps for each.', buttons: ['What to do'] },
 
   // Arrive with stage 4 (extras)
   { id: 'not-on-register', see: '<class> isn’t on the register yet', where: HOME, means: 'It can’t be booked online until it is.', tap: 'Open the class › **Put it on the register**.', buttons: [], comingWith: 'extras' },

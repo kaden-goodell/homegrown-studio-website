@@ -29,7 +29,7 @@ import { NewClassSheet, RunAgainSheet, ScheduleFromLibrarySheet } from './sheets
 import { StaffSheet } from './sheets/StaffSheet'
 import { ComingSheet, ReportsSheet, SandboxSheet, WhoContext, WhoSheet } from './sheets/MoreSheets'
 import { HelpSheet } from './sheets/HelpSheet'
-import { AdminAccessSheet, NotifySheet } from './sheets/OwnerSheets'
+import { AdminAccessSheet, ConnectionsSheet, NotifySheet } from './sheets/OwnerSheets'
 import { ClosedDaysSheet, HoursSheet } from './sheets/SettingsSheets'
 import { ImportSquareSheet } from './sheets/ImportSquareSheet'
 import { StudioProvider } from './shell/studio'
@@ -461,6 +461,7 @@ function SheetContent({ sheet: s }: { sheet: Sheet }) {
         case 'who': return <WhoSheet />
         case 'access': return <AdminAccessSheet />
         case 'notify': return <NotifySheet />
+        case 'connections': return <ConnectionsSheet />
         case 'help': return <HelpSheet />
       }
   }

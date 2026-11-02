@@ -2,8 +2,12 @@
  * Owner-only screens under More › Owners and alerts:
  *   - Admin access (G4): who the owners are (the staff list's Owners) and the /admin passcode.
  *   - Notifications (G5): which owners get which alerts and reports.
+ *   - Email, texts and Square (G2): is each getting through, a test for each, and what to do.
  */
 import { useEffect, useRef, useState } from 'react'
+import { boldParts, HELP_SECTIONS } from '@lib/admin-help'
+import type { Service } from '@lib/outbound-health'
+import { problemText, TestButton, useHealth } from '../HomeHealth'
 import type { NotifyView, NotifyRow } from '@lib/notify-settings'
 import { ADMIN_ACCESS, api, NOTIFY } from '../classes/api'
 import { Failed, Skeleton } from '../shell/items'
@@ -253,7 +257,64 @@ export function NotifySheet() {
           ))}
           {saveError && <p className="adm-error" role="alert">{saveError}</p>}
           <p className="adm-small adm-muted adm-gap-top">What’s shown is what’s saved. Changes count from the next message.</p>
-          <button type="button" className="adm-btn is-ghost" onClick={() => sheet.open({ kind: 'more', page: 'staff' }, { part: 'people' })}>Edit emails and mobiles</button>
+          <div className="adm-two">
+            <button type="button" className="adm-btn is-ghost" onClick={() => sheet.open({ kind: 'more', page: 'staff' }, { part: 'people' })}>Edit emails and mobiles</button>
+            <button type="button" className="adm-btn is-ghost" onClick={() => sheet.open({ kind: 'more', page: 'connections' })}>Check emails and texts</button>
+          </div>
+        </>
+      )}
+    </SheetFrame>
+  )
+}
+
+// ── More › Email, texts and Square (G2) ───────────────────────────────────
+
+const SERVICE_TITLE: Record<Service, string> = { email: 'Emails', text: 'Texts', square: 'Square' }
+const SERVICE_WHAT: Record<Service, string> = {
+  email: 'Sent from the studio’s Google account: confirmations, payment links, refund emails, the morning email.',
+  text: 'Sent from the studio number through Quo: owner alerts, pickup codes, payment links by text.',
+  square: 'Online payments, refunds, and reading bookings and the register.',
+}
+const SERVICE_HELP: Record<Service, string> = { email: 'email-broken', text: 'texts-broken', square: 'square-broken' }
+
+function HelpText({ text }: { text: string }) {
+  return <>{boldParts(text).map((part, i) => (i % 2 ? <b key={i} className="adm-dark">{part}</b> : <span key={i}>{part}</span>))}</>
+}
+
+export function ConnectionsSheet() {
+  const { data } = useSheet()
+  const focus = data && typeof data === 'object' ? (data as { focus?: Service }).focus : undefined
+  const { view, reload } = useHealth()
+  const focused = useRef<HTMLElement | null>(null)
+  useEffect(() => { if (view && focus) focused.current?.scrollIntoView?.({ block: 'start' }) }, [view, focus])
+  return (
+    <SheetFrame tall title="Email, texts and Square" subtitle="Is each one getting through, and what to do if not">
+      {!view && <Skeleton rows={3} label="Checking emails, texts and Square" />}
+      {view && (
+        <>
+          <p className="adm-note">Tests go to your own email and mobile in Staff › People.{view.testSite ? ' This is a test site, so they go to the test inbox and phone instead.' : ''} A test that goes through clears the warning.</p>
+          {(['email', 'text', 'square'] as Service[]).map((s) => {
+            const h = view[s]
+            const help = HELP_SECTIONS.find((x) => x.id === SERVICE_HELP[s])
+            const broken = h.state === 'failing' || h.state === 'not-set'
+            return (
+              <section key={s} ref={focus === s ? (el) => { focused.current = el } : undefined} className={`adm-card adm-gap-top${broken ? ' is-warn' : ''}`} aria-label={SERVICE_TITLE[s]}>
+                <b className="adm-dark">{SERVICE_TITLE[s]}</b>
+                <span className="adm-small adm-muted">{SERVICE_WHAT[s]}</span>
+                <span role={broken ? 'alert' : undefined}>
+                  {broken ? problemText(s, h) : h.state === 'unknown' ? 'Couldn’t check just now.' : h.lastOkAt ? `Working. Last trouble cleared ${dayAndClock(h.lastOkAt)}.` : 'Working: nothing has failed lately.'}
+                </span>
+                {h.state !== 'not-set' && <TestButton service={s} primary={broken} onDone={reload} />}
+                {help && (
+                  <details className="adm-fold-group adm-help-fold" open={focus === s || broken}>
+                    <summary><span>What to do if it stops</span><i className="adm-chevron" aria-hidden="true" /></summary>
+                    {help.intro && <p className="adm-small adm-muted">{help.intro}</p>}
+                    <ol className="adm-help-list">{help.points.map((p, i) => <li key={i}><HelpText text={p} /></li>)}</ol>
+                  </details>
+                )}
+              </section>
+            )
+          })}
         </>
       )}
     </SheetFrame>

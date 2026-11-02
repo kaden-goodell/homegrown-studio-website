@@ -20,6 +20,7 @@ const ROWS: [MorePage, string, string][] = [
 const OWNER_ROWS: [MorePage, string, string][] = [
   ['access', 'Admin access', 'Who the owners are, and the /admin passcode'],
   ['notify', 'Notifications', 'Who gets texts, warnings, the tax split and the records archive'],
+  ['connections', 'Email, texts and Square', 'Check they’re getting through, and what to do if not'],
 ]
 
 /** More: the setup pages, reports, who's using this, and sign out. */

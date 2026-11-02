@@ -5,6 +5,7 @@
  * promise an email it can't verify was attempted.
  */
 import { previewEmail } from '@lib/preview-outbound'
+import { emailFailureKind, noteFailure, noteOk } from '@lib/outbound-health'
 import { createLogger } from '@lib/logger'
 import { siteConfig } from '@config/site.config'
 import { partyInviteMailto, partyInviteIcsUrl } from '@lib/party-share'
@@ -63,9 +64,13 @@ export async function sendEmail(input: {
       ...(input.replyTo ? { replyTo: input.replyTo } : {}),
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     })
+    await noteOk('email')
     return { sent: true }
   } catch (err) {
     logger.error('Email send failed', { error: err instanceof Error ? err.message : String(err) })
+    // Home warns when emails stop (G2); a new password needs a fresh connection, so drop this one.
+    _transport = null
+    await noteFailure('email', emailFailureKind(err))
     return { sent: false }
   }
 }

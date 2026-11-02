@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { emailsFor } from '@lib/notify-settings'
+import { failingLines } from '@lib/outbound-status'
 import { SITE_URL } from '@config/site-url'
 import { createLogger } from '@lib/logger'
 import { sendEmail } from '@lib/email'
@@ -97,7 +98,10 @@ export const POST: APIRoute = async ({ request }) => {
   const signIn = await squareSignInLine()
   // Undated items (counter sales, refund flags…) in full the first day only; after that, one line.
   const digest = await digestWarnings(warnings, from)
+  // Texts or Square failing (an email that arrives means email works again): in the morning email too (G2).
+  const outbound = await failingLines()
   const lines = [
+    ...outbound,
     ...(signIn ? [signIn] : []),
     ...digest.full.map(warningLine),
     ...(digest.stillToDecide > 0 ? [stillToDecideLine(digest.stillToDecide)] : []),

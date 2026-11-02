@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { renderSheet, ok, refuse, posts } from './harness'
-import { AdminAccessSheet, NotifySheet } from '@components/admin/sheets/OwnerSheets'
+import { AdminAccessSheet, ConnectionsSheet, NotifySheet } from '@components/admin/sheets/OwnerSheets'
+import { HomeHealthAlert } from '@components/admin/HomeHealth'
 
 const ACCESS = '/api/admin/admin-access.json'
 const NOTIFY = '/api/admin/notify.json'
@@ -154,5 +155,61 @@ describe('More › Notifications', () => {
     expect(await screen.findByText(/Start the staff list in Staff › People first/)).toBeInTheDocument()
     expect(screen.queryByRole('checkbox')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Save notifications' })).toBeNull()
+  })
+})
+
+const HEALTH = '/api/admin/health.json'
+const okH = { state: 'ok', since: null, kind: null, count: 0, lastOkAt: null }
+const failing = { state: 'failing', since: '2026-11-03T15:10:00Z', kind: 'auth', count: 3, lastOkAt: null }
+
+describe('emails, texts and Square (G2)', () => {
+  let hv: any
+  let answer: any
+  beforeEach(() => {
+    hv = { email: failing, text: okH, square: okH, testSite: false }
+    answer = { ok: true, message: 'Sent to cat@example.com. Check your inbox (and spam) in a minute.' }
+    fetchMock.mockImplementation(async (url: string, init: RequestInit = {}) => {
+      if (String(url) !== HEALTH) throw new Error(`unexpected ${url}`)
+      if ((init.method ?? 'GET') === 'GET') return ok({ data: hv })
+      return ok({ data: answer })
+    })
+  })
+
+  it('Home: a warning while emails are failing, with Send me a test email and What to do; the result shows under the button', async () => {
+    const onOpen = vi.fn()
+    render(<HomeHealthAlert onOpen={onOpen} />)
+    const panel = await screen.findByRole('group', { name: 'Emails problem' })
+    expect(panel).toHaveTextContent(/Emails aren’t going out since .*Customers aren’t getting confirmations, payment links or refund emails\./)
+    fireEvent.click(within(panel).getByRole('button', { name: 'Send me a test email' }))
+    expect(await within(panel).findByRole('status')).toHaveTextContent('Sent to cat@example.com.')
+    expect(posts(fetchMock, HEALTH)[0].body).toEqual({ action: 'test-email' })
+    fireEvent.click(within(panel).getByRole('button', { name: 'What to do' }))
+    expect(onOpen).toHaveBeenCalledWith({ kind: 'more', page: 'connections' }, { focus: 'email' })
+    expect(screen.queryByRole('group', { name: 'Texts problem' })).toBeNull()
+  })
+
+  it('Home says nothing while all is well', async () => {
+    hv = { email: okH, text: okH, square: okH }
+    const { container } = render(<HomeHealthAlert onOpen={vi.fn()} />)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    expect(container.textContent).toBe('')
+  })
+
+  it('More › Email, texts and Square: each one’s state, its test, and the steps to fix it (open on the broken one)', async () => {
+    hv = { email: okH, text: okH, square: failing, testSite: true }
+    answer = { ok: false, message: 'Square refused the website’s key. See What to do.' }
+    renderSheet(<ConnectionsSheet />, { data: { focus: 'square' } })
+    const sq = await screen.findByRole('region', { name: 'Square' })
+    expect(within(sq).getByRole('alert')).toHaveTextContent('Square is refusing the website since')
+    expect(within(sq).getByText('What to do if it stops').closest('details')).toHaveAttribute('open')
+    expect(sq).toHaveTextContent('developer.squareup.com')
+    expect(sq).toHaveTextContent('SQUARE_ACCESS_TOKEN')
+    fireEvent.click(within(sq).getByRole('button', { name: 'Check Square' }))
+    expect(await within(sq).findByRole('status')).toHaveTextContent('Square refused the website’s key.')
+    const email = screen.getByRole('region', { name: 'Emails' })
+    expect(email).toHaveTextContent('Working: nothing has failed lately.')
+    expect(within(email).getByText('What to do if it stops').closest('details')).not.toHaveAttribute('open')
+    expect(email).toHaveTextContent('App passwords')
+    expect(screen.getByText(/This is a test site, so they go to the test inbox and phone instead/)).toBeInTheDocument()
   })
 })

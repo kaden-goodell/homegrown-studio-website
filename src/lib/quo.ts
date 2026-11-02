@@ -10,6 +10,7 @@
  */
 import { createLogger } from '@lib/logger'
 import { previewText } from '@lib/preview-outbound'
+import { noteFailure, noteOk, statusKind } from '@lib/outbound-health'
 
 const logger = createLogger('quo')
 
@@ -51,15 +52,24 @@ export async function sendQuoText(input: { to: string; content: string }): Promi
   const to = toE164(input.to)
   if (!to) throw new Error(`Unparseable phone number: ${input.to}`)
 
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: env('QUO_API_KEY') },
-    body: JSON.stringify({ content: input.content, from: env('QUO_FROM_NUMBER'), to: [to] }),
-  })
+  let res: Response
+  try {
+    res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: env('QUO_API_KEY') },
+      body: JSON.stringify({ content: input.content, from: env('QUO_FROM_NUMBER'), to: [to] }),
+    })
+  } catch (err) {
+    await noteFailure('text', 'other') // Home warns when texts stop (G2)
+    throw err
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     logger.error('Quo send failed', { status: res.status, body: body.slice(0, 300) })
+    // A 400 about one number (opted out, landline) isn't the service failing.
+    if (res.status === 401 || res.status === 403 || res.status === 402 || res.status >= 500) await noteFailure('text', statusKind(res.status === 402 ? 401 : res.status))
     throw new Error(`Quo API ${res.status}`)
   }
+  await noteOk('text')
   logger.info('Quo text sent', { to })
 }
