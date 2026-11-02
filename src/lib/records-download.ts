@@ -34,8 +34,8 @@ const LEGAL_STORES = ['waivers', 'rsvps', 'checkins', 'incidents', 'event-meta',
 
 /** Never more than this in one download (a phone or iPad, and the site's own reply limit). */
 export const MAX_RECORDS_BYTES = 5 * 1024 * 1024
-/** Give up (and say so) rather than keep the page waiting longer than this. */
-export const RECORDS_DEADLINE_MS = 20_000
+/** Give up (and say so) before the site function's own 10-second limit cuts the answer off. */
+export const RECORDS_DEADLINE_MS = 8_000
 const READ_AT_ONCE = 16
 
 export const TOO_BIG = 'That’s too much for one download. Pick a shorter range.'
