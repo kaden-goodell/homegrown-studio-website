@@ -713,11 +713,13 @@ export async function sendRefundEmail(input: {
 function partyMoneyEmail(input: {
   to: string; subject: string; givenName: string; lines: string[]
   button?: { label: string; url: string }; link?: { label: string; url: string }
+  /** closing lines; default "Questions? Text us at …" (customers) */
+  tail?: string[]
 }): Promise<{ sent: boolean }> {
   const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
   const phone = siteConfig.contactPhone
   const hi = input.givenName ? `Hi ${input.givenName},` : 'Hi,'
-  const tail = phone ? [`Questions? Text us at ${phone}.`] : []
+  const tail = input.tail ?? (phone ? [`Questions? Text us at ${phone}.`] : [])
   const text = [
     hi, ``,
     ...input.lines.flatMap((l) => [l, ``]),
@@ -788,5 +790,23 @@ export async function sendPartyPaidEmail(input: {
     givenName: input.givenName,
     lines,
     ...(input.receiptUrl ? { link: { label: 'See your receipt', url: input.receiptUrl } } : {}),
+  })
+}
+
+/**
+ * Tells a team member an owner put them on a class or party, or took them
+ * off (stage 3, OWNER-2). DRAFT copy for Kaden. The lines come ready-made
+ * from src/lib/staffing/notify.ts so the email and the text say the same.
+ */
+export async function sendShiftEmail(input: {
+  to: string; givenName: string; subject: string; lines: string[]; shiftsUrl: string
+}): Promise<{ sent: boolean }> {
+  return partyMoneyEmail({
+    to: input.to,
+    subject: input.subject,
+    givenName: input.givenName,
+    lines: input.lines,
+    button: { label: 'See my shifts', url: input.shiftsUrl },
+    tail: [],
   })
 }

@@ -278,6 +278,35 @@ export async function staffingRows(fromIso: string, toIso: string, opts: { onlyS
 }
 
 /**
+ * One owner row by key (searched from a day back to ten weeks ahead, like
+ * eventByKey), or null. Throws when a source or the team can't be read.
+ */
+export async function rowByKey(key: EventKey, now: Date = new Date()): Promise<StaffingRow | null> {
+  const fromIso = new Date(now.getTime() - LOOKUP_BACK_MS).toISOString(), toIso = new Date(now.getTime() + LOOKUP_AHEAD_MS).toISOString()
+  const [{ events, entries }, { people: team }] = await Promise.all([collect(fromIso, toIso, now), teamWithContacts()])
+  const event = events.find((e) => e.key === key)
+  if (!event) return null
+  const active = team.filter((p) => p.active)
+  const availability = await getAvailabilityMany(active.map((p) => p.id))
+  return buildRows([event], entries, active, availability)[0]
+}
+
+/** The same owner row with a just-saved entry (verdicts and names kept; who's on, who asked and the counts redone). */
+export function refreshRow(row: StaffingRow, entry: StaffingEntry): StaffingRow {
+  const activeIds = new Set(row.people.map((p) => p.staffId))
+  const people = row.people.map((p): StaffPersonRow => {
+    const ask = entry.asks.find((a) => a.staffId === p.staffId)
+    return { ...p, asked: !!ask, askNote: ask?.note ?? '', assigned: entry.assigned.some((a) => a.staffId === p.staffId) }
+  }).sort(peopleOrder)
+  return {
+    ...row, entry, people,
+    state: staffedState(entry, row.event.kind, (id) => activeIds.has(id)),
+    needed: neededFor(entry, row.event.kind),
+    leftTeam: entry.assigned.filter((a) => !activeIds.has(a.staffId)).map((a) => ({ staffId: a.staffId, name: a.name })),
+  }
+}
+
+/**
  * One crew member's view, from one read of the schedule: `mine` = rows they
  * are on (crew-safe, cancelled ones too so they hear about it); `open` =
  * events still to come that are on and not theirs, with whether they asked.
