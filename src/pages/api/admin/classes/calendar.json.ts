@@ -8,6 +8,7 @@ import { busyBetween, type Busy } from '@lib/classes/studio-schedule'
 import type { ClassStatus } from '@lib/classes/types'
 import { getPartyRecord } from '@lib/party-store'
 import { listBlocked } from '@lib/classes/blocked-time'
+import { paymentState } from '@lib/parties/money'
 
 export const prerender = false
 
@@ -18,6 +19,8 @@ export type CalendarItem = Busy & {
   capacity?: number
   /** Parties: the guest count the host booked for, when we have their record. */
   guests?: number
+  /** Parties: waiting on payment, part paid, paid, or booked in Square (legacy, read only here). */
+  pay?: 'paid' | 'waiting' | 'partly' | 'legacy' | 'cancelled'
   /** Blocked time: the owners' note (only on /admin). */
   note?: string
 }
@@ -64,7 +67,9 @@ export const GET: APIRoute = async ({ request, url }) => {
       }
       if (b.kind === 'party') {
         const record = await getPartyRecord(b.id).catch(() => null)
-        return record ? { ...b, guests: record.guestCount } : b
+        if (record) return { ...b, guests: record.guestCount, pay: paymentState(record) }
+        // No record here: only a party booked in Square (ours always have one; an unreadable one shows plain).
+        return b.id.startsWith('pty_') ? b : { ...b, pay: 'legacy' }
       }
       return b
     }))

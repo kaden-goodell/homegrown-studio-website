@@ -2380,3 +2380,94 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
   font-size: 0.9rem;
   cursor: pointer;
 }
+
+/* Parties (stage 2): time buttons and chips, three across, tight price rows. */
+.adm-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.6rem;
+  align-items: center;
+}
+.adm-time {
+  min-height: 2.75rem;
+  min-width: 5.5rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.75rem;
+  border: 1.5px solid var(--adm-line-strong);
+  background: var(--adm-surface);
+  color: var(--color-dark);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.adm-time.is-wide {
+  min-width: 0;
+}
+.adm-time small {
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.adm-time[aria-pressed='true'] {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+.adm-time[aria-pressed='true']::before {
+  content: '✓ ';
+}
+.adm-time[disabled] {
+  cursor: not-allowed;
+  border-style: dashed;
+  color: var(--color-muted);
+  background: var(--adm-sand);
+}
+.adm-time.is-chip {
+  flex-direction: row;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.adm-time.is-add {
+  min-width: 0;
+  border-style: dashed;
+  color: var(--color-primary);
+}
+.adm-three {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+.adm-kv.adm-kv-tight {
+  padding: 0.3rem 0;
+}
+.adm-timesrow {
+  border-bottom: 1px solid var(--adm-line);
+  padding: 0.5rem 0 0.1rem;
+}
+.adm-timesrow-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0 0 0.4rem;
+}
+.adm-timesrow-head b {
+  color: var(--color-dark);
+}
+.adm-timesrow-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.4rem;
+  margin: 0 0 0.6rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .adm-time {
+    transition: none;
+  }
+}

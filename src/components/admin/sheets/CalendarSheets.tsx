@@ -1,21 +1,16 @@
 import { useEffect, useState } from 'react'
 import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
-import type { AdminParty, AdminPartyGuest } from '@pages/api/admin/party.json'
 import { closureOn, OPEN_WEEKDAYS } from '@config/closures'
 import { cafeHoursEntries, cafeHoursOn } from '@config/hours'
 import { useStudio } from '../shell/studio'
-import { partyConfig } from '@config/party.config'
-import { formatMoney } from '@lib/money'
 import { timeSpan as formatTimeSpan, clockRange } from '../shell/time'
 import { localDate } from '@lib/party-slots'
-import { api, BLOCKED, PARTY } from '../classes/api'
+import { api, BLOCKED } from '../classes/api'
 import { addDays, dayLabel, weekday } from '../classes/dates'
 import { useCalendar, useRefresh } from '../shell/data'
-import { Failed, ItemRow, itemKey, itemName, itemTime, Seg, sheetOf, Skeleton } from '../shell/items'
+import { Failed, ItemRow, itemKey, itemName, itemTime, sheetOf, Skeleton } from '../shell/items'
 import { SheetFrame, useSheet } from '../shell/Sheet'
 import { DIDNT_SAVE, useToast } from '../shell/Toast'
-import { smsHref, telHref } from '../inbox/describe'
-import { ContactButton } from '../inbox/InboxSheets'
 
 /** The item a sheet is about: handed over by the list that opened it, or found again on its day (after a refresh). */
 function useItem(day: string, id: string): { item: CalendarItem | null; loading: boolean; error: string; retry: () => void } {
@@ -183,97 +178,6 @@ export function ClosedSheet({ day }: { day: string }) {
       footer={<button type="button" className="adm-btn is-ghost" onClick={() => open({ kind: 'more', page: 'closed' })}>Edit closed days</button>}
     >
       <div className="adm-card"><p>Nothing can be booked on these days: no classes, parties or Craft Café.</p></div>
-    </SheetFrame>
-  )
-}
-
-type PartyTab = 'details' | 'guests' | 'pay'
-const WAIVER: Record<AdminPartyGuest['waiver'], string> = { current: 'Waiver signed', expired: 'Waiver expired', outdated: 'Needs the new waiver' }
-
-/** A party, read only for now: Details · Guests · Payments, with Call and Text. */
-export function PartySheet({ day, id }: { day: string; id: string }) {
-  const { item, loading, error, retry } = useItem(day, id)
-  const [tab, setTab] = useState<PartyTab>('details')
-  const [info, setInfo] = useState<{ party: AdminParty | null; guests: AdminPartyGuest[] | null } | null>(null)
-  const [infoError, setInfoError] = useState('')
-  const [tries, setTries] = useState(0)
-  useEffect(() => {
-    let live = true
-    setInfoError('')
-    api<{ party: AdminParty | null; guests: AdminPartyGuest[] | null }>(`${PARTY}?id=${encodeURIComponent(id)}`).then((r) => {
-      if (!live) return
-      if (r.ok && r.data) setInfo(r.data)
-      else setInfoError(r.error ?? '')
-    })
-    return () => { live = false }
-  }, [id, tries])
-
-  if (loading) return <SheetFrame title="Party"><Skeleton rows={3} /></SheetFrame>
-  if (error) return <SheetFrame title="Party"><Failed message={error} onRetry={retry} /></SheetFrame>
-  if (!item) return <Gone title="Party" />
-  const p = info?.party ?? null
-  const phone = p?.hostPhone ?? ''
-  const footer = phone
-    ? (
-      <div className="adm-two">
-        <ContactButton label="Call" href={telHref(phone)} text={phone} />
-        <ContactButton label="Text" href={smsHref(phone)} text={phone} />
-      </div>
-    )
-    : undefined
-  const kv = (k: string, v: string | number) => (
-    <div key={k} className="adm-kv"><span>{k}</span><span>{v === '' ? '—' : v}</span></div>
-  )
-  return (
-    <SheetFrame tall title={itemName(item)} subtitle={whenOf(item)} footer={footer}>
-      <Seg label="Party" value={tab} onChange={setTab} options={[['details', 'Details'], ['guests', 'Guests'], ['pay', 'Payments']]} />
-      {infoError && <Failed message={infoError} onRetry={() => setTries((n) => n + 1)} />}
-      {!infoError && !info && <Skeleton rows={3} />}
-      {info && !p && tab !== 'guests' && <p className="adm-note">This party was booked in Square, so there are no details on file here. Open it in Square.</p>}
-      {info && p && tab === 'details' && (
-        <>
-          {kv('When', whenOf(item))}
-          {kv('Host', p.hostName)}
-          {kv('Phone', p.hostPhone)}
-          {kv('Email', p.hostEmail)}
-          {kv('Guests', p.guestCount)}
-          {kv('Craft', p.craftName)}
-          {p.themeName && kv('Themed table', p.themeName)}
-          {p.title && kv('Called', p.title)}
-        </>
-      )}
-      {info && tab === 'guests' && (
-        info.guests === null
-          ? <p className="adm-error" role="alert">The guest list couldn’t be read. Try again in a minute.</p>
-          : (
-            <>
-              <p className="adm-small adm-muted" style={{ marginBottom: '0.25rem' }}>
-                {`${info.guests.length} ${info.guests.length === 1 ? 'family has' : 'families have'} said yes · ${info.guests.reduce((n, g) => n + g.coming, 0)} people`}
-                {p ? ` · booked for ${p.guestCount}` : ''}
-              </p>
-              {info.guests.length === 0 && <p className="adm-empty">No one has said yes yet.</p>}
-              {info.guests.map((g, n) => (
-                <div key={n} className="adm-bk">
-                  <div className="adm-rm">
-                    <b>{g.name || 'No name'}</b>
-                    <small>{g.kids ? `+${g.kids} ${g.kids === 1 ? 'kid' : 'kids'} · ` : ''}{g.coming} coming</small>
-                  </div>
-                  <span className={`adm-tag${g.waiver === 'current' ? ' is-grey' : ''}`}>{WAIVER[g.waiver]}</span>
-                </div>
-              ))}
-            </>
-          )
-      )}
-      {info && p && tab === 'pay' && (
-        <>
-          {kv('Whole studio', formatMoney(partyConfig.basePriceCents))}
-          {kv('Crafts', `${p.craftName}, paid at the studio for whoever comes`)}
-          <div className="adm-panel" style={{ marginTop: '0.75rem' }}>
-            <b>Studio fee paid when they booked</b>
-            <span className="adm-small">Crafts are rung up on the POS on the day. Receipts and refunds are in Square.</span>
-          </div>
-        </>
-      )}
     </SheetFrame>
   )
 }

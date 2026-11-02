@@ -68,6 +68,12 @@ export function SheetFrame({ title, subtitle, footer, tall, children }: {
 }) {
   const api = useSheet()
   const id = useId()
+  const x = useRef<HTMLButtonElement>(null)
+  // A sheet that swaps its loading frame for the loaded one draws a new frame: keep focus in the sheet, not lost on the page.
+  useEffect(() => {
+    const at = document.activeElement
+    if (!at || at === document.body) x.current?.focus({ preventScroll: true })
+  }, [])
   return (
     <div className={`adm-sheet${tall ? ' is-tall' : ''}`} role="dialog" aria-modal={api.modal} aria-labelledby={id}>
       <div className="adm-sheet-head">
@@ -75,7 +81,7 @@ export function SheetFrame({ title, subtitle, footer, tall, children }: {
           <h2 id={id}>{title}</h2>
           {subtitle && <small>{subtitle}</small>}
         </div>
-        <button type="button" className="adm-x" aria-label="Close" data-sheet-close="" onClick={api.close}>×</button>
+        <button ref={x} type="button" className="adm-x" aria-label="Close" data-sheet-close="" onClick={api.close}>×</button>
       </div>
       <div className="adm-sheet-body">{children}</div>
       {api.leaving

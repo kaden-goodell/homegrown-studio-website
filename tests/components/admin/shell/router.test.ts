@@ -52,6 +52,9 @@ describe('/admin address tokens', () => {
     expect(homeTabOf({ kind: 'new' })).toBe('home')
     expect(isFormSheet({ kind: 'new' })).toBe(true)
     expect(isFormSheet({ kind: 'again', id: 'cls_1' })).toBe(true)
+    // Book a party (a long form with Square's card box): a centred card on an iPad.
+    expect(isFormSheet({ kind: 'book-party', day: '2026-10-24' })).toBe(true)
+    expect(isFormSheet({ kind: 'party', day: '2026-10-24', id: 'pty_1' })).toBe(false)
     expect(isFormSheet({ kind: 'day', day: '2026-10-24' })).toBe(false)
     // A class's own sheet (Bookings · Details · Dates) is a side panel on an iPad, even on Details.
     expect(isFormSheet({ kind: 'class', id: 'cls_1' })).toBe(false)

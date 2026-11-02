@@ -40,13 +40,29 @@ const sched = {
 }
 const calendar = [
   { kind: 'class', id: 'cls_a', sessionId: 'ses_a', label: 'Pottery', startIso: at('2026-10-22', '18:00'), endIso: at('2026-10-22', '20:00'), status: 'open', booked: 5, capacity: 12 },
-  { kind: 'party', id: 'bk_9', label: 'the Justice party', startIso: at('2026-10-24', '13:30'), endIso: at('2026-10-24', '15:00'), guests: 14 },
+  { kind: 'party', id: 'bk_9', label: 'the Justice party', startIso: at('2026-10-24', '13:30'), endIso: at('2026-10-24', '15:00'), guests: 14, pay: 'legacy' },
   { kind: 'blocked', id: 'blk_1', label: 'Deep clean', startIso: at('2026-10-23', '09:00'), endIso: at('2026-10-23', '12:00') },
   { kind: 'class', id: 'cls_d', sessionId: 'ses_d', label: 'Draft Candles', startIso: at(TODAY, '18:00'), endIso: at(TODAY, '19:30'), status: 'draft', booked: 0, capacity: 8 },
 ]
 const party = {
   bookingId: 'bk_9', hostName: 'Stefanie Justice', hostEmail: 'stef@example.com', hostPhone: '(256) 555-0199', guestCount: 14,
   craftName: 'Beaded Necklace', title: null, startIso: at('2026-10-24', '13:30'), durationMinutes: 90, themeName: null, createdAt: '2026-10-02T00:00:00Z',
+  // Booked in Square (stage 1): read only here.
+  status: 'booked', legacy: true, endIso: at('2026-10-24', '15:00'), packageId: null, craftId: null, items: [], charges: [], refunds: [], dueCents: 0,
+  paymentState: 'legacy', linkSent: [], overlap: false, paymentGoingThrough: false, paymentInFlight: null, cancelled: null, sendDetails: null, refundRequests: [],
+}
+/** One of ours (stage 2), waiting on payment. */
+const ourParty = {
+  ...party, bookingId: 'pty_0123456789abcdef', hostName: 'Lee Park', hostPhone: '(256) 555-0123', hostEmail: 'lee@example.com', guestCount: 12,
+  startIso: at('2026-10-25', '13:00'), endIso: at('2026-10-25', '14:30'), legacy: false, packageId: 'pkg_whole', craftId: 'c1', paymentState: 'waiting', dueCents: 30000,
+  items: [{ id: 'itm_pkg', kind: 'package', refId: 'pkg_whole', label: 'Whole studio', qty: 1, count: 1, unitCents: 30000, cents: 30000, extraMinutes: 0, chargeId: null, addedAt: '', by: null }],
+  sendDetails: { action: 'send-details', label: 'Email Lee the details' },
+}
+const ourItem = { kind: 'party', id: 'pty_0123456789abcdef', label: 'the Park party', startIso: at('2026-10-25', '13:00'), endIso: at('2026-10-25', '14:30'), guests: 12, pay: 'waiting' }
+const partySettings = {
+  times: { weekly: { '0': ['13:00', '15:30'], '1': [], '2': [], '3': [], '4': [], '5': ['16:30'], '6': ['14:00', '16:30'] }, dates: {}, bookingWindowDays: 90, minLeadDays: 7, opensDate: '2026-09-01' },
+  packages: [{ id: 'pkg_whole', name: 'Whole studio', priceCents: 30000, minutes: 90, minGuests: 10, maxGuests: 30, defaultGuests: 10, quickPicks: [], who: 'everyone', archived: false }],
+  addOns: [], readSquareBookings: true, updatedAt: null, by: null, history: [],
 }
 
 const ok = (body: unknown) => ({ ok: true, status: 200, json: async () => body })
@@ -88,7 +104,10 @@ function server(o: any = {}) {
       case '/api/admin/classes/seed-sandbox.json':
         if (post) return ok({ data: { classesCategoryId: 'CAT1', classTaxId: 'TAX1', commands: ['npx netlify env:set A CAT1', 'npx netlify env:set B TAX1'] } })
         return ok({ data: { sandbox } })
-      case '/api/admin/party.json': return ok({ data: { party, guests: [{ name: 'Ann Guest', kids: 2, coming: 3, waiver: 'current' }] } })
+      case '/api/admin/party.json': return ok({ data: { party: url.includes('pty_') ? ourParty : party, guests: [{ name: 'Ann Guest', kids: 2, coming: 3, waiver: 'current' }] } })
+      case '/api/admin/parties/settings.json': return ok({ data: { settings: partySettings, legacyRemaining: { count: 1, lastIso: at('2026-10-24', '13:30') } } })
+      case '/api/admin/parties/book.json': return ok({ data: { party: ourParty, message: 'Booked Lee’s party for Sun, Oct 25 at 1:00 PM. The payment link for the studio fee ($300) went to Lee by email and text.' } })
+      case '/api/admin/parties/times.json': return ok({ data: { minutes: 90, offered: [at('2026-10-24', '14:00')], open: [at('2026-10-24', '14:00')] } })
       case '/api/admin/reports.json': return ok({ data: { month: '2026-10', seatsSold: 74, classSalesCents: 196800, refunds: 1, refundedCents: 1635, partiesBooked: 3 } })
       case '/api/admin/classes/import-square.json': return ok({ data: { create: [], skip: [], addPhoto: [] } })
       case '/api/party/service-info.json': return ok({ data: { crafts: [{ id: 'c1', name: 'Beaded Necklace', perHeadCents: 1800, perHeadMaxCents: 1800 }] } })
@@ -365,7 +384,8 @@ describe('Home', () => {
     // Nothing to print on a closed day with nothing on.
     expect(screen.queryByRole('button', { name: 'Print today' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '+ Book a party' }))
-    expect(within(dialog()).getByRole('link', { name: 'Open the party booking page' })).toHaveAttribute('href', '/book')
+    expect(within(dialog()).getByRole('heading', { name: 'Book a party' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#book-party')
   })
 })
 
@@ -375,16 +395,40 @@ describe('Calendar sheets', () => {
     tab('Calendar')
     fireEvent.click(await screen.findByRole('button', { name: 'Add on Sat Oct 24' }))
     fireEvent.click(within(dialog()).getByRole('button', { name: '+ Book a party on this day' }))
-    expect(within(dialog()).getByRole('link', { name: 'Open the party booking page' })).toHaveAttribute('href', '/book?date=2026-10-24')
-    expect(within(dialog()).getByRole('link', { name: 'Open the party booking page' })).toHaveAttribute('target', '_blank')
+    expect(window.location.hash).toBe('#book-party-2026-10-24')
+    expect(await screen.findByLabelText('Day')).toHaveValue('2026-10-24')
+    expect(await screen.findByRole('group', { name: 'Party times on Sat Oct 24' })).toBeInTheDocument()
   })
 
-  it('a party opens read only: Details, Guests, Payments, and Call and Text with the number showing', async () => {
+  it('booking a party from a day lands on the new party, with what happened, and no leave prompt', async () => {
+    const f = await signedIn()
+    tab('Calendar')
+    fireEvent.click(await screen.findByRole('button', { name: 'Add on Sat Oct 24' }))
+    fireEvent.click(within(dialog()).getByRole('button', { name: '+ Book a party on this day' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^2\sPM$/ }))
+    fireEvent.change(await screen.findByLabelText('Craft'), { target: { value: 'c1' } })
+    fireEvent.change(screen.getByLabelText('First name'), { target: { value: 'Lee' } })
+    fireEvent.change(screen.getByLabelText('Phone'), { target: { value: '(256) 555-0123' } })
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'lee@example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Book and send link' }))
+    expect(await screen.findByText('Lee Park')).toBeInTheDocument()
+    expect(window.location.hash).toBe('#party-2026-10-25-pty_0123456789abcdef')
+    expect(screen.queryByText('Leave without saving?')).toBeNull()
+    expect(within(dialog()).getAllByText(/went to Lee by email and text/).length).toBeGreaterThan(0)
+    expect(posts(f, '/api/admin/parties/book.json')).toHaveLength(1)
+  })
+
+  it('a party booked in Square opens read only: Details, Guests, and Call and Text with the number showing', async () => {
     await signedIn()
     tab('Calendar')
-    fireEvent.click(await screen.findByRole('button', { name: /The Justice party/ }))
+    const row = await screen.findByRole('button', { name: /The Justice party/ })
+    expect(row).toHaveTextContent('Booked in Square')
+    fireEvent.click(row)
+    expect(await screen.findByText('Stefanie Justice')).toBeInTheDocument()
     const sheet = dialog()
-    expect(await within(sheet).findByText('Stefanie Justice')).toBeInTheDocument()
+    // The loaded sheet keeps the focus inside it.
+    expect(sheet.contains(document.activeElement)).toBe(true)
+    expect(within(sheet).getByText('Booked in Square. Change it there.')).toBeInTheDocument()
     expect(within(sheet).getByText('Beaded Necklace')).toBeInTheDocument()
     expect(within(sheet).getByRole('link', { name: 'Call' })).toHaveAttribute('href', 'tel:2565550199')
     expect(within(sheet).getByRole('link', { name: 'Text' })).toHaveAttribute('href', 'sms:2565550199')
@@ -393,9 +437,24 @@ describe('Calendar sheets', () => {
     fireEvent.click(within(sheet).getByRole('button', { name: 'Guests' }))
     expect(within(sheet).getByText('Ann Guest')).toBeInTheDocument()
     expect(within(sheet).getByText('Waiver signed')).toBeInTheDocument()
-    fireEvent.click(within(sheet).getByRole('button', { name: 'Payments' }))
-    expect(within(sheet).getByText('$300')).toBeInTheDocument()
-    expect(within(sheet).queryByRole('button', { name: /Cancel|Move/ })).toBeNull()
+    expect(within(sheet).queryByRole('button', { name: /Cancel|Move|Refund|Send|Take card/ })).toBeNull()
+  })
+
+  it('one of our parties: the row says it waits on payment; its sheet has Move, Cancel and the payment actions', async () => {
+    await signedIn(server({ items: [...calendar, ourItem] }))
+    tab('Calendar')
+    const row = await screen.findByRole('button', { name: /The Park party/ })
+    expect(row).toHaveTextContent('12 guests · Waiting on payment')
+    fireEvent.click(row)
+    expect(window.location.hash).toBe('#party-2026-10-25-pty_0123456789abcdef')
+    expect(await screen.findByText('Lee Park')).toBeInTheDocument()
+    const sheet = dialog()
+    expect(within(sheet).getByRole('button', { name: 'Move' })).toBeInTheDocument()
+    expect(within(sheet).getByRole('button', { name: 'Cancel party' })).toBeInTheDocument()
+    expect(within(sheet).getByRole('button', { name: 'Email Lee the details' })).toBeInTheDocument()
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Payments · $300 due' }))
+    expect(within(sheet).getByRole('button', { name: 'Send payment link' })).toBeInTheDocument()
+    expect(within(sheet).getByRole('button', { name: 'Take card now' })).toBeInTheDocument()
   })
 
   it('blocked time: Remove asks in the sheet, then a toast can undo it', async () => {
@@ -578,11 +637,14 @@ describe('More', () => {
     expect(within(setup).getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Parties setup', 'Hours & Craft Café', 'Closed days', 'Staff', 'Promotions', 'Reports'])
     expect(within(setup).getByRole('button', { name: /Staff/ })).toHaveTextContent('Coming in stage 3')
     expect(within(setup).getByRole('button', { name: /Promotions/ })).toHaveTextContent('Coming in stage 4')
+    // The row says what's set, from the saved Parties setup.
+    expect(await within(setup).findByText('Fri, Sat, Sun · Whole studio $300 · 10–30 guests')).toBeInTheDocument()
     fireEvent.click(within(setup).getByRole('button', { name: /Parties setup/ }))
-    expect(within(dialog()).getByText('Editing party times comes with party booking.')).toBeInTheDocument()
-    expect(within(dialog()).getByText('Sundays')).toBeInTheDocument()
-    expect(within(dialog()).getByText('1 PM, 3:30 PM')).toBeInTheDocument()
+    const sun = await screen.findByRole('group', { name: 'Sundays' })
+    expect(within(sun).getByRole('button', { name: /Remove 1\sPM on Sundays/ })).toBeInTheDocument()
+    expect(within(sun).getByRole('button', { name: /Remove 3:30\sPM on Sundays/ })).toBeInTheDocument()
     expect(await within(dialog()).findByText('$18 a guest')).toBeInTheDocument()
+    expect(within(dialog()).getByRole('checkbox', { name: 'Keep their times blocked on the calendar' })).toBeDisabled()
   })
 
   it('Reports says what this month covers', async () => {

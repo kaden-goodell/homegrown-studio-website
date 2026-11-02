@@ -47,7 +47,12 @@ export function itemSub(i: CalendarItem): string {
   switch (i.kind) {
     case 'class': return i.booked !== undefined && i.capacity !== undefined ? `${i.booked} of ${i.capacity} booked` : 'Our class'
     case 'legacy-class': return 'Square class'
-    case 'party': return i.guests ? `${i.guests} guests` : 'Party'
+    case 'party': {
+      const guests = i.guests ? `${i.guests} guests` : 'Party'
+      // Booked in Square shows as a tag; the money state of ours rides on the sub-line (paid says nothing).
+      const money = i.pay === 'waiting' ? 'Waiting on payment' : i.pay === 'partly' ? 'Part paid' : ''
+      return money ? `${guests} · ${money}` : guests
+    }
     case 'cafe': return 'Walk-in · pay per craft'
     default: return 'Nothing can be booked'
   }
@@ -59,6 +64,7 @@ export function itemTime(i: CalendarItem): string {
 
 /** Draft, Sign-ups closed. */
 export function itemTag(i: CalendarItem): { text: string; red?: boolean } | null {
+  if (i.kind === 'party') return i.pay === 'legacy' ? { text: 'Booked in Square' } : null
   if (i.kind !== 'class') return null
   if (i.status === 'draft') return { text: 'Draft' }
   if (i.status === 'closed') return { text: 'Sign-ups closed' }

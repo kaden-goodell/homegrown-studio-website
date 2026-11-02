@@ -4,9 +4,11 @@ import type { MorePage, Sheet } from './shell/router'
 import { WhoContext } from './sheets/MoreSheets'
 import { useStudio } from './shell/studio'
 import { closedComing } from './sheets/SettingsSheets'
+import { usePartySettings } from './parties/api'
+import { partiesSummary } from './parties/PartiesSetupSheet'
 
 const ROWS: [MorePage, string, string][] = [
-  ['parties', 'Parties setup', 'Party times, the $300 package, guests, crafts'],
+  ['parties', 'Parties setup', 'Party times, packages, extras, crafts'],
   ['hours', 'Hours & Craft Café', 'Café hours and special days'],
   ['closed', 'Closed days', ''],
   ['staff', 'Staff', 'Coming in stage 3'],
@@ -25,6 +27,7 @@ export default function More({ onOpen, onSignOut }: { onOpen: (s: Sheet) => void
     return () => { live = false }
   }, [])
   const coming = closedComing(useStudio().days.closures)
+  const parties = usePartySettings().settings
   return (
     <>
       <div className="adm-top">
@@ -35,7 +38,7 @@ export default function More({ onOpen, onSignOut }: { onOpen: (s: Sheet) => void
       </div>
       <ul className="adm-mlist" aria-label="Setup">
         {ROWS.map(([page, title, sub]) => {
-          const text = page === 'closed' ? `${coming} coming up` : sub
+          const text = page === 'closed' ? `${coming} coming up` : page === 'parties' && parties ? partiesSummary(parties) : sub
           const soon = /^Coming/.test(text)
           return (
             <li key={page}>
