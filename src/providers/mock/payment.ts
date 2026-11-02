@@ -6,6 +6,7 @@ import type {
   Refund,
   LineItem,
   Discount,
+  SavedCard,
 } from '../interfaces/payment'
 import { taxCents } from '../../lib/tax'
 
@@ -17,6 +18,19 @@ export class MockPaymentProvider implements PaymentProvider {
   /** Records of calls, for test assertions. */
   refundCalls: { paymentId: string; amountCents: number; idempotencyKey: string; reason?: string }[] = []
   cancelOrderCalls: { orderId: string; version: number; locationId: string }[] = []
+
+  /**
+   * Saved cards (stage 4), as Square would keep them. Source tokens that steer
+   * the mock: 'FAIL' → the save is refused (CARD_DECLINED); 'DECLINE_LATER' →
+   * saved, but a later charge is declined; 'NO_FUNDS_LATER' → a later charge
+   * fails with INSUFFICIENT_FUNDS; 'TIMEOUT_LATER' → a later charge never answers.
+   */
+  savedCards = new Map<string, SavedCard & { customerId: string; referenceId: string; enabled: boolean; behaviour: string }>()
+  saveCardCalls: Parameters<PaymentProvider['saveCard']>[0][] = []
+  disableCardCalls: string[] = []
+  chargeSavedCardCalls: Parameters<PaymentProvider['chargeSavedCard']>[0][] = []
+  private cardKeys = new Map<string, string>()
+  private chargeKeys = new Map<string, Payment>()
 
   /** Catalog variation id -> price in cents, for createClassOrder (default 0). */
   prices: Record<string, number> = {}
@@ -108,6 +122,48 @@ export class MockPaymentProvider implements PaymentProvider {
     return payment
   }
 
+  async saveCard(input: Parameters<PaymentProvider['saveCard']>[0]): Promise<SavedCard> {
+    this.saveCardCalls.push({ ...input })
+    const again = this.cardKeys.get(input.idempotencyKey)
+    if (again) return this.faceOf(again)
+    if (input.sourceToken === 'FAIL') throw squareRefusal(400, 'CARD_DECLINED', 'The card was declined.')
+    const cardId = this.generateId('mock-card')
+    this.savedCards.set(cardId, {
+      cardId, brand: 'VISA', last4: '4242', expMonth: 12, expYear: new Date().getUTCFullYear() + 3,
+      customerId: input.customerId, referenceId: input.referenceId, enabled: true, behaviour: input.sourceToken,
+    })
+    this.cardKeys.set(input.idempotencyKey, cardId)
+    return this.faceOf(cardId)
+  }
+
+  async disableCard(cardId: string): Promise<void> {
+    this.disableCardCalls.push(cardId)
+    const card = this.savedCards.get(cardId)
+    if (card) card.enabled = false
+  }
+
+  async chargeSavedCard(input: Parameters<PaymentProvider['chargeSavedCard']>[0]): Promise<Payment> {
+    this.chargeSavedCardCalls.push({ ...input })
+    const again = this.chargeKeys.get(input.idempotencyKey)
+    if (again) return again
+    const card = this.savedCards.get(input.cardId)
+    if (!card || card.customerId !== input.customerId) throw squareRefusal(404, 'NOT_FOUND', 'Card not found.')
+    if (!card.enabled) throw squareRefusal(400, 'CARD_DECLINED', 'The card is disabled.')
+    if (card.behaviour === 'DECLINE_LATER') throw squareRefusal(400, 'CARD_DECLINED', 'The card was declined.')
+    if (card.behaviour === 'NO_FUNDS_LATER') throw squareRefusal(400, 'INSUFFICIENT_FUNDS', 'Insufficient funds.')
+    if (card.behaviour === 'TIMEOUT_LATER') throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+    const id = this.generateId('mock-payment')
+    const payment: Payment = { id, orderId: input.orderId, amount: input.amount, status: 'completed', receiptUrl: `https://mock-receipt.example.com/${id}` }
+    this.paid.set(input.orderId, payment)
+    this.chargeKeys.set(input.idempotencyKey, payment)
+    return payment
+  }
+
+  private faceOf(cardId: string): SavedCard {
+    const c = this.savedCards.get(cardId)!
+    return { cardId: c.cardId, brand: c.brand, last4: c.last4, expMonth: c.expMonth, expYear: c.expYear }
+  }
+
   async findOrderPayment(orderId: string): Promise<Payment | null> {
     return this.paid.get(orderId) ?? null
   }
@@ -139,4 +195,9 @@ export class MockPaymentProvider implements PaymentProvider {
       environment: 'sandbox',
     }
   }
+}
+
+/** A refusal shaped like Square's (what chargeOutcomeOf and squareErrorCodes read). */
+function squareRefusal(statusCode: number, code: string, detail: string): Error {
+  return Object.assign(new Error(`Square said: ${detail}`), { status: statusCode, statusCode, errors: [{ code, detail, category: 'PAYMENT_METHOD_ERROR' }] })
 }

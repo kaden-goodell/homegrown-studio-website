@@ -44,7 +44,8 @@ export async function squareFetch<T = any>(path: string, init: RequestInit = {})
   if (!res.ok) {
     const detail = body?.errors?.[0]?.detail || body?.errors?.[0]?.code
     const err = new Error(detail ? `Square said: ${detail}` : `Square answered with an error (${res.status}).`)
-    throw Object.assign(err, { status: res.status })
+    // `errors`: Square's codes (CARD_DECLINED, NOT_FOUND…), for callers that sort a refusal (stage 4 saved cards).
+    throw Object.assign(err, { status: res.status, errors: Array.isArray(body?.errors) ? body.errors : [] })
   }
   return body as T
 }

@@ -7,6 +7,7 @@ import type {
   Payment,
   Refund,
   PaymentClientConfig,
+  SavedCard,
 } from '../interfaces/payment'
 import type { SquareConfig } from '../../config/site.config'
 import { createSquareClient } from './client'
@@ -24,6 +25,37 @@ const STATUS_MAP: Record<string, Order['status']> = {
 const PAYMENT_STATUS_MAP: Record<string, Payment['status']> = {
   COMPLETED: 'completed',
   FAILED: 'failed',
+}
+
+/** Square's tightest idempotency key limit (payments, cards). */
+const MAX_IDEMPOTENCY_KEY = 45
+
+function checkKey(key: string): void {
+  if (!key || key.length > MAX_IDEMPOTENCY_KEY) throw new Error(`An idempotency key must be 1 to ${MAX_IDEMPOTENCY_KEY} characters.`)
+}
+
+/**
+ * A raw REST refusal (squareFetch attaches `status` and Square's `errors`) in
+ * the shape chargeOutcomeOf and squareErrorCodes read: `statusCode` + `errors`.
+ * A timeout or network failure has no status and stays unknown.
+ */
+function asSquareError(e: unknown): unknown {
+  const err = e as { status?: unknown; statusCode?: unknown } | null
+  if (err && typeof err === 'object' && typeof err.status === 'number' && err.statusCode === undefined) {
+    Object.assign(err, { statusCode: err.status })
+  }
+  return e
+}
+
+function savedCardOf(card: any): SavedCard {
+  if (!card?.id) throw new Error('Square returned a card without an id.')
+  return {
+    cardId: String(card.id),
+    brand: String(card.card_brand ?? 'OTHER_BRAND'),
+    last4: String(card.last_4 ?? ''),
+    expMonth: Number(card.exp_month ?? 0),
+    expYear: Number(card.exp_year ?? 0),
+  }
 }
 
 export class SquarePaymentProvider implements PaymentProvider {
@@ -186,6 +218,8 @@ export class SquarePaymentProvider implements PaymentProvider {
     currency: string
     buyerEmailAddress?: string
     idempotencyKey?: string
+    customerId?: string
+    verificationToken?: string
   }): Promise<Payment> {
     logger.info('Processing payment', {
       orderId: params.orderId,
@@ -201,6 +235,9 @@ export class SquarePaymentProvider implements PaymentProvider {
       },
       orderId: params.orderId,
       buyerEmailAddress: params.buyerEmailAddress,
+      // Only when given (stage 4): a card on file needs the customer; SCA the verifyBuyer token.
+      ...(params.customerId ? { customerId: params.customerId } : {}),
+      ...(params.verificationToken ? { verificationToken: params.verificationToken } : {}),
     })
 
     const payment = response.payment!
@@ -216,6 +253,81 @@ export class SquarePaymentProvider implements PaymentProvider {
       amount: params.amount,
       status: PAYMENT_STATUS_MAP[payment.status as string] ?? 'pending',
       receiptUrl: payment.receiptUrl ?? undefined,
+    }
+  }
+
+  // ── Saved cards (stage 4, Cards API, raw REST at SQUARE_API_VERSION) ──────
+  // Nothing here sees a card number: the browser's card form turns it into a
+  // one-time token, Square stores the card, and we keep only its id and face.
+
+  async saveCard(input: { customerId: string; sourceToken: string; verificationToken: string | null; idempotencyKey: string; referenceId: string }): Promise<SavedCard> {
+    checkKey(input.idempotencyKey)
+    logger.info('Saving a card with Square', { customerId: input.customerId, referenceId: input.referenceId })
+    const body: Record<string, unknown> = {
+      idempotency_key: input.idempotencyKey,
+      source_id: input.sourceToken,
+      card: { customer_id: input.customerId, reference_id: input.referenceId.slice(0, 128) },
+    }
+    if (input.verificationToken) body.verification_token = input.verificationToken
+    let res: any
+    try {
+      res = await squareFetch('/cards', { method: 'POST', body: JSON.stringify(body) })
+    } catch (e) {
+      throw asSquareError(e)
+    }
+    const card = savedCardOf(res?.card)
+    logger.info('Card saved', { cardId: card.cardId, brand: card.brand })
+    return card
+  }
+
+  async disableCard(cardId: string): Promise<void> {
+    try {
+      await squareFetch(`/cards/${encodeURIComponent(cardId)}/disable`, { method: 'POST' })
+      logger.info('Card taken off file', { cardId })
+    } catch (e) {
+      const err = e as { status?: unknown; errors?: { code?: string }[]; message?: string }
+      const codes = (err?.errors ?? []).map((x) => String(x?.code ?? ''))
+      // Already gone or already off file: nothing to take off. Anything else is a real failure the caller retries.
+      if (err?.status === 404 || codes.includes('NOT_FOUND') || codes.includes('CARD_DISABLED') || (err?.status === 400 && /disabled/i.test(err?.message ?? ''))) {
+        logger.warn('Card to take off file was already off', { cardId, status: err?.status ?? null, codes: codes.join(',') })
+        return
+      }
+      throw asSquareError(e)
+    }
+  }
+
+  async chargeSavedCard(input: { orderId: string; cardId: string; customerId: string; amount: number; idempotencyKey: string; buyerEmailAddress?: string; note: string }): Promise<Payment> {
+    checkKey(input.idempotencyKey)
+    if (!Number.isInteger(input.amount) || input.amount <= 0) throw new Error('A saved-card charge needs a whole number of cents above zero.')
+    logger.info('Charging a saved card', { orderId: input.orderId, cardId: input.cardId, amount: input.amount })
+    const body: Record<string, unknown> = {
+      idempotency_key: input.idempotencyKey,
+      source_id: input.cardId,
+      customer_id: input.customerId,
+      order_id: input.orderId,
+      amount_money: { amount: input.amount, currency: 'USD' },
+      autocomplete: true,
+      location_id: this.config.locationId,
+      note: input.note.slice(0, 500),
+      // Seller-initiated: the buyer isn't here; they agreed to it when the card was saved.
+      customer_details: { customer_initiated: false, seller_keyed_in: false },
+    }
+    if (input.buyerEmailAddress) body.buyer_email_address = input.buyerEmailAddress
+    let res: any
+    try {
+      res = await squareFetch('/payments', { method: 'POST', body: JSON.stringify(body) })
+    } catch (e) {
+      throw asSquareError(e)
+    }
+    const payment = res?.payment
+    if (!payment?.id) throw new Error('Square returned a payment without an id.')
+    logger.info('Saved card charged', { paymentId: payment.id, status: payment.status })
+    return {
+      id: String(payment.id),
+      orderId: input.orderId,
+      amount: Number(payment.amount_money?.amount ?? input.amount),
+      status: PAYMENT_STATUS_MAP[String(payment.status)] ?? 'pending',
+      ...(payment.receipt_url ? { receiptUrl: String(payment.receipt_url) } : {}),
     }
   }
 

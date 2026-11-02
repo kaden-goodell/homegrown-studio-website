@@ -56,7 +56,16 @@ interface PaymentFormProps {
   giftCards?: 'allowed' | 'cards-only'
   /** Which booking flow this form is in, so its problems are counted against it. */
   bookingKind?: BookingKindForAnalytics
+  /**
+   * 'charge' (default): pay now. 'store' (stage 4, waitlist): save a card with
+   * Square for later — card only (no wallets, no gift cards, which can't be
+   * saved), and tokenizeAndVerify asks the bank with intent STORE.
+   */
+  mode?: 'charge' | 'store'
 }
+
+/** Under the card field when a card is being saved, not charged. */
+export const STORE_NOTE = 'Square saves your card. We never see its number.'
 
 interface ClientConfig {
   appId: string
@@ -123,7 +132,11 @@ type WalletInstance = {
 }
 
 const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
-  function PaymentForm({ applicationIdOverride, environmentOverride, wallet, onWalletToken, canPayWithWallet, onReadyChange, giftCards = 'allowed', bookingKind = 'other' }: PaymentFormProps, ref) {
+  function PaymentForm({ applicationIdOverride, environmentOverride, wallet: walletProp, onWalletToken, canPayWithWallet, onReadyChange, giftCards: giftCardsProp = 'allowed', bookingKind = 'other', mode = 'charge' }: PaymentFormProps, ref) {
+    const store = mode === 'store'
+    // Saving a card: only a card can be saved, so no wallets and no gift cards.
+    const wallet = store ? undefined : walletProp
+    const giftCards: 'allowed' | 'cards-only' | 'none' = store ? 'none' : giftCardsProp
     const [config, setConfig] = useState<ClientConfig | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -417,6 +430,16 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
         return { token }
       }
 
+      if (store) {
+        // Saving for later: the bank checks the card holder for STORE, with no amount.
+        const verified = await paymentsRef.current.verifyBuyer(token, {
+          intent: 'STORE',
+          billingContact: { givenName: buyerDetails.givenName, familyName: buyerDetails.familyName, email: buyerDetails.email, phone: buyerDetails.phone },
+        })
+        if (!verified?.token) throw new Error('Card verification failed. Please try again.')
+        return { token, verificationToken: verified.token }
+      }
+
       const verifyDetails: any = {
         intent: 'CHARGE',
         amount: buyerDetails.amount || '0.00',
@@ -439,7 +462,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
       } catch (err) {
         throw err
       }
-    }, [tokenize, isMockMode])
+    }, [tokenize, isMockMode, store])
 
     useImperativeHandle(ref, () => ({ tokenize, tokenizeAndVerify }), [tokenize, tokenizeAndVerify])
 
@@ -508,10 +531,12 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
                 {useGift ? 'Pay with a card instead' : 'Pay with a gift card instead'}
               </button>
             </div>
-          ) : (
+          ) : giftCards === 'cards-only' ? (
             <p className="text-sm text-gray-500" style={{ margin: 0 }}>
               Gift cards can’t be used for class seats — {TEXT_US} and we’ll add you.
             </p>
+          ) : (
+            <p className="text-sm text-gray-500" style={{ margin: 0 }}>{STORE_NOTE}</p>
           )}
         </div>
       )
@@ -595,10 +620,12 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
               {useGift ? 'Pay with a card instead' : 'Pay with a gift card instead'}
             </button>
           </div>
-        ) : (
+        ) : giftCards === 'cards-only' ? (
           <p className="text-sm text-gray-500" style={{ margin: 0 }}>
             Gift cards can’t be used for class seats — {TEXT_US} and we’ll add you.
           </p>
+        ) : (
+          <p className="text-sm text-gray-500" style={{ margin: 0 }}>{STORE_NOTE}</p>
         )}
       </div>
     )

@@ -40,6 +40,20 @@ export interface Payment {
   receiptUrl?: string
 }
 
+/**
+ * A card Square keeps on file for a customer (stage 4, waitlist). We keep only
+ * these: Square's card id and what's printed on the card's face that a
+ * person needs to recognise it. Never a number, CVV or token.
+ */
+export interface SavedCard {
+  cardId: string
+  /** Square's card_brand, e.g. 'VISA', 'MASTERCARD', 'AMERICAN_EXPRESS'. */
+  brand: string
+  last4: string
+  expMonth: number
+  expYear: number
+}
+
 export interface PaymentClientConfig {
   appId: string
   locationId: string
@@ -75,7 +89,33 @@ export interface PaymentProvider {
      * Omitted → a fresh key per call.
      */
     idempotencyKey?: string
+    /** Sent only when given: the Square customer the payment belongs to. */
+    customerId?: string
+    /** Sent only when given: the Web Payments SDK's verifyBuyer token (SCA). */
+    verificationToken?: string
   }): Promise<Payment>
+
+  /**
+   * Save a card with Square for a customer (Cards API, CreateCard). The card
+   * number is only ever typed into Square's card form; `sourceToken` is the
+   * one-time token it gave, and `verificationToken` the verifyBuyer answer
+   * with intent STORE (null when the buyer wasn't asked). `referenceId` is our
+   * own id for why it's on file (a waitlist entry). Throws Square's refusal as
+   * an error carrying `statusCode` and `errors` (see chargeOutcomeOf).
+   */
+  saveCard(input: { customerId: string; sourceToken: string; verificationToken: string | null; idempotencyKey: string; referenceId: string }): Promise<SavedCard>
+
+  /** Take a saved card off file (DisableCard). Already disabled or not found → resolves (logged). */
+  disableCard(cardId: string): Promise<void>
+
+  /**
+   * Charge a saved card without the buyer present (seller-initiated, with the
+   * consent they gave when it was saved): CreatePayment with the card id as
+   * the source, the customer, our order and autocomplete. The same key sent
+   * again returns the first payment. A declined, disabled or missing card
+   * throws a 4xx (chargeOutcomeOf → not charged); a timeout is unknown.
+   */
+  chargeSavedCard(input: { orderId: string; cardId: string; customerId: string; amount: number; idempotencyKey: string; buyerEmailAddress?: string; note: string }): Promise<Payment>
 
   /**
    * One Square order for a class booking: catalog lines, Square applies the
