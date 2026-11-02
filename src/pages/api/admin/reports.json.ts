@@ -3,6 +3,7 @@ import { adminAuthorized } from '@lib/admin-auth'
 import { json } from '@lib/classes/admin-actions'
 import { listClasses } from '@lib/classes/class-store'
 import { getLedger, type Ledger } from '@lib/classes/seat-ledger'
+import { paidOn } from '@lib/classes/seat-status'
 import { listParties, type PartyRecord } from '@lib/party-store'
 import { localDate } from '@lib/party-slots'
 
@@ -32,7 +33,8 @@ export function monthReport(ledgers: Ledger[], parties: PartyRecord[], now: Date
     for (const l of ledger.lines) {
       if ((l.state === 'confirmed' || l.state === 'refunded') && inMonth(l.at, month)) {
         seatsSold += 1
-        classSalesCents += l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents
+        // M4: Square's own per-seat numbers when kept (a discounted seat can be a cent off ours).
+        classSalesCents += paidOn(l)
       }
       for (const r of l.refunds) {
         if (r.cents > 0 && inMonth(r.at, month)) { refunds += 1; refundedCents += r.cents }

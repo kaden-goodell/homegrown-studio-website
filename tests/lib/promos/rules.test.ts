@@ -31,8 +31,16 @@ describe('normalizeCode', () => {
     expect(normalizeCode('  fall friends ')).toBe('FALLFRIENDS')
     expect(normalizeCode('grandOpening26')).toBe('GRANDOPENING26')
   })
-  it('refuses punctuation, too short, too long and non-strings', () => {
-    expect(normalizeCode('FALL-FRIENDS')).toBeNull()
+  it('drops dashes, dots and underscores a phone or a flyer adds (M7)', () => {
+    expect(normalizeCode('FALL-FRIENDS')).toBe('FALLFRIENDS')
+    expect(normalizeCode('fallfriends.')).toBe('FALLFRIENDS')
+    expect(normalizeCode('Fall_Friends')).toBe('FALLFRIENDS')
+    expect(normalizeCode('fall–friends')).toBe('FALLFRIENDS')
+    expect(normalizeCode(' f.a.l.l - friends ')).toBe('FALLFRIENDS')
+    expect(normalizeCode('--.')).toBeNull()
+  })
+  it('refuses other symbols, too short, too long and non-strings', () => {
+    expect(normalizeCode('FALL!FRIENDS')).toBeNull()
     expect(normalizeCode('10%OFF')).toBeNull()
     expect(normalizeCode('AB')).toBeNull()
     expect(normalizeCode('A'.repeat(21))).toBeNull()

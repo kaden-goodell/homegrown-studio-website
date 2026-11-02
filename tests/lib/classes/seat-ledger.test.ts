@@ -499,6 +499,31 @@ describe('door seats paid at the counter (Task 14)', () => {
   })
 })
 
+describe('I4/D4: the register pays a door seat taken during an early-bird', () => {
+  it('records what the register took and drops the early-bird it had noted (no phantom discount)', async () => {
+    const { recordPos } = await import('@lib/classes/seat-ledger')
+    const cls = make(4, { earlyBird: { untilYmd: '2026-12-31', prices: { day: { person: 800 } } } })
+    const TAKEN = new Date('2026-10-23T17:30:00.000Z')
+    const qq = quote(cls, { passId: 'day', sessionIds: ['ses_b'], tickets: { person: 1 } }, TAKEN, 9, { door: true })
+    if (!qq.ok) throw new Error(qq.error)
+    expect(qq.value.lines[0].discounts).toEqual([{ kind: 'early-bird', name: 'Early-bird', cents: 200 }])
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(TAKEN)
+    const inp = { bookingId: 'bkg_door_eb', passId: 'day', source: 'door-counter' as const, customer: cust, ttlMinutes: 10, by }
+    await hold(cls, qq.value, inp, TAKEN)
+    await confirm(cls.id, 'bkg_door_eb', { orderId: null, paymentId: null }, { cls, quote: qq.value, input: inp }, TAKEN)
+    vi.useRealTimers()
+    const before = (await getLedger(cls.id)).lines[0]
+    expect([before.priceCents, before.listCents, before.discounts?.length]).toEqual([800, 1000, 1])
+    // The POS item rings the current (early-bird) price: $8 + 72 tax.
+    await recordPos(cls, { bookingId: 'bkg_pos_EB', orderId: 'OEB', paymentId: 'PEB', chargedCents: 872, saleIso: '2026-10-23T19:00:00.000Z', lines: [{ lineUid: 'L1', passId: 'day', ticketTypeId: 'person', sessionIds: ['ses_b'], units: [{ priceCents: 800, taxCents: 72 }] }] }, NOW)
+    const after = (await getLedger(cls.id)).lines[0]
+    expect(after).toMatchObject({ bookingId: 'bkg_door_eb', priceCents: 800, taxCents: 72, square: { orderId: 'OEB' } })
+    expect(after.listCents).toBeUndefined()
+    expect(after.discounts).toBeUndefined()
+  })
+})
+
 describe('R32/N1/R34: which door seat a counter sale pays', () => {
   async function doorSeat(cls: ScheduledClass, bookingId: string, passId: string, sessionIds: string[], at: Date, who = cust) {
     const qq = quote(cls, { passId, ...(passId === 'day' ? { sessionIds } : {}), tickets: { person: 1 } }, at, 9, { door: true })
@@ -615,8 +640,12 @@ describe('stage 4: discounted seats keep their list price, discounts and Square\
     const quoteD = dq(cls)
     const inp = input()
     await hold(cls, quoteD, inp, NOW)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const lines = await confirm(cls.id, inp.bookingId, { orderId: 'o1', paymentId: 'p1', chargedCents: 99, lineTotals: [{ totalCents: 1, taxCents: 0 }] }, { cls, quote: quoteD, input: inp }, NOW)
     expect(lines.every((l) => l.square.lineNetCents === undefined && l.square.lineTaxCents === undefined)).toBe(true)
+    // M1: said in the log, with the booking id.
+    expect(warn.mock.calls.map((c) => String(c[0])).some((m) => m.includes('Square line totals dropped') && m.includes(inp.bookingId))).toBe(true)
+    warn.mockRestore()
   })
   it('paidOn of an old line (no Square line totals) is unchanged', async () => {
     const { paidOn } = await import('@lib/classes/seat-status')

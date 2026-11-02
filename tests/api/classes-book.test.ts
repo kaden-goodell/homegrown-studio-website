@@ -275,6 +275,22 @@ describe('POST /api/classes/book.json', () => {
     expect(mockOwnerEmail).not.toHaveBeenCalled()
   })
 
+  it('M2: Square up to a cent per line lower (half-cent tax rounding) is charged with no owners\' email', async () => {
+    const cls = makeClass()
+    squareTotal(TOTAL - 3) // 3 lines
+    const res = await POST(ctx(body(cls)))
+    expect(res.status).toBe(200)
+    expect(mockProcessPayment.mock.calls[0][0].amount).toBe(TOTAL - 3)
+    expect(mockOwnerEmail).not.toHaveBeenCalled()
+  })
+  it('M2: more than a cent per line lower still emails the owners', async () => {
+    const cls = makeClass()
+    squareTotal(TOTAL - 4)
+    const res = await POST(ctx(body(cls)))
+    expect(res.status).toBe(200)
+    expect(mockOwnerEmail).toHaveBeenCalledTimes(1)
+  })
+
   it('Square more than a cent lower (e.g. the class went out without its tax): charged, owners emailed', async () => {
     const cls = makeClass()
     squareTotal(TOTAL - 1440)

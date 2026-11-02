@@ -35,7 +35,7 @@ vi.mock('@lib/blob-store', async (orig) => {
 })
 
 import {
-  confirmUse, extendUse, getPromo, getUses, listPromos, PromoSaveError, releaseUse, reserveUse, savePromo,
+  confirmUse, extendUse, getPromo, getUses, giveUseBack, listPromos, PromoSaveError, releaseUse, reserveUse, savePromo,
 } from '@lib/promos/promo-store'
 
 const by = { id: 'c', name: 'Catherine' }
@@ -87,6 +87,13 @@ describe('savePromo', () => {
     const list = await listPromos()
     expect(list.map((p) => [p.code, p.usedCount])).toEqual([['GRAND1', 1], ['OTHER', 0]])
   })
+  it('lists how many are paying with a code right now (M5)', async () => {
+    await savePromo(fields(), by, null, NOW)
+    await reserveUse('GRAND1', 'bkg_1', in15, NOW, null)
+    await reserveUse('GRAND1', 'bkg_2', new Date(NOW.getTime() - 1000).toISOString(), NOW, null)
+    const [p] = await listPromos(NOW)
+    expect([p.usedCount, p.payingNow]).toEqual([0, 1])
+  })
 })
 
 describe('use reservations', () => {
@@ -134,6 +141,18 @@ describe('use reservations', () => {
     await releaseUse('ONE', 'bkg_a')
     expect((await getUses('ONE'))!.used).toHaveLength(1)
     expect(await reserveUse('ONE', 'bkg_b', in15, NOW, 1)).toBe('used-up')
+  })
+  it('an owner can give a one-use personal code its use back (M8)', async () => {
+    await reserveUse('MAYAFREE', 'bkg_maya', in15, NOW, 1)
+    await confirmUse('MAYAFREE', 'bkg_maya', 'cls_a')
+    expect(await reserveUse('MAYAFREE', 'bkg_b', in15, NOW, 1)).toBe('used-up')
+    expect(await giveUseBack('MAYAFREE', 'bkg_maya', by, NOW)).toBe(true)
+    const u = (await getUses('MAYAFREE'))!
+    expect(u.used).toHaveLength(0)
+    expect(u.givenBack).toEqual([{ bookingId: 'bkg_maya', at: NOW.toISOString(), by, classId: 'cls_a' }])
+    expect(await reserveUse('MAYAFREE', 'bkg_b', in15, NOW, 1)).toBe('ok')
+    // Nothing to give back for a booking that never used it.
+    expect(await giveUseBack('MAYAFREE', 'bkg_nobody', by, NOW)).toBe(false)
   })
   it('extend keeps the hold a day (no answer from Square)', async () => {
     await reserveUse('ONE', 'bkg_a', in15, NOW, 1)

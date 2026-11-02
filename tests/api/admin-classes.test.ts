@@ -160,6 +160,22 @@ describe('library', () => {
     expect(ok.status).toBe(200)
     expect(ok.body.data.library.versions[0].content.earlyBird).toEqual(running)
   })
+  it('stage 4 (M9): the library leaves off its own early-bird once it has ended, with a note, instead of refusing', async () => {
+    const running = { untilYmd: '2099-01-01', prices: { all: { person: 2500 } } }
+    const first = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'save', content: content('Lib Old Early', { earlyBird: running }), note: '' })
+    const id = first.body.data.library.id
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2099-01-03T18:00:00Z'))
+    try {
+      // The regular price drops under the dead early-bird price: kept as a save, the early-bird left off.
+      const r = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'save', id, content: content('Lib Old Early', { earlyBird: running, prices: { all: { person: 2000, kid: 2000 } } }), note: '' })
+      expect(r.status).toBe(200)
+      expect(r.body.data.library.versions.at(-1).content.earlyBird).toBeUndefined()
+      expect(r.body.warning).toBe('Early-bird ended, so it was left off.')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
   it('bad content is a 400 with a plain sentence; unknown id is 404', async () => {
     const bad = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'save', content: { ...content(''), name: '' }, note: '' })
     expect(bad.status).toBe(400)
@@ -305,14 +321,17 @@ describe('scheduling', () => {
     const higher = await update({ id, content: content('Early Edit', { earlyBird: { untilYmd: '2031-03-01', prices: { all: { person: 3000 } } } }) })
     expect(higher.status).toBe(400)
     expect(higher.body.error).toBe('The Person early-bird price has to be lower than its regular price.')
-    // An early-bird that has since ended, saved back unchanged with other edits, stays as it was.
+    // M9: an early-bird that has since ended, saved back unchanged with other edits, is left off with a note, never refused.
     const ended = { untilYmd: '2020-01-01', prices: { all: { person: 2500 } } }
     const cls = (await getClass(id))!
     const { updateClass: write } = await import('@lib/classes/class-store')
     await write(id, { content: { ...cls.content, earlyBird: ended } }, { id: 'k', name: 'K' }, 'test: early-bird ended')
-    const ok = await update({ id, content: content('Early Edit, renamed', { earlyBird: ended }) })
+    // Lowering the regular price under the dead early-bird would have been refused ("has to be lower…").
+    const ok = await update({ id, content: content('Early Edit, renamed', { earlyBird: ended, prices: { all: { person: 2000, kid: 2000 } } }) })
     expect(ok.status).toBe(200)
-    expect(ok.body.data.class.content.earlyBird).toEqual(ended)
+    expect(ok.body.data.class.content.earlyBird).toBeUndefined()
+    expect(ok.body.data.class.content.prices.all.person).toBe(2000)
+    expect(ok.body.warning).toContain('Early-bird ended, so it was left off.')
   })
 
   it('GET lists classes in a range with seats taken', async () => {

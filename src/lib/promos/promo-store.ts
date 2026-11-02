@@ -9,7 +9,17 @@
  * by compare-and-swap on the uses document, so of two buyers racing for the
  * last use one gets "used-up" before any Square call. A paid booking turns
  * its hold into a use; a failed one lets go of it; a refund never gives a
- * use back.
+ * use back by itself.
+ *
+ * M8, the one case that matters: a one-use personal code ("MAYAFREE") is gone
+ * once Maya books, even if she later cancels and is refunded (or her free
+ * seat is freed). That is on purpose (a refund can't quietly re-arm a code),
+ * so an owner gives the use back by hand: `giveUseBack` (Promotions, Task 6:
+ * "Give this use back" on the code's list of bookings), or raises the limit.
+ *
+ * M5: a code can end up one over its limit ("3 of 2 used"): a booking whose
+ * hold ran out while Square had not answered, then paid, still counts (the
+ * money was taken). `listPromos` says how many are paying right now too.
  *
  * Server only. Writes are refused on a test site with no store of its own (R41).
  */
@@ -50,17 +60,23 @@ export async function getUses(raw: string): Promise<PromoUses | null> {
   return json ? (JSON.parse(json) as PromoUses) : null
 }
 
-/** Every code, with how many bookings paid with it. */
-export async function listPromos(): Promise<(PromoCode & { usedCount: number })[]> {
+/**
+ * Every code, with how many bookings paid with it and how many are paying
+ * with it right now (`payingNow`: holds still running, so "0 left" while
+ * someone is at the pay step isn't a mystery).
+ */
+export async function listPromos(now = new Date()): Promise<(PromoCode & { usedCount: number; payingNow: number })[]> {
   const keys = (await codes.list()).filter((k) => k.startsWith('code-'))
   const all = await Promise.all(keys.map(async (k) => {
     const json = await codes.get(k)
     if (!json) return null
     const p = JSON.parse(json) as PromoCode
-    const u = await usesKv.get(usesKey(p.code))
-    return { ...p, usedCount: u ? (JSON.parse(u) as PromoUses).used.length : 0 }
+    const raw = await usesKv.get(usesKey(p.code))
+    const u = raw ? (JSON.parse(raw) as PromoUses) : null
+    const payingNow = (u?.holds ?? []).filter((h) => Date.parse(h.until) > now.getTime()).length
+    return { ...p, usedCount: u ? u.used.length : 0, payingNow }
   }))
-  return all.filter((p): p is PromoCode & { usedCount: number } => !!p).sort((a, b) => a.code.localeCompare(b.code))
+  return all.filter((p): p is PromoCode & { usedCount: number; payingNow: number } => !!p).sort((a, b) => a.code.localeCompare(b.code))
 }
 
 /** What an edit changed, in the owner's words. */
@@ -189,5 +205,26 @@ export async function extendUse(code: string, bookingId: string, untilIso: strin
     if (cur.used.some((u) => u.bookingId === bookingId)) return { next: null, result: undefined }
     const others = cur.holds.filter((h) => h.bookingId !== bookingId)
     return { next: { ...cur, holds: [...others, { bookingId, until: untilIso }] }, result: undefined }
+  })
+}
+
+/**
+ * M8: an owner gives one booking's use back (a one-use personal code whose
+ * booking was cancelled). The use is moved to `givenBack`, so the code works
+ * once more. false when that booking never used the code (nothing changed).
+ * Never called by a refund: only by an owner's tap (Task 6).
+ */
+export async function giveUseBack(code: string, bookingId: string, by: By, now = new Date()): Promise<boolean> {
+  return mutateUses(code, (cur) => {
+    const use = cur.used.find((u) => u.bookingId === bookingId)
+    if (!use) return { next: null, result: false }
+    return {
+      next: {
+        ...cur,
+        used: cur.used.filter((u) => u !== use),
+        givenBack: [...(cur.givenBack ?? []), { bookingId, at: now.toISOString(), by, classId: use.classId }],
+      },
+      result: true,
+    }
   })
 }

@@ -24,7 +24,7 @@ import { takenCents } from './booking-words'
 import { archiveClassInSquare, CLASS_TAX_NOT_SET, syncClassToSquare } from './square-catalog'
 import { contentChanges } from './content-diff'
 import { chicagoYmd } from './chicago-day'
-import { dropEndedEarlyBird } from './early-bird'
+import { dropEndedEarlyBird, dropUnchangedEndedEarlyBird } from './early-bird'
 import { bookingCap, describeRequest, remainingOn, sessionShare } from './refunds'
 import { isWaiting, listRefundRequests } from './refund-requests'
 import { getLedger, seatsTaken, type Ledger, type LedgerLine } from './seat-ledger'
@@ -180,13 +180,19 @@ export async function libraryList(includeArchived = false): Promise<LibraryClass
 }
 
 export async function librarySave(body: { id?: unknown; content?: unknown; note?: unknown; expectedVersion?: unknown }, by: By = ADMIN_BY): Promise<LibraryClass> {
-  let content = okContent(body.content)
+  return (await librarySaveNoted(body, by)).data
+}
+
+/** librarySave, with the note to show when an ended early-bird was left off (M9). */
+export async function librarySaveNoted(body: { id?: unknown; content?: unknown; note?: unknown; expectedVersion?: unknown }, by: By = ADMIN_BY): Promise<Saved<LibraryClass>> {
   const id = typeof body.id === 'string' && body.id ? body.id : undefined
+  const was = id ? (await getLibrary(id))?.versions.at(-1)?.content.earlyBird ?? null : null
+  // M9: the saved early-bird sent back unchanged after its last day is left off, never refused.
+  const dropped = dropUnchangedEndedEarlyBird(body.content, was, new Date())
+  const raw = dropped.raw
+  let content = okContent(raw)
   // Stage 4: an early-bird set or changed here can't end before today; one already there is kept as it was.
-  if (content.earlyBird) {
-    const was = id ? (await getLibrary(id))?.versions.at(-1)?.content.earlyBird ?? null : null
-    if (JSON.stringify(was) !== JSON.stringify(content.earlyBird)) content = okContent(body.content, { todayYmd: chicagoYmd(new Date()) })
-  }
+  if (content.earlyBird && JSON.stringify(was) !== JSON.stringify(content.earlyBird)) content = okContent(raw, { todayYmd: chicagoYmd(new Date()) })
   const note = typeof body.note === 'string' ? body.note.trim().slice(0, 200) : ''
   const expectedVersion = body.expectedVersion === undefined ? undefined : Number(body.expectedVersion)
   const lib = await saveLibraryVersion({ id, content, by, note, ...(Number.isInteger(expectedVersion) ? { expectedVersion } : {}) }).catch((e) => {
@@ -194,7 +200,7 @@ export async function librarySave(body: { id?: unknown; content?: unknown; note?
     return libraryError(e)
   })
   await audit(by, 'class-library-save', { kind: 'class-library', id: lib.id, label: content.name }, { version: lib.versions.length })
-  return lib
+  return { data: lib, ...(dropped.note ? { warning: dropped.note } : {}) }
 }
 
 export async function libraryRestore(body: { id?: unknown; version?: unknown }, by: By = ADMIN_BY): Promise<LibraryClass> {
@@ -551,10 +557,12 @@ export async function updateScheduledClass(body: {
   const cls = await mustGetClass(body.id)
   const expectedUpdatedAt = expectedOf(body, cls)
   if (cls.status === 'cancelled') throw new ActionError(409, 'This class is cancelled. Duplicate it to run it again.')
-  let content = body.content !== undefined ? okContent(body.content) : cls.content
+  // M9: the saved early-bird sent back unchanged after its last day is left off, never refused.
+  const ebDropped = body.content !== undefined ? dropUnchangedEndedEarlyBird(body.content, cls.content.earlyBird, new Date()) : { raw: undefined, note: null }
+  let content = body.content !== undefined ? okContent(ebDropped.raw) : cls.content
   // Stage 4: an early-bird set or changed here can't end before today; one already there is kept as it was.
   if (body.content !== undefined && content.earlyBird && JSON.stringify(content.earlyBird) !== JSON.stringify(cls.content.earlyBird ?? null)) {
-    content = okContent(body.content, { todayYmd: chicagoYmd(new Date()) })
+    content = okContent(ebDropped.raw, { todayYmd: chicagoYmd(new Date()) })
   }
   const sessions = body.sessions !== undefined ? okSessions(body.sessions) : cls.sessions
   if (body.sessions !== undefined) noPastStarts(sessions, cls.sessions)
@@ -633,7 +641,7 @@ export async function updateScheduledClass(body: {
   }
 
   const { cls: synced, warning: posWarning } = await syncPos(saved, by)
-  const warning = [libraryWarning, posWarning].filter(Boolean).join(' ') || undefined
+  const warning = [ebDropped.note, libraryWarning, posWarning].filter(Boolean).join(' ') || undefined
   await audit(by, 'class-update', { kind: 'class', id: cls.id, label: synced.content.name }, {
     changes: changes.join(', ') || 'none', moved: moved.length, alsoUpdateLibrary: body.alsoUpdateLibrary === true,
   })

@@ -38,11 +38,13 @@ export type PromoFields = Omit<PromoCode, 'createdAt' | 'updatedAt' | 'by' | 'hi
 
 /**
  * Uses of one code. `used`: bookings that paid with it (a refund never gives
- * a use back). `holds`: bookings paying right now; a hold counts until it
- * runs out, so two buyers can't both take the last use.
+ * a use back by itself). `holds`: bookings paying right now; a hold counts
+ * until it runs out, so two buyers can't both take the last use.
+ * `givenBack`: uses an owner gave back (M8), kept so the history adds up.
  */
 export interface PromoUses {
   code: string
   used: { bookingId: string; at: string; classId: string }[]
   holds: { bookingId: string; until: string }[]
+  givenBack?: { bookingId: string; at: string; by: By; classId: string }[]
 }

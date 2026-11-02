@@ -22,10 +22,15 @@ export const PROMO_REFUSALS = {
   notThisClass: "That code isn't for this class.",
 } as const
 
-/** "fall friends" → "FALLFRIENDS"; null when it isn't 3–20 letters or numbers. */
+/**
+ * "fall friends", "Fall-Friends", "fall.friends", "FALL_FRIENDS" → "FALLFRIENDS";
+ * null when what's left isn't 3–20 letters or numbers. Spaces, dashes, dots and
+ * underscores are dropped (phones autocorrect, flyers print dashes); a saved
+ * code never contains them, so nothing can match the wrong code.
+ */
 export function normalizeCode(raw: string): string | null {
   if (typeof raw !== 'string') return null
-  const c = raw.replace(/\s+/g, '').toUpperCase()
+  const c = raw.replace(/[\s\-_.\u2010-\u2015]+/g, '').toUpperCase()
   return CODE_RE.test(c) ? c : null
 }
 

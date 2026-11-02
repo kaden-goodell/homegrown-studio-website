@@ -12,8 +12,11 @@ import type { Cents, ScheduledClass } from './types'
 import { newId } from './validate'
 import { studioDate } from '@lib/studio-time'
 import { assertClassWritesAllowed } from './test-site-guard'
+import { createLogger } from '@lib/logger'
 import { isExpiredHold, isPaidLine, paidOn, refundedOn, takesSeat } from './seat-status'
 export { isComing, isPaidLine, takesSeat } from './seat-status'
+
+const logger = createLogger('classes:seat-ledger')
 
 export type SeatSource = 'online' | 'door-card' | 'door-counter' | 'comp' | 'pos'
 export interface LedgerLine {
@@ -253,11 +256,19 @@ export async function confirm(
  * alone: nothing is written and `lines` is empty.
  */
 /** Square's per-line totals summed per seat (0-based quote seat → net and tax), or null when they can't be trusted. */
-function squareTotalsBySeat(square: PaidOnSquare, q: Quote | undefined): Map<number, { net: Cents; tax: Cents }> | null {
+function squareTotalsBySeat(square: PaidOnSquare, q: Quote | undefined, bookingId: string): Map<number, { net: Cents; tax: Cents }> | null {
   const t = square.lineTotals
-  if (!t || !q || t.length !== q.lines.length) return null
+  if (!t || !t.length || !q) return null
+  // M1: money we record should be money Square computed. The fallback (our quote's numbers) is safe, but say so.
+  if (t.length !== q.lines.length) {
+    logger.warn('Square line totals dropped: not one per quote line — keeping the quote numbers', { bookingId, orderId: square.orderId, square: t.length, quote: q.lines.length })
+    return null
+  }
   const sum = t.reduce((s, x) => s + x.totalCents, 0)
-  if (typeof square.chargedCents === 'number' && sum !== square.chargedCents) return null
+  if (typeof square.chargedCents === 'number' && sum !== square.chargedCents) {
+    logger.warn('Square line totals dropped: they do not add up to the charge — keeping the quote numbers', { bookingId, orderId: square.orderId, sum, charged: square.chargedCents })
+    return null
+  }
   const out = new Map<number, { net: Cents; tax: Cents }>()
   q.lines.forEach((l, i) => {
     const cur = out.get(l.seat) ?? { net: 0, tax: 0 }
@@ -284,7 +295,7 @@ export async function confirmBooking(
       return none
     }
     if (!hasHeld && (!fallback.quote || !fallback.input)) return none
-    const bySeat = squareTotalsBySeat(square, fallback.quote)
+    const bySeat = squareTotalsBySeat(square, fallback.quote, bookingId)
     const sq = (l: LedgerLine): LedgerLine['square'] => {
       const mine = bySeat?.get(l.seat - 1)
       return {
@@ -568,7 +579,13 @@ export async function recordPos(
           ? { counterMatch: { orderId: input.orderId, candidates: bookings, at: input.saleIso ?? now.toISOString(), checked: null } }
           : {}
         if (bookings > 1) flagged.add(door.bookingId)
-        kept = kept.map((l) => (l.id === door.id ? { ...l, priceCents: unit.priceCents, taxCents: unit.taxCents, square: sq(pl), ...check } : l))
+        // I4: the register's numbers are what was paid; any early-bird or code noted when the seat was taken goes,
+        // so the seat never shows a discount it didn't get (D4: the POS rings the current price itself).
+        kept = kept.map((l) => {
+          if (l.id !== door.id) return l
+          const { listCents: _list, discounts: _off, ...rest } = l
+          return { ...rest, priceCents: unit.priceCents, taxCents: unit.taxCents, square: sq(pl), ...check }
+        })
         have++
       }
       for (let u = have; u < pl.units.length; u++) {

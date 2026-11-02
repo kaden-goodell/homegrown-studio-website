@@ -233,7 +233,13 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   }
 
   // Square's total is what is charged; our quote is for display.
-  const verdict = judgeDrift(q!.totalCents, order.totalCents, { tellBelowCents: 1 })
+  // M2: we round a half-cent of tax up, per line; Square may round it down. So Square up to 1 cent per line
+  // lower is expected rounding (always in the customer's favour): charged, logged, no owners' email.
+  const roundingCents = q!.lines.length
+  const verdict = judgeDrift(q!.totalCents, order.totalCents, { tellBelowCents: roundingCents })
+  if (verdict.kind === 'same' && order.totalCents < q!.totalCents) {
+    logger.info('Class order a few cents under the quote (half-cent tax rounding) — charging Square’s total', { bookingId, quote: q!.totalCents, square: order.totalCents, lines: roundingCents })
+  }
   if (verdict.kind === 'refuse') {
     logger.error('Class order total far above the quote — refusing', { bookingId, orderId: order.orderId, quote: q!.totalCents, square: order.totalCents })
     await letGo('price mismatch')

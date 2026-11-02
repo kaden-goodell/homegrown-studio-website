@@ -55,3 +55,26 @@ export function dropEndedEarlyBird(content: ClassContent, now: Date): { content:
   const { earlyBird: _gone, ...rest } = content
   return { content: rest, note: EARLY_BIRD_ENDED }
 }
+
+/** Same last day and the same price in every cell (key order and missing rows don't matter). */
+export function sameEarlyBird(a: unknown, b: EarlyBird | null | undefined): boolean {
+  if (!a || !b || typeof a !== 'object') return !a && !b
+  const x = a as { untilYmd?: unknown; prices?: unknown }
+  if (x.untilYmd !== b.untilYmd || !x.prices || typeof x.prices !== 'object') return false
+  const cells = (p: Record<string, Record<string, unknown>>) =>
+    Object.entries(p).flatMap(([pass, row]) => Object.entries(row ?? {}).map(([t, c]) => `${pass}:${t}=${String(c)}`)).sort().join('|')
+  return cells(x.prices as Record<string, Record<string, unknown>>) === cells(b.prices as Record<string, Record<string, unknown>>)
+}
+
+/**
+ * M9: an edit that sends back the early-bird already saved, whose last day
+ * has passed, never refuses the save over it (a lower regular price, a ticket
+ * removed): it is left off before the details are checked, with the note.
+ */
+export function dropUnchangedEndedEarlyBird(raw: unknown, saved: EarlyBird | null | undefined, now: Date): { raw: unknown; note: string | null } {
+  if (!saved || onOrBeforeDay(saved.untilYmd, now) || !raw || typeof raw !== 'object') return { raw, note: null }
+  const r = raw as Record<string, unknown>
+  if (!sameEarlyBird(r.earlyBird, saved)) return { raw, note: null }
+  const { earlyBird: _gone, ...rest } = r
+  return { raw: rest, note: EARLY_BIRD_ENDED }
+}

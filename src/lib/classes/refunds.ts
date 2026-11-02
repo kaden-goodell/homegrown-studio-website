@@ -107,7 +107,11 @@ export function bookingCap(lines: LedgerLine[]): Cents | null {
   return Math.max(0, charged - lines.reduce((s, l) => s + l.refunds.reduce((a, r) => a + r.cents, 0), 0))
 }
 
-/** What one session of a multi-session seat is worth: seat price ÷ sessions (rounded down) plus that share's tax. Add-ons are not prorated. */
+/**
+ * What one session of a multi-session seat is worth: seat price ÷ sessions (rounded down) plus that share's tax. Add-ons are not prorated.
+ * M3: worked from our own priceCents, not Square's per-seat net, so on a discounted seat it can be a cent off
+ * Square's share. Accepted: the booking cap (what Square charged) still bounds every refund.
+ */
 export function sessionShare(l: LedgerLine): Cents {
   const share = Math.floor(l.priceCents / l.sessionIds.length)
   const tax = l.priceCents > 0 ? Math.round((share * l.taxCents) / l.priceCents) : 0
