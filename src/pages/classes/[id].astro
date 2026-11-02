@@ -7,6 +7,7 @@ import { getClass } from '@lib/classes/class-store'
 import { getLedger } from '@lib/classes/seat-ledger'
 import { toPublicClass, viewableByLink } from '@lib/classes/public-view'
 import { ownPriceLabel, sessionsLine } from '@lib/classes/public-class'
+import { earlyBirdLabel } from '@lib/classes/early-bird'
 import { summarize } from '@lib/seo'
 import { formatDay } from '@lib/studio-time'
 import { envBookingsOpen, hasValidPreviewCookie, previewQueryMatches, previewCookieName, previewToken } from '@lib/bookings-gate'
@@ -39,7 +40,7 @@ const bookingsOpen = envBookingsOpen('workshops') || _previewMatch || hasValidPr
 Astro.response.headers.set('Cache-Control', 'private, no-store')
 
 const when = workshop?.own ? sessionsLine(workshop.own) || formatDay(workshop.startTime) : ''
-const price = workshop?.own ? ownPriceLabel(workshop.own, workshop.currency) : ''
+const price = workshop?.own ? [ownPriceLabel(workshop.own, workshop.currency), earlyBirdLabel(workshop.own, workshop.currency)].filter(Boolean).join(' · ') : ''
 const description = workshop
   ? [[when, price].filter(Boolean).join(' · '), summarize(workshop.description)].filter(Boolean).join('. ')
   : 'That class isn’t here. See the workshops coming up at Hometown Studio.'

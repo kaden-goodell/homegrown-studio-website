@@ -2,7 +2,8 @@
  * Validation for our own classes. Pure functions. Error messages are plain
  * sentences the owner reads in the class form.
  */
-import type { AddOn, Cents, ClassContent, ClassRules, Pass, PassCovers, SeatQuestion, Session, TicketType } from './types'
+import type { AddOn, Cents, ClassContent, ClassRules, EarlyBird, Pass, PassCovers, SeatQuestion, Session, TicketType } from './types'
+import { isYmd } from './chicago-day'
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string; field?: string }
 
@@ -92,7 +93,42 @@ function validateCovers(raw: unknown, label: string): Result<PassCovers> {
   }
 }
 
-export function validateContent(raw: unknown): Result<ClassContent> {
+/**
+ * The early-bird (stage 4): one last day, a lower price per sold cell.
+ * `todayYmd` (Chicago) refuses a last day already gone: pass it when the
+ * owner sets or changes the early-bird, not when an old class is read back.
+ */
+function validateEarlyBird(
+  raw: unknown, passes: Pass[], ticketTypes: TicketType[], prices: Record<string, Record<string, Cents>>, todayYmd?: string,
+): Result<EarlyBird | null> {
+  if (raw === undefined || raw === null) return { ok: true, value: null }
+  if (!isObj(raw)) return fail('The early-bird is not readable.', 'earlyBird')
+  if (!isYmd(raw.untilYmd)) return fail('Pick the last day of the early-bird.', 'earlyBird')
+  if (todayYmd && raw.untilYmd < todayYmd) return fail('The early-bird has to end today or later.', 'earlyBird')
+  if (!isObj(raw.prices)) return fail('Add at least one early-bird price, or turn the early-bird off.', 'earlyBird')
+  const out: Record<string, Record<string, Cents>> = {}
+  let n = 0
+  for (const [passId, row] of Object.entries(raw.prices)) {
+    if (!isObj(row)) return fail('An early-bird price row is not readable.', 'earlyBird')
+    for (const [tid, cents] of Object.entries(row)) {
+      const regular = prices[passId]?.[tid]
+      if (regular === undefined) return fail('An early-bird price needs a regular price for the same seat.', 'earlyBird')
+      if (!isCents(cents)) return fail('Prices must be whole cents of zero or more.', 'earlyBird')
+      if (cents >= regular) {
+        const pass = passes.find((p) => p.id === passId)?.label ?? passId
+        const ticket = ticketTypes.find((t) => t.id === tid)?.label ?? tid
+        const cell = passes.length > 1 ? `${pass} ${ticket}` : ticket
+        return fail(`The ${cell} early-bird price has to be lower than its regular price.`, 'earlyBird')
+      }
+      ;(out[passId] ??= {})[tid] = cents
+      n++
+    }
+  }
+  if (!n) return fail('Add at least one early-bird price, or turn the early-bird off.', 'earlyBird')
+  return { ok: true, value: { untilYmd: raw.untilYmd, prices: out } }
+}
+
+export function validateContent(raw: unknown, opts: { todayYmd?: string } = {}): Result<ClassContent> {
   if (!isObj(raw)) return fail('The class is not readable.')
   const name = str(raw.name)
   if (!name) return fail('Give the class a name.', 'name')
@@ -163,6 +199,9 @@ export function validateContent(raw: unknown): Result<ClassContent> {
   const defaultMinutes = raw.defaultMinutes === undefined ? 90 : raw.defaultMinutes
   if (!inRange(defaultMinutes, 5, 1440)) return fail('The default length is 5 to 1440 minutes.', 'defaultMinutes')
 
+  const earlyBird = validateEarlyBird(raw.earlyBird, passes, ticketTypes, prices, opts.todayYmd)
+  if (!earlyBird.ok) return earlyBird
+
   const image = str(raw.imageUrl)
   return {
     ok: true,
@@ -179,6 +218,8 @@ export function validateContent(raw: unknown): Result<ClassContent> {
       addOns,
       defaultCapacity,
       defaultMinutes,
+      // Left out when there is none, so a class without one reads exactly as before.
+      ...(earlyBird.value ? { earlyBird: earlyBird.value } : {}),
     },
   }
 }

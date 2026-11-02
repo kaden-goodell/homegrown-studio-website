@@ -150,6 +150,16 @@ describe('library', () => {
     expect(after.body.data.library.some((l: any) => l.id === id)).toBe(false)
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-library-save', by: expect.objectContaining({ id: 'admin', name: 'Owner', role: 'owner' }) }))
   })
+  it('stage 4: the library refuses a new early-bird that has ended, and keeps one already saved', async () => {
+    const ended = { untilYmd: '2020-01-01', prices: { all: { person: 2500 } } }
+    const bad = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'save', content: content('Lib Early', { earlyBird: ended }), note: '' })
+    expect(bad.status).toBe(400)
+    expect(bad.body.error).toBe('The early-bird has to end today or later.')
+    const running = { untilYmd: '2099-01-01', prices: { all: { person: 2500 } } }
+    const ok = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'save', content: content('Lib Early', { earlyBird: running }), note: '' })
+    expect(ok.status).toBe(200)
+    expect(ok.body.data.library.versions[0].content.earlyBird).toEqual(running)
+  })
   it('bad content is a 400 with a plain sentence; unknown id is 404', async () => {
     const bad = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'save', content: { ...content(''), name: '' }, note: '' })
     expect(bad.status).toBe(400)
@@ -270,6 +280,39 @@ describe('scheduling', () => {
     expect(copy.sessions[0].id).not.toBe(src.body.data.class.sessions[0].id)
     expect((await getLedger(copy.id)).lines).toEqual([])
     expect(copy.square.itemId).toBe(`item-${copy.id}`)
+  })
+
+  it('stage 4: Run it again and duplicate leave off an early-bird that has ended, and say so; a running one comes along', async () => {
+    const ended = { untilYmd: '2020-01-01', prices: { all: { person: 2500 } } }
+    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Early Again', { earlyBird: ended }), sessions: [ses('2031-04-20', '17:00', '19:00')], status: 'open' })
+    expect(r.status).toBe(200)
+    expect(r.body.data.class.content.earlyBird).toBeUndefined()
+    expect(r.body.warning).toBe('Early-bird ended, so it was left off.')
+    const running = { untilYmd: '2031-03-01', prices: { all: { kid: 1500 } } }
+    const src = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Early Runs', { earlyBird: running }), sessions: [ses('2031-04-21', '17:00', '19:00')], status: 'open' })
+    expect(src.body.data.class.content.earlyBird).toEqual(running)
+    expect(src.body.warning).toBeUndefined()
+    const dup = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'duplicate', id: src.body.data.class.id, sessions: [{ startIso: at('2031-04-28', '17:00'), endIso: at('2031-04-28', '19:00'), capacity: 8 }] })
+    expect(dup.body.data.class.content.earlyBird).toEqual(running)
+  })
+
+  it('stage 4: an edit refuses setting an early-bird that ended, but keeps one that was already there', async () => {
+    const src = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Early Edit'), sessions: [ses('2031-04-22', '17:00', '19:00')], status: 'open' })
+    const id = src.body.data.class.id
+    const bad = await update({ id, content: content('Early Edit', { earlyBird: { untilYmd: '2020-01-01', prices: { all: { person: 2500 } } } }) })
+    expect(bad.status).toBe(400)
+    expect(bad.body.error).toBe('The early-bird has to end today or later.')
+    const higher = await update({ id, content: content('Early Edit', { earlyBird: { untilYmd: '2031-03-01', prices: { all: { person: 3000 } } } }) })
+    expect(higher.status).toBe(400)
+    expect(higher.body.error).toBe('The Person early-bird price has to be lower than its regular price.')
+    // An early-bird that has since ended, saved back unchanged with other edits, stays as it was.
+    const ended = { untilYmd: '2020-01-01', prices: { all: { person: 2500 } } }
+    const cls = (await getClass(id))!
+    const { updateClass: write } = await import('@lib/classes/class-store')
+    await write(id, { content: { ...cls.content, earlyBird: ended } }, { id: 'k', name: 'K' }, 'test: early-bird ended')
+    const ok = await update({ id, content: content('Early Edit, renamed', { earlyBird: ended }) })
+    expect(ok.status).toBe(200)
+    expect(ok.body.data.class.content.earlyBird).toEqual(ended)
   })
 
   it('GET lists classes in a range with seats taken', async () => {

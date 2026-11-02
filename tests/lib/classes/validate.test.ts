@@ -150,3 +150,51 @@ describe('newId', () => {
     expect(newId('cls')).not.toBe(newId('cls'))
   })
 })
+
+describe('validateContent — early-bird (stage 4)', () => {
+  const two = () => ({
+    ...minimal(),
+    ticketTypes: [{ id: 'adult', label: 'Adult' }, { id: 'kid', label: 'Kid' }],
+    prices: { p1: { adult: 2000, kid: 1500 } },
+  })
+  it('keeps a valid early-bird: one end date, a price per sold cell', () => {
+    const r = validateContent({ ...two(), earlyBird: { untilYmd: '2026-11-20', prices: { p1: { adult: 1600 } } } }, { todayYmd: '2026-11-01' })
+    expect(r.ok && r.value.earlyBird).toEqual({ untilYmd: '2026-11-20', prices: { p1: { adult: 1600 } } })
+  })
+  it('no early-bird leaves the content as it was (no key)', () => {
+    const r = validateContent(minimal())
+    expect(r.ok && 'earlyBird' in r.value).toBe(false)
+    const n = validateContent({ ...minimal(), earlyBird: null })
+    expect(n.ok && 'earlyBird' in n.value).toBe(false)
+  })
+  it('refuses an early-bird price that is not lower than the regular one', () => {
+    const same = validateContent({ ...two(), earlyBird: { untilYmd: '2026-11-20', prices: { p1: { kid: 1500 } } } })
+    expect(!same.ok && same.error).toBe('The Kid early-bird price has to be lower than its regular price.')
+    expect(!same.ok && same.field).toBe('earlyBird')
+    const more = validateContent({ ...two(), earlyBird: { untilYmd: '2026-11-20', prices: { p1: { adult: 2500 } } } })
+    expect(more.ok).toBe(false)
+  })
+  it('refuses an early-bird on a seat that is not sold', () => {
+    const r = validateContent({ ...minimal(), earlyBird: { untilYmd: '2026-11-20', prices: { p1: { kid: 500 } } } })
+    expect(!r.ok && r.error).toBe('An early-bird price needs a regular price for the same seat.')
+    const pass = validateContent({ ...minimal(), earlyBird: { untilYmd: '2026-11-20', prices: { nope: { person: 500 } } } })
+    expect(pass.ok).toBe(false)
+  })
+  it('refuses no prices, a bad date, and a date before today when today is given', () => {
+    expect(validateContent({ ...minimal(), earlyBird: { untilYmd: '2026-11-20', prices: {} } }).ok).toBe(false)
+    expect(validateContent({ ...minimal(), earlyBird: { untilYmd: '2026-13-01', prices: { p1: { person: 1000 } } } }).ok).toBe(false)
+    const past = validateContent({ ...minimal(), earlyBird: { untilYmd: '2026-10-31', prices: { p1: { person: 1000 } } } }, { todayYmd: '2026-11-01' })
+    expect(!past.ok && past.error).toBe('The early-bird has to end today or later.')
+    // Without today (an old class read back), an ended early-bird is kept as it was.
+    expect(validateContent({ ...minimal(), earlyBird: { untilYmd: '2026-10-31', prices: { p1: { person: 1000 } } } }).ok).toBe(true)
+  })
+  it('names the pass too when there are several', () => {
+    const r = validateContent({
+      ...minimal(),
+      passes: [{ id: 'p1', label: 'Full', covers: { kind: 'all' } }, { id: 'p2', label: 'Day', covers: { kind: 'choose', count: 1 } }],
+      prices: { p1: { person: 2000 }, p2: { person: 800 } },
+      earlyBird: { untilYmd: '2026-11-20', prices: { p2: { person: 900 } } },
+    })
+    expect(!r.ok && r.error).toBe('The Day Person early-bird price has to be lower than its regular price.')
+  })
+})

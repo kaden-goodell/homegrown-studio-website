@@ -11,7 +11,8 @@ import { CLASS_TAX_PERCENT, cutoffRefusal } from './checkout'
 import { sessionsForPass, type SaleOptions } from './pricing'
 import { classAvailability, lowestPrice, passState, publicRules, type OwnClassData, type PublicPass, type PublicSession } from './public-class'
 import { seatsTaken, type Ledger } from './seat-ledger'
-import type { ScheduledClass } from './types'
+import { earlyBirdRunning } from './early-bird'
+import type { Cents, ScheduledClass } from './types'
 import { sellableCells } from './validate'
 
 /** Shown on the public list: open or closed, and not link-only. */
@@ -54,6 +55,13 @@ export function toPublicClass(cls: ScheduledClass, ledger: Ledger, now: Date, op
 
   const prices: OwnClassData['prices'] = {}
   for (const p of passes) prices[p.id] = { ...(c.prices[p.id] ?? {}) }
+  // Stage 4: the early-bird only while it runs, and only for the passes listed.
+  let earlyBird: OwnClassData['earlyBird']
+  if (c.earlyBird && earlyBirdRunning(c, now)) {
+    const ebPrices: Record<string, Record<string, Cents>> = {}
+    for (const p of passes) if (c.earlyBird.prices[p.id]) ebPrices[p.id] = { ...c.earlyBird.prices[p.id] }
+    if (Object.keys(ebPrices).length) earlyBird = { untilYmd: c.earlyBird.untilYmd, prices: ebPrices }
+  }
 
   const own: OwnClassData = {
     classId: cls.id,
@@ -66,6 +74,7 @@ export function toPublicClass(cls: ScheduledClass, ledger: Ledger, now: Date, op
     rules: publicRules(c.rules),
     instructor: c.instructor || null,
     taxPercent: c.rules.taxable ? CLASS_TAX_PERCENT : 0,
+    ...(earlyBird ? { earlyBird } : {}),
   }
 
   const first = sessionsSorted[0]

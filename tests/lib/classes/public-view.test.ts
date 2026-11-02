@@ -179,3 +179,19 @@ describe('public view — R28 and door sales', () => {
     expect(toPublicClass(c, ledger(), during, { door: true }).own!.passes.find((p) => p.id === 'all')!.state).toBe('open')
   })
 })
+
+describe('public view — early-bird (stage 4)', () => {
+  const eb = { untilYmd: '2026-10-22', prices: { all: { person: 2000 } } }
+  it('shows the early-bird next to the regular price only while it runs', () => {
+    const w = toPublicClass(make({ earlyBird: eb }), ledger(), NOW)!
+    expect(w.own!.earlyBird).toEqual({ untilYmd: '2026-10-22', prices: { all: { person: 2000 } } })
+    expect(priceLabel(w)).toBe('From $15 · Early-bird from $20 until Thu Oct 22')
+    const after = toPublicClass(make({ earlyBird: eb }), ledger(), new Date('2026-10-23T06:00:00Z'))!
+    expect(after.own!.earlyBird).toBeUndefined()
+    expect(priceLabel(after)).toBe('From $15')
+  })
+  it('carries every pass\'s early-bird cells', () => {
+    const w = toPublicClass(make({ earlyBird: { untilYmd: '2026-10-22', prices: { all: { person: 2000 }, day: { person: 1000 } } }, prices: { all: { person: 2500 }, day: { person: 1500 } } }), ledger(), NOW)!
+    expect(Object.keys(w.own!.earlyBird!.prices).sort()).toEqual(['all', 'day'])
+  })
+})

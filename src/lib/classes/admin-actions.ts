@@ -23,6 +23,8 @@ import { archiveLibrary, getLibrary, LibraryStaleError, listLibrary, restoreLibr
 import { takenCents } from './booking-words'
 import { archiveClassInSquare, CLASS_TAX_NOT_SET, syncClassToSquare } from './square-catalog'
 import { contentChanges } from './content-diff'
+import { chicagoYmd } from './chicago-day'
+import { dropEndedEarlyBird } from './early-bird'
 import { bookingCap, describeRequest, remainingOn, sessionShare } from './refunds'
 import { isWaiting, listRefundRequests } from './refund-requests'
 import { getLedger, seatsTaken, type Ledger, type LedgerLine } from './seat-ledger'
@@ -84,8 +86,8 @@ function paidOf(lines: LedgerLine[]): number {
   return charged ?? lines.reduce((s, l) => s + paidOn(l), 0)
 }
 
-function okContent(raw: unknown): ClassContent {
-  const r = validateContent(raw)
+function okContent(raw: unknown, opts: { todayYmd?: string } = {}): ClassContent {
+  const r = validateContent(raw, opts)
   if (!r.ok) throw new ActionError(400, r.error, r.field ? { field: r.field } : {})
   return r.value
 }
@@ -178,8 +180,13 @@ export async function libraryList(includeArchived = false): Promise<LibraryClass
 }
 
 export async function librarySave(body: { id?: unknown; content?: unknown; note?: unknown; expectedVersion?: unknown }, by: By = ADMIN_BY): Promise<LibraryClass> {
-  const content = okContent(body.content)
+  let content = okContent(body.content)
   const id = typeof body.id === 'string' && body.id ? body.id : undefined
+  // Stage 4: an early-bird set or changed here can't end before today; one already there is kept as it was.
+  if (content.earlyBird) {
+    const was = id ? (await getLibrary(id))?.versions.at(-1)?.content.earlyBird ?? null : null
+    if (JSON.stringify(was) !== JSON.stringify(content.earlyBird)) content = okContent(body.content, { todayYmd: chicagoYmd(new Date()) })
+  }
   const note = typeof body.note === 'string' ? body.note.trim().slice(0, 200) : ''
   const expectedVersion = body.expectedVersion === undefined ? undefined : Number(body.expectedVersion)
   const lib = await saveLibraryVersion({ id, content, by, note, ...(Number.isInteger(expectedVersion) ? { expectedVersion } : {}) }).catch((e) => {
@@ -394,7 +401,9 @@ export async function scheduleClass(body: { libraryId?: unknown; content?: unkno
   }
   const sessions = okSessions(body.sessions)
   noPastStarts(sessions)
-  let content = okContent(raw)
+  // Stage 4: details copied for a new date (Schedule it, Run it again) leave off an early-bird that has ended, and say so.
+  const dropped = dropEndedEarlyBird(okContent(raw), new Date())
+  let content = dropped.content
   const status = okStatus(body.status, 'draft')
   try {
     await checkClashes(sessions, content.rules.canShareRoom)
@@ -438,7 +447,7 @@ export async function scheduleClass(body: { libraryId?: unknown; content?: unkno
   }
   const { cls, warning: posWarning } = await syncPos(created, by)
   await audit(by, 'class-create', { kind: 'class', id: cls.id, label: content.name }, { status, sessions: sessions.length, libraryId: libraryId ?? null })
-  const said = [warning, posWarning].filter(Boolean).join(' ') || undefined
+  const said = [dropped.note, warning, posWarning].filter(Boolean).join(' ') || undefined
   return { data: { class: cls }, ...(said ? { warning: said } : {}) }
 }
 
@@ -455,7 +464,8 @@ export async function duplicateClass(body: { id?: unknown; sessions?: unknown; s
   )
   noPastStarts(sessions)
   const status = okStatus(body.status, src.status === 'cancelled' ? 'draft' : src.status)
-  const content = structuredClone(src.content)
+  const dropped = dropEndedEarlyBird(structuredClone(src.content), new Date())
+  const content = dropped.content
   try {
     await checkClashes(sessions, content.rules.canShareRoom)
   } catch (e) {
@@ -476,8 +486,9 @@ export async function duplicateClass(body: { id?: unknown; sessions?: unknown; s
     if (e instanceof ClassExistsError) return finishCreate((await getClass(e.id))!, by)
     throw e
   }
-  const { cls, warning } = await syncPos(created, by)
+  const { cls, warning: posWarning } = await syncPos(created, by)
   await audit(by, 'class-duplicate', { kind: 'class', id: cls.id, label: content.name }, { from: src.id, sessions: sessions.length })
+  const warning = [dropped.note, posWarning].filter(Boolean).join(' ') || undefined
   return { data: { class: cls }, ...(warning ? { warning } : {}) }
 }
 
@@ -540,7 +551,11 @@ export async function updateScheduledClass(body: {
   const cls = await mustGetClass(body.id)
   const expectedUpdatedAt = expectedOf(body, cls)
   if (cls.status === 'cancelled') throw new ActionError(409, 'This class is cancelled. Duplicate it to run it again.')
-  const content = body.content !== undefined ? okContent(body.content) : cls.content
+  let content = body.content !== undefined ? okContent(body.content) : cls.content
+  // Stage 4: an early-bird set or changed here can't end before today; one already there is kept as it was.
+  if (body.content !== undefined && content.earlyBird && JSON.stringify(content.earlyBird) !== JSON.stringify(cls.content.earlyBird ?? null)) {
+    content = okContent(body.content, { todayYmd: chicagoYmd(new Date()) })
+  }
   const sessions = body.sessions !== undefined ? okSessions(body.sessions) : cls.sessions
   if (body.sessions !== undefined) noPastStarts(sessions, cls.sessions)
   const status = okStatus(body.status, cls.status)

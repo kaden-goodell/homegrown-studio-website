@@ -23,6 +23,12 @@ export interface ClassRules {
   waitlistCutoffHours: number // default 2 (stage 4 uses it)
   canShareRoom: boolean   // allows overlap with another class
 }
+/**
+ * Stage 4 (OWNER-S4-7): a lower price per price cell until the end of one
+ * Chicago day. A cell left out has no early-bird. Each cell is a sold cell
+ * and lower than its regular price.
+ */
+export interface EarlyBird { untilYmd: string; prices: Record<string, Record<string, Cents>> }
 export interface ClassContent {
   name: string
   description: string     // paragraphs separated by blank lines
@@ -37,6 +43,8 @@ export interface ClassContent {
   addOns: AddOn[]
   defaultCapacity: number
   defaultMinutes: number
+  /** Stage 4. Absent (or null) = no early-bird. */
+  earlyBird?: EarlyBird | null
 }
 /** `changed`: what this version changed from the one before, in the owner's words ("Price", "Description"); absent on old versions. */
 export interface LibraryVersion { version: number; at: string; by: { id: string; name: string }; content: ClassContent; note: string; changed?: string[] }

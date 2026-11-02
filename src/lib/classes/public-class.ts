@@ -7,7 +7,7 @@
  */
 import { formatMoney } from '@lib/money'
 import { formatDay } from '@lib/studio-time'
-import type { AddOn, Cents, ClassRules, Pass, ScheduledClass, SeatQuestion, TicketType } from './types'
+import type { AddOn, Cents, ClassRules, EarlyBird, Pass, ScheduledClass, SeatQuestion, TicketType } from './types'
 
 export interface PublicSession {
   id: string
@@ -53,6 +53,8 @@ export interface OwnClassData {
   instructor: string | null
   /** Tax added on top, in percent (0 when the class isn't taxed). */
   taxPercent: number
+  /** Stage 4: sent only while it runs (decided on the server), cells of the listed passes only. */
+  earlyBird?: EarlyBird
 }
 
 /** The pass's state, from its sessions. A 'choose' pass needs `count` open sessions with room. */
@@ -138,6 +140,7 @@ export function asScheduledClass(own: OwnClassData, name: string): ScheduledClas
       rules: { ...own.rules, minimumToRun: null, waitlistCutoffHours: 0, canShareRoom: false },
       ticketTypes: own.ticketTypes, passes: own.passes, prices: own.prices,
       questions: own.questions, addOns: own.addOns, defaultCapacity: 0, defaultMinutes: 0,
+      ...(own.earlyBird ? { earlyBird: own.earlyBird } : {}),
     },
     sessions: own.sessions.map((s) => ({ id: s.id, startIso: s.startIso, endIso: s.endIso, capacity: s.left })),
     status: 'open',

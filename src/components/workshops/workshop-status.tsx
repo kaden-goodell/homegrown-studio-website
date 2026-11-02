@@ -7,13 +7,15 @@ import { canBeBooked, isSoldOut, seatsLeftLabel } from '@lib/workshop-rules'
 import { ageLabel, agesLabel, isDropOff, notifyInterest } from '@lib/workshop-copy'
 import { trackWaitlistOpened } from '@lib/analytics'
 import { ownPriceLabel } from '@lib/classes/public-class'
+import { earlyBirdLabel } from '@lib/classes/early-bird'
 
 /**
  * "$25", or "$20 adult · $15 kid" on a class with ticket types. One of our own
  * classes reads its price cells: "From $15" when there are several prices.
  */
 export function priceLabel(w: Pick<WorkshopData, 'price' | 'currency' | 'tickets' | 'own'>): string {
-  if (w.own) return ownPriceLabel(w.own, w.currency)
+  // Stage 4: "$25 · Early-bird $20 until Fri Oct 30" while one runs (the server only sends a running one).
+  if (w.own) return [ownPriceLabel(w.own, w.currency), earlyBirdLabel(w.own, w.currency)].filter(Boolean).join(' · ')
   return w.tickets?.length
     ? w.tickets.map((t) => `${formatMoney(t.priceCents, w.currency)} ${t.label.toLowerCase()}`).join(' · ')
     : formatMoney(w.price, w.currency)
