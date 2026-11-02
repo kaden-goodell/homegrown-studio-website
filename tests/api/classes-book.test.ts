@@ -182,6 +182,33 @@ describe('POST /api/classes/book.json', () => {
     expect(mockReport).toHaveBeenCalledWith(expect.objectContaining({ bookingId, amountCents: 16000 }))
   })
 
+  it('stage 4 (I1): a running early-bird goes to Square as per-line discounts, so Square\'s total is the quote', async () => {
+    const cls = makeClass({ content: { earlyBird: { untilYmd: '2026-10-12', prices: { all: { adult: 5000 } } } } })
+    const { MockPaymentProvider } = await import('@providers/mock/payment')
+    const square = new MockPaymentProvider()
+    square.prices = { VAR_ALL_ADULT: 6000, VAR_ALL_KID: 4000 }
+    mockCreateClassOrder.mockImplementation((p: any) => square.createClassOrder(p))
+    // 5000+5000+4000 = 14000, tax 450+450+360 = 1260
+    mockProcessPayment.mockResolvedValue({ id: 'PAY1', orderId: 'x', amount: 15260, status: 'completed', receiptUrl: null })
+    const res = await POST(ctx(body(cls)))
+    expect(res.status).toBe(200)
+    const order = mockCreateClassOrder.mock.calls[0][0]
+    expect(order.lineDiscounts).toEqual([{ line: 0, name: 'Early-bird', cents: 1000 }, { line: 1, name: 'Early-bird', cents: 1000 }])
+    expect(mockProcessPayment.mock.calls[0][0].amount).toBe(15260)
+    expect(mockOwnerEmail).not.toHaveBeenCalled()
+    const lines = (await linesOf(cls)).sort((a, b) => a.seat - b.seat)
+    expect(lines.map((l) => [l.priceCents, l.listCents, l.square.lineNetCents])).toEqual([[5000, 6000, 5000], [5000, 6000, 5000], [4000, undefined, 4000]])
+  })
+
+  it('stage 4 (I1): a Square order that left the early-bird off (total far above the quote) is refused, nothing charged', async () => {
+    const cls = makeClass({ content: { earlyBird: { untilYmd: '2026-10-12', prices: { all: { adult: 5000 } } } } })
+    mockCreateClassOrder.mockResolvedValueOnce({ orderId: 'ORDER1', totalCents: TOTAL, lineUids: [], lineTotals: [] }) // $174.40, the full price: $21.80 over the $152.60 quote
+    const res = await POST(ctx(body(cls)))
+    expect(res.status).toBe(502)
+    expect((await res.json()).detail).toBe(PRICE_MISMATCH_MESSAGE)
+    expect(mockProcessPayment).not.toHaveBeenCalled()
+  })
+
   it('stage 4: the ledger keeps Square\'s own per-line totals, and refunds use them', async () => {
     const cls = makeClass()
     // Square's numbers, a cent different from ours on the kid's tax: the ledger records Square's.

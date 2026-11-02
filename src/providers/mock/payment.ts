@@ -24,15 +24,18 @@ export class MockPaymentProvider implements PaymentProvider {
 
   async createClassOrder(params: Parameters<PaymentProvider['createClassOrder']>[0]) {
     this.classOrderCalls.push(params)
-    const lineTotals = params.lines.map((l) => {
+    // Line discounts come off their own line before its 9%, as Square does with LINE_ITEM discounts.
+    const lineTotals = params.lines.map((l, i) => {
       const price = this.prices[l.catalogObjectId] ?? 0
-      const tax = taxCents(price, 9)
-      return { uid: this.generateId('mock-line'), totalCents: price + tax, taxCents: tax }
+      const off = (params.lineDiscounts ?? []).filter((d) => d.line === i).reduce((s, d) => s + Math.max(0, d.cents), 0)
+      const net = Math.max(0, price - off)
+      const tax = taxCents(net, 9)
+      return { uid: this.generateId('mock-line'), totalCents: net + tax, taxCents: tax }
     })
     const sum = lineTotals.reduce((s, l) => s + l.totalCents, 0)
     return {
       orderId: this.generateId('mock-order'),
-      totalCents: Math.max(0, sum - (params.discount?.cents ?? 0)),
+      totalCents: sum,
       lineUids: lineTotals.map((l) => l.uid),
       lineTotals,
     }

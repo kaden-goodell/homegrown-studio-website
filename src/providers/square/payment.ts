@@ -48,15 +48,20 @@ export class SquarePaymentProvider implements PaymentProvider {
       pricing_options: { auto_apply_taxes: true },
     }
     if (params.customerId) order.customer_id = params.customerId
-    if (params.discount) {
-      order.discounts = [
-        {
-          name: params.discount.name,
-          amount_money: { amount: params.discount.cents, currency: 'USD' },
-          scope: 'ORDER',
-        },
-      ]
+    // S4-R1: one fixed-amount LINE_ITEM discount per discount per line, applied to that line only.
+    const discounts: any[] = []
+    const perLine = new Map<number, number>()
+    for (const d of params.lineDiscounts ?? []) {
+      if (!Number.isInteger(d.line) || d.line < 0 || d.line >= params.lines.length) throw new Error(`A discount points at order line ${d.line}, which isn't there.`)
+      if (!Number.isInteger(d.cents) || d.cents <= 0) continue
+      const k = perLine.get(d.line) ?? 0
+      perLine.set(d.line, k + 1)
+      const uid = `d${d.line}-${k}`
+      discounts.push({ uid, name: d.name.slice(0, 255), type: 'FIXED_AMOUNT', amount_money: { amount: d.cents, currency: 'USD' }, scope: 'LINE_ITEM' })
+      const item = order.line_items[d.line]
+      item.applied_discounts = [...(item.applied_discounts ?? []), { discount_uid: uid }]
     }
+    if (discounts.length) order.discounts = discounts
     const res = await squareFetch('/orders', {
       method: 'POST',
       body: JSON.stringify({ idempotency_key: params.idempotencyKey, order }),

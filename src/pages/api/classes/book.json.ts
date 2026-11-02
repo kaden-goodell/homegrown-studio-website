@@ -32,6 +32,7 @@ import {
   cleanSeats,
   type ClassCheckoutCode,
   type OrderLine,
+  type OrderLineDiscount,
 } from '@lib/classes/checkout'
 import { claimConfirmation, releaseConfirmation, sendClassConfirmation } from '@lib/classes/confirmation'
 import type { ScheduledClass } from '@lib/classes/types'
@@ -162,7 +163,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     if (!priced.ok || !lines?.ok) return fail(409, 'in_progress')
     setQuote(cls, priced.value)
     await lookUpCustomer()
-    const recovered = await paidEarlier(cls, lines.lines)
+    const recovered = await paidEarlier(cls, lines)
     if (recovered && recovered !== 'unknown') return recovered
     return fail(409, 'in_progress')
   }
@@ -204,7 +205,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     if (notHeld.status !== 409 || (await notHeld.clone().json()).code !== 'sold_out') return notHeld
     // Full now. If an earlier try of this attempt paid (its hold ran out and
     // the seat was resold), the booking stands: record it, never say "not charged".
-    const recovered = await paidEarlier(cls, orderLines.lines)
+    const recovered = await paidEarlier(cls, orderLines)
     if (recovered === 'unknown') {
       return fail(409, 'sold_out', 'That class just filled up. If you already paid, check your email for a receipt before trying again.')
     }
@@ -221,7 +222,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   // ── 3. One Square order ─────────────────────────────────────────────────────
   let order: { orderId: string; totalCents: number; lineTotals?: { totalCents: number; taxCents: number }[] }
   try {
-    order = await createOrder(orderLines.lines)
+    order = await createOrder(orderLines)
   } catch (err) {
     if (squareErrorCodes(err).includes('IDEMPOTENCY_KEY_REUSED')) {
       // An earlier try of this attempt made a different order. It may be paid.
@@ -300,12 +301,14 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     firstStart = c.sessions.find((s) => s.id === value.sessionIds[0])?.startIso ?? c.sessions[0]?.startIso ?? ''
   }
 
-  function createOrder(lines: OrderLine[]) {
+  /** The order: catalog lines, and the early-bird and code as per-line discounts (S4-R1), so Square's total is the quote's. */
+  function createOrder(o: { lines: OrderLine[]; discounts: OrderLineDiscount[] }) {
     return providers.payment.createClassOrder({
       locationId: siteConfig.providers.booking.config.locationId,
       customerId,
       idempotencyKey: attemptKey(attemptId, 'order'),
-      lines,
+      lines: o.lines,
+      ...(o.discounts.length ? { lineDiscounts: o.discounts } : {}),
       referenceId: bookingId,
     })
   }
@@ -316,7 +319,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
    * recorded (over capacity if need be) and the booked answer returned.
    * null = Square shows no payment; 'unknown' = we couldn't ask.
    */
-  async function paidEarlier(c: ScheduledClass, lines: OrderLine[]): Promise<Response | null | 'unknown'> {
+  async function paidEarlier(c: ScheduledClass, lines: { lines: OrderLine[]; discounts: OrderLineDiscount[] }): Promise<Response | null | 'unknown'> {
     const earlier = await paidOnOrder(() => createOrder(lines))
     if (earlier.kind === 'unknown') {
       logger.error('Could not ask Square whether an earlier try paid', { bookingId, error: String(earlier.error) })

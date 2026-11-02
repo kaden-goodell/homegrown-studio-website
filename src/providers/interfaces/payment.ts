@@ -86,7 +86,12 @@ export interface PaymentProvider {
     customerId: string | null
     idempotencyKey: string
     lines: { catalogObjectId: string; quantity: 1; note: string }[]
-    discount?: { name: string; cents: number }
+    /**
+     * Stage 4 (S4-R1): money off single lines, each a LINE_ITEM-scoped fixed
+     * amount applied to its line only (`line` indexes `lines`). Never an
+     * ORDER-scoped discount, so Square never apportions anything.
+     */
+    lineDiscounts?: { line: number; name: string; cents: number }[]
     /** Our booking id. */
     referenceId: string
   }): Promise<{
