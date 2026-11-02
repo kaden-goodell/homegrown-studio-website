@@ -600,6 +600,17 @@ describe('ClassBookingPanel — stage 4: early-bird, codes, free, the price chan
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).expectedTotalCents).toBe(4360)
   })
 
+  it('M7: the early-bird ends at midnight while they sit on the pay step: the next tap shows the new total and says why', async () => {
+    const cls = make({ ...onePass, earlyBird: { untilYmd: '2026-10-20', prices: { all: { person: 3000 } } } })
+    await toPay(cls)
+    expect(screen.getByRole('button', { name: 'Pay $32.70' })).toBeInTheDocument()
+    expect(screen.queryByTestId('early-bird-ended')).toBeNull()
+    vi.setSystemTime(new Date('2026-10-21T05:00:30Z')) // just after midnight Chicago
+    fireEvent.change(screen.getByLabelText('First name'), { target: { value: 'Alicia' } })
+    expect(screen.getByTestId('early-bird-ended')).toHaveTextContent('The early-bird ended at midnight, so the price is now $43.60.')
+    expect(screen.getByRole('button', { name: 'Pay $43.60' })).toBeInTheDocument()
+  })
+
   it('a code that stopped working between Apply and Pay comes off with the server\'s sentence; nothing charged', async () => {
     const cls = make(onePass)
     const fetchMock = vi.fn(async (url: string) => (url === '/api/classes/promo.json'

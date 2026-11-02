@@ -110,6 +110,20 @@ describe('warnings for our own classes', () => {
     expect(w.detail).toBe('Clay Camp: $32.70 was paid online, but the seats were let go before the booking finished. Nothing was refunded.')
   })
 
+  it('I2: a class whose POS price is still early-bird after it ended is on the panel until it is fixed', async () => {
+    const onPos = (prices: Record<string, number>) => ({
+      ...camp(), content: { ...camp().content, earlyBird: { untilYmd: '2026-10-14', prices: { all: { person: 800 } } } },
+      square: { itemId: 'ITEM', variations: { 'all:person': 'V' }, prices },
+    })
+    own.classes = [onPos({ 'all:person': 800 })]
+    const w = (await listWarnings(WINDOW, { now: NOW })).find((x) => x.code === 'pos-price-stale')!
+    expect(w).toMatchObject({ eventId: 'cls_camp', when: '2026-10-17T18:00:00.000Z' })
+    expect(warningLine(w)).toBe('Sat Oct 17 · POS price still early-bird for Clay Camp. The early-bird has ended. An owner opens it in /admin and taps Save.')
+    // Fixed (the job or a save put the regular price on the POS): gone.
+    own.classes = [onPos({ 'all:person': 1000 })]
+    expect((await listWarnings(WINDOW, { now: NOW })).some((x) => x.code === 'pos-price-stale')).toBe(false)
+  })
+
   it('a class store that can’t be read says so in one line (never an all clear), and the rest still shows', async () => {
     own.fail = true
     const list = await listWarnings(WINDOW, { now: NOW })

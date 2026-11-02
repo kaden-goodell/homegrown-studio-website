@@ -27,9 +27,12 @@ import { makeKvStore } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
 import { assertClassWritesAllowed } from '@lib/classes/test-site-guard'
 import { chicagoYmd } from '@lib/classes/chicago-day'
+import { alertOwners } from '@lib/owner-alert'
+import { createLogger } from '@lib/logger'
 import { normalizeCode, validatePromo } from './rules'
 import type { PromoCode, PromoFields, PromoUses } from './types'
 
+const logger = createLogger('promos:store')
 const codes = makeKvStore('promo-codes', 'promo-codes')
 const usesKv = makeKvStore('promo-uses', 'promo-uses')
 const codeKey = (code: string) => `code-${code}`
@@ -180,15 +183,39 @@ export async function reserveUse(code: string, bookingId: string, untilIso: stri
   })
 }
 
-/** Paid: the hold becomes a use. Safe to call again. Recorded even if the hold ran out (the money is taken). */
+/** Paid: the hold becomes a use. Safe to call again. Recorded even if the hold ran out (the money is taken); never again once given back. */
 export async function confirmUse(code: string, bookingId: string, classId: string, now = new Date()): Promise<void> {
   await mutateUses(code, (cur) => {
     const holds = cur.holds.filter((h) => h.bookingId !== bookingId)
-    if (cur.used.some((u) => u.bookingId === bookingId)) {
+    // Counted already, or an owner gave this booking's use back (a replayed payment notice never takes it again).
+    if (cur.used.some((u) => u.bookingId === bookingId) || (cur.givenBack ?? []).some((g) => g.bookingId === bookingId)) {
       return { next: holds.length === cur.holds.length ? null : { ...cur, holds }, result: undefined }
     }
     return { next: { ...cur, holds, used: [...cur.used, { bookingId, at: now.toISOString(), classId }] }, result: undefined }
   })
+}
+
+/**
+ * Paid seats confirmed (by the request itself, Square's payment notice, the
+ * nightly catch-up, or an owner's "Give them their seat"): the booking's use
+ * of the code is counted, exactly once (confirmUse is safe to repeat; the
+ * reservation is keyed by the booking id). Tried twice; if it still fails
+ * the owners get a text, since a limited code could then go one over.
+ * Never throws.
+ */
+export async function countUse(code: string, bookingId: string, cls: { id: string; name: string }, now = new Date()): Promise<boolean> {
+  for (let i = 0; i < 2; i++) {
+    try {
+      await confirmUse(code, bookingId, cls.id, now)
+      return true
+    } catch (err) {
+      if (i === 1) {
+        logger.error('PROMO USE NOT RECORDED on a paid booking', { bookingId, code, error: String(err) })
+        await alertOwners(`Code ${code} was used on a paid booking (${bookingId}, ${cls.name}) but the use wasn't counted. If it has a use limit, it may go one over.`).catch(() => undefined)
+      }
+    }
+  }
+  return false
 }
 
 /** A booking that didn't go through lets go of its hold. A paid use is never taken back. */

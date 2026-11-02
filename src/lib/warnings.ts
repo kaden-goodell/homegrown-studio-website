@@ -32,6 +32,8 @@ import { onStaffConsole } from '@lib/classes/staff-view'
 import { listCounterMatchChecks, listDoorUnpaid } from '@lib/classes/door-unpaid'
 import { decidedIds, minimumItemId } from '@lib/classes/decided'
 import type { ScheduledClass } from '@lib/classes/types'
+import { posPricesStale } from '@lib/classes/square-catalog'
+import { earlyBirdRunning } from '@lib/classes/early-bird'
 import { formatMoney } from '@lib/money'
 import { getPartyRecord } from '@lib/party-store'
 import { partyLabel } from '@lib/parties/refunds'
@@ -45,6 +47,8 @@ export type WarningCode =
   | 'below-minimum' | 'pos-unmatched' | 'pos-needs-days' | 'refund-flag' | 'door-unpaid' | 'counter-match-check' | 'classes-unreadable'
   // R42: Square shows one of our online bookings paid, but its seats were let go
   | 'paid-not-seated'
+  // Stage 4 (I2): the register's price for a class isn't its current price (the early-bird ended or started, the POS didn't follow)
+  | 'pos-price-stale'
 
 export interface Warning {
   code: WarningCode
@@ -298,6 +302,17 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
           detail: `${name} ${formatTime(s.startIso)}: ${sold} of ${s.capacity} booked.`, action: OWNERS_DECIDE,
         })
       }
+    }
+    // I2: the hourly job couldn't put the POS price right (or a save's POS write failed). Shown until it's fixed.
+    if (posPricesStale(cls, now)) {
+      const firstLeft = sessions.find((s) => Date.parse(s.endIso) > now.getTime()) ?? sessions[0]
+      out.push({
+        code: 'pos-price-stale', eventKind: 'workshop', eventId: cls.id, when: firstLeft?.startIso ?? now.toISOString(), title: name,
+        detail: earlyBirdRunning(cls.content, now)
+          ? `The POS doesn’t have the early-bird price for ${name} yet.`
+          : `POS price still early-bird for ${name}. The early-bird has ended.`,
+        action: 'An owner opens it in /admin and taps Save.',
+      })
     }
     const min = cls.content.rules.minimumToRun
     const first = sessions[0]

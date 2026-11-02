@@ -160,3 +160,19 @@ describe('describePromo', () => {
       .toBe('$2.50 off each person · 1 class · extras too')
   })
 })
+
+describe('I1: the code on a booking', () => {
+  it('codeFromDiscountName reads "Code X" (a receipt line or an order discount), nothing else', async () => {
+    const { codeFromDiscountName } = await import('@lib/promos/rules')
+    expect(codeFromDiscountName('Code FALLFRIENDS')).toBe('FALLFRIENDS')
+    expect(codeFromDiscountName('Early-bird')).toBeNull()
+    expect(codeFromDiscountName('Code !!')).toBeNull()
+    expect(codeFromDiscountName(undefined)).toBeNull()
+  })
+  it('codeOnLines: the promo discount\'s code, or its name on older lines; null with no code', async () => {
+    const { codeOnLines } = await import('@lib/promos/rules')
+    expect(codeOnLines([{ discounts: [{ kind: 'early-bird', name: 'Early-bird' }] }, { discounts: [{ kind: 'promo', name: 'Code MAYA', code: 'MAYAFREE' }] }])).toBe('MAYAFREE')
+    expect(codeOnLines([{ discounts: [{ kind: 'promo', name: 'Code OLDONE' }] }])).toBe('OLDONE')
+    expect(codeOnLines([{}, { discounts: [{ kind: 'early-bird', name: 'Early-bird' }] }])).toBeNull()
+  })
+})

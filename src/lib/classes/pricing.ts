@@ -17,7 +17,11 @@ export interface BookingRequest {
   promoCode?: string // stage 4
 }
 /** Stage 4: money off one line. `name` is what the Square receipt shows: "Early-bird", "Code FALLFRIENDS". */
-export interface LineDiscount { kind: 'early-bird' | 'promo'; name: string; cents: Cents }
+export interface LineDiscount {
+  kind: 'early-bird' | 'promo'; name: string; cents: Cents
+  /** Stage 4 fix 2 (I1): the code itself on a promo discount, so whoever confirms the seats (the request, Square's payment notice, the nightly catch-up) counts its use. */
+  code?: string
+}
 export interface QuoteLine {
   kind: 'seat' | 'addon'
   seat: number
@@ -205,7 +209,7 @@ export function quote(cls: ScheduledClass, req: BookingRequest, now: Date, taxPe
     const take = (d: Draft, cents: Cents) => {
       const c = Math.min(Math.max(0, cents), d.net)
       if (c <= 0) return
-      d.discounts.push({ kind: 'promo', name, cents: c })
+      d.discounts.push({ kind: 'promo', name, cents: c, code: p.code })
       d.net -= c
       promoCents += c
     }

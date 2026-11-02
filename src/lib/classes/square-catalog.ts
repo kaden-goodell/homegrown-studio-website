@@ -18,6 +18,10 @@ import type { Cents, ScheduledClass } from './types'
 
 export interface PlannedVariation { key: string; name: string; cents: Cents }
 
+/** Added to a seat option's POS name while its early-bird price is on. */
+export const EARLY_BIRD_SUFFIX = ' (early-bird)'
+const plainName = (n: unknown): string => (typeof n === 'string' && n.endsWith(EARLY_BIRD_SUFFIX) ? n.slice(0, -EARLY_BIRD_SUFFIX.length) : String(n ?? ''))
+
 /**
  * Every variation the POS item should carry, in a stable order. A seat cell
  * carries its CURRENT price (D4): the early-bird price while the early-bird
@@ -33,10 +37,13 @@ export function variationPlan(cls: ScheduledClass, now: Date | null = new Date()
     const ticket = c.ticketTypes.find((t) => t.id === cell.ticketTypeId)!
     // now = null: the regular prices (what a class put on the POS before D4 carries).
     const eb = now ? earlyBirdCents(c, cell.passId, cell.ticketTypeId, now) : null
+    const early = eb !== null && eb < cell.cents
+    const base = singlePass ? ticket.label : `${pass.label} · ${ticket.label}`
     plan.push({
       key: `${cell.passId}:${cell.ticketTypeId}`,
-      name: singlePass ? ticket.label : `${pass.label} · ${ticket.label}`,
-      cents: eb !== null && eb < cell.cents ? eb : cell.cents,
+      // While the early-bird runs the register and the receipt read "Adult (early-bird)"; back to "Adult" after.
+      name: early ? `${base}${EARLY_BIRD_SUFFIX}` : base,
+      cents: early ? eb : cell.cents,
     })
   }
   for (const a of c.addOns) plan.push({ key: `addon:${a.id}`, name: `${a.label} (add-on)`, cents: a.priceCents })
@@ -155,8 +162,9 @@ export async function syncClassToSquare(cls: ScheduledClass, now: Date = new Dat
     current = await findItemBySku(cls.id)
     if (current) {
       // Adopt it: match its variations to our keys by name.
-      const byName = new Map<string, string>((current.item_data?.variations ?? []).map((v: any) => [v.item_variation_data?.name, v.id]))
-      known = Object.fromEntries(plan.flatMap((p) => (byName.has(p.name) ? [[p.key, byName.get(p.name)!]] : [])))
+      // Names compared without " (early-bird)", so an item found mid early-bird (or after) is still adopted.
+      const byName = new Map<string, string>((current.item_data?.variations ?? []).map((v: any) => [plainName(v.item_variation_data?.name), v.id]))
+      known = Object.fromEntries(plan.flatMap((p) => (byName.has(plainName(p.name)) ? [[p.key, byName.get(plainName(p.name))!]] : [])))
     }
   }
   const currentVars = new Map<string, any>(

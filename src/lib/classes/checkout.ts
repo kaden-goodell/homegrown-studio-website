@@ -98,9 +98,10 @@ export type OrderLineDiscount = { line: number; name: string; cents: number }
  * early-bird runs the catalog line already costs the early-bird price. The
  * discounts sent are only what takes the CATALOG price down to the quote's
  * net: the part of the early-bird the catalog already carries is left out
- * (never taken twice). `short` is how much a line's catalog price was
- * already under the quote's net (the POS hadn't caught up with an early-bird
- * that just ended); Square's lower total is then charged (R14).
+ * (never taken twice). Only the early-bird is ever absorbed that way, never a
+ * code (M1). `short` is how much a line's recorded catalog price was under
+ * the line's price after the early-bird (the POS hadn't caught up with an
+ * early-bird that just ended); Square's lower total is then charged (R14).
  */
 export function orderLinesFor(
   cls: ScheduledClass,
@@ -119,10 +120,12 @@ export function orderLinesFor(
       : []
     const list = l.listCents ?? l.cents
     const catalog = l.variationKey && typeof onPos[l.variationKey] === 'number' ? onPos[l.variationKey] : list
-    // Already off on the POS item (the early-bird it carries); comes off this line's discounts first.
+    // Already off on the POS item (the early-bird it carries); comes off this line's early-bird only.
+    // M1: never a code's discount. If our record of the POS price is behind Square's (Square written, the
+    // class record not), a code absorbed here would be left off the order and charged above the Pay button.
     let carried = Math.max(0, list - catalog)
     for (const d of l.discounts ?? []) {
-      const absorbed = Math.min(carried, d.cents)
+      const absorbed = d.kind === 'early-bird' ? Math.min(carried, d.cents) : 0
       carried -= absorbed
       const cents = d.cents - absorbed
       if (cents > 0) discounts.push({ line: lines.length, name: d.name, cents })

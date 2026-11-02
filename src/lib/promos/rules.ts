@@ -137,5 +137,27 @@ export function describePromo(p: Pick<PromoCode, 'off' | 'per' | 'appliesTo' | '
   return [off, forWhat, p.includeExtras ? 'extras too' : '', p.endsYmd ? `ends ${shortDay(p.endsYmd)}` : ''].filter(Boolean).join(' · ')
 }
 
+/** "Code FALLFRIENDS" (a receipt line or a Square order discount's name) → "FALLFRIENDS"; null for anything else. */
+export function codeFromDiscountName(name: unknown): string | null {
+  if (typeof name !== 'string') return null
+  const m = name.trim().match(/^Code\s+(\S+)$/)
+  return m ? normalizeCode(m[1]) : null
+}
+
+/**
+ * I1: the code a booking's seats were priced with (their promo discounts), or
+ * null. Older lines carry only the name ("Code FALLFRIENDS").
+ */
+export function codeOnLines(lines: { discounts?: { kind: string; name: string; code?: string }[] }[]): string | null {
+  for (const l of lines) {
+    for (const d of l.discounts ?? []) {
+      if (d.kind !== 'promo') continue
+      const c = (d.code && normalizeCode(d.code)) || codeFromDiscountName(d.name)
+      if (c) return c
+    }
+  }
+  return null
+}
+
 /** Today in Chicago, for the "not in the past" check on save. */
 export const promoToday = (now: Date) => chicagoYmd(now)

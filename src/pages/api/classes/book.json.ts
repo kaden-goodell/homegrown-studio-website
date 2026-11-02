@@ -42,7 +42,7 @@ import { byOf, staffAuthorized } from '@lib/staff-auth'
 import { classWritesRefusal } from '@lib/classes/test-site-guard'
 import type { SaleOptions } from '@lib/classes/pricing'
 import { earlyBirdRunning } from '@lib/classes/early-bird'
-import { confirmUse, extendUse, getPromo, getUses, releaseUse, reserveUse } from '@lib/promos/promo-store'
+import { countUse, extendUse, getPromo, getUses, releaseUse, reserveUse } from '@lib/promos/promo-store'
 import { normalizeCode, promoRefusal, PROMO_REFUSALS, usesLeft } from '@lib/promos/rules'
 import type { PromoCode } from '@lib/promos/types'
 
@@ -197,6 +197,8 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     const priced = quoteFor(cls, req, now, CLASS_TAX_PERCENT, sale)
     const lines = priced.ok ? orderLinesFor(cls, priced.value, req.seats) : null
     if (!priced.ok || !lines?.ok) return fail(409, 'in_progress')
+    // M3: a free booking (D3) never has a Square order; asking Square would make a stray $0 one.
+    if (priced.value.totalCents === 0) return fail(409, 'in_progress')
     setQuote(cls, priced.value)
     await lookUpCustomer()
     const recovered = await paidEarlier(cls, lines)
@@ -460,21 +462,10 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     })
   }
 
-  /** M6: paid → the hold becomes a use. Tried twice; a failure tells the owners (the code could go one over). */
+  /** M6: paid → the hold becomes a use (tried twice; a failure tells the owners: the code could go one over). */
   async function useThePromo(c: ScheduledClass) {
     if (!q?.promo) return
-    const code = q.promo.code
-    for (let i = 0; i < 2; i++) {
-      try {
-        await confirmUse(code, bookingId, c.id)
-        return
-      } catch (err) {
-        if (i === 1) {
-          logger.error('PROMO USE NOT RECORDED on a paid booking', { bookingId, code, error: String(err) })
-          await alertOwners(`Code ${code} was used on a paid booking (${bookingId}, ${c.content.name}) but the use wasn't counted. If it has a use limit, it may go one over.`).catch(() => undefined)
-        }
-      }
-    }
+    await countUse(q.promo.code, bookingId, { id: c.id, name: c.content.name })
   }
 
   /** Paid: confirm the seats. Never fails the booking; a failed write tells a person and keeps the hold. */
@@ -557,14 +548,16 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
           requestUrl: request.url,
           kind: 'workshop',
           bookingId,
-          amountCents: qq.subtotalCents,
+          // M8: what was actually charged (after the early-bird and the code, tax included).
+          amountCents: f.charged,
           email, firstName: givenName, lastName: familyName,
           items: c.content.ticketTypes
             .map((t) => ({ t, n: qq.lines.filter((l) => l.kind === 'seat' && l.ticketTypeId === t.id).length }))
             .filter(({ n }) => n > 0)
             .map(({ t, n }) => ({
               item_id: `${c.id}:${passId}:${t.id}`, item_name: `${c.content.name} (${t.label})`, item_category: 'class',
-              price: (c.content.prices[passId]?.[t.id] ?? 0) / 100, quantity: n,
+              // Each seat at what it came to after discounts (before tax), not the list price.
+              price: Math.round(qq.lines.filter((l) => l.kind === 'seat' && l.ticketTypeId === t.id).reduce((s, l) => s + l.cents, 0) / n) / 100, quantity: n,
             })),
           attribution: cleanAttribution(body.attribution),
           posthogId: body.posthogId,

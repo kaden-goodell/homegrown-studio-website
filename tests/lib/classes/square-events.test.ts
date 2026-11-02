@@ -592,6 +592,22 @@ describe('R42: our own online bookings Square shows paid', () => {
     expect((await getLedger(cls.id)).lines.filter((l) => l.bookingId === bookingId)).toHaveLength(1)
   })
 
+  it('I1: “Give them their seat” on a paid booking that used a code counts the code’s use (read from the order’s “Code X” discount)', async () => {
+    const { savePromo, getUses } = await import('@lib/promos/promo-store')
+    const code = `GONE${Date.now().toString(36).toUpperCase().slice(-6)}`
+    await savePromo({ code, label: '', off: { kind: 'amount', cents: 500 }, appliesTo: { kind: 'all' }, maxUses: 1 }, by, null, NOW)
+    const cls = makeClass(1); classes.list = [cls]
+    const bookingId = `bkg_${uid('code').toLowerCase()}`
+    const o = { ...ownOrder(cls, bookingId), discounts: [{ uid: 'd0-0', name: `Code ${code}`, type: 'FIXED_AMOUNT', amount_money: usd(500), scope: 'LINE_ITEM' }] }
+    sq.orders.set(o.id, o)
+    await putLines(cls.id, [ownLine('bkg_someone_else', { state: 'confirmed', holdExpiresAt: null, customer: null, square: { orderId: 'ORD_OTHER', paymentId: 'PAY_OTHER', lineUid: null } })])
+    await handleSquareEvent(paymentDone(o), NOW)
+    const { items } = await listToDecide(NOW)
+    const item = items.find((i) => i.kind === 'paid-not-seated' && i.detail.orderId === o.id)!
+    await decide(item.id, 'seat', {}, by, NOW)
+    expect((await getUses(code))!.used.map((u) => u.bookingId)).toEqual([bookingId])
+  })
+
   it('“I sorted it out in Square” just closes the item', async () => {
     const cls = makeClass(); classes.list = [cls]
     const bookingId = `bkg_${uid('sort').toLowerCase()}`

@@ -56,15 +56,34 @@ describe('orderLinesFor — D4: the POS item already carries the early-bird pric
     expect(o.ok && o.discounts).toEqual([{ line: 0, name: 'Code TEN', cents: 120 }, { line: 2, name: 'Code TEN', cents: 120 }])
     expect(o.ok && o.shortCents).toBe(0)
   })
-  it('POS still at the early-bird price after it ended (before the hourly flip): the code absorbs it, the rest is short', () => {
+  it('POS still at the early-bird price after it ended (before the hourly flip): the code still goes; the early-bird part is short', () => {
     const later = new Date('2026-11-01T12:00:00Z')
     const onPos = { ...cls, square: { ...cls.square, prices: { 'all:person': 1200, 'addon:glaze': 400 } } }
     const r = quote(onPos, req, later, 9, { promo })
     if (!r.ok) throw new Error(r.error)
-    // Quote: $15 − 10% = $13.50 a seat; the POS says $12, so nothing comes off and each seat is $1.50 short.
+    // Quote: $15 − 10% = $13.50 a seat. M1: the stale $3 never swallows the code: the code goes, $3 a seat is short
+    // (Square's total is then lower than the quote, charged in the customer's favour, owners emailed).
     const o = orderLinesFor(onPos, r.value)
-    expect(o.ok && o.discounts).toEqual([])
-    expect(o.ok && o.shortCents).toBe(300)
+    expect(o.ok && o.discounts).toEqual([{ line: 0, name: 'Code TEN', cents: 150 }, { line: 2, name: 'Code TEN', cents: 150 }])
+    expect(o.ok && o.shortCents).toBe(600)
+  })
+  it('M1 (the review probe): our record says the POS is at the early-bird, Square is already back at the regular price; a 50¢ code is still sent, so Square charges the $14.50 shown', async () => {
+    const later = new Date('2026-11-01T12:00:00Z')
+    const fifty: PromoCode = { ...promo, code: 'FIFTY', off: { kind: 'amount', cents: 50 } }
+    const one = { ...cls, content: { ...cls.content, addOns: [], earlyBird: { untilYmd: '2026-10-30', prices: { all: { person: 1400 } } } } }
+    const stale = { ...one, square: { ...one.square, prices: { 'all:person': 1400 } } }
+    const r = quote(stale, { passId: 'all', tickets: { person: 1 } }, later, 9, { promo: fifty })
+    if (!r.ok) throw new Error(r.error)
+    expect(r.value.subtotalCents).toBe(1450)
+    const o = orderLinesFor(stale, r.value)
+    // Before the fix the "carried" $1 swallowed the code: nothing was sent and Square (really at $15) charged $15 + tax.
+    expect(o.ok && o.discounts).toEqual([{ line: 0, name: 'Code FIFTY', cents: 50 }])
+    // Square, really at $15, with that discount: exactly the quote ($14.50 + $1.31 tax).
+    const { MockPaymentProvider } = await import('@providers/mock/payment')
+    const square = new MockPaymentProvider()
+    square.prices = { v_seat: 1500 }
+    const order = await square.createClassOrder({ locationId: 'L', customerId: null, idempotencyKey: 'k', referenceId: 'bkg_x', lines: o.ok ? o.lines : [], lineDiscounts: o.ok ? o.discounts : [] })
+    expect(order.totalCents).toBe(r.value.totalCents)
   })
   it('POS still at the regular price while the early-bird runs (saved while Square was down): the early-bird goes as a discount', () => {
     const onPos = { ...cls, square: { ...cls.square, prices: { 'all:person': 1500, 'addon:glaze': 400 } } }

@@ -46,6 +46,8 @@ import { recordAudit } from '@lib/audit'
 import type { By } from '@lib/staff-auth'
 import { listClasses } from './class-store'
 import { squareFetch, squareSettings } from './square-api'
+import { codeFromDiscountName, codeOnLines } from '@lib/promos/rules'
+import { confirmUse, countUse } from '@lib/promos/promo-store'
 import { confirmBooking, getLedger, moveLines, paidBy, recordPos, recordRefund, type LedgerLine, type PosLineInput } from './seat-ledger'
 import { alertOwners } from '@lib/owner-alert'
 import { siteConfig } from '@config/site.config'
@@ -496,6 +498,9 @@ async function handleOwnOrder(
   const paidLines = mine.filter((l) => l.state === 'confirmed' || l.state === 'refunded')
   // Already booked by this order: the usual echo of a booking that went through.
   if (!held.length && paidLines.some((l) => l.square.orderId === orderId)) {
+    // I1: the request confirmed the seats; if it couldn't count the code's use, this echo (or tonight's catch-up) does.
+    const echoCode = codeOnLines(paidLines.filter((l) => l.square.orderId === orderId))
+    if (echoCode) await confirmUse(echoCode, bookingId, cls.id, now).catch(() => undefined)
     // N2: a confirmation that failed from Square's notice is tried once more by the nightly catch-up.
     if (ctx.retryConfirmations && (await takeConfirmationRetry(bookingId))) {
       const mine = paidLines.filter((l) => l.square.orderId === orderId)
@@ -519,6 +524,9 @@ async function handleOwnOrder(
   if (held.length) {
     const { lines, changed } = await confirmBooking(cls.id, bookingId, { orderId, paymentId, chargedCents }, { cls }, now)
     if (!changed) return { ...out, skipped: 'not-ours' }
+    // I1: the code's use is counted here too (the request may have died with no answer), exactly once.
+    const code = codeOnLines(lines)
+    if (code) await countUse(code, bookingId, { id: cls.id, name: cls.content.name }, now)
     logger.warn('Square shows our booking paid — seats confirmed from Square', { orderId, bookingId, classId: cls.id, seats: lines.length })
     await recordAudit({
       by: { ...SQUARE_BY, role: 'owner' }, action: 'class-confirm-from-square', target: { kind: 'class', id: cls.id, label: cls.content.name },
@@ -617,6 +625,9 @@ export async function seatPaidOrder(
   const added = await recordPos(cls, {
     bookingId: p.bookingId, orderId: p.orderId, paymentId: p.paymentId, paymentIds: p.paymentIds, chargedCents: p.chargedCents, lines, saleIso,
   }, now, { source: 'online', customer, matchDoor: false })
+  // I1: a code on the order (its discount reads "Code X") counts its use once the seats are given.
+  const code = ((order.discounts ?? []) as any[]).map((d) => codeFromDiscountName(d?.name)).find((c): c is string => !!c)
+  if (code && added.length) await countUse(code, p.bookingId, { id: cls.id, name: cls.content.name }, now)
   for (const pl of lines.filter((x) => x.needsDays)) {
     const mine = added.filter((l) => l.square.lineUid === pl.lineUid)
     if (!mine.length) continue

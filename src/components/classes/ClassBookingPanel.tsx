@@ -74,6 +74,9 @@ const CLASS_MESSAGES = {
   not_open: 'This class isn’t open for booking. Nothing was charged.',
 }
 
+/** The quote takes an early-bird off somewhere. */
+const hasEarlyBird = (q: Quote | null): boolean => !!q?.lines.some((l) => l.discounts?.some((d) => d.kind === 'early-bird'))
+
 /** Discounts on a quote, added up by name in the order they first come off: "Early-bird", then "Code FALLFRIENDS". */
 function discountRows(q: Quote): { name: string; kind: 'early-bird' | 'promo'; cents: number }[] {
   const rows: { name: string; kind: 'early-bird' | 'promo'; cents: number }[] = []
@@ -297,6 +300,14 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   const serverQ = repriced && repriced.shape === shape && repriced.code === (codeQ ? applied!.code : null) ? repriced.quote : null
   const shown: Quote | null = serverQ ?? codeQ ?? q
   const free = !!shown && shown.totalCents === 0
+  // M7: the early-bird ran when they reached the pay step and has ended since (Chicago midnight): say why the total rose.
+  const [ebAtPay, setEbAtPay] = useState(false)
+  useEffect(() => {
+    setEbAtPay(step === 'pay' && hasEarlyBird(shown))
+  }, [step])
+  const ebEndedNote = step === 'pay' && ebAtPay && shown && !hasEarlyBird(shown) && !(serverQ && repriced?.note)
+    ? `The early-bird ended at midnight, so the price is now ${formatMoney(shown.totalCents, workshop.currency)}.`
+    : null
   // Back to change the booking with a code on: price it again for the new seats.
   useEffect(() => {
     if (applied && applied.shape !== shape && step === 'pay') void applyCode(applied.code, true)
@@ -1053,6 +1064,9 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           )}
         </div>
 
+        {ebEndedNote && (
+          <p role="status" data-testid="early-bird-ended" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5, fontWeight: 600, color: 'var(--color-dark)' }}>{ebEndedNote}</p>
+        )}
         {serverQ && repriced?.note && (
           <p role="alert" data-testid="price-changed" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5, fontWeight: 600, color: 'var(--color-dark)' }}>{repriced.note}</p>
         )}

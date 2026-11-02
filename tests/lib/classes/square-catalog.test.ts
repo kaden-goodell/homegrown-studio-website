@@ -128,6 +128,31 @@ describe('D4: the POS item carries the current price (early-bird while it runs)'
     expect(vars[0].item_variation_data.price_money).toEqual({ amount: 5000, currency: 'USD' })
     expect(sq.prices).toEqual({ 'all:adult': 5000, 'all:kid': 4000, 'wk:adult': 2500, 'addon:glaze': 500 })
   })
+  it('while the early-bird runs the seat option reads "Full series · Adult (early-bird)" on the POS (and the receipt); back to its plain name after', async () => {
+    const c = cls(); c.content.earlyBird = eb
+    expect(variationPlan(c, before).map((p) => p.name)).toEqual(['Full series · Adult (early-bird)', 'Full series · Kid', 'Weekend · Adult', 'Extra glaze (add-on)'])
+    expect(variationPlan(c, after).map((p) => p.name)).toEqual(['Full series · Adult', 'Full series · Kid', 'Weekend · Adult', 'Extra glaze (add-on)'])
+    // An early-bird price that isn't lower is no early-bird: no suffix.
+    const same = cls(); same.content.earlyBird = { untilYmd: '2026-10-10', prices: { all: { adult: 6000 } } }
+    expect(variationPlan(same, before)[0].name).toBe('Full series · Adult')
+    replies.push(upsertEcho())
+    await syncClassToSquare(c, before)
+    expect(ups()[0].body.batches[0].objects[0].item_data.variations[0].item_variation_data.name).toBe('Full series · Adult (early-bird)')
+  })
+  it('an item found again by its marker mid early-bird is adopted, option names compared without "(early-bird)"', async () => {
+    const found = {
+      type: 'ITEM', id: 'ITEMX', version: 4,
+      item_data: { variations: [
+        { type: 'ITEM_VARIATION', id: 'VX1', version: 1, item_variation_data: { item_id: 'ITEMX', name: 'Full series · Adult (early-bird)', sku: 'cls_abc' } },
+      ] },
+    }
+    replies.unshift((c) => (c.url.endsWith('/catalog/search') ? json(200, { objects: found.item_data.variations }) : undefined))
+    replies.push((c) => (c.method === 'GET' && c.url.includes('/catalog/object/ITEMX') ? json(200, { object: found }) : undefined))
+    replies.push(upsertEcho())
+    const c = cls() // the early-bird has ended: the plan says plain "Full series · Adult"
+    const sq = await syncClassToSquare(c, after)
+    expect(sq.variations['all:adult']).toBe('VX1')
+  })
   it('posPricesNow: the recorded prices, or the regular prices for a class synced before D4', () => {
     const c = cls(); c.content.earlyBird = eb
     expect(posPricesNow(c)).toEqual({ 'all:adult': 6000, 'all:kid': 4000, 'wk:adult': 2500, 'addon:glaze': 500 })

@@ -611,9 +611,9 @@ describe('stage 4: discounted seats keep their list price, discounts and Square\
     const inp = input()
     const h = await hold(cls, quoteD, inp, NOW)
     expect(h.ok && h.lines.map((l) => [l.seat, l.priceCents, l.listCents, l.discounts, l.addOnCents])).toEqual([
-      [1, 2833, 3000, [{ kind: 'promo', name: 'Code FIVE', cents: 167 }], 400],
-      [2, 2833, 3000, [{ kind: 'promo', name: 'Code FIVE', cents: 167 }], 0],
-      [3, 2834, 3000, [{ kind: 'promo', name: 'Code FIVE', cents: 166 }], 0],
+      [1, 2833, 3000, [{ kind: 'promo', name: 'Code FIVE', cents: 167, code: 'FIVE' }], 400],
+      [2, 2833, 3000, [{ kind: 'promo', name: 'Code FIVE', cents: 167, code: 'FIVE' }], 0],
+      [3, 2834, 3000, [{ kind: 'promo', name: 'Code FIVE', cents: 166, code: 'FIVE' }], 0],
     ])
     const plain = await hold(cls, q(cls, { seats: [{}] }), input(), NOW)
     expect(plain.ok && 'listCents' in plain.lines[0]).toBe(false)
