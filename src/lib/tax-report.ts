@@ -9,6 +9,7 @@
  * (src/lib/tax-report-store.ts builds it for both).
  */
 import type { SquareConfig } from '@config/site.config'
+import { csvRows } from '@lib/export-safety'
 
 export type Bucket = 'classes' | 'cafe' | 'parties' | 'kits' | 'other'
 
@@ -206,7 +207,6 @@ export function addTaxSummaries(list: TaxSummary[]): TaxSummary {
 
 const REPORT_AS: Record<'use' | 'sales' | 'unsure', string> = { use: 'Use tax', sales: 'Sales tax', unsure: 'Ask the accountant' }
 const dollars = (c: number) => (c / 100).toFixed(2)
-const csvCell = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v)
 
 /**
  * The tax split as a spreadsheet (CSV): one row per kind of sale per month,
@@ -219,7 +219,7 @@ export function taxReportCsv(months: { month: string; summary: TaxSummary; parti
   const monthRows = (label: string, s: TaxSummary) => {
     for (const b of Object.keys(BUCKET_LABEL) as Bucket[]) {
       if (!s[b] || (s[b].lines === 0 && s[b].taxCents === 0 && s[b].salesCents === 0)) continue
-      rows.push([label, BUCKET_LABEL[b], dollars(s[b].salesCents), dollars(s[b].taxCents), REPORT_AS[BUCKET_TAX[b]]])
+      rows.push([label, BUCKET_LABEL[b], dollars(s[b].salesCents), dollars(s[b].taxCents), b === 'parties' && s[b].taxCents === 0 ? 'Untaxed' : REPORT_AS[BUCKET_TAX[b]]])
     }
     const t = taxTotals(s)
     rows.push([label, 'Total use tax', '', dollars(t.useCents), 'Use tax'])
@@ -228,7 +228,7 @@ export function taxReportCsv(months: { month: string; summary: TaxSummary; parti
   }
   for (const m of months) monthRows(m.partial ? `${m.month} (so far)` : m.month, m.summary)
   if (months.length > 1) monthRows('All months', addTaxSummaries(months.map((m) => m.summary)))
-  return rows.map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n'
+  return csvRows(rows, '\r\n')
 }
 
 const money = (c: number) => `${c < 0 ? '−' : ''}$${(Math.abs(c) / 100).toFixed(2)}`

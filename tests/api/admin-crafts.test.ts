@@ -14,6 +14,8 @@ const h = vi.hoisted(() => ({
   audit: [] as any[],
   parties: [] as any[],
   seq: 0,
+  classTaxId: '' as string,
+  failUpsert: '' as string,
 }))
 
 /** A small Square catalog: list, get, batch-upsert (with versions) and images. */
@@ -32,6 +34,7 @@ async function fakeSquare(path: string, init: RequestInit = {}): Promise<any> {
     return { object: structuredClone(o) }
   }
   if (path === '/catalog/batch-upsert') {
+    if (h.failUpsert) fail(400, h.failUpsert)
     const ids: { client_object_id: string; object_id: string }[] = []
     const saved: any[] = []
     const real = (id: string) => ids.find((m) => m.client_object_id === id)?.object_id ?? id
@@ -69,7 +72,7 @@ async function fakeSquare(path: string, init: RequestInit = {}): Promise<any> {
   throw new Error(`unexpected ${method} ${path}`)
 }
 
-vi.mock('@lib/classes/square-api', () => ({ squareFetch: (p: string, i?: RequestInit) => fakeSquare(p, i), squareSettings: () => ({ environment: h.env }) }))
+vi.mock('@lib/classes/square-api', () => ({ squareFetch: (p: string, i?: RequestInit) => fakeSquare(p, i), squareSettings: () => ({ environment: h.env, classTaxId: h.classTaxId }) }))
 vi.mock('@lib/deploy-context', async (orig) => ({ ...(await orig<typeof import('@lib/deploy-context')>()), deployContext: () => h.context }))
 vi.mock('@lib/audit', async (orig) => ({ ...(await orig<typeof import('@lib/audit')>()), recordAudit: vi.fn(async (e: any) => { h.audit.push(e) }) }))
 vi.mock('@lib/party-store', async (orig) => ({ ...(await orig<typeof import('@lib/party-store')>()), listParties: async () => h.parties }))
@@ -77,7 +80,7 @@ vi.mock('@lib/party-store', async (orig) => ({ ...(await orig<typeof import('@li
 import * as route from '@pages/api/admin/crafts.json'
 import { adminCookie } from '@lib/admin-auth'
 import { makeKvStore } from '@lib/blob-store'
-import { STALE } from '@lib/crafts/craft-admin'
+import { NO_TAX_TO_COPY, PHOTO_TIMEOUT_MS, STALE, TAXES_DIFFER } from '@lib/crafts/craft-admin'
 import { getHiddenCraftIds } from '@lib/crafts/craft-settings'
 
 const cookie = () => adminCookie().split(';')[0]
@@ -95,7 +98,7 @@ const item = (id: string, name: string, extra: string[] = [], over: any = {}) =>
   type: 'ITEM', id, version: 5, present_at_all_locations: true, updated_at: '2026-10-01T00:00:00Z',
   item_data: {
     name, description: `${name} words`, description_plaintext: `${name} words`, description_html: `<p>${name} words</p>`, product_type: 'REGULAR',
-    categories: [{ id: CAT }, ...extra.map((c) => ({ id: c }))], reporting_category: { id: CAT }, image_ids: [],
+    categories: [{ id: CAT }, ...extra.map((c) => ({ id: c }))], reporting_category: { id: CAT }, image_ids: [], tax_ids: ['TAX9'],
     variations: [{ type: 'ITEM_VARIATION', id: `${id}_V`, version: 5, item_variation_data: { item_id: id, name: 'Per Guest', pricing_type: 'FIXED_PRICING', price_money: { amount: 1800, currency: 'USD' } } }],
     ...over,
   },
@@ -109,6 +112,8 @@ beforeEach(() => {
   h.calls.length = 0
   h.audit.length = 0
   h.parties = []
+  h.classTaxId = ''
+  h.failUpsert = ''
   h.objects = new Map<string, any>([
     [CAT, { type: 'CATEGORY', id: CAT, category_data: { name: 'Party Crafts' } }],
     ...[sq.personalizedCategoryId, sq.popularCategoryId, sq.partyOnlyCategoryId, sq.cafeOnlyCategoryId].map((id) => [id, { type: 'CATEGORY', id, category_data: { name: id } }] as [string, any]),
@@ -149,6 +154,8 @@ describe('Add a craft', () => {
     const obj = up.body.batches[0].objects[0]
     expect(obj).toMatchObject({ type: 'ITEM', id: '#craft', item_data: { name: 'Bubble Letter Keychains', product_type: 'REGULAR', reporting_category: { id: CAT }, description: 'Spell any word.\n\nEveryone picks.\n\nAges 8 and up.' } })
     expect(obj.item_data.categories).toEqual([{ id: CAT }, { id: sq.personalizedCategoryId }, { id: sq.partyOnlyCategoryId }])
+    // The tax the other crafts carry, so the register adds it.
+    expect(obj.item_data.tax_ids).toEqual(['TAX9'])
     expect(obj.item_data.variations[0].item_variation_data).toMatchObject({ item_id: '#craft', name: 'Per Guest', pricing_type: 'FIXED_PRICING', price_money: { amount: 1500, currency: 'USD' } })
     expect(r.body.data.craft).toMatchObject({ name: 'Bubble Letter Keychains', personalized: true, where: 'parties' })
     expect(h.audit).toEqual([expect.objectContaining({ action: 'craft-create', by: expect.objectContaining({ name: 'Catherine', role: 'owner' }) })])
@@ -175,22 +182,69 @@ describe('Add a craft', () => {
     expect(objs[1].item_data.categories.map((c: any) => c.id)).not.toContain(sq.popularCategoryId)
     expect(h.objects.get('KEY').item_data.description).toBe('Keychain Bar words') // nothing else on it changed
   })
-  it('the photo (from our own photo store) goes up as the card photo', async () => {
+  it('the photo (from our own photo store) goes up as its own request, as the card photo, with a short time limit', async () => {
     const id = 'a'.repeat(24)
     await makeKvStore('class-photos', 'class-photos').set(`photo-${id}`, JSON.stringify({ type: 'image/jpeg', data: Buffer.from([0xff, 0xd8, 0xff, 1, 2]).toString('base64') }))
-    const r = await add({ requestId: 'req-photo-001', photoUrl: `https://x.test/api/admin/classes/photo.json?id=${id}` })
+    const made = await add({ requestId: 'req-photo-001' })
+    expect(h.calls.some((c) => c.path === '/catalog/images')).toBe(false)
+    const r = await call({ action: 'photo', id: made.body.data.craft.id, photoUrl: `https://x.test/api/admin/classes/photo.json?id=${id}` })
     expect(r.status).toBe(200)
-    expect(r.body.warning).toBeUndefined()
     const img = h.calls.find((c) => c.path === '/catalog/images')!
     const req = JSON.parse(await (img.body.get('request') as Blob).text())
     expect(req).toMatchObject({ is_primary: true, image: { type: 'IMAGE', image_data: { caption: 'card' } } })
+    // The item's version is in the key: photo A, B, then A again really puts A first again.
+    expect(req.idempotency_key).toMatch(new RegExp(`^craft-photo:${made.body.data.craft.id}:1:`))
     expect(r.body.data.craft.imageUrl).toMatch(/^https:\/\/cdn\.test\/IMG/)
+    expect(r.body.data.craft.version).toBe(2) // the next save of the same form uses this
+    expect(PHOTO_TIMEOUT_MS).toBeLessThan(8_000)
   })
-  it('a photo address from anywhere else is never fetched: the craft is saved and it says to choose the photo again', async () => {
-    const r = await add({ requestId: 'req-photo-002', photoUrl: 'https://evil.test/x.jpg' })
-    expect(r.status).toBe(200)
-    expect(r.body.warning).toBe('The craft is saved, but the photo didn’t go up. Open it and choose the photo again.')
+  it('a photo address from anywhere else is never fetched: it says to choose the photo again', async () => {
+    const r = await call({ action: 'photo', id: 'KEY', photoUrl: 'https://evil.test/x.jpg' })
+    expect(r.status).toBe(400)
+    expect(r.body.field).toBe('photo')
     expect(h.calls.some((c) => c.path === '/catalog/images')).toBe(false)
+  })
+  it('no craft carries a tax: the tax classes ring up with, else refused (never untaxed on the register)', async () => {
+    for (const k of ['KEY', 'EAR']) delete h.objects.get(k).item_data.tax_ids
+    expect(await add({ requestId: 'req-tax-00001' })).toMatchObject({ status: 409, body: { error: NO_TAX_TO_COPY } })
+    expect(h.calls.some((c) => c.path === '/catalog/batch-upsert')).toBe(false)
+    h.classTaxId = 'CLASSTAX'
+    await add({ requestId: 'req-tax-00002' })
+    expect(h.calls.find((c) => c.path === '/catalog/batch-upsert')!.body.batches[0].objects[0].item_data.tax_ids).toEqual(['CLASSTAX'])
+  })
+  it('crafts with different taxes: refused with a plain sentence', async () => {
+    h.objects.get('EAR').item_data.tax_ids = ['OTHER_TAX']
+    expect(await add({ requestId: 'req-tax-00003' })).toMatchObject({ status: 409, body: { error: TAXES_DIFFER } })
+  })
+  it('Square’s own error words stay out of her sentence', async () => {
+    h.failUpsert = 'Invalid object: tax TAX9 not enabled'
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const r = await add({ requestId: 'req-err-00001' })
+    expect(r).toMatchObject({ status: 502, body: { error: 'Square didn’t take it, so nothing changed. Try again in a minute.' } })
+    expect(spy.mock.calls.flat().join(' ')).toContain('not enabled')
+    spy.mockRestore()
+  })
+})
+
+describe('No tax on the register / Add the tax', () => {
+  it('a craft with no tax says so in the list; one tap adds the shared tax, words untouched, audited', async () => {
+    delete h.objects.get('EAR').item_data.tax_ids
+    const list = (await call()).body.data
+    expect(list.crafts.find((c: any) => c.id === 'EAR').taxed).toBe(false)
+    expect(list.crafts.find((c: any) => c.id === 'KEY').taxed).toBe(true)
+    expect(list.taxRefusal).toBeNull()
+    const r = await call({ action: 'add-tax', id: 'EAR', version: 5 })
+    expect(r.status).toBe(200)
+    expect(r.body.data.message).toBe('Added the tax to Earring Bar. The register adds it from now on.')
+    const sent = h.calls.find((c) => c.path === '/catalog/batch-upsert')!.body.batches[0].objects[0]
+    expect(sent.item_data.tax_ids).toEqual(['TAX9'])
+    expect(sent.item_data).toMatchObject({ description: 'Earring Bar words', description_plaintext: 'Earring Bar words', description_html: '<p>Earring Bar words</p>' })
+    expect(r.body.data.craft.taxed).toBe(true)
+    expect(h.audit.map((a) => a.action)).toEqual(['craft-tax'])
+    // Again: already has it, nothing written.
+    const again = await call({ action: 'add-tax', id: 'EAR', version: 6 })
+    expect(again.body.data.message).toBe('Earring Bar already has the tax on the register.')
+    expect(h.calls.filter((c) => c.path === '/catalog/batch-upsert')).toHaveLength(1)
   })
 })
 
@@ -230,6 +284,27 @@ describe('Change a craft', () => {
     await call({ action: 'update', id: 'EAR', version: 5, where: 'both' })
     expect(h.objects.get('EAR').item_data.categories).toEqual([{ id: CAT }])
   })
+  it('a slow save that landed, sent again with the same save key: "Saved", written once, audited once', async () => {
+    const first = await call({ action: 'update', id: 'KEY', version: 5, description: 'New words.', saveId: 'save-0001-abcd' })
+    expect(first.status).toBe(200)
+    const again = await call({ action: 'update', id: 'KEY', version: 5, description: 'New words.', saveId: 'save-0001-abcd' })
+    expect(again.status).toBe(200)
+    expect(again.body.data.message).toBe('Saved. The website shows it within a minute.')
+    expect(h.calls.filter((c) => c.path === '/catalog/batch-upsert')).toHaveLength(1)
+    expect(h.audit).toHaveLength(1)
+  })
+  it('the old version, but everything she sent is already on the craft: Saved (not "Someone changed this craft")', async () => {
+    await call({ action: 'update', id: 'KEY', version: 5, cents: 2200 })
+    const r = await call({ action: 'update', id: 'KEY', version: 5, cents: 2200, saveId: 'save-0002-abcd' })
+    expect(r.status).toBe(200)
+    expect(r.body.data.message).toMatch(/^Saved\. New bookings/)
+    // Something different on the old version is still someone else's change.
+    expect((await call({ action: 'update', id: 'KEY', version: 5, cents: 2400 })).body.stale).toBe(true)
+  })
+  it('a save reads only the badge categories, and the whole list only when the name changes', async () => {
+    await call({ action: 'update', id: 'KEY', version: 5, cents: 2000 })
+    expect(h.calls.filter((c) => c.path.startsWith('/catalog/list')).map((c) => c.path)).toEqual(['/catalog/list?types=CATEGORY'])
+  })
   it('a craft outside the category is not touched', async () => {
     expect((await call({ action: 'update', id: 'OTHER', version: 1, cents: 100 })).status).toBe(404)
   })
@@ -247,6 +322,17 @@ describe('Hide on website / Show on website', () => {
     expect((await call({ action: 'show', id: 'KEY' })).body.data.message).toBe('Keychain Bar is back on the website.')
     expect((await getHiddenCraftIds()).has('KEY')).toBe(false)
     expect(h.audit.map((a) => a.action)).toEqual(['craft-hide', 'craft-show'])
+  })
+})
+
+describe('Square can’t be asked', () => {
+  it('Hide when Square can’t be read: says so, never "isn’t in the craft list"', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    h.objects.set('BAD', { type: 'IMAGE', id: 'BAD', get image_data() { throw new Error('boom') } })
+    const r = await call({ action: 'hide', id: 'KEY' })
+    expect(r.status).toBe(503)
+    expect(r.body.error).toBe('Square couldn’t be asked just now, so nothing changed. Try again in a minute.')
+    spy.mockRestore()
   })
 })
 

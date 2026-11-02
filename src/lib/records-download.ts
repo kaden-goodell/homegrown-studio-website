@@ -17,9 +17,19 @@
  * reported, an audit line by when it was done. A record with no date on it
  * at all (an event's settings) comes along whatever the range, so nothing is
  * left out for want of a date.
+ *
+ * Then what those records rest on comes along too, whenever it was made
+ * (`withWhatTheyRestOn`): for every event with a check-in, incident or RSVP
+ * in the range, all its RSVPs; and every waiver those RSVPs, check-ins and
+ * incidents name, or that was signed for one of those events. A 7 Nov party's
+ * check-in rests on a waiver signed 1 Oct; the file for 7 Nov must hold it.
+ *
+ * No keys to anything (@lib/export-safety): host and payment-link tokens,
+ * card tokens and pickup-code hashes are dropped, as in the weekly archive.
  */
 import { strToU8, zipSync } from 'fflate'
 import { custodyCsv } from '@lib/archive-export'
+import { csvRows, redactSecrets } from '@lib/export-safety'
 import { ARCHIVE_STORES } from '@lib/archive-stores'
 import { makeKvStore, type KvStore } from '@lib/blob-store'
 import { AUDIT_PREFIX } from '@lib/audit'
@@ -32,14 +42,21 @@ export { RECORD_SECTIONS } from '@lib/records-sections'
 
 const LEGAL_STORES = ['waivers', 'rsvps', 'checkins', 'incidents', 'event-meta', 'audit']
 
-/** Never more than this in one download (a phone or iPad, and the site's own reply limit). */
-export const MAX_RECORDS_BYTES = 5 * 1024 * 1024
+/**
+ * Never more than this in one download. The site's reply limit is about 6 MB
+ * and a zip goes back base64-encoded (a third bigger), so 4 MB of zip is
+ * about 5.4 MB on the wire: well inside it.
+ */
+export const MAX_RECORDS_BYTES = 4 * 1024 * 1024
 /** Give up (and say so) before the site function's own 10-second limit cuts the answer off. */
 export const RECORDS_DEADLINE_MS = 8_000
 const READ_AT_ONCE = 16
 
 export const TOO_BIG = 'That’s too much for one download. Pick a shorter range.'
 export const TOO_SLOW = 'That took too long to gather. Pick a shorter range and try again.'
+/** Everything has no range to shorten: offer a year at a time. */
+export const TOO_BIG_EVERYTHING = 'That’s too much for one download. Download it a year at a time instead: This year, then Last year, then Pick the days for each year before that.'
+export const TOO_SLOW_EVERYTHING = 'That took too long to gather. Download it a year at a time instead: This year, then Last year, then Pick the days for each year before that.'
 
 export class RecordsRefusal extends Error {
   constructor(message: string) {
@@ -91,9 +108,73 @@ export function checkinsInRange(checkins: Record<string, unknown>, r: RecordsRan
   return out
 }
 
-const csvField = (v: unknown) => {
-  const s = v === null || v === undefined ? '' : String(v)
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+/** "party:<id>" / "<kind>:<id>" for a check-in key's event half (parties are stored bare). */
+function canonicalEvent(eventKey: string): string {
+  return eventKey.includes(':') ? eventKey : `party:${eventKey}`
+}
+
+const eventOf = (e: unknown): string | null => {
+  const ev = e as { kind?: unknown; id?: unknown } | null | undefined
+  return ev && typeof ev.kind === 'string' && typeof ev.id === 'string' ? `${ev.kind}:${ev.id}` : null
+}
+
+/** The event a waiver was signed for (its context, or the old partyId), or null. */
+function waiverEvent(w: any): string | null {
+  return eventOf(w?.context) ?? (typeof w?.partyId === 'string' ? `party:${w.partyId}` : null)
+}
+
+/** The event an index blob in the waivers store lists ("party-index-<id>" / "event-index-<kind>:<id>"), or null. */
+function indexEvent(key: string): string | null {
+  if (key.startsWith('party-index-')) return `party:${key.slice('party-index-'.length)}`
+  if (key.startsWith('event-index-')) return key.slice('event-index-'.length)
+  return null
+}
+
+/**
+ * Add to the ranged records what they rest on, whenever it was made: every
+ * RSVP for an event with a check-in, incident or RSVP in range, and every
+ * waiver those name (or signed for one of those events). Pure; `all` is the
+ * whole of each store, `kept` the dated-in-range part (changed in place).
+ */
+export function withWhatTheyRestOn(all: Record<string, Record<string, unknown>>, kept: Record<string, Record<string, unknown>>): void {
+  const events = new Set<string>()
+  const waiverIds = new Set<string>()
+  for (const key of Object.keys(kept.checkins ?? {})) {
+    const i = key.indexOf('__')
+    if (i === -1) continue
+    events.add(canonicalEvent(key.slice(0, i)))
+    waiverIds.add(key.slice(i + 2))
+  }
+  for (const inc of Object.values(kept.incidents ?? {}) as any[]) {
+    const ev = eventOf(inc?.event)
+    if (ev) events.add(ev)
+    for (const w of Array.isArray(inc?.who) ? inc.who : []) if (typeof w?.waiverId === 'string') waiverIds.add(w.waiverId)
+  }
+  for (const r of Object.values(kept.rsvps ?? {}) as any[]) {
+    const ev = eventOf(r?.event)
+    if (ev) events.add(ev)
+  }
+  kept.rsvps ??= {}
+  for (const [k, r] of Object.entries(all.rsvps ?? {}) as [string, any][]) {
+    const ev = eventOf(r?.event)
+    if (ev && events.has(ev)) kept.rsvps[k] = r
+  }
+  for (const r of Object.values(kept.rsvps) as any[]) if (typeof r?.waiverId === 'string') waiverIds.add(r.waiverId)
+  for (const [k, v] of Object.entries(all.waivers ?? {})) {
+    const ev = indexEvent(k)
+    if (!ev || !events.has(ev) || !Array.isArray(v)) continue
+    for (const e of v as any[]) {
+      const id = typeof e === 'string' ? e : e?.recordId
+      if (typeof id === 'string') waiverIds.add(id)
+    }
+  }
+  kept.waivers ??= {}
+  for (const [k, w] of Object.entries(all.waivers ?? {}) as [string, any][]) {
+    if (indexEvent(k)) continue
+    const id = typeof w?.id === 'string' ? w.id : k
+    const ev = waiverEvent(w)
+    if (waiverIds.has(id) || waiverIds.has(k) || (ev && events.has(ev))) kept.waivers[k] = w
+  }
 }
 
 /** Who did what, one line each, oldest first. Pure. */
@@ -104,7 +185,7 @@ export function auditCsv(entries: Record<string, unknown>): string {
   for (const e of list) {
     rows.push([e.at, e.by?.name, e.by?.role, e.action, e.target?.kind, e.target?.id, e.target?.label, e.details ? JSON.stringify(e.details) : ''])
   }
-  return rows.map((r) => r.map(csvField).join(',')).join('\n') + '\n'
+  return csvRows(rows)
 }
 
 export function readme(input: { range: RecordsRange | null; everything: boolean; generatedAt: string; by: string; counts: Record<string, number> }): string {
@@ -124,7 +205,11 @@ export function readme(input: { range: RecordsRange | null; everything: boolean;
     ...Object.entries(input.counts).map(([k, n]) => `- ${k}: ${n}`),
     '',
     'The .csv files open in Numbers or Excel. The .json files open in any text app; each record is listed under its own id.',
-    'A record dated in the range is included. A record with no date on it (an event’s door settings) is always included.',
+    ...(input.range ? [
+      'A record dated in the range is included. Waivers and RSVPs for the events in this range are included too, whenever they were signed.',
+      'A record with no date on it (an event’s door settings) is always included.',
+    ] : ['Everything the site keeps is included, whatever its date.']),
+    'Links and codes that open things (host pages, payment links, pickup codes) are left out on purpose; nothing else is.',
     'Keep this file somewhere safe and private. It holds names, phone numbers, children’s details and signatures.',
     'Records are never deleted from the site; a claim for a child can be brought until they turn 21.',
   ]
@@ -145,10 +230,10 @@ function auditKeyDay(key: string): string | null {
 }
 
 /** Read every key of a store, a few at a time, before the deadline. */
-async function readStore(store: KvStore, keys: string[], deadline: number, maxValueBytes?: number): Promise<Record<string, unknown>> {
+async function readStore(store: KvStore, keys: string[], deadline: number, maxValueBytes: number | undefined, tooSlow: string): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = {}
   for (let i = 0; i < keys.length; i += READ_AT_ONCE) {
-    if (Date.now() > deadline) throw new RecordsRefusal(TOO_SLOW)
+    if (Date.now() > deadline) throw new RecordsRefusal(tooSlow)
     const batch = keys.slice(i, i + READ_AT_ONCE)
     const values = await Promise.all(batch.map((k) => store.get(k)))
     batch.forEach((k, j) => {
@@ -179,7 +264,10 @@ export async function buildRecordsDownload(input: {
   const names = input.everything ? [...new Set([...LEGAL_STORES, ...ARCHIVE_STORES.map((s) => s.name)])] : LEGAL_STORES
   const maxBytes = new Map(ARCHIVE_STORES.map((s) => [s.name, s.maxValueBytes]))
   const range = input.range
+  const tooBig = input.everything ? TOO_BIG_EVERYTHING : TOO_BIG
+  const tooSlow = input.everything ? TOO_SLOW_EVERYTHING : TOO_SLOW
   const files: Record<string, Record<string, unknown>> = {}
+  const whole: Record<string, Record<string, unknown>> = {}
   const counts: Record<string, number> = {}
   let size = 0
   for (const name of names) {
@@ -192,14 +280,16 @@ export async function buildRecordsDownload(input: {
         return day === null || (day >= range.from && day <= range.to)
       })
     }
-    const all = await readStore(store, keys, deadline, maxBytes.get(name))
+    const all = redactSecrets(await readStore(store, keys, deadline, maxBytes.get(name), tooSlow))
     const legal = LEGAL_STORES.includes(name)
     const kept = range && legal ? Object.fromEntries(Object.entries(all).filter(([, v]) => inRange(v, range))) : all
+    if (range && (name === 'waivers' || name === 'rsvps')) whole[name] = all
     files[name] = kept
-    counts[name] = Object.keys(kept).length
     size += JSON.stringify(kept).length
-    if (size > MAX_RECORDS_BYTES * 3) throw new RecordsRefusal(TOO_BIG) // far over even before squeezing: stop reading
+    if (size > MAX_RECORDS_BYTES * 3) throw new RecordsRefusal(tooBig) // far over even before squeezing: stop reading
   }
+  if (range) withWhatTheyRestOn(whole, files)
+  for (const name of names) counts[name] = Object.keys(files[name] ?? {}).length
   const generatedAt = now.toISOString()
   const entries: Record<string, Uint8Array> = {}
   for (const name of names) entries[`${name}.json`] = strToU8(JSON.stringify(files[name] ?? {}, null, 2))
@@ -208,7 +298,7 @@ export async function buildRecordsDownload(input: {
   entries['manifest.json'] = strToU8(JSON.stringify({ generatedAt, by: input.by, range, everything: !!input.everything, counts }, null, 2))
   entries['README.txt'] = strToU8(readme({ range, everything: !!input.everything, generatedAt, by: input.by, counts }))
   const bytes = zipSync(entries, { level: 9 })
-  if (bytes.byteLength > MAX_RECORDS_BYTES) throw new RecordsRefusal(TOO_BIG)
+  if (bytes.byteLength > MAX_RECORDS_BYTES) throw new RecordsRefusal(tooBig)
   const stamp = range ? `${range.from}-to-${range.to}` : `everything-${generatedAt.slice(0, 10)}`
   return { filename: `hometown-records-${stamp}.zip`, bytes, counts }
 }

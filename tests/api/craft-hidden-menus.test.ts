@@ -13,7 +13,11 @@ vi.mock('@providers/square/client', () => ({
   createSquareClient: () => ({ catalog: { list: async () => items, batchGet: async () => ({ objects: [{ id: 'IMG1', imageData: { url: 'https://cdn.test/a.jpg' } }] }) } }),
 }))
 
+const sentEmails = vi.hoisted(() => [] as any[])
+vi.mock('@lib/email', async (orig) => ({ ...(await orig<typeof import('@lib/email')>()), sendPartyConfirmationEmail: vi.fn(async (e: any) => { sentEmails.push(e); return { sent: true } }) }))
+
 import { GET } from '@pages/api/party/service-info.json'
+import { sendPartyBookedEmail } from '@lib/parties/checkout'
 import { fetchPartyCrafts, findPartyCraft, resetPartyCraftCache } from '@lib/craft-catalog'
 import { setCraftHidden } from '@lib/crafts/craft-settings'
 
@@ -34,7 +38,16 @@ describe('hidden crafts', () => {
     expect((await menu()).map((c) => c.name)).toEqual(['Keychain Bar'])
     expect((await menu('?menu=cafe')).map((c) => c.name)).toEqual(['Keychain Bar'])
     expect((await fetchPartyCrafts()).map((c) => c.name)).toEqual(['Keychain Bar'])
-    expect(await findPartyCraft('B')).toBeNull()
-    expect((await findPartyCraft('A'))?.name).toBe('Keychain Bar')
+    // Found by id for parties that already have it, marked hidden (only the booking paths refuse it).
+    expect(await findPartyCraft('B')).toMatchObject({ name: 'Pot Holders', perHeadCents: 1500, description: 'd', hidden: true })
+    expect((await findPartyCraft('A'))?.hidden).toBeUndefined()
+  })
+  it('hidden: "Email the host the new details" still carries its words and price', async () => {
+    await setCraftHidden('B', true, 'Catherine')
+    resetPartyCraftCache()
+    sentEmails.length = 0
+    const draft = { bookingId: 'pty_h', craftId: 'B', craftName: 'Pot Holders', startIso: '2026-11-14T20:30:00Z', durationMinutes: 120 } as any
+    await sendPartyBookedEmail({ partyId: 'pty_h', rec: null, draft, firstName: 'Ann', email: 'ann@example.test', origin: 'https://x.test', chargedCents: 0, receiptUrl: null })
+    expect(sentEmails[0]).toMatchObject({ craftName: 'Pot Holders', craftDescription: 'd', perHeadCents: 1500 })
   })
 })

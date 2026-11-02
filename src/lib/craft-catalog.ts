@@ -27,6 +27,8 @@ export interface CatalogCraft {
   partyOnly: boolean
   /** Tagged "Café Only": Craft Café menu only — never a party or kit craft. */
   cafeOnly: boolean
+  /** Hidden on the website by an owner (only ever true from `findPartyCraft`): not offered or bookable, but a party that already has it keeps its details. */
+  hidden?: boolean
 }
 
 /**
@@ -59,9 +61,11 @@ export async function hiddenCraftIds(): Promise<Set<string>> {
 }
 
 /** Crafts for parties and take-home kits. Café-only crafts are left out (they
- *  are never sold that way), so a kit can't be priced or ordered with one. */
+ *  are never sold that way), so a kit can't be priced or ordered with one.
+ *  Crafts hidden on the website are left out too, unless `includeHidden`
+ *  (then they come back with `hidden: true`). */
 export async function fetchPartyCrafts(
-  opts: { includeTest?: boolean } = {},
+  opts: { includeTest?: boolean; includeHidden?: boolean } = {},
 ): Promise<CatalogCraft[]> {
   const client = createSquareClient(siteConfig.providers.catalog.config as SquareConfig)
   const categoryId = partyCraftCategoryId()
@@ -77,7 +81,7 @@ export async function fetchPartyCrafts(
     if (!inCat) continue
     if (!opts.includeTest && isTestCraft(o.itemData?.name)) continue
     // Hidden on the website by an owner: not offered, not bookable.
-    if (hidden.has(o.id)) continue
+    if (!opts.includeHidden && hidden.has(o.id)) continue
     craftItems.push(o)
     for (const id of o.itemData?.imageIds ?? []) imageIds.add(id)
   }
@@ -121,6 +125,7 @@ export async function fetchPartyCrafts(
         popular,
         partyOnly,
         cafeOnly,
+        ...(hidden.has(o.id) ? { hidden: true } : {}),
       }
     })
     .filter((c) => !c.cafeOnly)
@@ -135,14 +140,17 @@ let craftCache: { at: number; crafts: CatalogCraft[] } | null = null
 /**
  * One party craft by its Square item id, as the catalog has it now (name,
  * price, description, image), never as a browser sent it (S2-R20). Test
- * crafts are found too (the staff smoke-test lane books them). Null when the
- * id is not a party craft. Remembered 60 seconds per server; throws when the
+ * crafts are found too (the staff smoke-test lane books them). Crafts hidden
+ * on the website are found too, with `hidden: true`: a party that already has
+ * one keeps its words, photo and price in its emails; only the booking paths
+ * (a new party, Change craft to it) refuse a hidden craft. Null when the id
+ * is not a party craft. Remembered 60 seconds per server; throws when the
  * catalog can't be read.
  */
 export async function findPartyCraft(id: string, now: number = Date.now()): Promise<CatalogCraft | null> {
   if (!id) return null
   if (!craftCache || now - craftCache.at >= CRAFT_CACHE_MS) {
-    craftCache = { at: now, crafts: await fetchPartyCrafts({ includeTest: true }) }
+    craftCache = { at: now, crafts: await fetchPartyCrafts({ includeTest: true, includeHidden: true }) }
   }
   return craftCache.crafts.find((c) => c.id === id) ?? null
 }

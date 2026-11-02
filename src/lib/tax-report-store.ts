@@ -33,11 +33,22 @@ export interface TaxMonth {
 
 export interface TaxSent { at: string; to: string; by: string }
 
-const CLOSED_AFTER_MS = 60 * 60 * 1000 // an hour after the month ends, its orders are settled
+/**
+ * A month is remembered only a week after it ends: payments taken offline on
+ * the register, and Square's own order search, can arrive days late. Until
+ * then every look asks Square again (the monthly email on the 1st included).
+ */
+const SETTLED_AFTER_MS = 7 * 24 * 60 * 60 * 1000
+const ENDED_AFTER_MS = 60 * 60 * 1000
 
-/** The month has ended (plus an hour): its numbers won't change, so they may be remembered. */
+/** The month has ended (plus an hour): no longer "so far". */
 export function monthClosed(month: string, now: Date = new Date()): boolean {
-  return now.getTime() >= new Date(monthRange(month).end).getTime() + CLOSED_AFTER_MS
+  return now.getTime() >= new Date(monthRange(month).end).getTime() + ENDED_AFTER_MS
+}
+
+/** The month ended over a week ago: its numbers won't change, so they may be remembered. */
+export function monthSettled(month: string, now: Date = new Date()): boolean {
+  return now.getTime() >= new Date(monthRange(month).end).getTime() + SETTLED_AFTER_MS
 }
 
 function squareConfig(): SquareConfig {
@@ -45,14 +56,15 @@ function squareConfig(): SquareConfig {
 }
 
 /**
- * The tax split for `month` ("2026-10"). Remembered once the month has
- * ended; `fresh` asks Square again (and remembers the new answer). Throws
+ * The tax split for `month` ("2026-10"). Remembered a week after the month
+ * ends; `fresh` asks Square again (and remembers the new answer). Throws
  * when Square can't be read.
  */
 export async function buildTaxMonth(month: string, opts: { fresh?: boolean; now?: Date } = {}): Promise<TaxMonth> {
   const now = opts.now ?? new Date()
   const closed = monthClosed(month, now)
-  if (closed && !opts.fresh) {
+  const settled = monthSettled(month, now)
+  if (settled && !opts.fresh) {
     const raw = await kv.get(`month:${month}`).catch(() => null)
     if (raw) {
       try { return JSON.parse(raw) as TaxMonth } catch { /* rebuild below */ }
@@ -71,7 +83,7 @@ export async function buildTaxMonth(month: string, opts: { fresh?: boolean; now?
     builtAt: now.toISOString(),
     classesCategoryMissing: !config.classesCategoryId,
   }
-  if (closed) await kv.set(`month:${month}`, JSON.stringify(out)).catch(() => undefined)
+  if (settled) await kv.set(`month:${month}`, JSON.stringify(out)).catch(() => undefined)
   return out
 }
 

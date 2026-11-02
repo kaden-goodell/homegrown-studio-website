@@ -386,7 +386,7 @@ function PartyCrafts() {
   return (
     <>
       <p className="adm-lbl">Party crafts</p>
-      <p className="adm-small adm-muted">The crafts on /book. Add one, or change a photo, price or words, in More › Crafts.</p>
+      <p className="adm-small adm-muted">The crafts on the party booking page. Add one, or change a photo, price or words, in More › Crafts.</p>
       <button type="button" className="adm-btn is-ghost is-sm" onClick={() => open({ kind: 'more', page: 'crafts' })}>Change the crafts</button>
       {error && <Failed message={error} onRetry={retry} />}
       {!error && !crafts && <Skeleton rows={2} label="Loading the party crafts" />}

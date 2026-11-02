@@ -69,6 +69,7 @@ export const craftScenarios: Scenario<Ctx>[] = [
         check((sq1.item_data?.categories ?? []).length > 0, 'The craft has categories in Square')
         checkEqual(price(sq1), 1234, 'Square price after Add')
         check(words(sq1).startsWith('Make a test craft.'), 'Square kept the words after Add')
+        check((sq1.item_data?.tax_ids ?? []).length > 0, 'The new craft carries a tax, so the register adds it')
       } else scope.note('No SQUARE_SANDBOX_ACCESS_TOKEN: Square read-backs skipped')
 
       const priced = await adminPost(ctx, { action: 'update', id: craft.id, version: craft.version, cents: 1500 })

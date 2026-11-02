@@ -35,7 +35,9 @@ export const GET: APIRoute = async ({ request, url }) => {
   const refused = monthRefusal(month)
   if (refused) return json(400, { error: refused })
   try {
-    const report = await buildTaxMonth(month!, { fresh: params.get('fresh') === '1' })
+    // Ask Square again: at most 10 times a month per 10 minutes; past that, the remembered numbers are shown.
+    const fresh = params.get('fresh') === '1' && !rateLimited(`tax-fresh:${month}`, 10, 10 * 60_000)
+    const report = await buildTaxMonth(month!, { fresh })
     if (params.get('format') === 'csv') {
       return new Response(taxReportCsv([report]), {
         status: 200,

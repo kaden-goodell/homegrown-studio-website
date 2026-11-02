@@ -191,7 +191,7 @@ export const HELP_SECTIONS: HelpSection[] = [
     points: [
       'More › **Parties setup**: the weekly party times, dated days (an extra or different time on one date), how far ahead people can book and how much notice, the packages (price, length, guests, who can book) and the extras.',
       'An extra with **Offered on the website** unticked can only be added by you.',
-      'A package for **Only with the link** isn’t on /book; send its link to the people it’s for.',
+      'A package for **Only with the link** isn’t on the party booking page; send its link to the people it’s for.',
       '**Save** says “Saved. New bookings use these.” Parties already booked keep their time and price and are listed so you can see them.',
       'Leave **Keep their times blocked on the calendar** ticked. It keeps parties booked in Square before the switch from being double-booked. It can only be unticked once none are left to come.',
     ],
@@ -201,12 +201,13 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'Crafts (party and Craft Café)',
     points: [
       'More › **Crafts**: every party and Craft Café craft, with its photo, price per guest and words. Tap a craft to change it, then **Save craft**. **+ Add a craft** adds a new one (then **Add craft**). Parties setup links here with **Change the crafts**.',
-      'Photos are cropped to the card’s shape. A craft with no photo still shows on the website, just without a picture.',
-      'The words box shows how craft descriptions are written (three short paragraphs, about 350 characters, ending with the ages) and suggests fixes as you type. They’re only suggestions; it saves either way.',
+      'Photos are cropped to the card’s shape. A craft with no photo still shows on the website, just without a picture. If it says the photo didn’t go up, choose it again and **Save craft**.',
+      'The words box shows how craft descriptions are written (three short paragraphs, about 350 characters, ending with the ages) and suggests fixes as you type, for the name too (no “party”, “birthday” or “kids”). They’re only suggestions; it saves either way.',
+      'A new craft gets the same tax as the other crafts, so the register adds it. A craft tagged **No tax on the register** rings up with no tax: tap **Add the tax** next to it.',
       '**Where it’s offered** (Both, Parties only, Craft Café only), **Made to order** and **Most popular** (one craft at a time) are set on each craft.',
       'A new price is used for new bookings and on the register. Crafts are always paid at the studio, so nothing already booked changes.',
-      '**Hide on website** takes a craft off /book and the Craft Café menu. It stays on the register, and parties that picked it keep it. **Show on website** puts it back.',
-      'Changes show on the website within a minute. If it says someone changed the craft since you opened it, tap **See the latest** and make your change again.',
+      '**Hide on website** takes a craft off the party booking page and the Craft Café menu. It stays on the register, and parties that picked it keep it (their emails still show its words, photo and price). **Show on website** puts it back.',
+      'Changes show on the website within a minute. If it says someone changed the craft since you opened it, tap **See the latest**: the form shows the latest, and what you typed is kept beside it. Tap **Use what I typed** to put your words back, then **Save craft**.',
     ],
   },
   {
@@ -257,8 +258,9 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'Reports',
     points: [
       'More › **Reports**: pick a month, or a whole year, under Show. It shows class seats sold, class sales, class refunds, parties booked and party fees taken.',
-      'Under it is the **Tax split** from Square for that month: use tax (classes, Craft Café, parties) and sales tax (take-home kits), refunds taken off. **Download** saves it as a spreadsheet for the accountant. **Send it again** emails it to the tax report list.',
-      'The tax split is also emailed by itself on the 1st of each month. If that email says it couldn’t be made, open Reports, pick that month, and tap **Send it again** once it shows. A month that has ended is remembered; **Ask Square again** reads it fresh.',
+      'Under it is the **Tax split** from Square for that month: use tax (classes, Craft Café and party crafts) and sales tax (take-home kits), refunds taken off. Party studio fees carry no tax and show as untaxed. **Download** saves it as a spreadsheet for the accountant. **Send it again** emails it to the tax report list.',
+      'The tax split is also emailed by itself on the 1st of each month. If that email says it couldn’t be made, open Reports, pick that month, and tap **Send it again** once it shows. A month is remembered a week after it ends (late register payments come in by then); **Ask Square again** reads it fresh.',
+      'A refund shows in the month it was made, not the month of the sale.',
       'Each sale rung up on the register is in the tax split. For the sale-by-sale detail, Square has its own reports (Square Dashboard › Reports).',
     ],
   },
@@ -267,9 +269,10 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'Records (waivers, check-ins, who did what)',
     points: [
       'More › **Records**: pick the days (**This year**, **Last year**, **Pick the days** or **Everything**), type your admin passcode, then **Download records**. One .zip file is saved to this device (on an iPad, in Files › Downloads).',
-      'Inside: every signed waiver, who said they were coming, check-ins and who picked each child up (custody.csv, the file to hand a lawyer), incident reports, and who did what on /admin and /staff. README.txt in the file says what each part is.',
+      'Inside: every signed waiver, who said they were coming, check-ins and who picked each child up (custody.csv, the file to hand a lawyer), incident reports, and who did what on /admin and /staff. The waivers and RSVPs behind the events in your days come along too, however long ago they were signed. README.txt in the file says what each part is.',
+      'Links and codes that open things (host pages, payment links, pickup codes) are left out on purpose, here and in the weekly email copy.',
       'Nothing on the site is changed or deleted. Keep the file somewhere safe and private: it has children’s details and signatures. Each download is recorded with your name.',
-      'If it says it’s too much for one download, pick fewer days and download it in parts.',
+      'If it says it’s too much for one download, pick fewer days and download it in parts. For **Everything**, download a year at a time: **This year**, **Last year**, then **Pick the days** for each year before that.',
     ],
   },
   {

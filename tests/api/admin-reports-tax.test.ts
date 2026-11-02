@@ -20,7 +20,7 @@ import * as tax from '@pages/api/admin/tax-report.json'
 import { taxFailureEmail } from '@pages/api/jobs/tax-report.json'
 import { adminCookie } from '@lib/admin-auth'
 import { siteConfig } from '@config/site.config'
-import { monthClosed } from '@lib/tax-report-store'
+import { monthClosed, monthSettled } from '@lib/tax-report-store'
 import { taxReportCsv, type TaxSummary } from '@lib/tax-report'
 
 const cookie = () => adminCookie().split(';')[0]
@@ -94,6 +94,13 @@ describe('tax-report.json: the tax split for any month', () => {
     const fresh = await get(tax, `/api/admin/tax-report.json?month=${mo}&fresh=1`)
     expect(fresh.body.data.orders).toBe(2)
     expect(m.orders).toHaveBeenCalledTimes(2)
+  })
+
+  it('a month that just ended is no longer "so far", but is only remembered a week later (late offline payments)', () => {
+    expect(monthClosed('2026-10', new Date('2026-11-01T07:00:00Z'))).toBe(true)
+    expect(monthSettled('2026-10', new Date('2026-11-01T14:00:00Z'))).toBe(false) // the job on the 1st
+    expect(monthSettled('2026-10', new Date('2026-11-07T04:00:00Z'))).toBe(false)
+    expect(monthSettled('2026-10', new Date('2026-11-08T06:00:00Z'))).toBe(true)
   })
 
   it('the month still running is always asked fresh and marked so far', async () => {

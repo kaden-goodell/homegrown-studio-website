@@ -27,7 +27,9 @@
  * keys only; a lost one is replaced with "Make a new link"), and
  * `staff-access` (the staff passcode's salted hash; an owner sets a new one
  * in /admin), and `tax-reports` (Square's tax numbers for ended months, kept
- * so /admin › Reports needn't ask again; "Ask Square again" rebuilds them).
+ * so /admin › Reports needn't ask again; "Ask Square again" rebuilds them),
+ * and `craft-save-keys` (which craft save already landed, so a retry says
+ * Saved; a day's worth of no record value).
  * `staff-people` keeps its `import-failures` counter next to the
  * list; it is harmless in an export.
  */

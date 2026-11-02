@@ -11,7 +11,8 @@ import { SheetFrame } from '../shell/Sheet'
 import { useToast } from '../shell/Toast'
 
 /** The first month the picker offers. */
-export const REPORTS_FIRST_MONTH = '2026-01'
+/** The first month with sales: the first party was 12 Sep 2026 (the grand opening, 16 Oct). */
+export const REPORTS_FIRST_MONTH = '2026-09'
 
 /** Every month from the first to `now`'s, newest first, then each year (newest first). Pure. */
 export function reportPeriods(now: Date = new Date(), first = REPORTS_FIRST_MONTH): { months: string[]; years: string[] } {
@@ -43,7 +44,7 @@ function TaxTable({ summary }: { summary: TaxSummary }) {
   return (
     <>
       <div className="adm-sum">
-        <div><b>{formatMoney(t.useCents)}</b><small>use tax (classes, Craft Café, parties)</small></div>
+        <div><b>{formatMoney(t.useCents)}</b><small>use tax (classes, Craft Café and party crafts; party studio fees carry none)</small></div>
         <div><b>{formatMoney(t.salesCents)}</b><small>sales tax (take-home kits)</small></div>
       </div>
       {t.unsureCents !== 0 && <p className="adm-warntext">{`${formatMoney(t.unsureCents)} of tax is on custom amounts (not linked to an item). Ask the accountant where it goes.`}</p>}
@@ -51,7 +52,9 @@ function TaxTable({ summary }: { summary: TaxSummary }) {
       {rows.map((b) => (
         <div key={b} className="adm-kv">
           <span>{BUCKET_LABEL[b]}</span>
-          <span>{`${formatMoney(summary[b].salesCents)} sales · ${formatMoney(summary[b].taxCents)} tax · ${BUCKET_TAX[b] === 'use' ? 'use tax' : BUCKET_TAX[b] === 'sales' ? 'sales tax' : 'ask the accountant'}`}</span>
+          <span>{b === 'parties' && summary[b].taxCents === 0
+            ? `${formatMoney(summary[b].salesCents)} sales · untaxed`
+            : `${formatMoney(summary[b].salesCents)} sales · ${formatMoney(summary[b].taxCents)} tax · ${BUCKET_TAX[b] === 'use' ? 'use tax' : BUCKET_TAX[b] === 'sales' ? 'sales tax' : 'ask the accountant'}`}</span>
         </div>
       ))}
     </>

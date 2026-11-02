@@ -10,7 +10,7 @@ vi.mock('@lib/audit', async (orig) => ({ ...(await orig<typeof import('@lib/audi
 import * as route from '@pages/api/admin/records.json'
 import { adminCookie } from '@lib/admin-auth'
 import { makeKvStore, type KvStore } from '@lib/blob-store'
-import { auditCsv, buildRecordsDownload, checkinsInRange, inRange, lastWeeklyArchive, rangeRefusal, recordDays, TOO_BIG } from '@lib/records-download'
+import { auditCsv, buildRecordsDownload, checkinsInRange, inRange, lastWeeklyArchive, rangeRefusal, recordDays, TOO_BIG, TOO_BIG_EVERYTHING, MAX_RECORDS_BYTES } from '@lib/records-download'
 
 function memory(data: Record<string, unknown> = {}): KvStore {
   const m = new Map(Object.entries(data).map(([k, v]) => [k, typeof v === 'string' ? v : JSON.stringify(v)]))
@@ -98,6 +98,62 @@ describe('buildRecordsDownload', () => {
     const big = randomBytes(6 * 1024 * 1024).toString('base64')
     const stores: Record<string, Record<string, unknown>> = { ...STORES, incidents: { inc_big: { at: "2026-10-24T19:00:00Z", photo: big } } }
     await expect(buildRecordsDownload({ range: { from: '2026-10-01', to: '2026-10-31' }, by: 'C', storeFor: (n) => memory(stores[n] ?? {}) })).rejects.toThrow(TOO_BIG)
+  })
+  it('Everything too big offers a year at a time (there is no range to shorten)', async () => {
+    const big = randomBytes(6 * 1024 * 1024).toString('base64')
+    const stores: Record<string, Record<string, unknown>> = { ...STORES, incidents: { inc_big: { at: '2026-10-24T19:00:00Z', photo: big } } }
+    await expect(buildRecordsDownload({ range: null, everything: true, by: 'C', storeFor: (n) => memory(stores[n] ?? {}) })).rejects.toThrow(TOO_BIG_EVERYTHING)
+    expect(TOO_BIG_EVERYTHING).toContain('a year at a time')
+    expect(MAX_RECORDS_BYTES * 4 / 3).toBeLessThan(6 * 1024 * 1024) // base64 on the wire still fits the reply limit
+  })
+  it('C1: 7 Nov to 7 Nov holds the waiver signed 1 Oct and the RSVP made 20 Oct behind the 7 Nov check-in', async () => {
+    const stores: Record<string, Record<string, unknown>> = {
+      waivers: {
+        wvr_fam: { id: 'wvr_fam', signedAt: '2026-10-01T15:00:00Z', validUntil: '2027-10-01T15:00:00Z', adult: { firstName: 'Ann' }, signature: 'Ann' },
+        wvr_ctx: { id: 'wvr_ctx', signedAt: '2026-10-02T15:00:00Z', context: { kind: 'party', id: 'pty_7' }, signature: 'Cy' },
+        wvr_inc: { id: 'wvr_inc', signedAt: '2026-09-02T15:00:00Z', signature: 'Di' },
+        wvr_other: { id: 'wvr_other', signedAt: '2026-10-03T15:00:00Z', context: { kind: 'party', id: 'pty_other' }, signature: 'Ed' },
+      },
+      rsvps: {
+        'rsvp-party:pty_7-wvr_fam': { id: 'rsv_1', waiverId: 'wvr_fam', event: { kind: 'party', id: 'pty_7' }, at: '2026-10-20T15:00:00Z', firstAt: '2026-10-20T15:00:00Z' },
+        'rsvp-party:pty_other-wvr_other': { id: 'rsv_2', waiverId: 'wvr_other', event: { kind: 'party', id: 'pty_other' }, at: '2026-10-20T15:00:00Z', firstAt: '2026-10-20T15:00:00Z' },
+      },
+      checkins: {
+        'pty_7__wvr_fam': { days: { '2026-11-07': {} }, events: [{ at: '2026-11-07T19:00:00Z', action: 'checkin', personIds: ['child:0'], by: { name: 'Jess' } }] },
+      },
+      incidents: { inc_7: { id: 'inc_7', at: '2026-11-07T20:00:00Z', reportedAt: '2026-11-07T20:10:00Z', event: { kind: 'party', id: 'pty_7', title: 'P', day: '2026-11-07' }, who: [{ waiverId: 'wvr_inc', name: 'Di' }], what: 'bumped elbow' } },
+    }
+    const out = await buildRecordsDownload({ range: { from: '2026-11-07', to: '2026-11-07' }, by: 'C', storeFor: (n) => memory(stores[n] ?? {}) })
+    const files = unzipSync(out.bytes)
+    expect(Object.keys(JSON.parse(strFromU8(files['waivers.json']))).sort()).toEqual(['wvr_ctx', 'wvr_fam', 'wvr_inc'])
+    expect(Object.keys(JSON.parse(strFromU8(files['rsvps.json'])))).toEqual(['rsvp-party:pty_7-wvr_fam'])
+    expect(out.counts).toMatchObject({ waivers: 3, rsvps: 1, checkins: 1, incidents: 1 })
+    expect(strFromU8(files['README.txt'])).toContain('Waivers and RSVPs for the events in this range are included too, whenever they were signed.')
+  })
+  it('I1: no host or payment-link tokens and no pickup-code hashes in the zip', async () => {
+    const stores: Record<string, Record<string, unknown>> = {
+      ...STORES,
+      checkins: { 'pty_1__wvr_1': { days: { '2026-10-24': {} }, pickupCodeHash: 'abc123', events: [{ at: '2026-10-24T18:00:00Z', action: 'checkin', by: { name: 'Jess' } }] } },
+      parties: { pty_1: { id: 'pty_1', hostName: 'Ann', hostToken: 'HOST-SECRET', payToken: 'PAY-SECRET', charges: [{ paymentToken: 'cnon:x', amountCents: 30000 }], refundAsk: { inputHash: 'keepme' } } },
+    }
+    for (const opts of [{ range: { from: '2026-10-01', to: '2026-10-31' } }, { range: null, everything: true }]) {
+      const out = await buildRecordsDownload({ ...opts, by: 'C', storeFor: (n) => memory(stores[n] ?? {}) })
+      const text = Object.values(unzipSync(out.bytes)).map((b) => strFromU8(b)).join('\n')
+      expect(text).not.toMatch(/hostToken|payToken|pickupCodeHash|paymentToken|HOST-SECRET|PAY-SECRET|abc123|cnon:x/)
+      expect(text).toContain('Jess')
+      if (opts.range === null) expect(text).toContain('keepme')
+    }
+  })
+  it('I2: a name like =HYPERLINK(...) is text in audit.csv and custody.csv, never a formula', async () => {
+    const evil = '=HYPERLINK("http://evil","click")'
+    const csv = auditCsv({ a: { at: '2026-10-24T20:00:00Z', by: { name: 'Jess', role: 'crew' }, action: 'pickup', target: { kind: 'party', id: 'p', label: evil } } })
+    expect(csv).toContain(`"'=HYPERLINK(""http://evil"",""click"")"`)
+    const stores: Record<string, Record<string, unknown>> = { ...STORES, checkins: { 'pty_1__wvr_1': { events: [{ at: '2026-10-24T20:00:00Z', action: 'pickup', by: { name: '@SUM(1)' }, collectedBy: evil }] } } }
+    const out = await buildRecordsDownload({ range: { from: '2026-10-01', to: '2026-10-31' }, by: 'C', storeFor: (n) => memory(stores[n] ?? {}) })
+    const custody = strFromU8(unzipSync(out.bytes)['custody.csv'])
+    expect(custody).toContain("'@SUM(1)")
+    expect(custody).toContain(`"'=HYPERLINK(`)
+    expect(custody).not.toMatch(/,=HYPERLINK|,"=HYPERLINK/)
   })
   it('the newest weekly copy’s day', async () => {
     expect(await lastWeeklyArchive(memory({ 'archive/2026-10-25.json': '{}', 'archive/2026-11-01.json': '{}' }))).toBe('2026-11-01')

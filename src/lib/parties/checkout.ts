@@ -606,7 +606,8 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
     logger.error('Craft catalog unreadable before booking — refusing', { partyId, error: String(err) })
     return refuse(503, 'unavailable', partyMessages.unavailable)
   }
-  if (!craft) return refuse(404, 'invalid', CRAFT_GONE_MESSAGE, 'craftId')
+  // Hidden on the website: not bookable (a party that already has it keeps it).
+  if (!craft || craft.hidden) return refuse(404, 'invalid', CRAFT_GONE_MESSAGE, 'craftId')
 
   // A gift card must cover the whole charge: checked before anything is held.
   if (card?.sourceKind === 'gift_card') {

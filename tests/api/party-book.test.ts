@@ -196,6 +196,15 @@ describe('POST /api/party/book.json: one order, one charge, no Square booking', 
     expect((await isStartOpen(start, 90)).ok).toBe(true)
   })
 
+  it('refuses a craft hidden on the website (the catalog still knows it, for parties that have it), holding nothing', async () => {
+    m.findCraft.mockImplementation(async (id: string) => (id === 'hidden-1' ? { ...CRAFT, id, hidden: true } : id === CRAFT.id ? CRAFT : null))
+    const start = at('2027-02-20', '16:30')
+    const { status, json } = await post(body(start, { craftId: 'hidden-1' }))
+    expect(status).toBe(404)
+    expect(json.field).toBe('craftId')
+    expect(m.createOrder).not.toHaveBeenCalled()
+  })
+
   it('retry finds the payment: the same attempt after success gets the stored answer, one processPayment', async () => {
     const b = body(at('2027-02-21', '13:00'))
     const first = await post(b)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { CRAFT_COPY_EXAMPLE, craftCopyNotes } from '@lib/crafts/craft-copy-hints'
+import { CRAFT_COPY_EXAMPLE, craftCopyNotes, craftNameNotes } from '@lib/crafts/craft-copy-hints'
 
 describe('craft copy notes (the approved voice, as gentle suggestions)', () => {
   it('the example reads right: no notes', () => {
@@ -24,5 +24,19 @@ describe('craft copy notes (the approved voice, as gentle suggestions)', () => {
     expect(craftCopyNotes(CRAFT_COPY_EXAMPLE, { personalized: true })).toContain('Made to order: add a last paragraph starting “Heads up:” that says it’s made ahead and can’t be changed or refunded.')
     const withHeadsUp = `${CRAFT_COPY_EXAMPLE}\n\nHeads up: it is made to order, so it can’t be changed or refunded once made.`
     expect(craftCopyNotes(withHeadsUp, { personalized: true })).toEqual([])
+  })
+  it('two exclamation marks anywhere, dash pileups and an "At Hometown Studio" opener', () => {
+    const notes = craftCopyNotes('At Hometown Studio you make keychains! So fun — really — truly!\n\nEveryone picks.\n\nAges 8 and up.')
+    expect(notes).toEqual(expect.arrayContaining([
+      'One exclamation mark at most.',
+      'Too many dashes. Use a period or a comma instead.',
+      'Start with what you make, not “At Hometown Studio…”.',
+    ]))
+    expect(craftCopyNotes(CRAFT_COPY_EXAMPLE.replace('keys.', 'keys!'))).toEqual([])
+  })
+  it('the name is checked too: party, birthday, kids, "!"', () => {
+    expect(craftNameNotes('Birthday Bracelets')).toEqual(['Leave “party” and “birthday” out of the name. Crafts are for everyone, any occasion.'])
+    expect(craftNameNotes('Kids Keychains!')).toHaveLength(2)
+    expect(craftNameNotes('Keychain Bar')).toEqual([])
   })
 })

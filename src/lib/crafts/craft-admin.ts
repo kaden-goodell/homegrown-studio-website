@@ -14,8 +14,19 @@
  *             set-party-only.ts; raw REST as square-catalog.ts), a new item
  *             shaped as add-party-craft.ts creates it
  *   - photo:  POST /catalog/images, multipart, is_primary (square-catalog.ts uploadImage)
+ *   - tax:    `tax_ids` on the item, as syncClassToSquare writes them for class items
  * The description follows add-party-craft.ts's rule: Square clears a
  * description re-sent unchanged, so it is only sent when it changed.
+ *
+ * Tax: a new craft gets the tax the existing crafts share (copied from their
+ * items, never a guessed id), so the register adds it. A craft with no tax
+ * shows "No tax on the register" and a one-tap "Add the tax" (`addCraftTax`).
+ *
+ * Each request stays well inside the site's 10-second limit: the photo goes
+ * up as its own request (`setCraftPhoto`, given up after 7 s), and a save
+ * reads only what it needs. A save carries its own key (`saveId`): a retry of
+ * a save that landed (its answer lost) gets "Saved", not "Someone changed
+ * this craft". So does a retry whose every field is already on the craft.
  *
  * Hide / Show is OURS, not Square's: a hidden craft drops off /book, the Craft
  * Café menu and new bookings, but stays on the register, because crafts are
@@ -57,6 +68,8 @@ export interface AdminCraft {
   hidden: boolean
   /** A staff smoke-test item ("TEST — …"): never on the website anyway. */
   test: boolean
+  /** Square's item carries a tax, so the register adds it. */
+  taxed: boolean
 }
 
 /** Which badge categories exist in this Square account (the sandbox has none until someone makes them). */
@@ -69,11 +82,15 @@ export class CraftError extends Error {
   }
 }
 
-export const STALE = 'Someone changed this craft since you opened it. Close it and open it again to see the latest.'
+export const STALE = 'Someone changed this craft since you opened it. Tap See the latest: what you typed is kept beside it.'
 export const GONE = 'That craft isn’t in the craft list any more.'
+export const NO_TAX_TO_COPY = 'None of the crafts on the register has a tax to copy, so a new one would ring up with no tax. Nothing was added. Open a craft rung up with tax on the register first, or ask the accountant which tax crafts take.'
+export const TAXES_DIFFER = 'The crafts on the register don’t all carry the same tax, so a new one can’t copy it. Nothing was changed.'
+export const PHOTO_TIMEOUT_MS = 7_000
 export const NAME_TAKEN = (name: string) => `There’s already a craft called ${name}.`
 
 const createKeys = makeKvStore('craft-create-keys', 'craft-create-keys')
+const saveKeys = makeKvStore('craft-save-keys', 'craft-save-keys')
 
 const markerIds = () => ({
   personalized: partyConfig.square.personalizedCategoryId,
@@ -102,7 +119,27 @@ export function toAdminCraft(item: any, imageUrlById: Record<string, string>, hi
     where: cats.has(m.partyOnly) ? 'parties' : cats.has(m.cafeOnly) ? 'cafe' : 'both',
     hidden: hidden.has(item.id),
     test: isTestCraft(d.name),
+    taxed: Array.isArray(d.tax_ids) && d.tax_ids.length > 0,
   }
+}
+
+/**
+ * The tax a new craft copies: the `tax_ids` every craft that has one shares.
+ * None has one: the tax classes ring up with (SQUARE_CLASS_TAX_ID), when set.
+ * Pure but for that setting.
+ */
+export function sharedCraftTax(items: any[]): { ids: string[] } | { refusal: string } {
+  const sets = new Map<string, string[]>()
+  for (const o of items) {
+    const ids = o?.item_data?.tax_ids
+    if (!Array.isArray(ids) || !ids.length || isTestCraft(o?.item_data?.name)) continue
+    const sorted = [...ids].sort()
+    sets.set(sorted.join(','), sorted)
+  }
+  if (sets.size === 1) return { ids: [...sets.values()][0] }
+  if (sets.size > 1) return { refusal: TAXES_DIFFER }
+  const classTax = (squareSettings().classTaxId ?? '').trim()
+  return classTax ? { ids: [classTax] } : { refusal: NO_TAX_TO_COPY }
 }
 
 /** Every catalog object of these types (read-only, paged). */
@@ -128,22 +165,24 @@ async function fetchItem(id: string): Promise<any | null> {
   }
 }
 
-/** The crafts, A to Z, and which badges this Square has. */
-export async function listAdminCrafts(): Promise<{ crafts: AdminCraft[]; markers: CraftMarkers }> {
+/** Which badge categories exist, from the CATEGORY objects. Pure. */
+function markersFrom(categoryObjects: any[]): CraftMarkers {
+  const categories = new Set(categoryObjects.filter((o) => o.type === 'CATEGORY').map((o) => o.id))
+  const m = markerIds()
+  return { personalized: categories.has(m.personalized), popular: categories.has(m.popular), where: categories.has(m.partyOnly) && categories.has(m.cafeOnly) }
+}
+
+/** The crafts, A to Z, which badges this Square has, and the tax a new one copies (or why it can't). */
+export async function listAdminCrafts(): Promise<{ crafts: AdminCraft[]; markers: CraftMarkers; tax: { ids: string[] } | { refusal: string } }> {
   const categoryId = partyCraftCategoryId()
   const [objects, hidden] = await Promise.all([listCatalog('ITEM,CATEGORY,IMAGE'), getHiddenCraftIds()])
-  const categories = new Set(objects.filter((o) => o.type === 'CATEGORY').map((o) => o.id))
   const images: Record<string, string> = {}
   for (const o of objects) if (o.type === 'IMAGE') images[o.id] = o.image_data?.url ?? ''
-  const crafts = objects
-    .filter((o) => o.type === 'ITEM' && catIds(o).includes(categoryId))
+  const items = objects.filter((o) => o.type === 'ITEM' && catIds(o).includes(categoryId))
+  const crafts = items
     .map((o) => toAdminCraft(o, images, hidden))
     .sort((a, b) => a.name.localeCompare(b.name))
-  const m = markerIds()
-  return {
-    crafts,
-    markers: { personalized: categories.has(m.personalized), popular: categories.has(m.popular), where: categories.has(m.partyOnly) && categories.has(m.cafeOnly) },
-  }
+  return { crafts, markers: markersFrom(objects), tax: sharedCraftTax(items) }
 }
 
 /** Why this site can't change crafts, or null (shown on the screen before she tries). */
@@ -216,8 +255,6 @@ export interface CraftInput {
   personalized?: boolean
   popular?: boolean
   where?: Where
-  /** A photo just uploaded to our photo store (its /api/admin/classes/photo.json?id= address). */
-  photoUrl?: string
 }
 
 const MAX_CENTS = 100_000
@@ -250,21 +287,26 @@ async function photoFrom(url: string): Promise<{ bytes: Buffer; type: string }> 
   return photo
 }
 
-/** Upload the photo and make it the craft's first. */
-async function uploadPhoto(itemId: string, name: string, url: string): Promise<void> {
+/**
+ * Upload the photo and make it the craft's first. The key carries the item's
+ * version, so photo A, then B, then A again really puts A first again (a
+ * retry of the same upload at the same version is still one upload).
+ */
+async function uploadPhoto(itemId: string, version: number, name: string, url: string): Promise<void> {
   const { bytes, type } = await photoFrom(url)
   const form = new FormData()
   form.append('request', new Blob([JSON.stringify({
-    idempotency_key: `craft-photo:${itemId}:${createHash('sha256').update(bytes).digest('hex').slice(0, 24)}`,
+    idempotency_key: `craft-photo:${itemId}:${version}:${createHash('sha256').update(bytes).digest('hex').slice(0, 24)}`,
     object_id: itemId,
     is_primary: true,
     image: { type: 'IMAGE', id: '#image', image_data: { name, caption: 'card' } },
   })], { type: 'application/json' }))
   form.append('image_file', new Blob([new Uint8Array(bytes)], { type }), type.includes('png') ? 'craft.png' : type.includes('webp') ? 'craft.webp' : 'craft.jpg')
-  await squareFetch('/catalog/images', { method: 'POST', body: form })
+  // Given up inside the site's 10-second limit, so she hears back either way.
+  await squareFetch('/catalog/images', { method: 'POST', body: form, signal: AbortSignal.timeout(PHOTO_TIMEOUT_MS) })
 }
 
-const PHOTO_LATER = 'The craft is saved, but the photo didn’t go up. Open it and choose the photo again.'
+export const PHOTO_FAILED = 'The photo didn’t go up. Choose it again and save.'
 
 function squareSaid(e: unknown): CraftError {
   if (e instanceof CraftError) return e
@@ -272,8 +314,9 @@ function squareSaid(e: unknown): CraftError {
   if (status === 409 || (e instanceof Error && /version/i.test(e.message))) return new CraftError(409, STALE, { stale: true })
   if (e instanceof Error && e.name === 'TestSiteStoreError') return new CraftError(403, e.message)
   if (e instanceof Error && e.name === 'LiveSquareFromTestSiteError') return new CraftError(403, e.message)
-  const detail = e instanceof Error ? e.message : ''
-  return new CraftError(502, `Square didn’t take it, so nothing changed. Try again in a minute.${detail ? ` (${detail})` : ''}`)
+  // Square's own words go to the log, never into her sentence.
+  console.warn(`[crafts] Square refused: ${e instanceof Error ? e.message : String(e)}`)
+  return new CraftError(502, 'Square didn’t take it, so nothing changed. Try again in a minute.')
 }
 
 /**
@@ -294,10 +337,13 @@ export async function createCraft(requestId: string, input: CraftInput, request?
   const name = input.name!.trim()
   let markers: CraftMarkers
   let existing: AdminCraft[]
+  let tax: { ids: string[] } | { refusal: string }
   try {
-    ;({ crafts: existing, markers } = await listAdminCrafts())
+    ;({ crafts: existing, markers, tax } = await listAdminCrafts())
   } catch (e) { throw squareSaid(e) }
   if (existing.some((c) => c.name.trim().toLowerCase() === name.toLowerCase())) throw new CraftError(409, NAME_TAKEN(name), { field: 'name' })
+  // The tax the other crafts carry, so the register adds it; never a guessed id.
+  if ('refusal' in tax) throw new CraftError(409, tax.refusal)
   const categories = applyMarkers([{ id: categoryId }], input, markers)
   const description = (input.description ?? '').trim()
   const object = {
@@ -309,6 +355,7 @@ export async function createCraft(requestId: string, input: CraftInput, request?
       product_type: 'REGULAR',
       categories,
       reporting_category: { id: categoryId },
+      tax_ids: tax.ids,
       ...(description ? { description } : {}),
       variations: [{
         type: 'ITEM_VARIATION',
@@ -333,11 +380,60 @@ export async function createCraft(requestId: string, input: CraftInput, request?
   if (description && saved && !String(saved.item_data?.description_plaintext ?? saved.item_data?.description ?? '').trim()) {
     warning = 'The craft is saved, but Square kept its words empty. Open it and save the words again.'
   }
-  if (input.photoUrl) {
-    try { await uploadPhoto(id, name, input.photoUrl) } catch (e) { console.warn(`[crafts] photo for ${id}: ${(e as Error)?.message}`); warning = PHOTO_LATER }
+  return { craft: toAdminCraft(saved ?? { ...object, id }, {}, await getHiddenCraftIds().catch(() => new Set<string>())), ...(warning ? { warning } : {}) }
+}
+
+/**
+ * Put a photo on a craft, as its own request (after Add, or before the rest
+ * of a change is saved). Answers with the craft as it is now (its new
+ * version), so the next save of the same form isn't taken for someone else's.
+ */
+export async function setCraftPhoto(id: string, photoUrl: string, request?: Request): Promise<{ craft: AdminCraft }> {
+  guard(request)
+  let item: any
+  try {
+    item = await fetchItem(id)
+  } catch (e) { throw squareSaid(e) }
+  if (!item || !catIds(item).includes(partyCraftCategoryId())) throw new CraftError(404, GONE)
+  try {
+    await uploadPhoto(id, Number(item.version ?? 0), item.item_data?.name ?? '', photoUrl)
+  } catch (e) {
+    if (e instanceof CraftError) throw e
+    console.warn(`[crafts] photo for ${id}: ${(e as Error)?.message}`)
+    throw new CraftError(502, PHOTO_FAILED, { field: 'photo' })
   }
+  resetPartyCraftCache()
   const after = await fetchItem(id).catch(() => null)
-  return { craft: after ? await withImage(after) : toAdminCraft(saved ?? { ...object, id }, {}, new Set()), ...(warning ? { warning } : {}) }
+  return { craft: after ? await withImage(after) : toAdminCraft(item, {}, await getHiddenCraftIds()) }
+}
+
+/** "Add the tax": the tax the other crafts share, on a craft that has none. */
+export async function addCraftTax(id: string, version: number, request?: Request): Promise<{ craft: AdminCraft; message: string; changed: boolean }> {
+  guard(request)
+  let item: any
+  let items: any[]
+  try {
+    item = await fetchItem(id)
+    if (!item || !catIds(item).includes(partyCraftCategoryId())) throw new CraftError(404, GONE)
+    items = (await listCatalog('ITEM')).filter((o) => catIds(o).includes(partyCraftCategoryId()))
+  } catch (e) { throw squareSaid(e) }
+  const name = item.item_data?.name ?? 'This craft'
+  if (Array.isArray(item.item_data?.tax_ids) && item.item_data.tax_ids.length) {
+    return { craft: await withImage(item), message: `${name} already has the tax on the register.`, changed: false }
+  }
+  if (Number(item.version) !== Number(version)) throw new CraftError(409, STALE, { stale: true })
+  const tax = sharedCraftTax(items)
+  if ('refusal' in tax) throw new CraftError(409, tax.refusal)
+  // The whole item back as fetched (words untouched, so Square keeps them), plus the tax.
+  const next = forUpsert(item)
+  next.item_data = { ...next.item_data, tax_ids: tax.ids }
+  let res: any
+  try {
+    res = await upsert([next], `craft-tax:${id}:${version}`)
+  } catch (e) { throw squareSaid(e) }
+  resetPartyCraftCache()
+  const saved = (res?.objects ?? []).find((o: any) => o.id === id) ?? next
+  return { craft: await withImage(saved), message: `Added the tax to ${name}. The register adds it from now on.`, changed: true }
 }
 
 /** One craft with its photo's address (a fresh read after a save). */
@@ -351,27 +447,63 @@ async function withImage(item: any): Promise<AdminCraft> {
   return toAdminCraft(item, images, await getHiddenCraftIds())
 }
 
-/** Change a craft: only what's sent changes; `version` must be the one she loaded. */
-export async function updateCraft(id: string, version: number, input: CraftInput, request?: Request): Promise<{ craft: AdminCraft; warning?: string; message: string }> {
+const SAVED = 'Saved. The website shows it within a minute.'
+const SAVED_PRICE = 'Saved. New bookings and the register use the new price. Crafts are paid at the studio, so nothing already booked changes.'
+
+/** Every field she sent is already on the craft (a save that landed, its answer lost). Pure. */
+export function alreadyHas(item: any, input: CraftInput, markers: CraftMarkers): boolean {
+  const d = item?.item_data ?? {}
+  if (input.name !== undefined && input.name.trim() !== String(d.name ?? '').trim()) return false
+  if (input.description !== undefined && input.description.trim() !== String(d.description_plaintext ?? d.description ?? '').trim()) return false
+  const vars: any[] = d.variations ?? []
+  const priceOf = (vid: string) => Number(vars.find((v) => v.id === vid)?.item_variation_data?.price_money?.amount)
+  if (input.cents !== undefined && !(vars.length === 1 && priceOf(vars[0].id) === input.cents)) return false
+  if (input.sizes && !input.sizes.every((sz) => priceOf(sz.id) === sz.cents)) return false
+  const now = catIds(item).slice().sort().join(',')
+  const want = applyMarkers((d.categories ?? []), input, markers).map((c) => c.id).sort().join(',')
+  return now === want
+}
+
+/**
+ * Change a craft: only what's sent changes; `version` must be the one she
+ * loaded. `saveId` is this save's own key: the same save sent again (a retry
+ * after a lost answer) is answered with "Saved", never written twice.
+ */
+export async function updateCraft(id: string, version: number, input: CraftInput, request?: Request, saveId?: string): Promise<{ craft: AdminCraft; warning?: string; message: string; replayed?: boolean }> {
   guard(request)
   const refused = craftInputRefusal(input, false)
   if (refused) throw new CraftError(400, refused.message, { field: refused.field })
+  const saveKey = saveId && /^[A-Za-z0-9_-]{8,64}$/.test(saveId) ? `${id}:${saveId}` : null
   let item: any
-  let list: { crafts: AdminCraft[]; markers: CraftMarkers }
+  let markers: CraftMarkers
   try {
     item = await fetchItem(id)
     if (!item || !catIds(item).includes(partyCraftCategoryId())) throw new CraftError(404, GONE)
-    if (Number(item.version) !== Number(version)) throw new CraftError(409, STALE, { stale: true })
-    list = await listAdminCrafts()
+    // Only the badge categories are read here (not the whole catalog): the save stays quick.
+    markers = markersFrom(await listCatalog('CATEGORY'))
   } catch (e) { throw squareSaid(e) }
-  const markers = list.markers
+  const landed = saveKey ? await saveKeys.get(saveKey).catch(() => null) : null
+  if (landed) {
+    let message = SAVED
+    try { message = (JSON.parse(landed) as { message?: string }).message || SAVED } catch { /* plain Saved */ }
+    return { craft: await withImage(item), message, replayed: true }
+  }
+  if (Number(item.version) !== Number(version)) {
+    // Her own save that landed, the answer lost: everything she sent is already there.
+    if (alreadyHas(item, input, markers)) return { craft: await withImage(item), message: input.cents !== undefined || input.sizes ? SAVED_PRICE : SAVED, replayed: true }
+    throw new CraftError(409, STALE, { stale: true })
+  }
 
   const said: string[] = []
   const next = forUpsert(item)
   const d = { ...next.item_data }
   if (input.name !== undefined && input.name.trim() !== d.name) {
     const name = input.name.trim()
-    const taken = list.crafts.some((c) => c.id !== id && c.name.trim().toLowerCase() === name.toLowerCase())
+    let others: any[]
+    try {
+      others = (await listCatalog('ITEM')).filter((o) => o.id !== id && catIds(o).includes(partyCraftCategoryId()))
+    } catch (e) { throw squareSaid(e) }
+    const taken = others.some((o) => String(o.item_data?.name ?? '').trim().toLowerCase() === name.toLowerCase())
     if (taken) throw new CraftError(409, NAME_TAKEN(name), { field: 'name' })
     d.name = name
     said.push('name')
@@ -408,24 +540,15 @@ export async function updateCraft(id: string, version: number, input: CraftInput
       res = await upsert([next, ...others], `craft-update:${id}:${version}:${hash(next)}`)
     } catch (e) { throw squareSaid(e) }
     resetPartyCraftCache()
+    if (saveKey) await saveKeys.set(saveKey, JSON.stringify({ message: priceChanged ? SAVED_PRICE : SAVED, at: new Date().toISOString() })).catch(() => undefined)
   }
   let warning: string | undefined
   const saved = (res?.objects ?? []).find((o: any) => o.id === id)
   if (said.includes('words') && saved && d.description && !String(saved.item_data?.description_plaintext ?? saved.item_data?.description ?? '').trim()) {
     warning = 'Saved, but Square kept the words empty. Save the words again.'
   }
-  if (input.photoUrl) {
-    try {
-      await uploadPhoto(id, d.name, input.photoUrl)
-      said.push('photo')
-      resetPartyCraftCache()
-    } catch (e) { console.warn(`[crafts] photo for ${id}: ${(e as Error)?.message}`); warning = 'Saved, but the photo didn’t go up. Choose the photo again.' }
-  }
-  const after = await fetchItem(id).catch(() => null)
-  const craft = after ? await withImage(after) : toAdminCraft(saved ?? item, {}, await getHiddenCraftIds())
-  const message = said.length === 0 ? 'Nothing changed.' : priceChanged
-    ? 'Saved. New bookings and the register use the new price. Crafts are paid at the studio, so nothing already booked changes.'
-    : 'Saved. The website shows it within a minute.'
+  const craft = await withImage(saved ?? item)
+  const message = said.length === 0 ? 'Nothing changed.' : priceChanged ? SAVED_PRICE : SAVED
   return { craft, message, ...(warning ? { warning } : {}) }
 }
 

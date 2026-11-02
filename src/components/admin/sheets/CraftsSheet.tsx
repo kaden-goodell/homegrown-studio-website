@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AdminCraft, CraftMarkers, Where } from '@lib/crafts/craft-admin'
-import { CRAFT_COPY_EXAMPLE, CRAFT_COPY_GUIDE, craftCopyNotes } from '@lib/crafts/craft-copy-hints'
+import { CRAFT_COPY_EXAMPLE, CRAFT_COPY_GUIDE, craftCopyNotes, craftNameNotes } from '@lib/crafts/craft-copy-hints'
 import { formatMoney } from '@lib/money'
 import { api, CRAFTS } from '../classes/api'
 import { PhotoPicker } from '../classes/ClassDetails'
@@ -8,7 +8,7 @@ import { Failed, Seg, Skeleton } from '../shell/items'
 import { SheetFrame, useSheetDirty } from '../shell/Sheet'
 import { useToast } from '../shell/Toast'
 
-interface Loaded { crafts: AdminCraft[]; markers: CraftMarkers; refusal: string | null }
+interface Loaded { crafts: AdminCraft[]; markers: CraftMarkers; refusal: string | null; taxRefusal?: string | null }
 type Filter = 'all' | 'parties' | 'cafe' | 'hidden'
 
 export const WHERE_LABEL: Record<Where, string> = { both: 'Parties and Craft Café', parties: 'Parties only', cafe: 'Craft Café only' }
@@ -57,16 +57,28 @@ function CardPreview({ name, cents, description, imageUrl }: { name: string; cen
   )
 }
 
+const PHOTO_LATER = 'The craft is saved, but the photo didn’t go up. Open it and choose the photo again.'
+
+/** What she typed, kept beside the latest version after "See the latest". */
+interface Typed { name: string; price: string; sizes: Record<string, string>; description: string }
+
 /** Add or change one craft. */
-function CraftForm({ craft, markers, refusal, onSaved, onBack }: {
+function CraftForm({ craft: opened, markers, refusal, onSaved, onBack, onReload }: {
   craft: AdminCraft | null
   markers: CraftMarkers
   refusal: string | null
   onSaved: (c: AdminCraft, message: string, warning?: string) => void
   onBack: () => void
+  /** Read the craft again from Square (the latest), or null when it can't be read. */
+  onReload: (id: string) => Promise<AdminCraft | null>
 }) {
   const toast = useToast()
   const [requestId] = useState(newRequestId)
+  // The craft as Square has it now: updated after its photo goes up, or after "See the latest".
+  const [craft, setCraft] = useState<AdminCraft | null>(opened)
+  const [typed, setTyped] = useState<Typed | null>(null)
+  // One key per save: the same save sent again (a lost answer) is recognised, a changed one is new.
+  const lastSave = useRef<{ body: string; id: string } | null>(null)
   const single = !craft || craft.sizes.length <= 1
   const [name, setName] = useState(craft?.name ?? '')
   const [price, setPrice] = useState(craft && single ? centsToDollars(craft.sizes[0]?.cents ?? 0) : '')
@@ -90,6 +102,42 @@ function CraftForm({ craft, markers, refusal, onSaved, onBack }: {
     : name !== craft.name || description.trim() !== craft.description.trim() || priceChanged || personalized !== craft.personalized || popular !== craft.popular || where !== craft.where || !!photoUrl
   useSheetDirty(dirty)
   const notes = craftCopyNotes(description, { personalized })
+  const nameNotes = craftNameNotes(name)
+
+  /** The photo as its own request (each request stays small and quick). The craft as it is now, or null. */
+  async function sendPhoto(id: string): Promise<AdminCraft | null> {
+    if (!photoUrl) return null
+    const r = await api<{ craft: AdminCraft }>(CRAFTS, { action: 'photo', id, photoUrl })
+    if (r.ok && r.data) { setPhotoUrl(null); setCraft(r.data.craft); return r.data.craft }
+    return null
+  }
+
+  async function seeLatest() {
+    if (!craft) return
+    setTyped({ name, price, sizes, description })
+    setBusy(true)
+    const latest = await onReload(craft.id)
+    setBusy(false)
+    if (!latest) { setError({ text: 'The craft couldn’t be read just now. Try again in a minute.' }); return }
+    setError(null)
+    setCraft(latest)
+    setName(latest.name)
+    setPrice(latest.sizes.length <= 1 ? centsToDollars(latest.sizes[0]?.cents ?? 0) : '')
+    setSizes(Object.fromEntries(latest.sizes.map((s) => [s.id, centsToDollars(s.cents)])))
+    setDescription(latest.description)
+    setPersonalized(latest.personalized)
+    setPopular(latest.popular)
+    setWhere(latest.where)
+  }
+
+  function applyTyped() {
+    if (!typed) return
+    setName(typed.name)
+    setPrice(typed.price)
+    setSizes(typed.sizes)
+    setDescription(typed.description)
+    setTyped(null)
+  }
 
   async function save() {
     setError(null)
@@ -97,7 +145,7 @@ function CraftForm({ craft, markers, refusal, onSaved, onBack }: {
     let body: Record<string, unknown>
     if (!craft) {
       if (cents === null) { setError({ text: 'Type the price per guest, like 18.', field: 'price' }); return }
-      body = { action: 'create', requestId, name, description, cents, personalized, popular, where, ...(photoUrl ? { photoUrl } : {}) }
+      body = { action: 'create', requestId, name, description, cents, personalized, popular, where }
     } else {
       body = { action: 'update', id: craft.id, version: craft.version }
       if (name !== craft.name) body.name = name
@@ -113,10 +161,43 @@ function CraftForm({ craft, markers, refusal, onSaved, onBack }: {
       if (personalized !== craft.personalized) body.personalized = personalized
       if (popular !== craft.popular) body.popular = popular
       if (where !== craft.where) body.where = where
-      if (photoUrl) body.photoUrl = photoUrl
     }
     setBusy(true)
-    const r = await api<{ craft: AdminCraft; message: string }>(CRAFTS, body)
+    if (!craft) {
+      // Add first, then the photo as its own request.
+      const r = await api<{ craft: AdminCraft; message: string }>(CRAFTS, body)
+      if (!r.ok || !r.data) { setBusy(false); setError({ text: r.error ?? '', field: r.extra.field }); return }
+      let made = r.data.craft
+      let warning = r.warning
+      if (photoUrl) {
+        const withPhoto = await sendPhoto(made.id)
+        if (withPhoto) made = withPhoto
+        else warning = warning ?? PHOTO_LATER
+      }
+      setBusy(false)
+      onSaved(made, r.data.message, warning)
+      if (!warning) toast(r.data.message)
+      return
+    }
+    // A change: the photo first, as its own request; then the rest, on the craft's new version.
+    let base = craft
+    if (photoUrl) {
+      const withPhoto = await sendPhoto(craft.id)
+      if (!withPhoto) { setBusy(false); setError({ text: 'The photo didn’t go up. Choose it again and save.', field: 'photo' }); return }
+      base = withPhoto
+      body.version = base.version
+    }
+    const changes = Object.keys(body).filter((k) => !['action', 'id', 'version'].includes(k))
+    if (changes.length === 0) {
+      setBusy(false)
+      const message = 'Saved. The website shows it within a minute.'
+      onSaved(base, message)
+      toast(message)
+      return
+    }
+    const sig = JSON.stringify({ ...body, version: undefined })
+    if (!lastSave.current || lastSave.current.body !== sig) lastSave.current = { body: sig, id: newRequestId().replace(/[^A-Za-z0-9_-]/g, '') }
+    const r = await api<{ craft: AdminCraft; message: string }>(CRAFTS, { ...body, saveId: lastSave.current.id })
     setBusy(false)
     if (r.ok && r.data) {
       onSaved(r.data.craft, r.data.message, r.warning)
@@ -145,6 +226,7 @@ function CraftForm({ craft, markers, refusal, onSaved, onBack }: {
         <input maxLength={80} value={name} placeholder="Like: Bubble Letter Keychains" aria-invalid={error?.field === 'name' || undefined} onChange={(e) => setName(e.target.value)} />
       </label>
       <small className="adm-hint">Short, like “Keychain Bar”. No “Party” or “Birthday” in the name.</small>
+      {nameNotes.length > 0 && <ul className="adm-help-list" aria-label="Suggestions for the name">{nameNotes.map((n) => <li key={n} className="adm-small">{n}</li>)}</ul>}
       {fieldError('name')}
       {single ? (
         <label className="adm-fld adm-gap-top" data-field="price">
@@ -197,7 +279,20 @@ function CraftForm({ craft, markers, refusal, onSaved, onBack }: {
       )}
       <CardPreview name={name} cents={single ? cents : null} description={description} imageUrl={photoUrl ?? craft?.imageUrl ?? null} />
       {error && !error.field && <p className="adm-error" role="alert">{error.text}</p>}
-      {error?.stale && <button type="button" className="adm-btn is-ghost is-sm" onClick={onBack}>See the latest</button>}
+      {error?.stale && <button type="button" className="adm-btn is-ghost is-sm" disabled={busy} onClick={seeLatest}>See the latest</button>}
+      {typed && (
+        <aside className="adm-panel" aria-label="What you typed">
+          <b>What you typed</b>
+          <p className="adm-small adm-muted">The form now shows the latest. Your words are kept here.</p>
+          <p className="adm-small"><b>Name:</b> {typed.name}</p>
+          {typed.price && <p className="adm-small"><b>Price per guest:</b> ${typed.price}</p>}
+          {typed.description && <p className="adm-small" style={{ whiteSpace: 'pre-line', userSelect: 'text' }}>{typed.description}</p>}
+          <div className="adm-two">
+            <button type="button" className="adm-btn is-ghost is-sm" onClick={() => setTyped(null)}>Keep the latest</button>
+            <button type="button" className="adm-btn is-sm" onClick={applyTyped}>Use what I typed</button>
+          </div>
+        </aside>
+      )}
       <div className="adm-gap-top">
         <button type="button" className="adm-btn is-pri" disabled={busy || !!refusal || (!!craft && !dirty)} onClick={save}>{busy ? 'Saving…' : craft ? 'Save craft' : 'Add craft'}</button>
       </div>
@@ -215,6 +310,7 @@ export function CraftsSheet() {
   const [filter, setFilter] = useState<Filter>('all')
   const [notice, setNotice] = useState<{ text: string; warn?: boolean } | null>(null)
   const [hiding, setHiding] = useState('')
+  const [taxing, setTaxing] = useState('')
   useEffect(() => {
     let live = true
     setError('')
@@ -248,6 +344,28 @@ export function CraftsSheet() {
     } else setNotice({ text: r.error ?? '', warn: true })
   }
 
+  async function addTax(c: AdminCraft) {
+    setTaxing(c.id)
+    const r = await api<{ craft: AdminCraft; message: string }>(CRAFTS, { action: 'add-tax', id: c.id, version: c.version })
+    setTaxing('')
+    if (r.ok && r.data) {
+      const fresh = r.data.craft
+      setData((cur) => (cur ? { ...cur, crafts: cur.crafts.map((x) => (x.id === c.id ? { ...fresh, hidden: x.hidden } : x)) } : cur))
+      setNotice({ text: r.data.message })
+      toast(r.data.message)
+    } else {
+      setNotice({ text: r.error ?? '', warn: true })
+      if (r.extra.stale) setTries((n) => n + 1)
+    }
+  }
+
+  async function reload(id: string): Promise<AdminCraft | null> {
+    const r = await api<Loaded>(CRAFTS)
+    if (!r.ok || !r.data) return null
+    setData(r.data)
+    return r.data.crafts.find((x) => x.id === id) ?? null
+  }
+
   if (editing && data) {
     const craft = editing === 'new' ? null : editing
     return (
@@ -258,6 +376,7 @@ export function CraftsSheet() {
           refusal={data.refusal}
           onSaved={saved}
           onBack={() => { setEditing(null); setTries((n) => n + 1) }}
+          onReload={reload}
         />
       </SheetFrame>
     )
@@ -276,10 +395,11 @@ export function CraftsSheet() {
       {data && (
         <>
           {data.refusal && <p className="adm-warntext" role="note">{data.refusal}</p>}
-          <p className="adm-note">Each craft’s photo, name, price per guest and words show on /book and the Craft Café menu within a minute of saving. Crafts are always paid at the studio, on the register.</p>
+          <p className="adm-note">Each craft’s photo, name, price per guest and words show on the party booking page and the Craft Café menu within a minute of saving. Crafts are always paid at the studio, on the register.</p>
+          {!data.refusal && data.taxRefusal && <p className="adm-warntext" role="note">{data.taxRefusal}</p>}
           {notice && <p className={notice.warn ? 'adm-warntext' : 'adm-done'} role="status">{notice.text}</p>}
           <Seg<Filter> label="Show" value={filter} options={[['all', 'All'], ['parties', 'Parties'], ['cafe', 'Craft Café'], ['hidden', 'Hidden']]} onChange={setFilter} className="is-wrap" />
-          {shown.length === 0 && <p className="adm-empty">{filter === 'hidden' ? 'Nothing is hidden.' : 'No crafts here yet. Tap + Add a craft.'}</p>}
+          {shown.length === 0 && <p className="adm-empty">{filter === 'hidden' ? 'Nothing is hidden.' : data.refusal ? 'No crafts here yet.' : 'No crafts here yet. Tap + Add a craft.'}</p>}
           <ul className="adm-mlist" aria-label="Crafts">
             {shown.map((c) => (
               <li key={c.id}>
@@ -293,7 +413,13 @@ export function CraftsSheet() {
                       {[priceText(c), data.markers.where ? WHERE_LABEL[c.where] : null, c.personalized ? 'Made to order' : null, c.popular ? 'Most popular' : null, !c.imageUrl ? 'No photo' : null].filter(Boolean).join(' · ')}
                     </small>
                     {(c.hidden || c.test) && <span className="adm-tag" style={{ margin: 0 }}>{c.test ? 'Test item, never on the website' : 'Hidden on the website'}</span>}
+                    {!c.taxed && !c.test && <span className="adm-tag is-warn" style={{ margin: 0 }}>No tax on the register</span>}
                   </button>
+                  {!c.taxed && !c.test && !data.refusal && (
+                    <button type="button" className="adm-btn is-sm" disabled={taxing === c.id} onClick={() => addTax(c)}>
+                      {taxing === c.id ? 'Adding…' : 'Add the tax'}
+                    </button>
+                  )}
                   {!c.test && (
                     <button type="button" className="adm-btn is-ghost is-sm" disabled={hiding === c.id} onClick={() => hide(c, !c.hidden)}>
                       {c.hidden ? 'Show on website' : 'Hide on website'}
@@ -303,7 +429,7 @@ export function CraftsSheet() {
               </li>
             ))}
           </ul>
-          <p className="adm-small adm-muted">Hide on website takes a craft off /book and the Craft Café menu. It stays on the register, and parties that already picked it keep it.</p>
+          <p className="adm-small adm-muted">Hide on website takes a craft off the party booking page and the Craft Café menu. It stays on the register, and parties that already picked it keep it.</p>
         </>
       )}
     </SheetFrame>
