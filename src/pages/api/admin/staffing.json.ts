@@ -6,7 +6,7 @@ import { teamWithContacts, type StaffPerson } from '@lib/staff-directory'
 import type { By } from '@lib/staff-auth'
 import { getEntries, updateEntry } from '@lib/staffing/staffing-store'
 import { refreshRow, rememberSeen, rowByKey, staffingRows, type StaffingRow } from '@lib/staffing/events'
-import { isEventKey, MAX_NEEDED, withAssigned, withoutAssigned } from '@lib/staffing/rules'
+import { isEventKey, MAX_NEEDED, seenOf, withAssigned, withoutAssigned } from '@lib/staffing/rules'
 import { storableStaffId } from '@lib/staffing/ids'
 import { StaffingError } from '@lib/staffing/errors'
 import { shiftDay, tellPerson } from '@lib/staffing/notify'
@@ -121,7 +121,7 @@ async function findRow(key: EventKey, now: Date, hint: string | null): Promise<S
   return row
 }
 
-const seenOf = (row: StaffingRow) => ({ startIso: row.event.startIso, endIso: row.event.endIso, title: row.event.title })
+const seenOfRow = (row: StaffingRow) => seenOf(row.event)
 const upcoming = (row: StaffingRow, now: Date) => Date.parse(row.event.endIso) > now.getTime()
 const sameClass = (rows: StaffingRow[]) => rows.every((r) => r.event.kind === rows[0].event.kind && r.event.title === rows[0].event.title)
 export const PAST_NOT_TOLD = 'Saved for the record. Nobody was told, because it has already happened.'
@@ -149,13 +149,19 @@ async function assign(keys: EventKey[], hints: Map<EventKey, string | null>, man
     saved.push(await updateEntry(row.event.key, (e) => {
       wasAdded = !e.assigned.some((a) => a.staffId === person.id)
       return withAssigned(e, assignment)
-    }, `${by.name} put ${person.name} on`, by, undefined, { event: seenOf(row) }))
+    }, `${by.name} put ${person.name} on`, by, undefined, { event: seenOfRow(row) }))
     if (wasAdded) added.push(row)
   }
 
   const warnings: string[] = []
   let told: { email: boolean; text: boolean } | null = null
-  const toTell = added.filter((r) => upcoming(r, now))
+  // A batch tells them about every upcoming day they're on and haven't been told about yet, not just the
+  // days added now: when an earlier try saved Mon–Tue and then failed, the retry's one message lists them all (m2).
+  // A single assign keeps to what was just added (a double tap never sends twice).
+  const untold = (i: number) => saved[i].assigned.find((a) => a.staffId === person.id)?.notified == null
+  const toTell = many
+    ? rows.filter((r, i) => upcoming(r, now) && untold(i))
+    : added.filter((r) => upcoming(r, now))
   if (tell && added.length > 0 && toTell.length === 0) warnings.push(PAST_NOT_TOLD)
   if (tell && toTell.length > 0) {
     // One message for every day they were just put on.
@@ -213,7 +219,7 @@ async function unassign(keys: EventKey[], hints: Map<EventKey, string | null>, m
     saved.push(await updateEntry(keys[i], (e) => {
       wasRemoved = e.assigned.some((a) => a.staffId === staffId)
       return withoutAssigned(e, staffId)
-    }, `${by.name} took ${name} off`, by, undefined, row ? { event: seenOf(row) } : {}))
+    }, `${by.name} took ${name} off`, by, undefined, row ? { event: seenOfRow(row) } : {}))
     if (wasRemoved) {
       removedAny = true
       if (row) removed.push(row)
@@ -252,7 +258,7 @@ async function setNeeded(key: EventKey, hint: string | null, raw: unknown, expec
   const expected = expectedRaw === undefined ? undefined : typeof expectedRaw === 'string' ? expectedRaw : null
   const row = await findRow(key, new Date(), hint)
   const change = needed === null ? `${by.name} set people needed back to usual` : `${by.name} set people needed to ${needed}`
-  const entry = await updateEntry(key, (e) => ({ ...e, needed }), change, by, expected, { event: seenOf(row) })
+  const entry = await updateEntry(key, (e) => ({ ...e, needed }), change, by, expected, { event: seenOfRow(row) })
   if (entry.updatedAt !== (row.entry?.updatedAt ?? null)) await recordAudit({
     by: auditBy(by), action: 'staffing.needed', target: { kind: row.event.kind, id: key, label: row.event.title },
     details: { needed },

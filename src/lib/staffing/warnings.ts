@@ -91,7 +91,7 @@ export async function staffingWarnings(from: string, to: string, now: Date): Pro
       const what = isParty ? 'a party' : title
       const one = o.entry.assigned.length === 1
       out.push({
-        code: 'assigned-cancelled', eventKind: isParty ? 'party' : 'workshop', eventId: '', when: o.startIso ?? now.toISOString(),
+        code: 'assigned-cancelled', eventKind: isParty ? 'party' : 'workshop', eventId: '', when: o.startIso ?? '', // never seen: no date rather than today's (M7)
         title, itemId: o.key,
         detail: o.status === 'cancelled'
           ? `${who} ${one ? 'is' : 'are'} still on ${what}, which was cancelled.`

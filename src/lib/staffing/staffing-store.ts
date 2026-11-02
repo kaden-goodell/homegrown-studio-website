@@ -94,7 +94,7 @@ function tidy(key: EventKey, e: StaffingEntry): StaffingEntry {
 const content = (e: StaffingEntry) => JSON.stringify([e.needed, e.assigned, e.asks])
 const seenPart = (e: StaffingEntry) => JSON.stringify([e.seen, e.sequence])
 
-type SeenEvent = { startIso: string; endIso: string; title: string }
+type SeenEvent = { startIso: string; endIso: string; title: string; cancelled?: boolean }
 
 /**
  * Changes one event's staffing: `fn` gets the freshest copy (an empty one

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import QRCode from 'qrcode'
 import { btn, field } from '@components/staff/ui'
 
 /**
@@ -7,28 +8,76 @@ import { btn, field } from '@components/staff/ui'
  * shown once, when it's made (only a scrambled copy is kept), so "Make a new
  * link" is how to get it again, and it stops the old one. Every
  * are-you-sure is asked here in the sheet, never a browser pop-up.
+ *
+ * The studio iPad is shared, so:
+ *   - the sheet says to do this on your own phone, and offers a code to scan
+ *     with your own phone's camera (made here, on the device: no outside service);
+ *   - a fresh link stays hidden until "Show my link", and hides itself again
+ *     after a few minutes;
+ *   - a stray tap outside the sheet doesn't close it while the link is out;
+ *   - the sheet lives inside My shifts, which is rebuilt for each person, so
+ *     Switch person or Log out closes it and forgets the link.
  */
 
 type View = 'start' | 'confirm-new' | 'confirm-stop' | 'links' | 'stopped'
 
+/** A shown link hides itself after this long (someone may walk away from the iPad). */
+export const LINK_SHOW_MS = 3 * 60_000
+
 const sheetBtn = (primary = false): CSSProperties => ({ ...btn(primary), minHeight: '3rem', fontSize: '1rem', width: '100%', textAlign: 'center' })
 const help: CSSProperties = { margin: 0, fontSize: '0.95rem', color: 'var(--color-dark)', lineHeight: 1.5 }
+const ownPhone: CSSProperties = { ...help, padding: '0.7rem 0.85rem', borderRadius: '0.75rem', background: 'rgba(var(--color-primary-rgb),0.08)' }
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: boolean; onClose: () => void; onChanged: (has: boolean) => void }) {
   const [view, setView] = useState<View>('start')
   const [links, setLinks] = useState<{ https: string; webcal: string } | null>(null)
+  const [shown, setShown] = useState(false)
+  const [qr, setQr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<'yes' | 'manual' | null>(null)
+  const panelRef = useRef<HTMLDivElement | null>(null)
   const firstRef = useRef<HTMLButtonElement | null>(null)
   const urlRef = useRef<HTMLInputElement | null>(null)
 
-  useEffect(() => { firstRef.current?.focus() }, [view])
+  // Focus goes into the sheet, and back to whatever opened it when it closes.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const opener = document.activeElement as HTMLElement | null
+    return () => { if (opener && document.contains(opener)) opener.focus() }
+  }, [])
+  useEffect(() => { firstRef.current?.focus() }, [view, shown])
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); return }
+      if (e.key !== 'Tab' || !panelRef.current) return
+      // Keep Tab inside the sheet (it's modal).
+      const items = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE))
+      if (items.length === 0) return
+      const first = items[0], last = items[items.length - 1]
+      const at = document.activeElement
+      if (e.shiftKey && (at === first || !panelRef.current.contains(at))) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && (at === last || !panelRef.current.contains(at))) { e.preventDefault(); first.focus() }
+    }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
+
+  // The code to scan, drawn here from the iPhone link (works with wifi down; nothing leaves the device).
+  useEffect(() => {
+    if (!links || !shown) { setQr(null); return }
+    let live = true
+    QRCode.toString(links.webcal, { type: 'svg', margin: 1 }).then((svg) => { if (live) setQr(svg) }).catch(() => { if (live) setQr(null) })
+    return () => { live = false }
+  }, [links, shown])
+
+  // A shown link hides itself after a few minutes.
+  useEffect(() => {
+    if (!shown) return
+    const t = setTimeout(() => { setShown(false); setCopied(null) }, LINK_SHOW_MS)
+    return () => clearTimeout(t)
+  }, [shown])
 
   async function make() {
     setBusy(true)
@@ -38,6 +87,7 @@ export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: bo
       const json = await res.json().catch(() => null)
       if (!res.ok) { setError(json?.error ?? 'Couldn’t make your link. Try again.'); return }
       setLinks(json.data)
+      setShown(false)
       setCopied(null)
       setView('links')
       onChanged(true)
@@ -56,6 +106,7 @@ export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: bo
       const json = await res.json().catch(() => null)
       if (!res.ok) { setError(json?.error ?? 'Couldn’t stop your link. Try again.'); return }
       setLinks(null)
+      setShown(false)
       setView('stopped')
       onChanged(false)
     } catch {
@@ -77,12 +128,27 @@ export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: bo
     }
   }
 
+  const linkOut = view === 'links' && !!links
+
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="cal-link-title" style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--color-surface, #fff)', width: '100%', maxWidth: '32rem', maxHeight: '92vh', overflowY: 'auto', borderRadius: '1rem 1rem 0 0', padding: '1.25rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom, 0px))', display: 'grid', gap: '0.75rem' }}>
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="cal-link-title"
+      style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+      // A stray tap outside doesn't throw away a fresh link; Done does.
+      onClick={() => { if (!linkOut) onClose() }}
+    >
+      <div ref={panelRef} onClick={(e) => e.stopPropagation()} style={{ background: 'var(--color-surface, #fff)', width: '100%', maxWidth: '32rem', maxHeight: '92vh', overflowY: 'auto', borderRadius: '1rem 1rem 0 0', padding: '1.25rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom, 0px))', display: 'grid', gap: '0.75rem' }}>
         <h2 id="cal-link-title" style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: 'var(--color-dark)' }}>
           {view === 'links' ? 'Your calendar link' : view === 'stopped' ? 'Calendar link stopped' : 'My shifts on my phone'}
         </h2>
+
+        {(view === 'start' || view === 'links') && (
+          <p style={ownPhone} data-testid="own-phone">
+            <strong>Do this on your own phone.</strong> On the studio iPad, scan the code with your phone’s camera instead. A link opened on the iPad goes into the iPad’s calendar, not yours.
+          </p>
+        )}
 
         {view === 'start' && !has && (
           <>
@@ -116,18 +182,38 @@ export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: bo
           </>
         )}
 
-        {view === 'links' && links && (
+        {view === 'links' && links && !shown && (
+          <>
+            <p style={help}>Your link is ready. It’s only shown now, so have your phone with you, then tap Show my link.</p>
+            <button ref={firstRef} type="button" onClick={() => setShown(true)} style={sheetBtn(true)}>Show my link</button>
+          </>
+        )}
+
+        {view === 'links' && links && shown && (
           <>
             <p style={{ ...help, fontWeight: 600 }}>This link is only shown now. Keep it private: anyone with it can see your shifts.</p>
 
+            <section aria-labelledby="cal-qr" style={{ display: 'grid', gap: '0.45rem', justifyItems: 'center' }}>
+              <h3 id="cal-qr" style={{ margin: 0, fontSize: '1rem', color: 'var(--color-dark)', justifySelf: 'start' }}>On the iPad? Scan with your iPhone</h3>
+              <div
+                role="img"
+                aria-label="Code to scan with your iPhone camera. It opens your calendar link."
+                data-testid="cal-qr"
+                style={{ width: '12rem', maxWidth: '100%', aspectRatio: '1', background: '#fff', padding: '0.4rem', borderRadius: '0.5rem' }}
+                dangerouslySetInnerHTML={qr ? { __html: qr } : undefined}
+              />
+              <p style={{ ...help, justifySelf: 'start' }}>Point your iPhone’s camera at the code, tap the link that pops up, tap Subscribe, then tap Add.</p>
+            </section>
+
             <section aria-labelledby="cal-iphone" style={{ display: 'grid', gap: '0.45rem' }}>
-              <h3 id="cal-iphone" style={{ margin: 0, fontSize: '1rem', color: 'var(--color-dark)' }}>iPhone</h3>
+              <h3 id="cal-iphone" style={{ margin: 0, fontSize: '1rem', color: 'var(--color-dark)' }}>On your iPhone</h3>
               <a href={links.webcal} style={{ ...sheetBtn(true), display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', boxSizing: 'border-box' }}>Add to my iPhone calendar</a>
-              <p style={help}>Tap it, then tap Subscribe. Your shifts show in the Calendar app.</p>
+              <p style={help}>Tap it, tap Subscribe, then tap Add. Your shifts show in the Calendar app.</p>
             </section>
 
             <section aria-labelledby="cal-android" style={{ display: 'grid', gap: '0.45rem' }}>
               <h3 id="cal-android" style={{ margin: 0, fontSize: '1rem', color: 'var(--color-dark)' }}>Android or Google Calendar</h3>
+              <p style={help}>Do these steps on your own phone. On the iPad? Open ourhometownstudio.com/staff on your phone and make your link there.</p>
               <button ref={firstRef} type="button" onClick={copy} style={sheetBtn()}>{copied === 'yes' ? '✓ Link copied' : 'Copy my link'}</button>
               <p role="status" aria-live="polite" style={{ ...help, minHeight: 0, color: copied === 'yes' ? '#15803d' : 'var(--color-dark)', fontWeight: copied ? 600 : 400 }}>
                 {copied === 'yes' ? 'Copied. Now paste it in Google Calendar.' : copied === 'manual' ? 'Press and hold the link below, then tap Copy.' : ''}
@@ -140,12 +226,14 @@ export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: bo
               )}
               <ol style={{ ...help, paddingLeft: '1.2rem', display: 'grid', gap: '0.2rem' }}>
                 <li>Copy your link.</li>
-                <li>On a computer, open calendar.google.com (the phone app can’t add links).</li>
-                <li>Next to “Other calendars”, tap +, then “From URL”.</li>
-                <li>Paste the link and tap “Add calendar”.</li>
+                <li>Open calendar.google.com in Chrome. On a phone, tap ⋮ and tick Desktop site first. Use the same Google account as your phone.</li>
+                <li>Next to Other calendars, tap +, then From URL. Paste and tap Add calendar.</li>
+                <li>On your phone, open the Google Calendar app › Settings › Hometown Studio · my shifts, and turn on Sync.</li>
               </ol>
-              <p style={{ ...help, color: 'var(--color-muted)' }}>It then shows on your Android phone. Google can take a few hours to show changes.</p>
+              <p style={{ ...help, color: 'var(--color-muted)' }}>Google can take up to a day to show changes. Your text from Catherine or Kaden is the quick way to hear.</p>
             </section>
+
+            <button type="button" onClick={() => { setShown(false); setCopied(null) }} style={sheetBtn()}>Hide my link</button>
           </>
         )}
 
@@ -157,6 +245,7 @@ export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: bo
         )}
 
         {error && <p role="alert" style={{ margin: 0, color: 'var(--color-error)', fontWeight: 600 }}>{error}</p>}
+        {linkOut && <p style={{ ...help, fontSize: '0.875rem', color: 'var(--color-muted)', textAlign: 'center' }}>Closing hides your link for good. You can always make a new one.</p>}
         <button type="button" onClick={onClose} style={{ ...sheetBtn(), border: 'none' }}>{view === 'links' ? 'Done' : 'Close'}</button>
       </div>
     </div>

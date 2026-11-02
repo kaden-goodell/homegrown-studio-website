@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  eventKeyOf, isEventKey, verdict, verdictWithNote, neededFor, staffedState, validateAvailability, movedSince, DEFAULT_NEEDED, withAssigned, withAsk,
+  eventKeyOf, isEventKey, verdict, verdictWithNote, hoursWords, neededFor, staffedState, validateAvailability, movedSince, DEFAULT_NEEDED, withAssigned, withAsk,
 } from '@lib/staffing/rules'
 import type { Availability, DayMark, StaffingEntry, StaffableEvent } from '@lib/staffing/types'
 
@@ -50,7 +50,7 @@ describe('verdict', () => {
     expect(verdict(avail({ '6': can() }), satAt(10))).toBe('can')
     expect(verdict(avail({ '6': can('09:00', '17:00') }), satAt(10))).toBe('can')
     expect(verdict(avail({ '6': can('09:00', '11:00') }), satAt(10))).toBe('partly')
-    expect(verdict(avail({ '6': can('13:00', '17:00') }), satAt(10))).toBe('unknown')
+    expect(verdict(avail({ '6': can('13:00', '17:00') }), satAt(10))).toBe('outside') // they gave hours; this isn't in them
     expect(verdict(avail({ '6': cant() }), satAt(10))).toBe('cant')
     expect(verdict(avail({ '6': cant('11:00', '12:00') }), satAt(10))).toBe('cant')
     expect(verdict(avail({ '6': cant('12:00', '13:00') }), satAt(10))).toBe('unknown') // touching is not overlapping
@@ -191,9 +191,30 @@ describe('validateAvailability', () => {
 describe('verdictWithNote and the date cap', () => {
   it('carries the note of the "can\'t" that decided it', () => {
     const a = avail({ '6': cant('09:00', '12:00', 'dentist') })
-    expect(verdictWithNote(a, satAt(10))).toEqual({ verdict: 'cant', note: 'dentist' })
-    expect(verdictWithNote(a, satAt(14))).toEqual({ verdict: 'unknown', note: '' })
-    expect(verdictWithNote(avail({ '6': can(undefined, undefined, 'any time') }), satAt(14))).toEqual({ verdict: 'can', note: '' })
+    expect(verdictWithNote(a, satAt(10))).toEqual({ verdict: 'cant', note: 'dentist', hours: '' })
+    expect(verdictWithNote(a, satAt(14))).toEqual({ verdict: 'unknown', note: '', hours: '' })
+    expect(verdictWithNote(avail({ '6': can(undefined, undefined, 'any time') }), satAt(14))).toEqual({ verdict: 'can', note: '', hours: '' })
+  })
+
+  it('"Can, only 4–9 PM" and a 1:30 party: outside the hours they gave, with the hours in words (I7)', () => {
+    const a = avail({ '6': can('16:00', '21:00') })
+    expect(verdictWithNote(a, satAt(13))).toEqual({ verdict: 'outside', note: '', hours: '4–9 PM' })
+    // inside them: can; half in: partly, with the hours
+    expect(verdictWithNote(a, satAt(17))).toEqual({ verdict: 'can', note: '', hours: '' })
+    expect(verdictWithNote(a, satAt(15))).toEqual({ verdict: 'partly', note: '', hours: '4–9 PM' })
+    // a date's own hours count the same way; a can't still wins
+    expect(verdictWithNote(avail({}, { '2026-10-31': [can('09:00', '12:00'), can('18:00', '20:30')] }), satAt(13))).toEqual({ verdict: 'outside', note: '', hours: '9 AM–12 PM and 6–8:30 PM' })
+    expect(verdictWithNote(avail({}, { '2026-10-31': [can('16:00', '21:00'), cant('13:00', '14:00', 'lunch')] }), satAt(13))).toEqual({ verdict: 'cant', note: 'lunch', hours: '' })
+    // no hours given at all is still Not said
+    expect(verdict(avail({ '5': can('16:00', '21:00') }), satAt(13))).toBe('unknown')
+  })
+
+  it('hoursWords', () => {
+    expect(hoursWords({ from: '16:00', to: '21:00' })).toBe('4–9 PM')
+    expect(hoursWords({ from: '09:00', to: '13:00' })).toBe('9 AM–1 PM')
+    expect(hoursWords({ from: '16:30', to: '21:00' })).toBe('4:30–9 PM')
+    expect(hoursWords({ from: '20:00', to: '24:00' })).toBe('8 PM–Midnight')
+    expect(hoursWords({ from: '11:00', to: '12:00' })).toBe('11 AM–12 PM')
   })
 
   it('refuses more than 400 dates in one save with a plain sentence, before any work (M9)', () => {
@@ -201,5 +222,35 @@ describe('verdictWithNote and the date cap', () => {
     for (let i = 0; i < 401; i++) dates[`2020-01-${String(i).padStart(3, '0')}`] = []
     const r = validateAvailability({ weekly: {}, dates }, new Date('2026-10-20T15:00:00.000Z'))
     expect(r).toEqual({ ok: false, error: "That's too many dates in one save. Take some off and try again.", field: undefined })
+  })
+})
+
+describe('verdictLabel (owner screens use the crew\'s own words)', () => {
+  it('Can / Can\'t (note) / Part (hours) / Outside the hours they gave (hours) / Not said', async () => {
+    const { verdictLabel } = await import('@lib/staffing/crew-copy')
+    expect(verdictLabel({ verdict: 'can' })).toBe('Can')
+    expect(verdictLabel({ verdict: 'cant', markNote: 'dentist' })).toBe('Can’t (dentist)')
+    expect(verdictLabel({ verdict: 'cant', markNote: '' })).toBe('Can’t')
+    expect(verdictLabel({ verdict: 'partly', hours: '4–9 PM' })).toBe('Part (4–9 PM)')
+    expect(verdictLabel({ verdict: 'outside', hours: '4–9 PM' })).toBe('Outside the hours they gave (4–9 PM)')
+    expect(verdictLabel({ verdict: 'unknown' })).toBe('Not said')
+  })
+})
+
+describe('withSeen: SEQUENCE on cancel (M9)', () => {
+  it('goes up when the event is cancelled, and again if it comes back; not on a plain re-read', async () => {
+    const { withSeen, seenOf } = await import('@lib/staffing/rules')
+    const ev = { startIso: '2026-10-25T18:00:00.000Z', endIso: '2026-10-25T20:00:00.000Z', title: 'Weaving', status: 'on' as const }
+    let e = withSeen(entry(), seenOf(ev))
+    expect(e.sequence).toBe(0)
+    e = withSeen(e, seenOf(ev))
+    expect(e.sequence).toBe(0)
+    e = withSeen(e, seenOf({ ...ev, status: 'cancelled' }))
+    expect(e).toMatchObject({ sequence: 1, seen: { cancelled: true } })
+    e = withSeen(e, seenOf({ ...ev, status: 'cancelled' }))
+    expect(e.sequence).toBe(1)
+    e = withSeen(e, seenOf(ev))
+    expect(e.sequence).toBe(2)
+    expect(e.seen).not.toHaveProperty('cancelled')
   })
 })

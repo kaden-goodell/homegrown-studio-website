@@ -288,13 +288,28 @@ describe('several days of one class at once', () => {
     expect(src.told[1].ev).toHaveLength(3)
   })
 
-  it('only the days they were not already on are messaged', async () => {
+  it('days they were already told about are not messaged again', async () => {
     const c = camp()
     src.classes = [c]
     const keys = c.sessions.map((s: any) => `ses:${s.id}`)
-    await call('POST', { action: 'assign', key: keys[0], staffId: 'TM2', tell: false })
+    await call('POST', { action: 'assign', key: keys[0], staffId: 'TM2', tell: true })
     await call('POST', { action: 'assign', keys, staffId: 'TM2', tell: true })
-    expect(src.told[0].ev.map((e: any) => e.key)).toEqual(keys.slice(1))
+    expect(src.told).toHaveLength(2)
+    expect(src.told[1].ev.map((e: any) => e.key)).toEqual(keys.slice(1))
+  })
+
+  it('a retry after a batch that failed partway tells them about every untold day, not just the new ones (m2)', async () => {
+    const c = camp(4)
+    src.classes = [c]
+    const keys = c.sessions.map((s: any) => `ses:${s.id}`)
+    // what the failed try left behind: Mon and Tue saved, nobody told
+    for (const k of keys.slice(0, 2)) await call('POST', { action: 'assign', key: k, staffId: 'TM2', tell: false })
+    const r = await call('POST', { action: 'assign', keys, staffId: 'TM2', tell: true })
+    expect(r.status).toBe(200)
+    expect(src.told).toHaveLength(1)
+    expect(src.told[0].ev.map((e: any) => e.key)).toEqual(keys)
+    const entries = await getEntries(keys as any)
+    for (const k of keys) expect(entries.get(k as any)!.assigned[0].notified).toEqual({ email: true, text: true })
   })
 
   it('refuses days of different classes, and too many or repeated keys', async () => {

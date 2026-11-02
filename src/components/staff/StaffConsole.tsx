@@ -12,7 +12,7 @@ import StaffCalendar from '@components/staff/StaffCalendar'
 import MyShifts from '@components/staff/MyShifts'
 import SwitchPersonSheet from '@components/staff/SwitchPersonSheet'
 import { readDayParam, writeDayParam } from '@components/staff/EventList'
-import { StaffNavContext, type StaffNav, type StaffTab } from '@components/staff/nav'
+import { StaffNavContext, type LeaveGuard, type StaffNav, type StaffTab } from '@components/staff/nav'
 import GiftCards from '@components/staff/GiftCards'
 import Roster from '@components/staff/Roster'
 import type { HouseholdMatch } from '@components/staff/DoorSearch'
@@ -283,6 +283,15 @@ export default function StaffConsole() {
   // "Switch" reuses it to re-pick an identity without asking again. A page
   // reload always starts back at the passcode screen (pick.json re-verifies it).
   const passcodeRef = useRef('')
+  // Unsaved work on screen (My shifts › When I can work): leaving asks in the app first.
+  const leaveGuard = useRef<LeaveGuard | null>(null)
+  const [pendingLeave, setPendingLeave] = useState<{ go: () => void } | null>(null)
+  const [leaveBusy, setLeaveBusy] = useState(false)
+  /** Runs `go` now, or first asks Save / Leave without saving / Stay when there are unsaved changes. */
+  function guarded(go: () => void) {
+    if (leaveGuard.current?.dirty()) { setPendingLeave({ go }); return }
+    go()
+  }
 
   // `?open=` target, held until we know who's signed in (it may need a login first).
   const pendingOpen = useRef<{ kind: EventKind; id: string } | null>(null)
@@ -364,10 +373,14 @@ export default function StaffConsole() {
   /** "Switch person": a flyout of the team, no passcode screen (Kaden,
    *  15 Oct 2026). Being signed in on this device is the proof. */
   function switchStaff() {
-    setSwitchOpen(true)
+    guarded(() => setSwitchOpen(true))
   }
 
-  async function logout() {
+  function logout() {
+    guarded(() => { void doLogout() })
+  }
+
+  async function doLogout() {
     await fetch('/api/staff/login.json', { method: 'DELETE' })
     window.posthog?.reset()
     passcodeRef.current = ''
@@ -422,6 +435,9 @@ export default function StaffConsole() {
    *  `getEvent`/`roster.json` resolves (party, workshop) — HOM-213 replaced
    *  the party-only screen with a generalized one. */
   function openRoster(e: { kind: EventKind; id: string; title: string; day?: string; addFamily?: { household?: HouseholdMatch } }) {
+    guarded(() => showRoster(e))
+  }
+  function showRoster(e: { kind: EventKind; id: string; title: string; day?: string; addFamily?: { household?: HouseholdMatch } }) {
     if (phase === 'week' || phase === 'today' || phase === 'upcoming' || phase === 'calendar' || phase === 'shifts') setLastList(phase)
     setRosterTarget({ kind: e.kind, id: e.id, ...(e.day ? { day: e.day } : {}), ...(e.addFamily ? { addFamily: e.addFamily } : {}) })
     setPhase('roster')
@@ -469,18 +485,36 @@ export default function StaffConsole() {
   const activeTab: StaffTab = phase === 'roster' ? lastList : phase === 'week' || phase === 'upcoming' || phase === 'calendar' || phase === 'shifts' || phase === 'kits' || phase === 'giftcards' ? phase : 'today'
   const nav: StaffNav = {
     active: activeTab,
-    go: (tab) => {
+    go: (tab) => guarded(() => {
       setRosterTarget(null)
       if (tab !== 'upcoming') writeDayParam(null) // ?day belongs to Upcoming
       if (tab === 'kits') { loadKits(); return }
       setPhase(tab)
-    },
+    }),
     switchStaff,
     logout,
+    setLeaveGuard: (g) => { leaveGuard.current = g },
+  }
+  async function leaveAfter(choice: 'save' | 'discard') {
+    const leave = pendingLeave
+    if (!leave) return
+    if (choice === 'save') {
+      setLeaveBusy(true)
+      const ok = await (leaveGuard.current?.save() ?? Promise.resolve(true))
+      setLeaveBusy(false)
+      if (!ok) { setPendingLeave(null); return } // the screen says what went wrong; they stay
+    } else {
+      leaveGuard.current?.discard()
+    }
+    setPendingLeave(null)
+    leave.go()
   }
   const withNav = (node: ReactNode) => (
     <StaffNavContext.Provider value={nav}>
       {node}
+      {pendingLeave && (
+        <UnsavedLeaveSheet busy={leaveBusy} onSave={() => leaveAfter('save')} onDiscard={() => leaveAfter('discard')} onStay={() => setPendingLeave(null)} />
+      )}
       {switchOpen && me && (
         <SwitchPersonSheet
           current={me}
@@ -505,11 +539,13 @@ export default function StaffConsole() {
   }
 
   if (phase === 'calendar') {
-    return withNav(<StaffCalendar staff={me} onOpenRoster={openRoster} />)
+    // keyed by person: Switch person starts it fresh (nobody sees the last person's tags)
+    return withNav(<StaffCalendar key={me.id} staff={me} onOpenRoster={openRoster} />)
   }
 
   if (phase === 'shifts') {
-    return withNav(<MyShifts staff={me} onOpenRoster={openRoster} />)
+    // keyed by person: Switch person or Log out drops the last person's shifts, drafts and calendar link sheet
+    return withNav(<MyShifts key={me.id} staff={me} onOpenRoster={openRoster} />)
   }
 
   if (phase === 'giftcards') {
@@ -636,4 +672,27 @@ export default function StaffConsole() {
   // 'roster' phase without a target (shouldn't normally happen) falls through
   // to nothing rather than crashing.
   return null
+}
+
+/** "Your times aren't saved": asked in the app (never a browser pop-up) before leaving unsaved times. */
+function UnsavedLeaveSheet({ busy, onSave, onDiscard, onStay }: { busy: boolean; onSave: () => void; onDiscard: () => void; onStay: () => void }) {
+  const firstRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    firstRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onStay() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  const big = (primary = false) => ({ ...btn(primary), minHeight: '3rem', fontSize: '1rem', width: '100%' })
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby="unsaved-title" style={{ position: 'fixed', inset: 0, zIndex: 210, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={onStay}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--color-surface, #fff)', width: '100%', maxWidth: '32rem', borderRadius: '1rem 1rem 0 0', padding: '1.25rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom, 0px))', display: 'grid', gap: '0.6rem' }}>
+        <h2 id="unsaved-title" style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: 'var(--color-dark)' }}>Your times aren’t saved</h2>
+        <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--color-dark)', lineHeight: 1.5 }}>You changed when you can work. Save it before you go?</p>
+        <button ref={firstRef} type="button" disabled={busy} onClick={onSave} style={big(true)}>{busy ? 'Saving…' : 'Save my times'}</button>
+        <button type="button" disabled={busy} onClick={onDiscard} style={big()}>Leave without saving</button>
+        <button type="button" disabled={busy} onClick={onStay} style={{ ...big(), border: 'none' }}>Stay here</button>
+      </div>
+    </div>
+  )
 }

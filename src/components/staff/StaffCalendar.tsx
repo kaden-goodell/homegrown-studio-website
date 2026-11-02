@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import StaffHeader from '@components/staff/StaffHeader'
 import { card, btn, Badge } from '@components/staff/ui'
 import { addDays } from '@lib/kit-dates'
@@ -9,8 +9,8 @@ import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
 import { eventKeyOf } from '@lib/staffing/rules'
 import type { OpenEvent, StaffingRow } from '@lib/staffing/events'
 
-/** What My shifts knows about this week: what I'm on, and what I could ask for (with whether I asked). */
-interface WeekShifts { mine: Set<string>; open: Map<string, OpenEvent> }
+/** What My shifts knows about this week: what I'm on (key → already ended), and what I could ask for (with whether I asked). */
+interface WeekShifts { mine: Map<string, boolean>; open: Map<string, OpenEvent> }
 
 const KIND: Record<CalendarItem['kind'], { icon: string; colour: string; word: string }> = {
   class: { icon: '🧵', colour: 'var(--color-primary)', word: 'Class' },
@@ -50,18 +50,32 @@ export default function StaffCalendar({
   const [askBusy, setAskBusy] = useState<string | null>(null)
   const [askMsg, setAskMsg] = useState<{ key: string; text: string; ok: boolean } | null>(null)
 
+  // Only the newest reply counts (a slow one for last week, or for the last person on the shared
+  // iPad, must never paint over this one), and a shifts reply only if it's this person's.
+  const itemsSeq = useRef(0)
+  const shiftsSeq = useRef(0)
+  const staffIdRef = useRef(staff.id)
+  staffIdRef.current = staff.id
+
   /** My shifts for the week (an extra: without it the calendar still works, just without the tags). */
   async function loadShifts(from: string) {
+    const seq = ++shiftsSeq.current
+    const forId = staff.id
     setShifts(null)
     try {
       const q = `from=${encodeURIComponent(studioDayUtcRange(from).startIso)}&to=${encodeURIComponent(studioDayUtcRange(addDays(from, 6)).endIso)}`
       const res = await fetch(`/api/staff/shifts.json?${q}`, { cache: 'no-store' })
       if (!res.ok) return
       const json = await res.json().catch(() => null)
+      if (seq !== shiftsSeq.current || staffIdRef.current !== forId || json?.data?.me?.id !== forId) return
       const mine = (json?.data?.mine ?? []) as StaffingRow[]
       const open = (json?.data?.open ?? []) as OpenEvent[]
       if (!Array.isArray(mine) || !Array.isArray(open)) return
-      setShifts({ mine: new Set(mine.filter((r) => r.event.status === 'on').map((r) => r.event.key)), open: new Map(open.map((e) => [e.key, e])) })
+      const now = Date.now()
+      setShifts({
+        mine: new Map(mine.filter((r) => r.event.status === 'on').map((r) => [r.event.key, Date.parse(r.event.endIso) <= now])),
+        open: new Map(open.map((e) => [e.key, e])),
+      })
     } catch {
       // the tags are an extra
     }
@@ -88,19 +102,22 @@ export default function StaffCalendar({
   }
 
   async function load(from: string) {
+    const seq = ++itemsSeq.current
     setError(null)
     setItems(null)
     try {
       const q = `from=${encodeURIComponent(studioDayUtcRange(from).startIso)}&to=${encodeURIComponent(studioDayUtcRange(addDays(from, 6)).endIso)}`
       const res = await fetch(`/api/staff/calendar.json?${q}`, { cache: 'no-store' })
       const json = await res.json().catch(() => null)
+      if (seq !== itemsSeq.current) return
       if (!res.ok) { setError(json?.error ?? 'Couldn’t load the calendar.'); return }
       setItems(json.data.items as CalendarItem[])
     } catch {
-      setError('Couldn’t reach the studio server — check wifi and tap Retry.')
+      if (seq === itemsSeq.current) setError('Couldn’t reach the studio server — check wifi and tap Retry.')
     }
   }
-  useEffect(() => { load(start); loadShifts(start) }, [start])
+  // The person is part of what's shown: a new person (even without a remount) clears the tags and reloads.
+  useEffect(() => { setAskMsg(null); load(start); loadShifts(start) }, [start, staff.id])
 
   const days = Array.from({ length: 7 }, (_, i) => addDays(start, i))
   const onDay = (d: string) => (items ?? []).filter((it) => studioDate(it.startIso) === d).sort((a, b) => a.startIso.localeCompare(b.startIso))
@@ -140,6 +157,7 @@ export default function StaffCalendar({
               const target = opens(it)
               const key = eventKeyOf({ kind: it.kind, id: it.id, sessionId: (it as { sessionId?: string }).sessionId })
               const onIt = !!key && !!shifts?.mine.has(key)
+              const worked = onIt && !!shifts?.mine.get(key!)
               const openEv = key ? shifts?.open.get(key) : undefined
               const canAsk = !!openEv && openEv.status === 'on' && !openEv.asked
               const body = (
@@ -150,7 +168,7 @@ export default function StaffCalendar({
                       <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{it.label}</span>
                       {it.status === 'cancelled' && <Badge tone="alert">Cancelled</Badge>}
                       {it.status === 'closed' && <Badge tone="muted">Sign-ups closed</Badge>}
-                      {onIt && <Badge tone="muted">✓ You’re on</Badge>}
+                      {onIt && <Badge tone="muted">{worked ? 'Worked' : '✓ You’re on'}</Badge>}
                       {!onIt && openEv?.asked && <Badge tone="muted">★ You asked</Badge>}
                     </span>
                     <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{it.kind === 'closed' ? 'All day' : formatTimeSpan(it.startIso, it.endIso)}</span>

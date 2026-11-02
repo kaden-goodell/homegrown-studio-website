@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type CSSProperties } from 'react'
+import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import StaffHeader from '@components/staff/StaffHeader'
 import AvailabilityEditor from '@components/staff/AvailabilityEditor'
 import CalendarLinkSheet from '@components/staff/CalendarLinkSheet'
@@ -9,7 +9,7 @@ import { verdict, MAX_NOTE } from '@lib/staffing/rules'
 import { PARTY_ARRIVAL } from '@lib/staffing/crew-copy'
 import type { StaffMember } from '@lib/staff-auth'
 import type { EventKind } from '@lib/events'
-import type { Availability, StaffableEvent } from '@lib/staffing/types'
+import type { Availability, StaffableEvent, Verdict } from '@lib/staffing/types'
 import type { OpenEvent, StaffingRow } from '@lib/staffing/events'
 
 /**
@@ -52,31 +52,34 @@ export function withLine(row: StaffingRow, myId: string): string {
 function ShiftCard({ row, myId, onOpenRoster }: { row: StaffingRow; myId: string; onOpenRoster: OpenRoster }) {
   const ev = row.event
   const cancelled = ev.status !== 'on'
+  // A shift that already ended (last night, this morning) says Worked, not You're on.
+  const worked = !cancelled && Date.parse(ev.endIso) <= Date.now()
   return (
     <button
       type="button"
       data-testid="my-shift"
       onClick={() => onOpenRoster({ kind: ev.roster.kind, id: ev.roster.id, title: ev.title, day: ev.roster.day })}
-      aria-label={`${ev.title}, ${when(ev)}. ${cancelled ? 'Cancelled.' : `You're on. ${withLine(row, myId)}.`} Open the roster.`}
-      style={{ ...card, background: 'rgba(255,255,255,0.9)', width: '100%', textAlign: 'left', cursor: 'pointer', display: 'grid', gap: '0.3rem', marginBottom: '0.6rem', borderLeft: `5px solid ${cancelled ? '#b91c1c' : '#15803d'}` }}
+      aria-label={`${ev.title}, ${when(ev)}. ${cancelled ? 'Cancelled.' : `${worked ? 'Worked' : "You're on"}. ${withLine(row, myId)}.`} Open the roster.`}
+      style={{ ...card, background: 'rgba(255,255,255,0.9)', width: '100%', textAlign: 'left', cursor: 'pointer', display: 'grid', gap: '0.3rem', marginBottom: '0.6rem', borderLeft: `5px solid ${cancelled ? '#b91c1c' : worked ? 'rgba(90,90,90,0.3)' : '#15803d'}` }}
     >
       <span style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
         <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-dark)' }}>{when(ev)}</span>
-        {cancelled ? <Badge tone="alert">✕ Cancelled</Badge> : <Badge tone="muted">✓ You’re on</Badge>}
+        {cancelled ? <Badge tone="alert">✕ Cancelled</Badge> : worked ? <Badge tone="muted">Worked</Badge> : <Badge tone="muted">✓ You’re on</Badge>}
       </span>
       <span style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--color-dark)' }}><span aria-hidden="true">{icon(ev)} </span>{ev.title}</span>
       {cancelled
         ? <span style={{ fontSize: '0.95rem', color: '#991b1b' }}>This was cancelled. Catherine or Kaden will take you off it.</span>
         : <span style={{ fontSize: '0.95rem', color: 'var(--color-muted)' }}>{withLine(row, myId)}</span>}
-      {!cancelled && ev.kind === 'party' && PARTY_ARRIVAL && <span style={{ fontSize: '0.95rem', color: 'var(--color-dark)' }}>{PARTY_ARRIVAL}</span>}
+      {!cancelled && !worked && ev.kind === 'party' && PARTY_ARRIVAL && <span style={{ fontSize: '0.95rem', color: 'var(--color-dark)' }}>{PARTY_ARRIVAL}</span>}
     </button>
   )
 }
 
 /** One "Ask to work" card: Needed / Has enough, Can't (from my own times), Asked, and the one-tap ask. */
-function AskCard({ ev, cant, onAsk, onUnask }: {
+function AskCard({ ev, mark, onAsk, onUnask }: {
   ev: OpenEvent
-  cant: boolean
+  /** my own mark for it, from my times */
+  mark: Verdict
   onAsk: (ev: OpenEvent, note: string) => Promise<string | null>
   onUnask: (ev: OpenEvent) => Promise<string | null>
 }) {
@@ -87,6 +90,10 @@ function AskCard({ ev, cant, onAsk, onUnask }: {
   const [justSaved, setJustSaved] = useState<string | null>(null)
   const noteId = useId()
   const cancelled = ev.status !== 'on'
+  // After the one-tap ask its button is gone: focus moves to "Add a note" so a screen reader keeps its place.
+  const noteBtnRef = useRef<HTMLButtonElement | null>(null)
+  const [focusNote, setFocusNote] = useState(false)
+  useEffect(() => { if (focusNote && ev.asked) { noteBtnRef.current?.focus(); setFocusNote(false) } }, [focusNote, ev.asked])
 
   async function run(fn: () => Promise<string | null>, saved: string | null) {
     setBusy(true)
@@ -107,7 +114,8 @@ function AskCard({ ev, cant, onAsk, onUnask }: {
           {cancelled && <Badge tone="alert">✕ Cancelled</Badge>}
           {!cancelled && ev.asked && <Badge tone="muted">★ You asked</Badge>}
           {!cancelled && (ev.needsSomeone ? <Badge tone="warn">Needed</Badge> : <Badge tone="muted">Has enough people</Badge>)}
-          {!cancelled && cant && <Badge tone="muted">You said you can’t</Badge>}
+          {!cancelled && mark === 'cant' && <Badge tone="muted">You said you can’t</Badge>}
+          {!cancelled && mark === 'outside' && <Badge tone="muted">Outside the hours you gave</Badge>}
         </span>
       </span>
       <span style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--color-dark)' }}><span aria-hidden="true">{icon(ev)} </span>{ev.title}</span>
@@ -121,7 +129,7 @@ function AskCard({ ev, cant, onAsk, onUnask }: {
         <button
           type="button"
           disabled={busy}
-          onClick={() => run(() => onAsk(ev, ''), 'Asked. Catherine and Kaden can see it.')}
+          onClick={async () => { if (await run(() => onAsk(ev, ''), 'Asked. Catherine and Kaden can see it.')) setFocusNote(true) }}
           aria-label={`I'd like to work ${ev.title}, ${when(ev)}`}
           style={{ ...btn(true), minHeight: '3rem', fontSize: '1rem' }}
         >
@@ -141,7 +149,7 @@ function AskCard({ ev, cant, onAsk, onUnask }: {
             </div>
           ) : (
             <span style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-              <button type="button" onClick={() => { setNote(ev.askNote); setNoteOpen(true) }} style={{ ...btn(), flex: '1 1 8rem' }}>{ev.askNote ? 'Change my note' : 'Add a note'}</button>
+              <button ref={noteBtnRef} type="button" onClick={() => { setNote(ev.askNote); setNoteOpen(true) }} style={{ ...btn(), flex: '1 1 8rem' }}>{ev.askNote ? 'Change my note' : 'Add a note'}</button>
               <button type="button" disabled={busy} onClick={() => run(() => onUnask(ev), 'Ask taken back.')} aria-label={`Take back my ask for ${ev.title}, ${when(ev)}`} style={{ ...btn(), flex: '1 1 8rem' }}>{busy ? 'One moment…' : 'Take it back'}</button>
             </span>
           )}
@@ -160,18 +168,29 @@ export default function MyShifts({ staff, onOpenRoster }: { staff: StaffMember; 
   const [onlyNeeded, setOnlyNeeded] = useState(true)
   const [linkOpen, setLinkOpen] = useState(false)
 
+  // Only the newest load counts, and only if it's this person's: on the shared iPad a slow reply
+  // for the last person (a cold start) must never land under the new person's name.
+  const loadSeq = useRef(0)
+  const staffIdRef = useRef(staff.id)
+  staffIdRef.current = staff.id
   async function load() {
+    const seq = ++loadSeq.current
+    const forId = staff.id
+    const current = () => seq === loadSeq.current && staffIdRef.current === forId
     setError(null)
     try {
       const res = await fetch('/api/staff/shifts.json', { cache: 'no-store' })
       const json = await res.json().catch(() => null)
+      if (!current()) return
       if (!res.ok) { setError(json?.error ?? 'Couldn’t load your shifts.'); return }
-      setData(json.data as ShiftsData)
+      const got = json.data as ShiftsData
+      if (got?.me?.id !== forId) return // someone else's (sent before the switch): dropped
+      setData(got)
     } catch {
-      setError('Couldn’t reach the studio server. Check wifi and tap Try again.')
+      if (current()) setError('Couldn’t reach the studio server. Check wifi and tap Try again.')
     }
   }
-  useEffect(() => { setData(null); load() }, [staff.id])
+  useEffect(() => { setData(null); setLinkOpen(false); load() }, [staff.id])
 
   /** Ask or unask; null when it worked, else the sentence to show. */
   async function ask(ev: OpenEvent, action: 'ask' | 'unask', note = ''): Promise<string | null> {
@@ -213,8 +232,10 @@ export default function MyShifts({ staff, onOpenRoster }: { staff: StaffMember; 
   }
 
   const open = data?.open ?? []
-  const shown = onlyNeeded ? open.filter((e) => e.needsSomeone || e.asked || e.status !== 'on') : open
-  const neededCount = open.filter((e) => e.needsSomeone).length
+  const needList = open.filter((e) => e.needsSomeone || e.asked || e.status !== 'on')
+  const shown = onlyNeeded ? needList : open
+  // The count is the cards that filter shows (yours and cancelled ones always show).
+  const neededCount = needList.length
 
   return (
     <div style={{ width: '100%', maxWidth: '40rem', margin: '0 auto' }}>
@@ -254,7 +275,7 @@ export default function MyShifts({ staff, onOpenRoster }: { staff: StaffMember; 
                 <AskCard
                   key={ev.key}
                   ev={ev}
-                  cant={verdict(data.availability, ev) === 'cant'}
+                  mark={verdict(data.availability, ev)}
                   onAsk={(e, note) => ask(e, 'ask', note)}
                   onUnask={(e) => ask(e, 'unask')}
                 />

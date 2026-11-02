@@ -38,7 +38,7 @@ import { classWritesRefusal } from '@lib/classes/test-site-guard'
 import type { ScheduledClass } from '@lib/classes/types'
 import { getAvailabilityMany } from './availability-store'
 import { getEntries, listAllEntryKeys, noteSeen, readPartyIndex } from './staffing-store'
-import { eventKeyOf, neededFor, staffedState, verdictWithNote } from './rules'
+import { eventKeyOf, neededFor, seenOf, staffedState, verdictWithNote } from './rules'
 import type { Availability, EventKey, StaffableEvent, StaffedState, StaffingEntry, Verdict } from './types'
 
 export interface StaffPersonRow {
@@ -51,6 +51,8 @@ export interface StaffPersonRow {
   askNote: string
   /** the note on their "can't" for this time ("dentist"), '' when none */
   markNote: string
+  /** the hours they gave that day in words ("4–9 PM") when verdict is 'outside' or 'partly'; '' otherwise. Show with verdictLabel (crew-copy). */
+  hours: string
 }
 
 export interface StaffingRow {
@@ -221,10 +223,12 @@ export const LOOKUP_AHEAD_MS = 70 * DAY_MS
 /** How much either side of a known start a lookup reads (a class or party can't be longer than a day). */
 const AROUND_MS = DAY_MS
 
-const validIso = (v: unknown): number | null => {
+/** How far from now a screen's start hint may be and still be used (anything else is nonsense and ignored). */
+const HINT_RANGE_MS = 2 * 366 * DAY_MS
+const validIso = (v: unknown, now: Date): number | null => {
   if (typeof v !== 'string' || v.length > 40) return null
   const t = Date.parse(v)
-  return Number.isFinite(t) ? t : null
+  return Number.isFinite(t) && Math.abs(t - now.getTime()) <= HINT_RANGE_MS ? t : null
 }
 
 /**
@@ -246,7 +250,7 @@ async function windowsFor(key: EventKey, now: Date, hint?: string | null): Promi
     const rec = await getPartyRecord(id)
     if (rec) starts.push(Date.parse(rec.startIso))
   }
-  const h = validIso(hint)
+  const h = validIso(hint, now)
   if (h !== null) starts.push(h)
   const seen = (await getEntries([key])).get(key)?.seen
   if (seen) starts.push(Date.parse(seen.startIso))
@@ -333,7 +337,7 @@ function buildRows(events: StaffableEvent[], entries: Map<EventKey, StaffingEntr
       return {
         staffId: p.id, name: p.name, verdict: v.verdict,
         asked: !!ask, assigned: !!entry?.assigned.some((a) => a.staffId === p.id),
-        askNote: ask?.note ?? '', markNote: v.note,
+        askNote: ask?.note ?? '', markNote: v.note, hours: v.hours,
       }
     }).sort(peopleOrder)
     return {
@@ -429,13 +433,13 @@ export async function crewView(fromIso: string, toIso: string, staffId: string, 
  */
 export async function rememberSeen(rows: StaffingRow[]): Promise<void> {
   if (classWritesRefusal()) return
-  const todo = rows.filter((r) => r.entry && r.event.status === 'on' && (
-    !r.entry.seen || r.entry.seen.title !== r.event.title
+  const todo = rows.filter((r) => r.entry && r.event.status !== 'gone' && (
+    !r.entry.seen || r.entry.seen.title !== r.event.title || !!r.entry.seen.cancelled !== (r.event.status === 'cancelled')
     || Date.parse(r.entry.seen.startIso) !== Date.parse(r.event.startIso) || Date.parse(r.entry.seen.endIso) !== Date.parse(r.event.endIso)))
   for (let i = 0; i < todo.length; i += 4) {
     await Promise.all(todo.slice(i, i + 4).map(async (r) => {
       try {
-        const saved = await noteSeen(r.event.key, { startIso: r.event.startIso, endIso: r.event.endIso, title: r.event.title })
+        const saved = await noteSeen(r.event.key, seenOf(r.event))
         if (saved && r.entry) { r.entry.seen = saved.seen; r.entry.sequence = saved.sequence }
       } catch (err) {
         logger.warn('Could not note when an event was seen', { key: r.event.key, error: err instanceof Error ? err.message : String(err) })

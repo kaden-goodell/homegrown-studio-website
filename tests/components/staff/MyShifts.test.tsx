@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, within, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react'
 
 vi.mock('@components/staff/StaffHeader', () => ({ default: ({ title }: { title: string }) => <nav>{title}</nav> }))
 import MyShifts from '@components/staff/MyShifts'
@@ -162,25 +162,162 @@ describe('My shifts', () => {
   })
 })
 
-describe('calendar link', () => {
-  it('makes a link: iPhone (webcal) and Android/Google help, Copy; the sheet is a dialog, not a browser pop-up', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm')
+describe('shared iPad: the person on screen is the only one whose shifts show (I2)', () => {
+  const SAM = { id: 'TM3', name: 'Sam', role: 'crew' } as const
+  const samData = () => data({ me: { id: 'TM3', name: 'Sam' }, availability: { ...avail, staffId: 'TM3', name: 'Sam' }, mine: [], open: [] })
+
+  it("cold start: Jessica's slow reply that lands after Sam's never shows under Sam's name", async () => {
+    let releaseJessica!: (v: unknown) => void
+    fetchMock.mockReset()
+    fetchMock
+      .mockImplementationOnce(() => new Promise((r) => { releaseJessica = r })) // Jessica's first load: slow
+      .mockResolvedValueOnce(ok(samData())) // Sam's
+    const view = render(<MyShifts staff={STAFF} onOpenRoster={() => {}} />)
+    view.rerender(<MyShifts staff={SAM} onOpenRoster={() => {}} />)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sam’s shifts' })).toBeInTheDocument()
+    await screen.findByText(/Nothing yet in the next 8 weeks/)
+    await act(async () => { releaseJessica(ok(data())) })
+    expect(screen.queryAllByTestId('my-shift')).toHaveLength(0)
+    expect(document.body.textContent).not.toMatch(/Needlepoint 101|pick me/)
+  })
+
+  it("a reply for someone else (sent with the last person's sign-in) is dropped", async () => {
+    fetchMock.mockReset()
+    fetchMock.mockResolvedValue(ok(data())) // me: Jessica
+    render(<MyShifts staff={SAM} onOpenRoster={() => {}} />)
+    await screen.findByRole('heading', { level: 1, name: 'Sam’s shifts' })
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    await act(async () => {})
+    expect(screen.queryAllByTestId('my-shift')).toHaveLength(0)
+    expect(screen.getByText('Loading…')).toBeInTheDocument()
+  })
+})
+
+describe('review minors', () => {
+  it('a shift that already ended says Worked, not You’re on (m3)', async () => {
+    const past = row(ev('ses:z', 'Last Night', '2026-11-01T23:00:00.000Z', { rosterId: 'cls_z' }), [{ staffId: 'TM2', name: 'Jessica' }])
+    fetchMock.mockResolvedValue(ok(data({ mine: [past, ...data().mine] })))
+    render(<MyShifts staff={STAFF} onOpenRoster={() => {}} />)
+    const cards = await screen.findAllByTestId('my-shift')
+    expect(cards[0]).toHaveTextContent('Worked')
+    expect(cards[0]).not.toHaveTextContent('You’re on')
+    expect(cards[0].getAttribute('aria-label')).toMatch(/Worked\./)
+    expect(cards[1]).toHaveTextContent('You’re on')
+  })
+
+  it('"Need someone (N)" counts the cards that filter shows (m4)', async () => {
     render(<MyShifts staff={STAFF} onOpenRoster={() => {}} />)
     await screen.findAllByTestId('my-shift')
-    fireEvent.click(screen.getByRole('button', { name: 'Add my shifts to my phone' }))
+    const btn = screen.getByRole('button', { name: /^Need someone/ })
+    expect(btn).toHaveTextContent(`Need someone (${screen.getAllByTestId('open-event').length})`)
+    expect(btn).toHaveTextContent('Need someone (3)')
+  })
+
+  it('after the one-tap ask, focus moves to Add a note (m6)', async () => {
+    render(<MyShifts staff={STAFF} onOpenRoster={() => {}} />)
+    await screen.findAllByTestId('my-shift')
+    fetchMock.mockResolvedValue(ok({ key: 'ses:b', asked: true }))
+    fireEvent.click(screen.getByRole('button', { name: /I'd like to work Weaving/ }))
+    const card = () => screen.getAllByTestId('open-event').find((c) => c.textContent!.includes('Weaving'))!
+    await waitFor(() => expect(document.activeElement).toBe(within(card()).getByRole('button', { name: 'Add a note' })))
+  })
+
+  it('an event outside the hours I gave says so in words (I7)', async () => {
+    // Weaving is Fri Nov 13 5–7 PM; I said Fridays only 9 AM–1 PM
+    fetchMock.mockResolvedValue(ok(data({ availability: { ...avail, weekly: { ...avail.weekly, '5': { kind: 'can', range: { from: '09:00', to: '13:00' }, note: '' } } } })))
+    render(<MyShifts staff={STAFF} onOpenRoster={() => {}} />)
+    await screen.findAllByTestId('my-shift')
+    const weaving = screen.getAllByTestId('open-event').find((c) => c.textContent!.includes('Weaving'))!
+    expect(weaving).toHaveTextContent('Outside the hours you gave')
+    expect(weaving).not.toHaveTextContent('You said you can’t')
+  })
+})
+
+describe('calendar link', () => {
+  const LINKS = { https: 'https://x.test/api/calendar/feed/TOKEN.ics', webcal: 'webcal://x.test/api/calendar/feed/TOKEN.ics' }
+
+  async function makeLink() {
+    render(<MyShifts staff={STAFF} onOpenRoster={() => {}} />)
+    await screen.findAllByTestId('my-shift')
+    const opener = screen.getByRole('button', { name: 'Add my shifts to my phone' })
+    opener.focus()
+    fireEvent.click(opener)
     const dialog = screen.getByRole('dialog', { name: 'My shifts on my phone' })
-    fetchMock.mockResolvedValue(ok({ https: 'https://x.test/api/calendar/feed/TOKEN.ics', webcal: 'webcal://x.test/api/calendar/feed/TOKEN.ics' }))
+    fetchMock.mockResolvedValue(ok(LINKS))
     fireEvent.click(within(dialog).getByRole('button', { name: 'Get my calendar link' }))
-    expect(await within(dialog).findByRole('link', { name: 'Add to my iPhone calendar' })).toHaveAttribute('href', 'webcal://x.test/api/calendar/feed/TOKEN.ics')
-    expect(dialog).toHaveTextContent('From URL')
+    await within(dialog).findByRole('button', { name: 'Show my link' })
+    return { dialog, opener }
+  }
+
+  it('says to do it on your own phone; a new link stays hidden until Show my link (shared iPad, I3)', async () => {
+    const { dialog } = await makeLink()
+    expect(within(dialog).getByTestId('own-phone')).toHaveTextContent('Do this on your own phone. On the studio iPad, scan the code with your phone’s camera instead.')
+    expect(dialog.innerHTML).not.toContain('TOKEN')
+    expect(within(dialog).queryByRole('link', { name: 'Add to my iPhone calendar' })).toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Show my link' }))
+    expect(await within(dialog).findByRole('link', { name: 'Add to my iPhone calendar' })).toHaveAttribute('href', LINKS.webcal)
+    // a code to scan with your own phone, drawn here (an inline SVG, no outside service)
+    await waitFor(() => expect(within(dialog).getByTestId('cal-qr').querySelector('svg')).not.toBeNull())
+    expect(within(dialog).getByRole('img', { name: /Code to scan with your iPhone camera/ })).toBeInTheDocument()
+    expect(dialog.querySelector('img[src^="http"]')).toBeNull()
+    // Hide my link puts it away again
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Hide my link' }))
+    expect(dialog.innerHTML).not.toContain('TOKEN')
+    expect(within(dialog).getByRole('button', { name: 'Show my link' })).toBeInTheDocument()
+  })
+
+  it('iPhone and Android steps in plain words; Copy; never a browser pop-up (I4)', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm')
+    const { dialog } = await makeLink()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Show my link' }))
+    await within(dialog).findByRole('link', { name: 'Add to my iPhone calendar' })
+    expect(dialog).toHaveTextContent('Tap it, tap Subscribe, then tap Add.')
+    expect(dialog).toHaveTextContent('Open calendar.google.com in Chrome. On a phone, tap ⋮ and tick Desktop site first. Use the same Google account as your phone.')
+    expect(dialog).toHaveTextContent('Next to Other calendars, tap +, then From URL. Paste and tap Add calendar.')
+    expect(dialog).toHaveTextContent('On your phone, open the Google Calendar app › Settings › Hometown Studio · my shifts, and turn on Sync.')
+    expect(dialog).toHaveTextContent('Google can take up to a day to show changes. Your text from Catherine or Kaden is the quick way to hear.')
+    expect(dialog).not.toHaveTextContent('On a computer')
     expect(dialog).toHaveTextContent('This link is only shown now.')
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.assign(navigator, { clipboard: { writeText } })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Copy my link' }))
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://x.test/api/calendar/feed/TOKEN.ics'))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(LINKS.https))
     expect(await within(dialog).findByText('Copied. Now paste it in Google Calendar.')).toBeInTheDocument()
     expect(posts()[0][0]).toBe('/api/staff/feed.json')
     expect(confirmSpy).not.toHaveBeenCalled()
+  })
+
+  it('a stray tap outside does not throw the link away; Done does, and focus goes back to the opener (m7)', async () => {
+    const { dialog, opener } = await makeLink()
+    fireEvent.click(dialog) // the backdrop
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(dialog).toHaveTextContent('Closing hides your link for good.')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(opener)
+  })
+
+  it('Tab stays inside the sheet (focus trap)', async () => {
+    const { dialog } = await makeLink()
+    const buttons = within(dialog).getAllByRole('button')
+    const last = buttons[buttons.length - 1]
+    last.focus()
+    fireEvent.keyDown(window, { key: 'Tab' })
+    expect(document.activeElement).toBe(buttons[0])
+    fireEvent.keyDown(window, { key: 'Tab', shiftKey: true })
+    expect(document.activeElement).toBe(last)
+  })
+
+  it('a shown link hides itself after a few minutes', async () => {
+    const { dialog } = await makeLink()
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    vi.setSystemTime(new Date('2026-11-02T15:00:00Z'))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Show my link' }))
+    expect(within(dialog).getByRole('link', { name: 'Add to my iPhone calendar' })).toBeInTheDocument()
+    const { LINK_SHOW_MS } = await import('@components/staff/CalendarLinkSheet')
+    act(() => { vi.advanceTimersByTime(LINK_SHOW_MS + 10) })
+    expect(within(dialog).queryByRole('link', { name: 'Add to my iPhone calendar' })).toBeNull()
+    expect(within(dialog).getByRole('button', { name: 'Show my link' })).toBeInTheDocument()
   })
 
   it('with a link already: "Make a new link" asks in the sheet first; Keep my old link does nothing', async () => {
@@ -196,7 +333,8 @@ describe('calendar link', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Make a new link' }))
     fetchMock.mockResolvedValue(ok({ https: 'https://x.test/a.ics', webcal: 'webcal://x.test/a.ics' }))
     fireEvent.click(within(dialog).getByRole('button', { name: 'Yes, make a new link' }))
-    expect(await within(dialog).findByRole('link', { name: 'Add to my iPhone calendar' })).toBeInTheDocument()
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'Show my link' }))
+    expect(within(dialog).getByRole('link', { name: 'Add to my iPhone calendar' })).toBeInTheDocument()
   })
 
   it('stop my link asks first, then DELETEs; Escape closes the sheet', async () => {

@@ -8,7 +8,7 @@ import { getAvailability, saveAvailability, emptyAvailability, describeAvailabil
 import { updateEntry } from '@lib/staffing/staffing-store'
 import { hasFeed } from '@lib/staffing/feed-store'
 import { crewView, eventByKey } from '@lib/staffing/events'
-import { isEventKey, MAX_NOTE, validateAvailability, withAsk, withoutAsk } from '@lib/staffing/rules'
+import { isEventKey, MAX_NOTE, seenOf, validateAvailability, withAsk, withoutAsk } from '@lib/staffing/rules'
 import { StaffingError } from '@lib/staffing/errors'
 import { json, staffingReply } from '@lib/staffing/http'
 import { OWNERS_ASSIGN } from '@lib/staffing/crew-copy'
@@ -118,7 +118,7 @@ export const POST: APIRoute = async ({ request }) => {
     if (!found) throw new StaffingError(404, NOT_FOUND)
     const { event, entry } = found
     if (Date.parse(event.startIso) <= now.getTime()) throw new StaffingError(409, ALREADY_HAPPENED)
-    const seen = { startIso: event.startIso, endIso: event.endIso, title: event.title }
+    const seen = seenOf(event)
     if (action === 'ask') {
       if (event.status !== 'on') throw new StaffingError(409, WAS_CANCELLED)
       if (entry?.assigned.some((a) => a.staffId === me.id)) throw new StaffingError(409, ALREADY_ON)

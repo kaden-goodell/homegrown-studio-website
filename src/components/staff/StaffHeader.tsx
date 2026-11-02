@@ -1,7 +1,7 @@
-import { useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import IncidentSheet from '@components/staff/IncidentSheet'
 import CheckInSheet from '@components/staff/CheckInSheet'
-import { TABS, useStaffNav } from '@components/staff/nav'
+import { visibleTabs, useStaffNav } from '@components/staff/nav'
 import type { HouseholdMatch } from '@components/staff/DoorSearch'
 import type { EventKind } from '@lib/events'
 import type { Household } from '@components/staff/HouseholdCard'
@@ -22,9 +22,10 @@ const btn = (primary = false): CSSProperties => ({
   cursor: 'pointer',
 })
 
-/** Shared top bar for every signed-in staff screen: tabs (Today, Parties,
- *  Kits, Gift cards), a red 🚑 Incident, and the signed-in name, which opens
- *  Switch / Log out. The 🚑 Incident sheet is self-contained here so every
+/** Shared top bar for every signed-in staff screen: the tabs (one row that
+ *  scrolls sideways on a phone or an iPad held upright, on its own line, the
+ *  current tab scrolled into view; Kits only while kits are on), then a red
+ *  🚑 Incident and the signed-in name, which opens Switch / Log out. The 🚑 Incident sheet is self-contained here so every
  *  screen gets it for free — `event`/`households`/`day` let a roster screen
  *  hand it real context; other screens leave them unset ("Craft Café").
  *  Navigation comes from StaffNavContext (StaffConsole provides it). */
@@ -62,25 +63,61 @@ export default function StaffHeader({
     fontWeight: 700,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
+    flex: '0 0 auto',
+    scrollSnapAlign: 'start',
   })
+
+  const tabs = visibleTabs(nav?.active)
+  const stripRef = useRef<HTMLDivElement | null>(null)
+  const activeRef = useRef<HTMLButtonElement | null>(null)
+  // A soft fade on the right edge while more tabs are hidden that way.
+  const [moreRight, setMoreRight] = useState(false)
+  const checkEdge = () => {
+    const el = stripRef.current
+    if (el) setMoreRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4)
+  }
+  useEffect(() => {
+    // The tab you're on is always in view, even at the far end of the row.
+    activeRef.current?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' })
+    checkEdge()
+  }, [nav?.active])
 
   return (
     <>
+      {/* Phones and an iPad held upright: the tabs get their own full-width row. */}
+      <style>{`@media (max-width: 1023px) { .staff-tabs-row { flex-basis: 100% !important; } }`}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.6rem', marginBottom: '1.1rem', flexWrap: 'wrap' }}>
-        <nav aria-label="Staff sections" style={{ display: 'flex', gap: '0.25rem', padding: '0.25rem', borderRadius: '999px', background: 'rgba(var(--color-primary-rgb),0.08)', flexWrap: 'wrap' }}>
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              aria-current={nav?.active === t.id ? 'page' : undefined}
-              onClick={() => nav?.go(t.id)}
-              style={tab(nav?.active === t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', position: 'relative' }}>
+        <div className="staff-tabs-row" style={{ flex: '1 1 0', minWidth: 0, position: 'relative' }}>
+          <div
+            ref={stripRef}
+            onScroll={checkEdge}
+            data-testid="staff-tabs-strip"
+            style={{
+              display: 'flex', flexWrap: 'nowrap', overflowX: 'auto', scrollSnapType: 'x proximity', WebkitOverflowScrolling: 'touch',
+              scrollbarWidth: 'none', borderRadius: '999px',
+              ...(moreRight ? { maskImage: 'linear-gradient(to right, #000 85%, transparent)', WebkitMaskImage: 'linear-gradient(to right, #000 85%, transparent)' } : {}),
+            }}
+          >
+            <nav aria-label="Staff sections" style={{ display: 'flex', flexWrap: 'nowrap', gap: '0.25rem', padding: '0.25rem', borderRadius: '999px', background: 'rgba(var(--color-primary-rgb),0.08)', flex: '0 0 auto' }}>
+              {tabs.map((t) => {
+                const active = nav?.active === t.id
+                return (
+                  <button
+                    key={t.id}
+                    ref={active ? activeRef : undefined}
+                    type="button"
+                    aria-current={active ? 'page' : undefined}
+                    onClick={() => nav?.go(t.id)}
+                    style={tab(active)}
+                  >
+                    {t.label}
+                  </button>
+                )
+              })}
+            </nav>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', position: 'relative', marginLeft: 'auto' }}>
           <button
             type="button"
             onClick={() => setIncidentOpen(true)}

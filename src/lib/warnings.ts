@@ -78,6 +78,8 @@ export const WARNING_WINDOW_DAYS = 60
 export function warningLine(w: Warning): string {
   // These already name their day (and the class), so the line doesn't repeat it.
   if (w.code === 'door-unpaid' || w.code === 'counter-match-check') return `${w.detail.replace(/\.$/, '')}. ${w.action}`
+  // A staffing line whose event was never seen has no date: say it without one, never today's.
+  if (!w.when) return `${w.detail} ${w.action}`
   return `${formatCalendarDay(studioDate(w.when))} · ${w.detail} ${w.action}`
 }
 

@@ -41,7 +41,8 @@ describe('AvailabilityEditor', () => {
     fireEvent.click(within(sat).getByRole('button', { name: /^Can$/ }))
     expect(within(sat).getByRole('button', { name: /Can$/ })).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(screen.getByRole('group', { name: 'Saturdays hours' }).querySelectorAll('button')[1]) // Only some hours → the studio's Saturday hours
-    expect(screen.getByRole('status')).toHaveTextContent('You have changes that aren’t saved yet.')
+    expect(screen.getByRole('status')).toHaveTextContent('Unsaved changes.')
+    expect(screen.getByTestId('unsaved-bar')).toHaveTextContent('Unsaved changes')
     fireEvent.click(save)
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved.'))
     expect(fetchMock.mock.calls[0][0]).toBe('/api/staff/shifts.json')
@@ -108,5 +109,53 @@ describe('AvailabilityEditor', () => {
     render(<AvailabilityEditor initial={empty({ weekly: { ...empty().weekly, '4': { kind: 'can', range: { from: '18:00', to: '20:00' }, note: '' } } })} />)
     for (const b of screen.getAllByRole('button')) expect(['2.75rem', '3rem', '3.25rem']).toContain(b.style.minHeight)
     for (const el of [...screen.getAllByRole('combobox'), screen.getByLabelText('Date'), screen.getByLabelText('Note (optional)')]) expect(el.style.fontSize).toBe('1rem')
+  })
+
+  it('a date picked but not added yet is flagged, and Save adds it (I5)', async () => {
+    const saved = empty({ dates: { '2026-11-14': [{ kind: 'cant', range: null, note: 'wedding' }] }, updatedAt: '2026-11-02T15:00:01.000Z' })
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ data: { availability: saved } }) })
+    render(<AvailabilityEditor initial={empty()} />)
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-11-14' } })
+    fireEvent.change(screen.getByLabelText('Note (optional)'), { target: { value: 'wedding' } })
+    expect(screen.getByTestId('unsaved-bar')).toHaveTextContent('The date you picked below gets added when you save.')
+    fireEvent.click(screen.getByRole('button', { name: 'Save my times' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved.'))
+    expect(body().dates).toEqual({ '2026-11-14': [{ kind: 'cant', range: null, note: 'wedding' }] })
+    expect((screen.getByLabelText('Date') as HTMLInputElement).value).toBe('')
+    expect(screen.queryByTestId('unsaved-bar')).toBeNull()
+  })
+
+  it('a half-filled date that can’t be added stops Save and says why, inline (I5)', async () => {
+    render(<AvailabilityEditor initial={empty()} />)
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-10-01' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save my times' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Pick today or a later date.')
+    expect(screen.getByRole('status')).toHaveTextContent('Check the date below first.')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('Unsaved changes bar: Discard goes back to what is saved, and Undo brings the changes back (I5)', () => {
+    render(<AvailabilityEditor initial={empty()} />)
+    expect(screen.queryByTestId('unsaved-bar')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull()
+    const thu = () => screen.getByRole('group', { name: 'Can you work Thursdays?' })
+    fireEvent.click(within(thu()).getByRole('button', { name: /^Can$/ }))
+    expect(screen.getByTestId('unsaved-bar')).toHaveTextContent('Unsaved changes')
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(within(thu()).getByRole('button', { name: 'Not said' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('status')).toHaveTextContent('Changes discarded. Your saved times are back.')
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(within(thu()).getByRole('button', { name: /Can$/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('unsaved-bar')).toBeInTheDocument()
+  })
+
+  it('a usual-week day with the end before the start says so on that day and isn’t sent (m5)', () => {
+    render(<AvailabilityEditor initial={empty({ weekly: { ...empty().weekly, '4': { kind: 'can', range: { from: '18:00', to: '20:00' }, note: '' } } })} />)
+    const thu = screen.getAllByRole('group').find((g) => g.tagName === 'FIELDSET' && g.querySelector('legend')!.textContent === 'Thursdays')!
+    fireEvent.change(within(thu).getByLabelText('To'), { target: { value: '17:00' } })
+    expect(within(thu).getByRole('alert')).toHaveTextContent('Pick an end time after the start.')
+    fireEvent.click(screen.getByRole('button', { name: 'Save my times' }))
+    expect(screen.getByRole('status')).toHaveTextContent('Check Thursdays: pick an end time after the start.')
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

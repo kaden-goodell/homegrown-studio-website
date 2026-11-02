@@ -1,5 +1,6 @@
-import { useEffect, useId, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { btn, card, field } from '@components/staff/ui'
+import { useStaffNav } from '@components/staff/nav'
 import { STUDIO_HOURS, type Weekday } from '@config/hours'
 import { addDays } from '@lib/kit-dates'
 import { formatCalendarDay, studioDate } from '@lib/studio-time'
@@ -12,6 +13,11 @@ import type { Availability, DayMark } from '@lib/staffing/types'
  * then "Different on a date" for one-off changes. Built for a phone: big
  * buttons, words on every state (never colour alone), one Save button with
  * a plain "Saved." after. Owners see exactly this on their Staff screens.
+ *
+ * Unsaved work is never lost without a word: a sticky "Unsaved changes" bar
+ * with Save and Discard (Discard can be undone); leaving My shifts with
+ * unsaved times asks in the app first (StaffConsole's leave guard); a date
+ * picked in "Different on a date" but not added yet is added by Save.
  */
 
 const WEEKDAYS: Weekday[] = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -110,18 +116,14 @@ export default function AvailabilityEditor({ initial, onSaved }: { initial: Avai
   const today = studioDate(new Date().toISOString())
   const days = useMemo(openDays, [])
   const ids = useId()
+  const nav = useStaffNav()
   const [base, setBase] = useState<Availability>(initial)
   const [weekly, setWeekly] = useState<Record<string, DayMark | null>>(initial.weekly)
   const [dates, setDates] = useState<Record<string, DayMark[]>>(initial.dates)
   const [saving, setSaving] = useState(false)
   const [status, setStatus] = useState<Status>(null)
-
-  // A fresh load from the server (another device saved) replaces what's shown when nothing is being edited.
-  useEffect(() => {
-    if (sameTimes({ weekly, dates }, base)) { setBase(initial); setWeekly(initial.weekly); setDates(initial.dates) }
-  }, [initial.updatedAt])
-
-  const dirty = !sameTimes({ weekly, dates }, base)
+  /** What Discard threw away, for Undo. */
+  const [discarded, setDiscarded] = useState<{ weekly: Record<string, DayMark | null>; dates: Record<string, DayMark[]> } | null>(null)
 
   // The "different on a date" form.
   const [newDate, setNewDate] = useState('')
@@ -131,25 +133,56 @@ export default function AvailabilityEditor({ initial, onSaved }: { initial: Avai
   const [newNote, setNewNote] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
 
+  const timesChanged = !sameTimes({ weekly, dates }, base)
+  // A date picked below but not added yet counts as a change too: Save adds it.
+  const pendingDate = newDate !== ''
+  const dirty = timesChanged || pendingDate
+
+  const dirtyRef = useRef(dirty)
+  dirtyRef.current = dirty
+  // A fresh load from the server (another device saved) replaces what's shown when nothing is being edited.
+  // Only on a real change: never on first show (a tap before the first effects ran must not be undone).
+  const lastInitial = useRef(initial.updatedAt)
+  useEffect(() => {
+    if (lastInitial.current === initial.updatedAt) return
+    lastInitial.current = initial.updatedAt
+    if (!dirtyRef.current) { setBase(initial); setWeekly(initial.weekly); setDates(initial.dates) }
+  }, [initial.updatedAt])
+
+  /** A usual-week day whose "To" isn't after its "From". */
+  const badDay = days.find((d) => { const r = weekly[d.index]?.range; return !!r && r.to <= r.from })
+
   function setDay(index: string, mark: DayMark | null) {
     setWeekly((w) => ({ ...w, [index]: mark }))
     setStatus(null)
+    setDiscarded(null)
+  }
+
+  /** The filled-in date form as a mark, or the sentence that says what's wrong (also shown by the form). */
+  function formMark(): { day: string; mark: DayMark } | { error: string } {
+    if (!newDate) return { error: 'Pick a date.' }
+    if (newDate < today) return { error: 'Pick today or a later date.' }
+    if (newDate > addDays(today, 365)) return { error: 'Pick a date within the next year.' }
+    if (!newKind) return { error: "Pick Can or Can't." }
+    if (newSome && newRange.to <= newRange.from) return { error: 'Pick an end time after the start.' }
+    if ((dates[newDate] ?? []).length >= MAX_MARKS_PER_DAY) return { error: 'Up to 4 times on one day.' }
+    return { day: newDate, mark: { kind: newKind, range: newSome ? newRange : null, note: newNote.trim() } }
+  }
+
+  function clearForm() {
+    setNewDate('')
+    setNewNote('')
+    setFormError(null)
   }
 
   function addDate() {
     setFormError(null)
-    if (!newDate) { setFormError('Pick a date.'); return }
-    if (newDate < today) { setFormError('Pick today or a later date.'); return }
-    if (newDate > addDays(today, 365)) { setFormError('Pick a date within the next year.'); return }
-    if (!newKind) { setFormError("Pick Can or Can't."); return }
-    if (newSome && newRange.to <= newRange.from) { setFormError('Pick an end time after the start.'); return }
-    const list = dates[newDate] ?? []
-    if (list.length >= MAX_MARKS_PER_DAY) { setFormError('Up to 4 times on one day.'); return }
-    const mark: DayMark = { kind: newKind, range: newSome ? newRange : null, note: newNote.trim() }
-    setDates((d) => ({ ...d, [newDate]: [...list, mark] }))
-    setNewDate('')
-    setNewNote('')
+    const got = formMark()
+    if ('error' in got) { setFormError(got.error); return }
+    setDates((d) => ({ ...d, [got.day]: [...(d[got.day] ?? []), got.mark] }))
+    clearForm()
     setStatus(null)
+    setDiscarded(null)
   }
 
   function removeMark(day: string, i: number) {
@@ -161,16 +194,43 @@ export default function AvailabilityEditor({ initial, onSaved }: { initial: Avai
       return next
     })
     setStatus(null)
+    setDiscarded(null)
   }
 
-  async function save() {
+  /** Back to what's saved (the date form too). Undo puts the changes back. */
+  function discard() {
+    if (timesChanged) setDiscarded({ weekly, dates })
+    setWeekly(base.weekly)
+    setDates(base.dates)
+    clearForm()
+    setStatus(timesChanged ? { tone: 'info', text: 'Changes discarded. Your saved times are back.' } : null)
+  }
+
+  function undoDiscard() {
+    if (!discarded) return
+    setWeekly(discarded.weekly)
+    setDates(discarded.dates)
+    setDiscarded(null)
+    setStatus(null)
+  }
+
+  /** Saves; true when it worked (the leave guard then lets the person go on). */
+  async function save(): Promise<boolean> {
+    setDiscarded(null)
+    if (badDay) { setStatus({ tone: 'error', text: `Check ${PLURAL[badDay.name]}: pick an end time after the start.` }); return false }
+    let toSend = dates
+    if (pendingDate) {
+      const got = formMark()
+      if ('error' in got) { setFormError(got.error); setStatus({ tone: 'error', text: 'Check the date below first. Add it, fix it, or tap Discard.' }); return false }
+      toSend = { ...dates, [got.day]: [...(dates[got.day] ?? []), got.mark] }
+    }
     setSaving(true)
     setStatus(null)
     try {
       const res = await fetch('/api/staff/shifts.json', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'availability', weekly, dates, expectedUpdatedAt: base.updatedAt }),
+        body: JSON.stringify({ action: 'availability', weekly, dates: toSend, expectedUpdatedAt: base.updatedAt }),
       })
       const json = await res.json().catch(() => null)
       if (res.status === 409 && json?.current) {
@@ -178,19 +238,34 @@ export default function AvailabilityEditor({ initial, onSaved }: { initial: Avai
         const cur = json.current as Availability
         setBase(cur); setWeekly(cur.weekly); setDates(cur.dates)
         setStatus({ tone: 'error', text: json.error ?? 'Someone changed your times on another device. Here they are.' })
-        return
+        return false
       }
-      if (!res.ok) { setStatus({ tone: 'error', text: json?.error ?? 'Couldn’t save your times. Try again.' }); return }
+      if (!res.ok) { setStatus({ tone: 'error', text: json?.error ?? 'Couldn’t save your times. Try again.' }); return false }
       const saved = json.data.availability as Availability
       setBase(saved); setWeekly(saved.weekly); setDates(saved.dates)
+      clearForm()
       setStatus({ tone: 'ok', text: 'Saved. Catherine and Kaden can see this now.' })
       onSaved?.(saved)
+      return true
     } catch {
       setStatus({ tone: 'error', text: 'Couldn’t reach the studio server. Check wifi and try again.' })
+      return false
     } finally {
       setSaving(false)
     }
   }
+
+  // Leaving My shifts with unsaved times asks first (StaffConsole shows the question in the app).
+  const saveRef = useRef(save)
+  saveRef.current = save
+  const discardRef = useRef(discard)
+  discardRef.current = discard
+  useEffect(() => {
+    const set = nav?.setLeaveGuard
+    if (!set) return
+    set({ dirty: () => dirtyRef.current, save: () => saveRef.current(), discard: () => discardRef.current() })
+    return () => set(null)
+  }, [])
 
   const upcomingDates = Object.keys(dates).filter((d) => d >= today).sort()
 
@@ -228,6 +303,9 @@ export default function AvailabilityEditor({ initial, onSaved }: { initial: Avai
                 </div>
                 {mark.range && (
                   <TimeRangePicker idBase={`${ids}-w${d.index}`} from={mark.range.from} to={mark.range.to} onChange={(r) => setDay(d.index, { ...mark, range: r })} />
+                )}
+                {mark.range && mark.range.to <= mark.range.from && (
+                  <p role="alert" style={{ margin: 0, color: 'var(--color-error)', fontWeight: 600 }}>Pick an end time after the start.</p>
                 )}
               </>
             )}
@@ -271,12 +349,26 @@ export default function AvailabilityEditor({ initial, onSaved }: { initial: Avai
       </div>
 
       <div style={{ position: 'sticky', bottom: 'calc(4.5rem + env(safe-area-inset-bottom, 0px))', background: 'var(--color-surface, #fff)', padding: '0.6rem 0', display: 'grid', gap: '0.4rem', zIndex: 5 }}>
-        <button type="button" onClick={save} disabled={!dirty || saving} style={{ ...btn(true), minHeight: '3.25rem', fontSize: '1.05rem', opacity: !dirty || saving ? 0.55 : 1 }}>
-          {saving ? 'Saving…' : 'Save my times'}
-        </button>
+        {dirty && (
+          <div data-testid="unsaved-bar" style={{ display: 'grid', gap: '0.35rem', padding: '0.55rem 0.7rem', borderRadius: '0.75rem', background: '#fef3c7', border: '1px solid #f59e0b' }}>
+            <strong style={{ fontSize: '0.95rem', color: '#92400e' }}>Unsaved changes</strong>
+            {pendingDate && <span style={{ fontSize: '0.9rem', color: '#92400e' }}>The date you picked below gets added when you save.</span>}
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: '0.4rem' }}>
+          <button type="button" onClick={() => { void save() }} disabled={!dirty || saving} style={{ ...btn(true), flex: '2 1 0', minHeight: '3.25rem', fontSize: '1.05rem', opacity: !dirty || saving ? 0.55 : 1 }}>
+            {saving ? 'Saving…' : 'Save my times'}
+          </button>
+          {dirty && !saving && (
+            <button type="button" onClick={discard} style={{ ...btn(), flex: '1 1 0', minHeight: '3.25rem', fontSize: '1rem' }}>Discard</button>
+          )}
+        </div>
         <p role="status" aria-live="polite" style={{ margin: 0, minHeight: '1.3rem', fontSize: '0.95rem', fontWeight: 600, color: status?.tone === 'error' ? 'var(--color-error)' : status?.tone === 'ok' ? '#15803d' : 'var(--color-muted)' }}>
-          {status ? `${status.tone === 'ok' ? '✓ ' : ''}${status.text}` : dirty ? 'You have changes that aren’t saved yet.' : ''}
+          {status ? `${status.tone === 'ok' ? '✓ ' : ''}${status.text}` : dirty ? 'Unsaved changes. Tap Save my times to keep them.' : ''}
         </p>
+        {discarded && (
+          <button type="button" onClick={undoDiscard} style={{ ...btn(), minHeight: '2.75rem' }}>Undo</button>
+        )}
       </div>
     </div>
   )

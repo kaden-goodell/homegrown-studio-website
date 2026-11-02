@@ -133,6 +133,14 @@ describe('assigned-cancelled', () => {
     expect(w.detail).toBe('Jessica and Sam are still on Weaving, which was cancelled.')
     expect(w.action).toBe('Tell them, then take them off in /admin.')
   })
+
+  it('an event that is gone and was never seen has no date on its line, never today (M7)', async () => {
+    const key = `ses:${uid('ses_gone')}` as const
+    await put(key, 'TM2', 'Jessica')
+    const [w] = (await staffingWarnings(FROM, TO, NOW)).filter((x) => x.itemId === key)
+    expect(w.when).toBe('')
+    expect(warningLine(w)).toBe('Jessica is still on a class, which is no longer on the schedule. Tell Jessica, then take Jessica off in /admin.')
+  })
 })
 
 describe('when staffing cannot be read', () => {

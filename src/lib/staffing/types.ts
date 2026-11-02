@@ -47,8 +47,8 @@ export interface StaffingEntry {
   assigned: Assignment[]
   asks: Ask[]
   /** the event's times and title when an owner screen or a feed last saw it, to spot a move */
-  seen: { startIso: string; endIso: string; title: string } | null
-  /** ICS SEQUENCE, bumped when the seen times change */
+  seen: { startIso: string; endIso: string; title: string; cancelled?: boolean } | null
+  /** ICS SEQUENCE, bumped when the seen times change or the event is cancelled (or back on) */
   sequence: number
   updatedAt: string | null
   /** newest first, capped at ENTRY_HISTORY_CAP */
@@ -72,5 +72,6 @@ export interface StaffableEvent {
   detail: { seats?: string; guests?: number; hostFirst?: string | null }
 }
 
-export type Verdict = 'can' | 'cant' | 'partly' | 'unknown'
+/** outside = they gave hours for that day ("Can, only 4–9 PM") and the event is outside them: not Can't, not Not said. */
+export type Verdict = 'can' | 'cant' | 'partly' | 'outside' | 'unknown'
 export type StaffedState = 'staffed' | 'short' | 'none'

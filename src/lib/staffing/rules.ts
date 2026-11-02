@@ -78,34 +78,57 @@ function marksOn(a: Availability, day: string): DayMark[] {
 
 /**
  * Can this person work this event? A "can't" touching any minute of it →
- * cant; "can" covering all of it → can; covering part → partly; otherwise
+ * cant; "can" covering all of it → can; covering part → partly; "can, only
+ * some hours" on that day that doesn't touch it at all → outside (they gave
+ * hours, and this isn't in them: neither Can't nor Not said); no mark →
  * unknown. An event touching two studio days checks both.
  */
 export function verdict(a: Availability | null, ev: { startIso: string; endIso: string }): Verdict {
   return verdictWithNote(a, ev).verdict
 }
 
-/** verdict, plus the note on the "can't" mark that decided it ("dentist"), for owner screens. */
-export function verdictWithNote(a: Availability | null, ev: { startIso: string; endIso: string }): { verdict: Verdict; note: string } {
-  const none = { verdict: 'unknown' as Verdict, note: '' }
+/** "4–9 PM", "9 AM–1 PM", "4:30–9 PM", "8 PM–Midnight" (studio-local hours, in words). */
+export function hoursWords(r: TimeRange): string {
+  const part = (hhmm: string) => {
+    if (hhmm === '24:00' || hhmm === '00:00') return { text: 'Midnight', suffix: '' }
+    const [h, m] = hhmm.split(':').map(Number)
+    const h12 = h % 12 === 0 ? 12 : h % 12
+    return { text: m ? `${h12}:${String(m).padStart(2, '0')}` : String(h12), suffix: h >= 12 ? 'PM' : 'AM' }
+  }
+  const a = part(r.from), b = part(r.to)
+  const end = b.suffix ? `${b.text} ${b.suffix}` : b.text
+  if (a.suffix && a.suffix === b.suffix) return `${a.text}–${end}`
+  return `${a.suffix ? `${a.text} ${a.suffix}` : a.text}–${end}`
+}
+
+/**
+ * verdict, plus the note on the "can't" mark that decided it ("dentist"),
+ * plus `hours`: the hours they gave in words ("4–9 PM") when the verdict is
+ * outside or partly ('' otherwise), for owner screens.
+ */
+export function verdictWithNote(a: Availability | null, ev: { startIso: string; endIso: string }): { verdict: Verdict; note: string; hours: string } {
+  const none = { verdict: 'unknown' as Verdict, note: '', hours: '' }
   if (!a) return none
   const s = Date.parse(ev.startIso), e = Date.parse(ev.endIso)
   if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) return none
   const first = localDate(ev.startIso)
   const last = localDate(new Date(e - 1).toISOString())
   const cans: [number, number][] = []
+  const given: string[] = []
   for (let day = first, i = 0; day <= last && i < 3; day = addDays(day, 1), i++) {
     for (const m of marksOn(a, day)) {
       const [ms, me] = markSpan(day, m.range)
       if (m.kind === 'cant') {
-        if (ms < e && me > s) return { verdict: 'cant', note: m.note ?? '' }
+        if (ms < e && me > s) return { verdict: 'cant', note: m.note ?? '', hours: '' }
       } else {
+        if (m.range) { const w = hoursWords(m.range); if (!given.includes(w)) given.push(w) }
         const cs = Math.max(ms, s), ce = Math.min(me, e)
         if (ce > cs) cans.push([cs, ce])
       }
     }
   }
-  if (cans.length === 0) return none
+  const hours = given.join(' and ')
+  if (cans.length === 0) return given.length ? { verdict: 'outside', note: '', hours } : none
   cans.sort((x, y) => x[0] - y[0])
   let covered = 0, curS = cans[0][0], curE = cans[0][1]
   for (const [cs, ce] of cans.slice(1)) {
@@ -113,7 +136,7 @@ export function verdictWithNote(a: Availability | null, ev: { startIso: string; 
     else { covered += curE - curS; curS = cs; curE = ce }
   }
   covered += curE - curS
-  return { verdict: covered >= e - s ? 'can' : 'partly', note: '' }
+  return covered >= e - s ? { verdict: 'can', note: '', hours: '' } : { verdict: 'partly', note: '', hours }
 }
 
 // ---------------------------------------------------------------- staffed or not
@@ -260,8 +283,18 @@ export function withoutAsk(e: StaffingEntry, staffId: string): StaffingEntry {
   return { ...e, asks: e.asks.filter((x) => x.staffId !== staffId) }
 }
 
-/** Records the event's times and title as seen now; SEQUENCE goes up when the times moved (a calendar app then updates it in place). */
-export function withSeen(e: StaffingEntry, ev: { startIso: string; endIso: string; title: string }): StaffingEntry {
-  const seen = { startIso: ev.startIso, endIso: ev.endIso, title: ev.title }
-  return { ...e, seen, sequence: e.seen && movedSince(e, ev) ? e.sequence + 1 : e.sequence }
+/** What `seen` remembers of an event: its times, title and whether it is cancelled. */
+export function seenOf(ev: Pick<StaffableEvent, 'startIso' | 'endIso' | 'title' | 'status'>): { startIso: string; endIso: string; title: string; cancelled?: boolean } {
+  return { startIso: ev.startIso, endIso: ev.endIso, title: ev.title, ...(ev.status !== 'on' ? { cancelled: true } : {}) }
+}
+
+/**
+ * Records the event's times and title as seen now; SEQUENCE goes up when the
+ * times moved or it was cancelled (or came back), so a calendar app updates
+ * it in place (RFC 5545).
+ */
+export function withSeen(e: StaffingEntry, ev: { startIso: string; endIso: string; title: string; cancelled?: boolean }): StaffingEntry {
+  const seen = { startIso: ev.startIso, endIso: ev.endIso, title: ev.title, ...(ev.cancelled ? { cancelled: true } : {}) }
+  const flipped = !!e.seen && !!e.seen.cancelled !== !!ev.cancelled
+  return { ...e, seen, sequence: e.seen && (movedSince(e, ev) || flipped) ? e.sequence + 1 : e.sequence }
 }

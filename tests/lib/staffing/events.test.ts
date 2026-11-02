@@ -112,6 +112,11 @@ describe('lookup by key, any date', () => {
     const found = await eventByKey('legacy:clssch_x', now, '2027-02-06T16:00:00.000Z')
     expect(found?.event).toMatchObject({ kind: 'legacy-class', title: 'Square Weaving', roster: { kind: 'workshop', id: 'clssch_x', day: '2027-02-06' } })
   })
+  it('a nonsense start hint (year 275760, year 1) is ignored: no crash, no ancient read (m1)', async () => {
+    src.legacy = [{ id: 'clssch_y', name: 'Square Weaving', startIso: '2027-02-06T16:00:00.000Z', endIso: '2027-02-06T18:00:00.000Z' }]
+    await expect(eventByKey('legacy:clssch_y', now, '+275760-09-13T00:00:00Z')).resolves.toBeNull()
+    await expect(eventByKey('legacy:clssch_y', now, '0001-01-01T00:00:00Z')).resolves.toBeNull()
+  })
 })
 
 describe('staffableBetween', () => {
@@ -237,9 +242,9 @@ describe('staffingRows', () => {
     expect(row.needed).toBe(1)
     // assigned first, then asked, then by name (M5)
     expect(row.people).toEqual([
-      { staffId: 'TM2', name: 'Jessica', verdict: 'unknown', asked: false, assigned: true, askNote: '', markNote: '' },
-      { staffId: 'TM3', name: 'Sam', verdict: 'cant', asked: true, assigned: false, askNote: 'pick me', markNote: '' },
-      { staffId: 'TM1', name: 'Kaden', verdict: 'unknown', asked: false, assigned: false, askNote: '', markNote: '' },
+      { staffId: 'TM2', name: 'Jessica', verdict: 'unknown', asked: false, assigned: true, askNote: '', markNote: '', hours: '' },
+      { staffId: 'TM3', name: 'Sam', verdict: 'cant', asked: true, assigned: false, askNote: 'pick me', markNote: '', hours: '' },
+      { staffId: 'TM1', name: 'Kaden', verdict: 'unknown', asked: false, assigned: false, askNote: '', markNote: '', hours: '' },
     ])
     for (const p of row.people) expect(['kaden', 'catherine']).not.toContain(p.staffId)
     // contact details never ride along
@@ -323,6 +328,14 @@ describe('staffingRows', () => {
     expect(row.people.find((p) => p.staffId === 'TM2')).toMatchObject({ asked: true, askNote: 'I love this one' })
     expect(row.people.find((p) => p.staffId === 'TM3')).toMatchObject({ verdict: 'cant', markNote: 'dentist' })
     expect(row.people.map((p) => p.staffId)).toEqual(['TM2', 'TM1', 'TM3']) // asked, then by name
+  })
+
+  it('"Can, only 4–9 PM" on Saturdays and a 10 AM class: owners get outside + the hours, not Not said (I7)', async () => {
+    src.classes = [klass()]
+    await setTimes('TM3', 'Sam', { '6': { kind: 'can', range: { from: '16:00', to: '21:00' }, note: '' } })
+    const [row] = await staffingRows(FROM, TO)
+    expect(row.people.find((p) => p.staffId === 'TM3')).toMatchObject({ verdict: 'outside', hours: '4–9 PM', markNote: '' })
+    expect(row.people.find((p) => p.staffId === 'TM1')).toMatchObject({ verdict: 'unknown', hours: '' })
   })
 
   it('throws when the team cannot be read (never "nobody\'s available")', async () => {
