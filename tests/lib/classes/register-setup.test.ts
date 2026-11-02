@@ -140,4 +140,22 @@ describe('Register setup: which tax and category classes use', () => {
     expect(isSquareConnectionError(Object.assign(new Error('x'), { status: 400, errors: [{ code: 'INVALID_VALUE', category: 'INVALID_REQUEST_ERROR' }] }))).toBe(false)
     expect(isSquareConnectionError(new Error('timeout'))).toBe(false)
   })
+
+  it('N7: a tax added on top of other taxes, or not used at the studio’s location, can’t be picked', async () => {
+    sq.env = { ...sq.env, locationId: 'LOC' }
+    sq.objects = [
+      tax('COMPOUND', { calculation_phase: 'TAX_TOTAL_PHASE' }),
+      { ...tax('ELSEWHERE'), present_at_all_locations: false, present_at_location_ids: ['OTHER'] },
+      { ...tax('ABSENT'), absent_at_location_ids: ['LOC'] },
+      { ...tax('HERE'), present_at_all_locations: false, present_at_location_ids: ['LOC'] },
+    ]
+    const { taxes } = await listRegisterChoices()
+    const by = Object.fromEntries(taxes.map((t) => [t.id, t]))
+    expect(by.COMPOUND).toMatchObject({ usable: false, why: 'This tax is added on top of other taxes, so online prices wouldn’t match the register.' })
+    expect(by.ELSEWHERE).toMatchObject({ usable: false, why: 'This tax isn’t used at the studio’s register.' })
+    expect(by.ABSENT).toMatchObject({ usable: false, why: 'This tax isn’t used at the studio’s register.' })
+    expect(by.HERE).toMatchObject({ usable: true })
+    await expect(saveRegisterSetup({ classTaxId: 'COMPOUND', classesCategoryId: 'x' }, { expectedUpdatedAt: null, by: KADEN })).rejects.toMatchObject({ field: 'tax' })
+  })
 })
+

@@ -18,13 +18,14 @@ import { CREATE_KEY_RE } from '@lib/booking-core/ids'
 import type { By } from '@lib/staff-auth'
 import { formatDay, formatTime } from '@lib/studio-time'
 import { addBlocked, listBlocked, removeBlocked, type BlockedTime } from './blocked-time'
-import { ClassGoneError, fixPosPrices, FIX_FAILED, putOnRegister } from './pos-prices'
+import { ClassGoneError, fixPosPrices, FIX_FAILED, putOnRegister, updateRegister } from './pos-prices'
 import { ClassExistsError, createClass, getClass, listClasses, StaleClassError, updateClass } from './class-store'
 import { archiveLibrary, getLibrary, LibraryStaleError, listLibrary, restoreLibraryVersion, saveLibraryVersion } from './library-store'
 import { takenCents } from './booking-words'
 import { archiveClassInSquare, CLASS_TAX_NOT_SET, syncClassToSquare } from './square-catalog'
 import { CLASSES_CATEGORY_NOT_SET, PICK_CATEGORY, PICK_TAX, REGISTER_DOWN, type SetupNeeded } from './register-words'
-import { isSquareConnectionError } from './register-setup'
+import { isSquareConnectionError, registerInForce, RegisterSetupError } from './register-setup'
+import type { RegisterInForce } from './pos-plan'
 import { contentChanges } from './content-diff'
 import { chicagoYmd } from './chicago-day'
 import { readPattern, repeatDates } from './repeat'
@@ -196,6 +197,8 @@ function registerButtonError(e: unknown, failed: string, what: string): never {
   if (e instanceof TestSiteStoreError || e instanceof LiveSquareFromTestSiteError) throw new ActionError(503, e.message)
   const msg = e instanceof Error ? e.message : String(e)
   if ((e as { refusal?: boolean })?.refusal) throw new ActionError(400, msg)
+  // Fix round 4: the tax or category in Register setup isn't right in Square any more.
+  if (e instanceof RegisterSetupError && e.field) throw new ActionError(503, msg, { setup: e.field satisfies SetupNeeded })
   if (msg === CLASS_TAX_NOT_SET) throw new ActionError(503, `${what}: the class tax isn't picked. ${PICK_TAX}`, { setup: 'tax' satisfies SetupNeeded })
   if (msg === CLASSES_CATEGORY_NOT_SET) throw new ActionError(503, `${what}: the Classes category isn't picked. ${PICK_CATEGORY}`, { setup: 'category' satisfies SetupNeeded })
   if (isSquareConnectionError(e)) throw new ActionError(503, REGISTER_DOWN, { connection: true })
@@ -219,6 +222,26 @@ export async function putClassOnRegister(body: { id?: unknown }, by: By = ADMIN_
   } catch (e) {
     console.warn(`[classes] put on the register for ${String(body.id)} failed: ${e instanceof Error ? e.message : e}`)
     registerButtonError(e, PUT_FAILED, "It can't go on the register yet")
+  }
+}
+
+/** What "Update the register" says when Square refuses. */
+export const UPDATE_FAILED = 'Square didn’t take the update just now. Nothing else changed. Try again in a few minutes.'
+
+/**
+ * "Update the register" (fix round 4): send the class again with the tax and
+ * category in More › Register setup now. See updateRegister for the safety
+ * rules. Audited.
+ */
+export async function updateClassRegister(body: { id?: unknown }, by: By = ADMIN_BY): Promise<{ data: { class: ScheduledClass; result: 'updated' }; warning?: string }> {
+  if (typeof body.id !== 'string' || !body.id) throw new ActionError(400, 'Reload the page and try again.')
+  try {
+    const { result, cls } = await updateRegister(body.id, by)
+    await audit(by, 'class-update-register', { kind: 'class', id: cls.id, label: cls.content.name })
+    return { data: { class: cls, result } }
+  } catch (e) {
+    console.warn(`[classes] update the register for ${String(body.id)} failed: ${e instanceof Error ? e.message : e}`)
+    registerButtonError(e, UPDATE_FAILED, "The register can't be updated yet")
   }
 }
 
@@ -858,7 +881,7 @@ export function groupBookings(ledger: Ledger, now = new Date()): BookingView[] {
 export type ClassBooking = BookingView & { waiting: ReturnType<typeof describeRequest> | null }
 
 /** The class, its bookings, and seats taken on each date (holds included, as the ledger counts them). */
-export async function classBookings(id: unknown): Promise<{ class: ScheduledClass; bookings: ClassBooking[]; seatsTaken: Record<string, number> }> {
+export async function classBookings(id: unknown): Promise<{ class: ScheduledClass; bookings: ClassBooking[]; seatsTaken: Record<string, number>; register: RegisterInForce | null }> {
   const cls = await mustGetClass(id)
   const ledger = await getLedger(cls.id)
   const now = new Date()
@@ -866,7 +889,9 @@ export async function classBookings(id: unknown): Promise<{ class: ScheduledClas
     const waitingReq = b.paidHere ? (await listRefundRequests(cls.id, b.bookingId).catch(() => [])).find(isWaiting) : undefined
     return { ...b, waiting: waitingReq ? describeRequest(waitingReq, ledger, cls) : null }
   }))
-  return { class: cls, bookings, seatsTaken: Object.fromEntries(cls.sessions.map((s) => [s.id, seatsTaken(ledger, s.id, now)])) }
+  // Fix round 4: what Register setup has now, so the sheet can show "Update the register" for a class on an old tax.
+  const register = await registerInForce().catch(() => null)
+  return { class: cls, bookings, seatsTaken: Object.fromEntries(cls.sessions.map((s) => [s.id, seatsTaken(ledger, s.id, now)])), register }
 }
 
 // ── Blocked time ───────────────────────────────────────────────────────────
@@ -991,6 +1016,8 @@ export interface RepeatResult {
   /** Dates not tried yet: `time` = this request ran out of time (send it again), `error` = something broke (Try the rest again). */
   left: string[]
   leftBecause: 'time' | 'error' | null
+  /** N4: the library entry these dates use, so "Change the dates" sends it back instead of making a second one. */
+  libraryId?: string
 }
 
 /**
@@ -1007,6 +1034,8 @@ export interface RepeatResult {
 export async function repeatClass(body: {
   libraryId?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; createKey?: unknown; pattern?: unknown; skip?: unknown
 }, by: By = ADMIN_BY, now = new Date()): Promise<Saved<RepeatResult>> {
+  // N5: the time budget counts from the start of the request (the library entry and the schedule read take time too).
+  const started = Date.now()
   if (typeof body.createKey !== 'string' || !CREATE_KEY_RE.test(body.createKey)) throw new ActionError(400, 'Reload the page and try again.')
   const { sessions, dates } = readRepeat(body, now)
   const skip = new Set(Array.isArray(body.skip) ? body.skip.filter((d): d is string => typeof d === 'string') : [])
@@ -1039,8 +1068,7 @@ export async function repeatClass(body: {
   }
 
   const checks = new Map((await checkDates(wanted, await canShareOf({ libraryId, content }), now)).map((c) => [c.ymd, c]))
-  const out: RepeatResult = { created: [], skipped: [], left: [], leftBecause: null }
-  const started = Date.now()
+  const out: RepeatResult = { created: [], skipped: [], left: [], leftBecause: null, ...(libraryId ? { libraryId } : {}) }
   let slowest = 0
   for (let i = 0; i < wanted.length; i++) {
     const d = wanted[i]

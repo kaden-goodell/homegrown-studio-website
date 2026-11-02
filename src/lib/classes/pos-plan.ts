@@ -75,3 +75,27 @@ export function notOnRegister(cls: ScheduledClass, now: Date): boolean {
   if (!cls.square.itemId) return true
   return variationPlan(cls, now).some((p) => !cls.square.variations[p.key])
 }
+
+/**
+ * Fix round 4: the class tax and Classes category in force (More › Register
+ * setup, else the site's values), plus the site's own values, which every
+ * class put on the register before fix round 4 was sent with.
+ */
+export interface RegisterInForce { classTaxId: string; classesCategoryId: string; siteTaxId: string; siteCategoryId: string }
+
+/** The tax the class should carry on the register (null = none). */
+export const wantedTaxId = (cls: ScheduledClass, reg: { classTaxId: string }): string | null =>
+  (cls.content.rules.taxable && reg.classTaxId ? reg.classTaxId : null)
+
+/**
+ * Fix round 4: the class is on the register (open or closed, not over) with a
+ * different tax or category than More › Register setup has now. /admin shows
+ * "Update the register". Browser-safe.
+ */
+export function registerSetupStale(cls: ScheduledClass, reg: RegisterInForce | null | undefined, now: Date): boolean {
+  if (!reg || !cls.square.itemId || (cls.status !== 'open' && cls.status !== 'closed')) return false
+  if (!cls.sessions.some((s) => Date.parse(s.endIso) > now.getTime())) return false
+  const hadTax = cls.square.taxId !== undefined ? cls.square.taxId : wantedTaxId(cls, { classTaxId: reg.siteTaxId })
+  const hadCategory = cls.square.categoryId !== undefined ? cls.square.categoryId : reg.siteCategoryId
+  return (hadTax || null) !== wantedTaxId(cls, reg) || (hadCategory || '') !== (reg.classesCategoryId || '')
+}

@@ -246,7 +246,7 @@ describe('fix 3: Put it on the register, and what the register buttons say when 
     store.syncError.set('cls_tok', Object.assign(new Error('Square said: expired'), { status: 401, errors: [{ code: 'ACCESS_TOKEN_EXPIRED', category: 'AUTHENTICATION_ERROR' }] }))
     store.syncError.set('cls_sq', new Error('Square said: nope'))
     await expect(fixRegisterPrice({ id: 'cls_ts' }, KADEN)).rejects.toMatchObject({ status: 503, message: 'This test site has no store of its own. Set STORE_NAMESPACE first.' })
-    await expect(fixRegisterPrice({ id: 'cls_tok' }, KADEN)).rejects.toMatchObject({ status: 503, message: 'The register connection isn’t working right now. Ring it up at the regular price meanwhile.', extra: { connection: true } })
+    await expect(fixRegisterPrice({ id: 'cls_tok' }, KADEN)).rejects.toMatchObject({ status: 503, message: 'The website can’t reach Square right now, so this can’t change from here. The register still works: ring the class up at the price on its class page, as a custom amount if it isn’t listed.', extra: { connection: true } })
     await expect(putClassOnRegister({ id: 'cls_sq' }, KADEN)).rejects.toMatchObject({ status: 502, message: 'Square didn’t take the class just now. Nothing else changed. Try again in a few minutes.' })
     warn.mockRestore()
   })

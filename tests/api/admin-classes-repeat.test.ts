@@ -191,6 +191,27 @@ describe('repeat', () => {
     expect(r.body.data.created.every((c: any) => c.class.status === 'draft')).toBe(true)
   })
 
+  it('N4: every date refused: the reply names the library entry; Change the dates sends it back, so no second entry', async () => {
+    mocks.closures = [{ from: '2033-05-01', to: '2033-05-31', name: 'the move' }]
+    const libsBefore = (await listLibrary()).length
+    const first = await post(classes, {
+      action: 'repeat', content: content('Moved Looms'), sessions: [ses('2033-05-05', 18)], status: 'open',
+      pattern: { every: 1, untilYmd: '2033-05-12' }, skip: [], createKey: 'repeat-key-n4-a',
+    })
+    expect(first.body.data.created).toEqual([])
+    expect(first.body.data.skipped).toHaveLength(2)
+    const libraryId = first.body.data.libraryId
+    expect(typeof libraryId).toBe('string')
+    expect((await listLibrary()).length).toBe(libsBefore + 1)
+    const second = await post(classes, {
+      action: 'repeat', content: content('Moved Looms'), sessions: [ses('2033-06-02', 18)], status: 'open', libraryId,
+      pattern: { every: 1, untilYmd: '2033-06-09' }, skip: [], createKey: 'repeat-key-n4-b',
+    })
+    expect(second.body.data.created).toHaveLength(2)
+    expect(second.body.data.created.every((c: any) => c.class.libraryId === libraryId)).toBe(true)
+    expect((await listLibrary()).length).toBe(libsBefore + 1)
+  })
+
   it('a past picked date is refused (R37), the others are made', async () => {
     const r = await post(classes, {
       action: 'repeat', content: content('Past Pick'), sessions: [ses('2033-04-07', 18)], status: 'open',

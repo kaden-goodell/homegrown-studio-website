@@ -27,6 +27,7 @@ import { chicagoYmd } from './chicago-day'
 import { squareFetch, squareSettings } from './square-api'
 import { assertClassWritesAllowed, assertSquareCatalogWriteAllowed } from './test-site-guard'
 import { REGISTER_TAX_PERCENT } from './register-words'
+import type { RegisterInForce } from './pos-plan'
 
 const logger = createLogger('classes:register-setup')
 const kv = makeKvStore('studio-settings', 'studio-settings')
@@ -51,10 +52,17 @@ export interface RegisterSetupView extends RegisterIds {
   source: { tax: 'saved' | 'site' | 'none'; category: 'saved' | 'site' | 'none' }
 }
 
-export interface TaxChoice { id: string; name: string; percent: string; enabled: boolean; additive: boolean; usable: boolean; why: string }
+export interface TaxChoice {
+  id: string; name: string; percent: string; enabled: boolean; additive: boolean
+  /** Fix round 4 (N7): Square applies it at the studio's location. */
+  atStudio?: boolean
+  /** Fix round 4 (N7): added on top of other taxes (TAX_TOTAL_PHASE). */
+  compound?: boolean
+  usable: boolean; why: string
+}
 export interface CategoryChoice { id: string; name: string }
 export interface RegisterChoices { taxes: TaxChoice[]; categories: CategoryChoice[] }
-/** An upcoming class that should be on the register and isn't. */
+/** An upcoming class that should be on the register and isn't (or carries an old tax or category). */
 export interface NotOnRegisterRow { id: string; name: string; startIso: string }
 
 export class RegisterSetupError extends Error {
@@ -75,7 +83,7 @@ export function isSquareConnectionError(e: unknown): boolean {
 
 // ---------------------------------------------------------------- reading
 
-const envIds = (): RegisterIds => {
+export const envIds = (): RegisterIds => {
   const cfg = squareSettings()
   return { classTaxId: cfg.classTaxId || '', classesCategoryId: cfg.classesCategoryId || '' }
 }
@@ -118,6 +126,13 @@ export async function registerIds(opts: { fresh?: boolean } = {}): Promise<Regis
   }
 }
 
+/** Fix round 4: the ids in force and the site's own values (what classes put on the register before fix round 4 carry). */
+export async function registerInForce(opts: { fresh?: boolean } = {}): Promise<RegisterInForce> {
+  const ids = await registerIds(opts)
+  const env = envIds()
+  return { ...ids, siteTaxId: env.classTaxId, siteCategoryId: env.classesCategoryId }
+}
+
 export function resetRegisterCache(): void {
   cached = null
 }
@@ -154,11 +169,21 @@ async function listCatalog(types: string): Promise<any[]> {
 
 const percentOf = (p: unknown): number => Number(String(p ?? '').trim())
 
+/** N7: whether Square applies a catalog object at the studio's location ('' location = can't tell → yes). */
+function presentAtStudio(o: any): boolean {
+  const loc = squareSettings().locationId || ''
+  if (!loc) return true
+  if (o?.present_at_all_locations === false) return (o.present_at_location_ids ?? []).includes(loc)
+  return !(o?.absent_at_location_ids ?? []).includes(loc)
+}
+
 /** Why a tax can't be the class tax, in Catherine's words ('' = it can). */
-function whyNot(t: { enabled: boolean; additive: boolean; percent: string }): string {
+function whyNot(t: { enabled: boolean; additive: boolean; percent: string; atStudio?: boolean; compound?: boolean }): string {
   if (!t.enabled) return 'This tax is turned off.'
+  if (t.atStudio === false) return 'This tax isn’t used at the studio’s register.'
   if (percentOf(t.percent) !== REGISTER_TAX_PERCENT) return `This tax isn’t ${REGISTER_TAX_PERCENT}%, so online prices wouldn’t match the register.`
   if (!t.additive) return 'This tax is already inside the prices, so online prices wouldn’t match the register.'
+  if (t.compound) return 'This tax is added on top of other taxes, so online prices wouldn’t match the register.'
   return ''
 }
 
@@ -167,7 +192,10 @@ export async function listRegisterChoices(): Promise<RegisterChoices> {
   const objects = await listCatalog('TAX,CATEGORY')
   const taxes: TaxChoice[] = objects.filter((o) => o.type === 'TAX').map((o) => {
     const d = o.tax_data ?? {}
-    const base = { id: String(o.id), name: String(d.name ?? 'Tax'), percent: String(d.percentage ?? ''), enabled: d.enabled !== false, additive: d.inclusion_type !== 'INCLUSIVE' }
+    const base = {
+      id: String(o.id), name: String(d.name ?? 'Tax'), percent: String(d.percentage ?? ''), enabled: d.enabled !== false, additive: d.inclusion_type !== 'INCLUSIVE',
+      atStudio: presentAtStudio(o), compound: d.calculation_phase === 'TAX_TOTAL_PHASE',
+    }
     const why = whyNot(base)
     return { ...base, usable: !why, why }
   }).sort((a, b) => Number(b.usable) - Number(a.usable) || a.name.localeCompare(b.name))
@@ -220,6 +248,24 @@ export async function ensureClassesCategory(): Promise<{ id: string; made: boole
   if (there) return { id: there.id, made: false }
   const id = await createOne({ type: 'CATEGORY', id: '#classes', category_data: { name: CATEGORY_NAME } }, 'classes-category')
   return { id, made: true }
+}
+
+/**
+ * Fix round 4: before "Update the register" sends a class's tax and category,
+ * check the ones in force are still right in Square (a deleted or changed tax
+ * would only be sent again). Throws a RegisterSetupError with the field, so
+ * the class sheet shows the button to More › Register setup.
+ */
+export async function assertInForceUsable(ids: RegisterIds, needTax: boolean, choices?: RegisterChoices): Promise<void> {
+  const c = choices ?? await listRegisterChoices()
+  if (needTax && ids.classTaxId) {
+    const tax = c.taxes.find((t) => t.id === ids.classTaxId)
+    if (!tax) throw new RegisterSetupError(503, `The class tax in Register setup isn’t on the register any more. Open More › Register setup and pick the ${REGISTER_TAX_PERCENT}% tax.`, 'tax')
+    if (!tax.usable) throw new RegisterSetupError(503, `The class tax in Register setup isn’t right. ${tax.why} Open More › Register setup and pick the ${REGISTER_TAX_PERCENT}% tax.`, 'tax')
+  }
+  if (ids.classesCategoryId && !c.categories.some((x) => x.id === ids.classesCategoryId)) {
+    throw new RegisterSetupError(503, 'The Classes category in Register setup isn’t on the register any more. Open More › Register setup and pick the Classes category.', 'category')
+  }
 }
 
 // ---------------------------------------------------------------- writing

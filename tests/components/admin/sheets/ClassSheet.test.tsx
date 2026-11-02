@@ -12,11 +12,11 @@ afterEach(() => { vi.unstubAllGlobals(); setAdminWho('') })
  * The class sheet's routes. `the` is the class as stored now (a POST can change it); `post` answers
  * classes.json POSTs; `refund` answers refund.json; `library` is the library list.
  */
-function server(o: { the?: any; bookings?: any[]; seatsTaken?: any; post?: (b: any) => any; refund?: (b: any) => any; library?: any[] } = {}) {
+function server(o: { the?: any; bookings?: any[]; seatsTaken?: any; register?: any; post?: (b: any) => any; refund?: (b: any) => any; library?: any[] } = {}) {
   const state = { the: o.the ?? cls() }
   const fn = vi.fn(async (url: string, init?: any) => {
     const path = url.split('?')[0]
-    if (path === '/api/admin/classes/bookings.json') return ok({ data: { class: state.the, bookings: o.bookings ?? [], seatsTaken: o.seatsTaken ?? {} } })
+    if (path === '/api/admin/classes/bookings.json') return ok({ data: { class: state.the, bookings: o.bookings ?? [], seatsTaken: o.seatsTaken ?? {}, ...(o.register ? { register: o.register } : {}) } })
     if (path === '/api/admin/classes/library.json') return ok({ data: { library: o.library ?? [], runs: {} } })
     if (path === CLASSES && init?.method === 'POST') {
       const b = JSON.parse(init.body)
@@ -632,13 +632,53 @@ describe('class sheet › the early-bird and the register (stage 4)', () => {
     expect(sheet.open).toHaveBeenCalledWith({ kind: 'more', page: 'register' }, expect.objectContaining({ back: { kind: 'class', id: 'cls_1' } }))
   })
   it('fix 3: an expired register connection says so plainly, with no setup button', async () => {
-    const f = server({ post: () => refuse(503, { error: 'The register connection isn’t working right now. Ring it up at the regular price meanwhile.', connection: true }) })
+    const f = server({ post: () => refuse(503, { error: 'The website can’t reach Square right now, so this can’t change from here. The register still works: ring the class up at the price on its class page, as a custom amount if it isn’t listed.', connection: true }) })
     vi.stubGlobal('fetch', f)
     renderSheet(<ClassSheet id="cls_1" />)
     await loaded()
     fireEvent.click(within(screen.getByTestId('not-on-register')).getByRole('button', { name: 'Put it on the register' }))
-    expect(await screen.findByText('The register connection isn’t working right now. Ring it up at the regular price meanwhile.')).toBeInTheDocument()
+    expect(await screen.findByText('The website can’t reach Square right now, so this can’t change from here. The register still works: ring the class up at the price on its class page, as a custom amount if it isn’t listed.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Open Register setup' })).toBeNull()
+  })
+  it('fix 4: on the register with an old tax: "Update the register", then it goes away', async () => {
+    const on = cls({ square: { itemId: 'ITEM', variations: { 'pas_full:person': 'V' }, taxId: 'OLD_TAX', categoryId: 'C1' } })
+    const register = { classTaxId: 'NEW_TAX', classesCategoryId: 'C1', siteTaxId: 'OLD_TAX', siteCategoryId: 'C1' }
+    const f = server({ the: on, register, post: (b) => (b.action === 'update-register' ? ok({ data: { result: 'updated', class: { ...on, square: { ...on.square, taxId: 'NEW_TAX' } } } }) : null) })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<ClassSheet id="cls_1" />)
+    await loaded()
+    const panel = screen.getByTestId('register-old-setup')
+    expect(panel).toHaveTextContent('The register still has the old tax or category for this class.')
+    fireEvent.click(within(panel).getByRole('button', { name: 'Update the register' }))
+    expect(await screen.findByText('The register is up to date for this class.')).toBeInTheDocument()
+    expect(posts(f, CLASSES)[0].body).toEqual({ action: 'update-register', id: 'cls_1' })
+    expect(screen.queryByTestId('register-old-setup')).toBeNull()
+    // Up to date: only the quiet link is left (what the owner texts point at).
+    expect(within(screen.getByTestId('register-refresh')).getByRole('button', { name: 'Update the register' })).toBeEnabled()
+  })
+  it('fix 4: a class put on before the tax was recorded counts as carrying the site’s tax', async () => {
+    const legacy = cls({ square: { itemId: 'ITEM', variations: { 'pas_full:person': 'V' } } })
+    vi.stubGlobal('fetch', server({ the: legacy, register: { classTaxId: 'T9', classesCategoryId: 'C1', siteTaxId: 'T9', siteCategoryId: 'C1' } }))
+    const first = renderSheet(<ClassSheet id="cls_1" />)
+    await loaded()
+    expect(screen.queryByTestId('register-old-setup')).toBeNull()
+    expect(screen.getByTestId('register-refresh')).toBeInTheDocument()
+    first.unmount()
+    vi.stubGlobal('fetch', server({ the: legacy, register: { classTaxId: 'T9', classesCategoryId: 'C1', siteTaxId: 'T85', siteCategoryId: 'C1' } }))
+    renderSheet(<ClassSheet id="cls_1" />)
+    await loaded()
+    expect(screen.getByTestId('register-old-setup')).toBeInTheDocument()
+  })
+  it('fix 4: Update the register refused because the tax in Register setup is gone: the button to Register setup', async () => {
+    const on = cls({ square: { itemId: 'ITEM', variations: { 'pas_full:person': 'V' }, taxId: 'T9', categoryId: 'C1' } })
+    const f = server({ the: on, register: { classTaxId: 'T9', classesCategoryId: 'C1', siteTaxId: '', siteCategoryId: '' }, post: () => refuse(503, { error: 'The class tax in Register setup isn’t on the register any more. Open More › Register setup and pick the 9% tax.', setup: 'tax' }) })
+    vi.stubGlobal('fetch', f)
+    const { sheet } = renderSheet(<ClassSheet id="cls_1" />)
+    await loaded()
+    fireEvent.click(within(screen.getByTestId('register-refresh')).getByRole('button', { name: 'Update the register' }))
+    expect(await screen.findByText(/isn’t on the register any more/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open Register setup' }))
+    expect(sheet.open).toHaveBeenCalledWith({ kind: 'more', page: 'register' }, expect.objectContaining({ back: { kind: 'class', id: 'cls_1' } }))
   })
   it('a booking row tags what came off it: "Early-bird", "Code GRANDOPENING"', async () => {
     vi.stubGlobal('fetch', server({ bookings: [booking({ discounts: ['Early-bird', 'Code GRANDOPENING'] })] }))

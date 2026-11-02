@@ -13,6 +13,8 @@ vi.mock('@lib/classes/seat-ledger', async (orig) => ({
   ...(await orig<typeof import('@lib/classes/seat-ledger')>()),
   getLedger: async (id: string) => own.ledgers.get(id) ?? { classId: id, lines: [] },
 }))
+const reg = vi.hoisted(() => ({ now: null as null | Record<string, string> }))
+vi.mock('@lib/classes/register-setup', () => ({ registerInForce: async () => { if (!reg.now) throw new Error('not set'); return reg.now } }))
 vi.mock('@lib/classes/square-events', () => ({
   listUnmatchedPos: async () => own.unmatched,
   listPosNeedsDays: async () => own.needsDays,
@@ -133,6 +135,19 @@ describe('warnings for our own classes', () => {
     expect((await listWarnings(WINDOW, { now: NOW })).some((x) => x.code === 'not-on-register')).toBe(true)
     own.classes = [{ ...camp(), status: 'draft', square: { itemId: null, variations: {} } }, camp()]
     expect((await listWarnings(WINDOW, { now: NOW })).some((x) => x.code === 'not-on-register')).toBe(false)
+  })
+
+  it('fix 4: a class on the register with an older tax than Register setup is on the panel with Update them all', async () => {
+    reg.now = { classTaxId: 'T9', classesCategoryId: 'C1', siteTaxId: 'T85', siteCategoryId: 'C1' }
+    try {
+      own.classes = [{ ...camp(), square: { ...camp().square, taxId: 'T85', categoryId: 'C1' } }]
+      const w = (await listWarnings(WINDOW, { now: NOW })).find((x) => x.code === 'register-old-setup')!
+      expect(warningLine(w)).toBe('Sat Oct 17 · The register still has the old tax or category for Clay Camp. An owner taps Update them all in /admin › More › Register setup (or Update the register on the class).')
+      own.classes = [{ ...camp(), square: { ...camp().square, taxId: 'T9', categoryId: 'C1' } }]
+      expect((await listWarnings(WINDOW, { now: NOW })).some((x) => x.code === 'register-old-setup')).toBe(false)
+    } finally {
+      reg.now = null
+    }
   })
 
   it('a class store that can’t be read says so in one line (never an all clear), and the rest still shows', async () => {

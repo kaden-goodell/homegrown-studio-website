@@ -13,7 +13,7 @@ import type { CafeSquareResult } from '@lib/cafe-windows'
 import type { BookedOnClosure } from '@lib/settings-effects'
 import type { SettingsInput, SettingsView, StoredClosure } from '@lib/studio-settings'
 import type { NotOnRegisterRow, RegisterChoices, RegisterSetupView } from '@lib/classes/register-setup'
-import { REGISTER_TAX_PERCENT } from '@lib/classes/register-words'
+import { REGISTER_DOWN_PAY, REGISTER_TAX_PERCENT } from '@lib/classes/register-words'
 import { closureOn, type Holiday } from '@config/closures'
 import { cafeHoursEntries, STUDIO_HOURS, type CafeSpecialDay, type CafeWeekly, type Weekday } from '@config/hours'
 import { api, REGISTER, SETTINGS } from '../classes/api'
@@ -425,6 +425,8 @@ interface RegisterLoad {
   choicesError?: string
   connection?: boolean
   notOnRegister: NotOnRegisterRow[]
+  /** Fix round 4: classes on the register with an older tax or category. */
+  oldSetup?: NotOnRegisterRow[]
 }
 
 const pct = (p: string) => `${Number(p) || p}%`
@@ -435,7 +437,8 @@ const pct = (p: string) => `${Number(p) || p}%`
  * and makes the 9% tax or the Classes category when there isn't one. Saved
  * compare-and-set and audited; the site's built-in values are used until the
  * first save. After saving, the classes not on the register yet are listed,
- * each with a way to open it and tap Put it on the register.
+ * each with a way to open it and tap Put it on the register, and (fix round 4)
+ * the classes still on the old tax or category, with Update them all.
  */
 export function RegisterSetupSheet() {
   const { open } = useSheet()
@@ -449,6 +452,8 @@ export function RegisterSetupSheet() {
   const [busy, setBusy] = useState<'' | 'save' | 'tax' | 'category'>('')
   const [fieldError, setFieldError] = useState<{ tax?: string; category?: string; form?: string }>({})
   const [saved, setSaved] = useState(false)
+  const [updating, setUpdating] = useState<{ done: number } | null>(null)
+  const [updateError, setUpdateError] = useState('')
 
   useEffect(() => {
     let live = true
@@ -483,20 +488,23 @@ export function RegisterSetupSheet() {
     if (!body.classesCategoryId) { setFieldError({ category: 'Pick the Classes category.' }); return }
     setBusy('save')
     setFieldError({})
-    const r = await api<{ setup: RegisterSetupView; changed: string[]; notOnRegister: NotOnRegisterRow[] }>(REGISTER, body)
+    const r = await api<{ setup: RegisterSetupView; changed: string[]; notOnRegister: NotOnRegisterRow[]; oldSetup?: NotOnRegisterRow[] }>(REGISTER, body)
     setBusy('')
     if (r.ok && r.data) {
-      const next = { ...d, setup: r.data.setup, notOnRegister: r.data.notOnRegister }
-      setD(next)
-      setTax(r.data.setup.classTaxId)
-      setCategory(r.data.setup.classesCategoryId)
+      const data = r.data
+      // N1: merge into the latest state (a make() just before may have added the new tax to the choices).
+      setD((cur) => cur && ({ ...cur, setup: data.setup, notOnRegister: data.notOnRegister, oldSetup: data.oldSetup ?? [] }))
+      setTax(data.setup.classTaxId)
+      setCategory(data.setup.classesCategoryId)
       setSaved(true)
       bump()
-      toast(r.data.notOnRegister.length ? 'Saved. Now put each class below on the register.' : 'Saved. Classes go on the register with this tax and category.')
+      const old = data.oldSetup?.length ?? 0
+      toast(old ? 'Saved. Now tap Update them all below.' : data.notOnRegister.length ? 'Saved. Now put each class below on the register.' : 'Saved. Classes go on the register with this tax and category.')
       return
     }
     if (r.status === 409 && r.extra.current) {
-      setD({ ...d, setup: r.extra.current })
+      const current = r.extra.current as RegisterSetupView
+      setD((cur) => cur && ({ ...cur, setup: current }))
       setFieldError({ form: 'Someone else changed the register setup just now. Check it and save again.' })
       return
     }
@@ -509,10 +517,13 @@ export function RegisterSetupSheet() {
     if (!d) return
     setBusy(kind)
     setFieldError({})
-    const r = await api<{ id: string; made: boolean; choices: RegisterChoices | null }>(REGISTER, { action: kind === 'tax' ? 'create-tax' : 'create-category' })
+    // N9: what this sheet listed, so a retry after a lost reply still records who made it.
+    const seen = kind === 'tax' ? (d.choices?.taxes ?? []).map((t) => t.id) : (d.choices?.categories ?? []).map((c) => c.id)
+    const r = await api<{ id: string; made: boolean; choices: RegisterChoices | null }>(REGISTER, { action: kind === 'tax' ? 'create-tax' : 'create-category', seen })
     setBusy('')
     if (!r.ok || !r.data) { setFieldError({ [kind]: r.error ?? DIDNT_SAVE }); return }
-    if (r.data.choices) setD({ ...d, choices: r.data.choices })
+    const fresh = r.data.choices
+    if (fresh) setD((cur) => cur && ({ ...cur, choices: fresh }))
     if (kind === 'tax') setTax(r.data.id)
     else setCategory(r.data.id)
     const nextTax = kind === 'tax' ? r.data.id : tax
@@ -521,7 +532,39 @@ export function RegisterSetupSheet() {
     else toast(kind === 'tax' ? `The ${REGISTER_TAX_PERCENT}% class tax is ready. Now pick the Classes category.` : 'The Classes category is ready. Now pick the class tax.')
   }
 
+  /**
+   * Fix round 4: "Update them all". The server works through the classes for a
+   * few seconds per call; this keeps calling while it makes progress, so one
+   * tap does them all. Safe to tap again: a class already updated isn't sent.
+   */
+  async function updateAll() {
+    setUpdateError('')
+    let done = 0
+    setUpdating({ done })
+    for (let round = 0; round < 50; round++) {
+      const r = await api<{ updated: number; failed: NotOnRegisterRow[]; left: number; oldSetup: NotOnRegisterRow[] }>(REGISTER, { action: 'update-classes' })
+      if (!r.ok || !r.data) { setUpdateError(r.error ?? DIDNT_SAVE); break }
+      const data = r.data
+      done += data.updated
+      setUpdating({ done })
+      setD((cur) => cur && ({ ...cur, oldSetup: data.oldSetup }))
+      if (data.failed.length && !data.left) {
+        setUpdateError(`${data.failed.length === 1 ? `${data.failed[0].name} didn’t` : `${data.failed.length} classes didn’t`} update. Square didn’t take it just now. Tap Update them all again in a few minutes.`)
+        break
+      }
+      if (!data.left || (!data.updated && !data.failed.length)) {
+        if (!data.oldSetup.length) toast(done === 1 ? 'Updated 1 class. The register is up to date.' : `Updated ${done} classes. The register is up to date.`)
+        break
+      }
+    }
+    setUpdating(null)
+    bump()
+  }
+
   const usableTaxes = d?.choices?.taxes.filter((t) => t.usable) ?? []
+  // N3: the tax classes use now, when it isn't one that can be picked (wrong, or gone from Square).
+  const inUse = d?.choices && d.setup.classTaxId ? d.choices.taxes.find((t) => t.id === d.setup.classTaxId) ?? null : null
+  const inUseBad = !!d?.choices && !!d.setup.classTaxId && (!inUse || !inUse.usable)
   const hasClassesCat = !!d?.choices?.categories.some((c) => c.name.trim().toLowerCase() === 'classes')
   const last = d?.setup.history[0]
   const footer = d?.choices
@@ -538,7 +581,7 @@ export function RegisterSetupSheet() {
           {!d.choices && (
             <div className="adm-panel is-warn" role="alert">
               <b>{d.choicesError}</b>
-              {d.connection && <span className="adm-small">Nothing here can change until it works again. Ring classes up at their regular price meanwhile.</span>}
+              {d.connection && <span className="adm-small">{REGISTER_DOWN_PAY}</span>}
               <button type="button" className="adm-btn is-ghost is-sm" onClick={() => setTries((n) => n + 1)}>Try again</button>
             </div>
           )}
@@ -546,6 +589,12 @@ export function RegisterSetupSheet() {
             <>
               <fieldset className="adm-date adm-gap-top" data-field="tax">
                 <legend>{`Class tax (${REGISTER_TAX_PERCENT}%)`}</legend>
+                {inUseBad && (
+                  <p className="adm-warntext" role="note">{inUse
+                    ? `The tax classes use now (${inUse.name}, ${pct(inUse.percent)}) isn’t right: ${inUse.why} Pick the ${REGISTER_TAX_PERCENT}% tax below.`
+                    : `The tax classes use now isn’t on the register any more. Pick the ${REGISTER_TAX_PERCENT}% tax below.`}</p>
+                )}
+                {!inUseBad && inUse && <p className="adm-small adm-muted">{`In use now: ${inUse.name}, ${pct(inUse.percent)}.`}</p>}
                 {d.choices.taxes.length === 0 && <p className="adm-empty">There are no taxes on the register yet.</p>}
                 {d.choices.taxes.map((t) => (
                   <label key={t.id} className="adm-check">
@@ -588,6 +637,26 @@ export function RegisterSetupSheet() {
           )}
           {fieldError.form && <p className="adm-error" role="alert">{fieldError.form}</p>}
 
+          {(d.oldSetup?.length ?? 0) > 0 && (
+            <section aria-label="Still on the old tax" className="adm-gap-top">
+              <p className="adm-lbl">{d.oldSetup!.length === 1 ? '1 class still uses the old tax or category' : `${d.oldSetup!.length} classes still use the old tax or category`}</p>
+              <p className="adm-small adm-muted">The register rings them with the old one until they’re updated. Nothing about anyone’s booking changes.</p>
+              <button type="button" className="adm-btn is-pri" disabled={!!updating || !!busy} onClick={updateAll}>
+                {updating ? `Updating… ${updating.done} done` : 'Update them all'}
+              </button>
+              {updateError && <p className="adm-error" role="alert">{updateError}</p>}
+              <ul className="adm-plain">
+                {d.oldSetup!.map((c) => (
+                  <li key={c.id}>
+                    <button type="button" className="adm-mrow" onClick={() => open({ kind: 'class', id: c.id }, { back: { kind: 'more', page: 'register' }, label: 'Register setup' })}>
+                      <span className="adm-rm"><b>{c.name}</b><small>{c.startIso ? dayLabel(localDate(c.startIso)) : ''}</small></span>
+                      <span className="adm-chev" aria-hidden="true">›</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           {d.notOnRegister.length > 0 && (
             <section aria-label="Not on the register yet" className="adm-gap-top">
               <p className="adm-lbl">{`Not on the register yet (${d.notOnRegister.length})`}</p>

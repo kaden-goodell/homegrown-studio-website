@@ -9,7 +9,7 @@
  */
 import { earlyBirdRunning } from '@lib/classes/early-bird'
 import { shortDay } from '@lib/classes/chicago-day'
-import { notOnRegister, posPricesStale } from '@lib/classes/pos-plan'
+import { notOnRegister, posPricesStale, registerSetupStale, type RegisterInForce } from '@lib/classes/pos-plan'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ClassBooking, PersonToTell } from '@lib/classes/admin-actions'
 import { contentChanges, sameDetails } from '@lib/classes/content-diff'
@@ -41,7 +41,7 @@ const STATUS_NOTE: Record<Exclude<ClassStatus, 'cancelled'>, string> = {
   closed: 'On the website, with sign-ups closed.',
 }
 
-interface Loaded { cls: ScheduledClass; bookings: ClassBooking[]; seatsTaken: Record<string, number> }
+interface Loaded { cls: ScheduledClass; bookings: ClassBooking[]; seatsTaken: Record<string, number>; register?: RegisterInForce | null }
 
 /** Several numbers in one text: iOS Messages opens a group with /open?addresses=. */
 export function smsAll(phones: string[]): string {
@@ -104,9 +104,9 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
 
   async function load(opts: { refill?: boolean } = {}): Promise<Loaded | null> {
     setLoadError('')
-    const r = await api<{ class: ScheduledClass; bookings?: ClassBooking[]; seatsTaken?: Record<string, number> }>(`${BOOKINGS}?id=${encodeURIComponent(id)}`)
+    const r = await api<{ class: ScheduledClass; bookings?: ClassBooking[]; seatsTaken?: Record<string, number>; register?: RegisterInForce | null }>(`${BOOKINGS}?id=${encodeURIComponent(id)}`)
     if (!r.ok || !r.data) { if (!data) setLoadError(r.error ?? ''); else toast(r.error ?? DIDNT_SAVE); return null }
-    const next: Loaded = { cls: r.data.class, bookings: r.data.bookings ?? [], seatsTaken: r.data.seatsTaken ?? {} }
+    const next: Loaded = { cls: r.data.class, bookings: r.data.bookings ?? [], seatsTaken: r.data.seatsTaken ?? {}, register: r.data.register ?? null }
     setData(next)
     if (!data || opts.refill) fill(next.cls)
     return next
@@ -395,7 +395,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     <SheetFrame tall title={c.name} subtitle={subtitle} footer={footer}>
       <div ref={body}>
         <Seg label="Show" value={tab} options={TABS} onChange={(t) => { setTab(t); setTexting(false) }} />
-        <RegisterPanel cls={cls} onFixed={(saved) => { setData((d) => (d ? { ...d, cls: saved } : d)); bump() }} />
+        <RegisterPanel cls={cls} register={data.register} onFixed={(saved) => { setData((d) => (d ? { ...d, cls: saved } : d)); bump() }} />
 
         {tab === 'bookings' && (
           <section aria-label="Bookings">
@@ -600,49 +600,72 @@ function BookingRow({ b, cls, ticket, onChanged }: { b: ClassBooking; cls: Sched
 }
 
 /**
- * The class and the register, one panel with two states:
+ * The class and the register, one panel:
  *  - fix round 3: it should be on the register and isn't (or is missing a
  *    seat it now sells) → "Put it on the register";
+ *  - fix round 4: it's on the register with an older tax or category than
+ *    More › Register setup has now → "Update the register";
  *  - D4: the register doesn't ring its current price (the early-bird ended or
- *    started and the hourly update didn't land) → "Fix the register price now".
+ *    started and the hourly update didn't land) → "Fix the register price now";
+ *  - otherwise, for a class on the register that isn't over, a small
+ *    "Update the register" link (sends it again; what the owner alerts point at).
  * The server re-checks and writes through the guarded path. A setup step not
  * done (class tax, Classes category) comes back with the button that opens
  * More › Register setup.
  */
-function RegisterPanel({ cls, onFixed }: { cls: ScheduledClass; onFixed: (c: ScheduledClass) => void }) {
+function RegisterPanel({ cls, register, onFixed }: { cls: ScheduledClass; register?: RegisterInForce | null; onFixed: (c: ScheduledClass) => void }) {
   const toast = useToast()
   const { open } = useSheet()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<{ text: string; setup: boolean } | null>(null)
   const now = new Date()
   const missing = notOnRegister(cls, now)
-  if (!missing && !posPricesStale(cls, now)) return null
+  const oldSetup = !missing && registerSetupStale(cls, register, now)
+  const priceStale = !missing && !oldSetup && posPricesStale(cls, now)
+  const onRegister = !!cls.square.itemId && (cls.status === 'open' || cls.status === 'closed') && cls.sessions.some((s) => Date.parse(s.endIso) > now.getTime())
+  if (!missing && !oldSetup && !priceStale && !onRegister) return null
   const running = !!cls.content.earlyBird && earlyBirdRunning(cls.content, now)
+  const action = missing ? 'sync-pos' : priceStale ? 'fix-register-price' : 'update-register'
   async function run() {
     setBusy(true)
     setError(null)
-    const r = await api<{ class: ScheduledClass; result: string }>(CLASSES, { action: missing ? 'sync-pos' : 'fix-register-price', id: cls.id })
+    const r = await api<{ class: ScheduledClass; result: string }>(CLASSES, { action, id: cls.id })
     setBusy(false)
     if (!r.ok || !r.data) { setError({ text: r.error ?? DIDNT_SAVE, setup: !!r.extra.setup }); return }
     onFixed(r.data.class)
     if (missing) toast(r.data.result === 'put' ? 'It’s on the register now. People can book it online.' : 'It was already on the register.')
-    else toast(r.data.result === 'fixed' ? 'The register has the right price now.' : 'The register already had the right price.')
+    else if (priceStale) toast(r.data.result === 'fixed' ? 'The register has the right price now.' : 'The register already had the right price.')
+    else toast('The register is up to date for this class.')
+  }
+  const setupButton = error?.setup && (
+    <button type="button" className="adm-btn is-ghost" onClick={() => open({ kind: 'more', page: 'register' }, { back: { kind: 'class', id: cls.id }, label: cls.content.name })}>Open Register setup</button>
+  )
+  if (!missing && !oldSetup && !priceStale) {
+    // Nothing known to be wrong: a quiet way to send it again (what the owner texts point at).
+    return (
+      <div className="adm-gap-top" data-testid="register-refresh">
+        <button type="button" className="adm-btn is-ghost is-sm" disabled={busy} onClick={run}>{busy ? 'Updating…' : 'Update the register'}</button>
+        <span className="adm-small adm-muted">{' Sends this class’s prices, tax and category to the register again. Bookings don’t change.'}</span>
+        {error && <p className="adm-error" role="alert">{error.text}</p>}
+        {setupButton}
+      </div>
+    )
   }
   return (
-    <div className="adm-panel is-warn" role="group" aria-label="The register" data-testid={missing ? 'not-on-register' : 'register-price'}>
+    <div className="adm-panel is-warn" role="group" aria-label="The register" data-testid={missing ? 'not-on-register' : oldSetup ? 'register-old-setup' : 'register-price'}>
       <b>{missing
         ? 'This class isn’t on the register yet, so it can’t be booked online.'
-        : running ? 'The register doesn’t have the early-bird price yet.' : 'The register still rings the early-bird price, which has ended.'}</b>
+        : oldSetup ? 'The register still has the old tax or category for this class.'
+          : running ? 'The register doesn’t have the early-bird price yet.' : 'The register still rings the early-bird price, which has ended.'}</b>
       <span className="adm-small">{missing
         ? 'Nothing about anyone’s booking changes. This puts the class and its prices on the register.'
-        : 'Nothing about anyone’s booking changes. This puts this class’s current prices on the register.'}</span>
+        : oldSetup ? 'Nothing about anyone’s booking changes. This gives it the tax and category from Register setup.'
+          : 'Nothing about anyone’s booking changes. This puts this class’s current prices on the register.'}</span>
       <button type="button" className="adm-btn is-pri" disabled={busy} onClick={run}>
-        {busy ? (missing ? 'Putting it on…' : 'Fixing…') : missing ? 'Put it on the register' : 'Fix the register price now'}
+        {busy ? (missing ? 'Putting it on…' : oldSetup ? 'Updating…' : 'Fixing…') : missing ? 'Put it on the register' : oldSetup ? 'Update the register' : 'Fix the register price now'}
       </button>
       {error && <p className="adm-error" role="alert">{error.text}</p>}
-      {error?.setup && (
-        <button type="button" className="adm-btn is-ghost" onClick={() => open({ kind: 'more', page: 'register' }, { back: { kind: 'class', id: cls.id }, label: cls.content.name })}>Open Register setup</button>
-      )}
+      {setupButton}
     </div>
   )
 }

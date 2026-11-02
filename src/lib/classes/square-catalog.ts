@@ -193,7 +193,12 @@ export async function syncClassToSquare(cls: ScheduledClass, now: Date = new Dat
       console.warn(`[classes] image upload for ${cls.id} failed: ${e?.message ?? e}`)
     }
   }
-  return { itemId, variations: out, imageUrl, prices: Object.fromEntries(plan.map((p) => [p.key, p.cents])) }
+  return {
+    itemId, variations: out, imageUrl, prices: Object.fromEntries(plan.map((p) => [p.key, p.cents])),
+    // Fix round 4: what the item carries now, so a later Register setup change shows "Update the register".
+    taxId: taxId && cls.content.rules.taxable ? taxId : null,
+    categoryId,
+  }
 }
 
 /**

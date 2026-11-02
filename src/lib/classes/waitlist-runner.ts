@@ -204,7 +204,7 @@ function noteOf(r: RunResult): string {
   if (r.closed) bits.push(`${r.closed} came off because the waitlist closed.`)
   if (r.stopped === 'unknown') bits.push('Square didn’t say whether a card was charged, so the seat is held and it stopped there. It shows in To decide.')
   if (r.stopped === 'setup') bits.push('Square refused the request, so nobody was charged. Take waitlisted people by phone meanwhile.')
-  if (r.stopped === 'register') bits.push('The register’s price for this class doesn’t match, so nobody was charged. Open the class and tap Save, then run it again.')
+  if (r.stopped === 'register') bits.push('The register’s price for this class doesn’t match, so nobody was charged. Tap Update the register on this class, then run it again.')
   if (r.stopped === 'error') bits.push('Square couldn’t be reached, so nobody was charged. Try again in a few minutes.')
   if (!bits.length) bits.push('Nobody on the waitlist fits the free seats right now.')
   return bits.join(' ')
@@ -404,7 +404,7 @@ async function proceed(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, q: Qu
     if (verdict.kind === 'refuse' || order.totalCents > entry.maxCents) {
       await letGo()
       await backToWaiting(ctx, entry, a, 'error', `The register asked ${money(order.totalCents)}, more than the website price. Not charged.`)
-      await alertOwners(`Waitlist didn't charge ${nameOfEntry(entry)} for ${cls.content.name}: the register asked ${money(order.totalCents)}, the website ${money(q.totalCents)} (they agreed to ${money(entry.maxCents)}). Open the class in /admin and tap Save so the register gets its prices, then run the waitlist. Nothing was charged.`).catch(() => undefined)
+      await alertOwners(`Waitlist didn't charge ${nameOfEntry(entry)} for ${cls.content.name}: the register asked ${money(order.totalCents)}, the website ${money(q.totalCents)} (they agreed to ${money(entry.maxCents)}). Open the class in /admin and tap Update the register, then run the waitlist. Nothing was charged.`).catch(() => undefined)
       ctx.result.stopped = 'register'
       return 'stop'
     }

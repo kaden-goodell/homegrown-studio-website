@@ -28,7 +28,8 @@ import { chicagoYmd } from './chicago-day'
 import { getClass, listClasses, StaleClassError, updateClass } from './class-store'
 import { earlyBirdRunning } from './early-bird'
 import { posPricesStale, syncClassToSquare } from './square-catalog'
-import { notOnRegister } from './pos-plan'
+import { notOnRegister, registerSetupStale, wantedTaxId } from './pos-plan'
+import { assertInForceUsable, isSquareConnectionError, listRegisterChoices, registerInForce, type RegisterChoices } from './register-setup'
 import type { ScheduledClass } from './types'
 
 const logger = createLogger('classes:pos-prices')
@@ -107,6 +108,83 @@ export async function putOnRegister(classId: string, by: By, now = new Date()): 
   const square = await syncClassToSquare(cls, now)
   const saved = await updateClass(cls.id, { square }, by, 'Put on the register', { expectedUpdatedAt: cls.updatedAt })
   return { result: 'put', cls: saved }
+}
+
+/**
+ * "Update the register" (fix round 4): send the class to the register again
+ * with the tax and Classes category in More › Register setup now (and its
+ * current prices). Shown on the class sheet when the class carries an old tax
+ * or category, and as a small link on any class on the register. The same
+ * safety as "Fix the register price now": owners only (the route), re-reads
+ * the class, checks the tax and category in force are still right in Square
+ * (else a setup refusal with the Register setup button), the guarded write
+ * (syncClassToSquare: R41/N3), the record saved only on the version read.
+ * Sending the same thing twice changes nothing, so a double tap is harmless.
+ */
+export async function updateRegister(classId: string, by: By, now = new Date(), choices?: RegisterChoices): Promise<{ result: 'updated'; cls: ScheduledClass }> {
+  const cls = await getClass(classId)
+  if (!cls) throw new ClassGoneError()
+  const refusal = putOnRegisterRefusal(cls, now)
+  if (refusal) throw Object.assign(new Error(refusal), { refusal: true })
+  const reg = await registerInForce({ fresh: true })
+  await assertInForceUsable(reg, wantedTaxId(cls, { classTaxId: reg.classTaxId }) !== null, choices)
+  const square = await syncClassToSquare(cls, now)
+  const saved = await updateClass(cls.id, { square }, by, 'Register updated (tax and category)', { expectedUpdatedAt: cls.updatedAt })
+  return { result: 'updated', cls: saved }
+}
+
+/** A row in Register setup's "still use the old tax" list. */
+export interface OldSetupRow { id: string; name: string; startIso: string }
+
+const firstStart = (c: ScheduledClass) => [...c.sessions].sort((a, b) => a.startIso.localeCompare(b.startIso))[0]?.startIso ?? ''
+
+/** Fix round 4: upcoming classes on the register with a different tax or category than Register setup has now. */
+export async function classesOnOldSetup(now = new Date()): Promise<OldSetupRow[]> {
+  const reg = await registerInForce({ fresh: true })
+  const list = await listClasses({ fromIso: now.toISOString(), toIso: new Date(now.getTime() + YEAR_MS).toISOString() })
+  return list.filter((c) => registerSetupStale(c, reg, now)).map((c) => ({ id: c.id, name: c.content.name, startIso: firstStart(c) }))
+}
+
+/** How long "Update them all" works per tap before answering (a Netlify function has ~10 s). */
+export const UPDATE_ALL_BUDGET_MS = 4_000
+
+/**
+ * "Update them all" (fix round 4, More › Register setup): updateRegister for
+ * every class still on the old tax or category, one at a time, until the time
+ * budget runs out. `left` > 0 means tap again (the sheet does it by itself):
+ * each run lists afresh, so a class already updated is never sent twice and a
+ * class an owner saved meanwhile is skipped (their save sent the new setup).
+ * Stops before any write when the setup itself isn't right in Square.
+ */
+export async function updateAllToSetup(by: By, opts: { now?: Date; budgetMs?: number } = {}): Promise<{ updated: OldSetupRow[]; failed: OldSetupRow[]; left: OldSetupRow[] }> {
+  const started = Date.now()
+  const now = opts.now ?? new Date()
+  const budget = opts.budgetMs ?? UPDATE_ALL_BUDGET_MS
+  const rows = await classesOnOldSetup(now)
+  if (!rows.length) return { updated: [], failed: [], left: [] }
+  const choices = await listRegisterChoices()
+  const reg = await registerInForce()
+  // One check for all: a wrong tax stops the run with the Register setup message, before any class is touched.
+  await assertInForceUsable(reg, true, choices)
+  const updated: OldSetupRow[] = []
+  const failed: OldSetupRow[] = []
+  let i = 0
+  for (; i < rows.length; i++) {
+    if (Date.now() - started > budget) break
+    const row = rows[i]
+    try {
+      const fresh = await getClass(row.id)
+      if (!fresh || !registerSetupStale(fresh, reg, now)) continue
+      await updateRegister(row.id, by, now, choices)
+      updated.push(row)
+    } catch (err) {
+      if (err instanceof StaleClassError) continue // an owner saved it meanwhile: that save sent the new setup
+      logger.error('Class not updated to the register setup', { classId: row.id, error: err instanceof Error ? err.message : String(err) })
+      if (isSquareConnectionError(err)) throw err // the website can't reach Square: nothing more will go through
+      failed.push(row)
+    }
+  }
+  return { updated, failed, left: rows.slice(i) }
 }
 
 export async function followCurrentPricesOnPos(now = new Date()): Promise<{ checked: number; updated: string[]; failed: string[] }> {

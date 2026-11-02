@@ -324,7 +324,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     logger.error('Class order total far above the quote — refusing', { bookingId, orderId: order.orderId, quote: q!.totalCents, square: order.totalCents })
     await letGo('price mismatch')
     await alertOwners(
-      `Class booking refused, price mismatch: ${cls.content.name}, booking ${bookingId}. Quote ${dollars(q!.totalCents)}, Square ${dollars(order.totalCents)}. Open the class in /admin and tap Save so the register gets its prices. Nothing was charged.`,
+      `Class booking refused, price mismatch: ${cls.content.name}, booking ${bookingId}. Quote ${dollars(q!.totalCents)}, Square ${dollars(order.totalCents)}. Open the class in /admin and tap Update the register. Nothing was charged.`,
     ).catch(() => undefined)
     return fail(502, 'unavailable', PRICE_MISMATCH_MESSAGE)
   }
@@ -341,7 +341,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
       `Class price differed — ${cls.content.name}`, `booking ${bookingId}`, q!.totalCents, order.totalCents,
       verdict.driftCents > 0 ? '' : posBehind
         ? 'The register still had the early-bird price. It goes back to the regular price within the hour.'
-        : 'Check the class tax in /admin › More › Register setup, then open the class and tap Save.',
+        : 'Check the class tax in /admin › More › Register setup, then tap Update them all there (or open the class and tap Update the register).',
     )
   }
   const charged = order.totalCents

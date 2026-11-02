@@ -78,6 +78,8 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
   const pickable = all?.filter((l) => !l.archived) ?? null
   /** One key for this Add, kept across retries, so a lost reply never makes a second class (R35). */
   const createKey = useRef(newKey())
+  /** N4: the library entry an earlier Add from scratch made (all dates refused): Change the dates reuses it. */
+  const madeLib = useRef<string | null>(null)
   const [replacing, setReplacing] = useState<LibraryClass | null>(null)
   /** The form as last filled in (opened, or a past class picked): typing past this is "what you typed". */
   const lastFill = useRef('')
@@ -111,6 +113,7 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
     setF(form)
     setRows(r)
     setPicked(p)
+    madeLib.current = null
     setStart(snapshot(form, r))
     setReady(true)
   }
@@ -174,6 +177,7 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
   // The choice only when she changed the details here and they differ from the library's (Q9).
   const differs = !!picked?.content && built.ok && !sameDetails(built.content, picked.content) && !sameDetails(built.content, picked.startedFrom)
   const repeating = repeat.kind !== 'none'
+  const libIdNow = (): string | null => picked?.libraryId ?? madeLib.current
   const preview = useRepeatPreview(repeat, checkedRows.ok ? checkedRows.sessions : null, { content: built.ok ? built.content : undefined, libraryId: picked?.libraryId ?? null })
   const ticked = repeating ? tickedDates(repeat, preview.dates).length : 1
 
@@ -198,7 +202,7 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
     setBusy(status === 'draft' ? 'draft' : alsoLibrary ? 'both' : 'add')
     const r = await api<{ class: ScheduledClass; replay?: boolean }>(CLASSES, {
       action: 'create', content, sessions: checked.sessions, status, createKey: createKey.current,
-      ...(picked?.libraryId ? { libraryId: picked.libraryId } : {}),
+      ...(libIdNow() ? { libraryId: libIdNow() } : {}),
       ...(alsoLibrary ? { alsoUpdateLibrary: true } : {}),
     })
     setBusy('')
@@ -212,6 +216,7 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
     }
     setStart(snapshot(f, rows))
     createKey.current = newKey()
+    madeLib.current = null
     // Added: moving on to its sheet must not ask "Leave without saving?".
     setDirty(false)
     bump()
@@ -233,7 +238,7 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
     const req = {
       action: 'repeat', content, sessions, status, createKey: createKey.current, pattern,
       skip: preview.dates.filter((d) => !chosen.some((c) => c.ymd === d.ymd)).map((d) => d.ymd),
-      ...(picked?.libraryId ? { libraryId: picked.libraryId } : {}),
+      ...(libIdNow() ? { libraryId: libIdNow() } : {}),
       ...(alsoLibrary ? { alsoUpdateLibrary: true } : {}),
     }
     sentRepeat.current = req
@@ -271,6 +276,7 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
       return
     }
     const d = r.data
+    if (!picked?.libraryId && d.libraryId) madeLib.current = d.libraryId
     if (d.created.length) bump()
     if (!d.skipped.length && !d.left.length) return finishRepeat(d.created, status, r.warning)
     setOutcome({ total, created: d.created, skipped: d.skipped, left: d.left, status, ...(r.warning ? { warning: r.warning } : {}) })
@@ -286,6 +292,7 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
 
   function finishRepeat(created: RepeatResult['created'], status: 'open' | 'draft', warning?: string) {
     setOutcome(null)
+    madeLib.current = null
     setStart(snapshot(f, rows))
     setRepeat(NO_REPEAT)
     createKey.current = newKey()

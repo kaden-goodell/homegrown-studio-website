@@ -582,7 +582,7 @@ describe('Repeat (stage 4)', () => {
 
   it('I1: every date refused at create: "None of these dates could be added." and Change the dates keeps the form with a fresh key', async () => {
     const dates = ['2031-03-12', '2031-03-19'].map((ymd) => ({ ymd, ok: true, reason: null }))
-    const f = repeatServer({ dates, repeat: () => ok({ data: { created: [], skipped: dates.map((d) => ({ ymd: d.ymd, reason: 'Clashes with Rivera party, Wed Mar 12 6 PM.' })), left: [], leftBecause: null } }) })
+    const f = repeatServer({ dates, repeat: () => ok({ data: { created: [], skipped: dates.map((d) => ({ ymd: d.ymd, reason: 'Clashes with Rivera party, Wed Mar 12 6 PM.' })), left: [], leftBecause: null, libraryId: 'lib_made' } }) })
     await startWeekly(f, '2031-03-19')
     fireEvent.click(within(footer()).getByRole('button', { name: 'Add 2 classes' }))
     const panel = await screen.findByRole('alert', { name: 'What was added' })
@@ -595,6 +595,9 @@ describe('Repeat (stage 4)', () => {
     await waitFor(() => expect(posts(f, CLASSES).filter((x: any) => x.body.action === 'repeat')).toHaveLength(2))
     const sent = posts(f, CLASSES).filter((x: any) => x.body.action === 'repeat')
     expect(sent[1].body.createKey).not.toBe(sent[0].body.createKey)
+    // N4: the library entry the first Add made is used again, never a second one.
+    expect(sent[0].body.libraryId).toBeUndefined()
+    expect(sent[1].body.libraryId).toBe('lib_made')
   })
 
   it('stale edits: while the partial-result panel is up the form is locked, with the line saying how to change anything', async () => {

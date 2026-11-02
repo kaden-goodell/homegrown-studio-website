@@ -331,7 +331,7 @@ describe('POST /api/classes/book.json', () => {
     expect(mockOwnerEmail).toHaveBeenCalledTimes(1)
     const mail = mockOwnerEmail.mock.calls[0][0]
     expect(mail.subject).toMatch(/Pottery Weekend/)
-    expect(mail.text).toBe(`Square total was $14.40 lower than the quote on booking ${bookingIdFor(ATTEMPT)} (quote $174.40, Square $160.00). Check the class tax in /admin › More › Register setup, then open the class and tap Save.`)
+    expect(mail.text).toBe(`Square total was $14.40 lower than the quote on booking ${bookingIdFor(ATTEMPT)} (quote $174.40, Square $160.00). Check the class tax in /admin › More › Register setup, then tap Update them all there (or open the class and tap Update the register).`)
     expect(mockAlertOwners).not.toHaveBeenCalled()
   })
 

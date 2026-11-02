@@ -33,7 +33,8 @@ import { onStaffConsole } from '@lib/classes/staff-view'
 import { listCounterMatchChecks, listDoorUnpaid } from '@lib/classes/door-unpaid'
 import { decidedIds, minimumItemId } from '@lib/classes/decided'
 import type { ScheduledClass } from '@lib/classes/types'
-import { notOnRegister, posPricesStale } from '@lib/classes/pos-plan'
+import { notOnRegister, posPricesStale, registerSetupStale } from '@lib/classes/pos-plan'
+import { registerInForce } from '@lib/classes/register-setup'
 import { earlyBirdRunning } from '@lib/classes/early-bird'
 import { formatMoney } from '@lib/money'
 import { getPartyRecord } from '@lib/party-store'
@@ -52,6 +53,8 @@ export type WarningCode =
   | 'pos-price-stale'
   // Fix round 3: a class that should be on the register isn't (setup not done, or a save's register write failed)
   | 'not-on-register'
+  // Fix round 4: a class on the register still has an older tax or category than More › Register setup
+  | 'register-old-setup'
   // Stage 4 waitlist: a saved-card charge Square never answered (seat held), or a card that didn't go through / a price that rose
   | 'waitlist-unknown' | 'waitlist-declined'
 
@@ -292,6 +295,7 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
     openPaidNotSeated(),
   ])
   const shown = classes.filter(onStaffConsole)
+  const register = await registerInForce().catch(() => null)
   const byId = new Map<string, ScheduledClass>(shown.map((c) => [c.id, c]))
   const out: Warning[] = []
   for (const cls of shown) {
@@ -326,6 +330,13 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
         code: 'not-on-register', eventKind: 'workshop', eventId: cls.id, when: firstLeft?.startIso ?? now.toISOString(), title: name,
         detail: `${name} isn’t on the register yet, so it can’t be booked online.`,
         action: 'An owner opens the class in /admin and taps Put it on the register.',
+      })
+    } else if (registerSetupStale(cls, register, now)) {
+      const firstLeft = sessions.find((s) => Date.parse(s.endIso) > now.getTime()) ?? sessions[0]
+      out.push({
+        code: 'register-old-setup', eventKind: 'workshop', eventId: cls.id, when: firstLeft?.startIso ?? now.toISOString(), title: name,
+        detail: `The register still has the old tax or category for ${name}.`,
+        action: 'An owner taps Update them all in /admin › More › Register setup (or Update the register on the class).',
       })
     }
     // Stage 4: the waitlist's unclear charges and cards that didn't go through, until an owner decides in To decide.

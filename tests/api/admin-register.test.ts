@@ -88,7 +88,7 @@ describe('/api/admin/register.json (More › Register setup)', () => {
   it('GET with an expired token: the page still loads and says the connection isn’t working (no Netlify)', async () => {
     sq.fail = Object.assign(new Error('x'), { status: 401, errors: [{ code: 'ACCESS_TOKEN_EXPIRED' }] })
     const r = await call('GET')
-    expect(r.body.data).toMatchObject({ choices: null, choicesError: 'The register connection isn’t working right now.', connection: true })
+    expect(r.body.data).toMatchObject({ choices: null, choicesError: 'The website can’t reach Square right now, so this can’t change from here. The register still works: ring the class up at the price on its class page, as a custom amount if it isn’t listed.', connection: true })
   })
 
   it('make the tax, make the category, save: audited, used at once; a second make writes nothing', async () => {
@@ -117,4 +117,39 @@ describe('/api/admin/register.json (More › Register setup)', () => {
     const r = await call('POST', { action: 'save', classTaxId: 'T8', classesCategoryId: 'C1', expectedUpdatedAt: null })
     expect(r).toMatchObject({ status: 400, body: { field: 'tax', error: 'This tax isn’t 9%, so online prices wouldn’t match the register.' } })
   })
+
+  it('N9: a make retried after a lost reply (the tax is there now, but the sheet never saw it) is still audited once', async () => {
+    sq.objects = [{ type: 'TAX', id: 'NEW_TAX', tax_data: { name: 'Sales tax', percentage: '9', enabled: true, inclusion_type: 'ADDITIVE' } }]
+    const r = await call('POST', { action: 'create-tax', seen: [] })
+    expect(r.body.data).toMatchObject({ id: 'NEW_TAX', made: false })
+    expect(audits).toHaveBeenCalledWith(expect.objectContaining({ action: 'register-create-tax', details: expect.objectContaining({ squareId: 'NEW_TAX', note: expect.stringMatching(/lost reply/) }) }))
+    audits.mockClear()
+    // One she could see already: picked, not audited as made.
+    await call('POST', { action: 'create-tax', seen: ['NEW_TAX'] })
+    expect(audits).not.toHaveBeenCalled()
+    expect(sq.upserts).toBe(0)
+  })
+
+  it('fix 4: GET lists the classes on the old tax; Update them all is stopped by a wrong tax, in words with no "Open More"', async () => {
+    sq.objects = [
+      { type: 'TAX', id: 'T9', tax_data: { name: 'Sales tax', percentage: '9', enabled: true, inclusion_type: 'ADDITIVE' } },
+      { type: 'CATEGORY', id: 'C1', category_data: { name: 'Classes' } },
+    ]
+    await call('POST', { action: 'save', classTaxId: 'T9', classesCategoryId: 'C1', expectedUpdatedAt: null })
+    const onOld = { ...offRegister, id: 'cls_old', square: { itemId: 'I', variations: { 'all:p': 'V' }, taxId: 'OLD', categoryId: 'C1' }, content: { ...offRegister.content, rules: { taxable: true } } }
+    classes.list = [onOld]
+    const g = await call('GET')
+    expect(g.body.data.oldSetup).toEqual([{ id: 'cls_old', name: 'Clay Camp', startIso: future.startIso }])
+    // The 9% tax is deleted in Square after the save.
+    sq.objects = sq.objects.filter((o) => o.id !== 'T9')
+    const u = await call('POST', { action: 'update-classes' })
+    expect(u).toMatchObject({ status: 503, body: { field: 'tax', error: 'The class tax in Register setup isn’t on the register any more. Pick the 9% tax above.' } })
+    expect(audits).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'class-update-register' }))
+  })
+
+  it('fix 4: Update them all with nothing to do answers nothing left', async () => {
+    const u = await call('POST', { action: 'update-classes' })
+    expect(u).toMatchObject({ status: 200, body: { data: { updated: 0, failed: [], left: 0, oldSetup: [] } } })
+  })
 })
+

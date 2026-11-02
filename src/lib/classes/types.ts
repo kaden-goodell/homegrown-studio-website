@@ -76,6 +76,15 @@ export interface ScheduledClass {
      * this) = the regular prices.
      */
     prices?: Record<string, Cents>
+    /**
+     * Fix round 4: the class tax (null = none) and the Classes category the
+     * POS item was last sent with. Absent (put on the register before this
+     * was recorded) = the site's built-in values, the only ones there were.
+     * When More › Register setup changes, a class whose ids differ shows
+     * "Update the register".
+     */
+    taxId?: string | null
+    categoryId?: string
   }
   createdAt: string
   updatedAt: string

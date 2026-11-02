@@ -472,7 +472,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
       return (
         <div className="space-y-3" role="group" aria-label={groupName}>
           <div className="rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-400">
-            Loading payment form...
+            {store ? 'Loading the card form…' : 'Loading payment form...'}
           </div>
         </div>
       )

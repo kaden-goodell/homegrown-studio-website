@@ -23,9 +23,15 @@ export const CLASSES_CATEGORY_NOT_SET = "Classes category isn't set up yet."
 export const PICK_TAX = `Open ${REGISTER_SETUP_PATH} and pick the ${REGISTER_TAX_PERCENT}% tax.`
 export const PICK_CATEGORY = `Open ${REGISTER_SETUP_PATH} and pick the Classes category.`
 
-/** The register connection (Square's access token) isn't working: nothing in /admin can renew it. */
-export const REGISTER_DOWN = 'The register connection isn’t working right now. Ring it up at the regular price meanwhile.'
-export const REGISTER_DOWN_SHORT = 'The register connection isn’t working right now.'
+/**
+ * The website can't reach Square (its access token is expired, revoked or
+ * lacks a permission): nothing in /admin can renew it. Fix round 4 wording
+ * (review, adopted; COPY FOR KADEN): the register itself still works, and the
+ * class page has the price to ring up (the early-bird one while it runs).
+ */
+export const REGISTER_DOWN = 'The website can’t reach Square right now, so this can’t change from here. The register still works: ring the class up at the price on its class page, as a custom amount if it isn’t listed.'
+/** Register setup adds what customers feel. */
+export const REGISTER_DOWN_PAY = 'People can’t pay online until this works again.'
 
 /** What a refusal carries so the sheet can show the button to Register setup. */
 export type SetupNeeded = 'tax' | 'category'

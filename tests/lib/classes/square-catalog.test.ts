@@ -211,12 +211,14 @@ describe('syncClassToSquare', () => {
     expect(sq.itemId).toMatch(/^R/)
     expect(Object.keys(sq.variations).sort()).toEqual(['addon:glaze', 'all:adult', 'all:kid', 'wk:adult'])
     expect(new Set(Object.values(sq.variations)).size).toBe(4)
+    // Fix round 4: what it was sent with, so a Register setup change shows "Update the register".
+    expect(sq).toMatchObject({ taxId: 'TAX1', categoryId: 'CAT1' })
   })
 
   it('leaves the tax off a class that is not taxable, with or without a tax set up', async () => {
     replies.push(upsertEcho())
     const c = cls(); c.content.rules.taxable = false
-    await syncClassToSquare(c)
+    expect(await syncClassToSquare(c)).toMatchObject({ taxId: null, categoryId: 'CAT1' })
     expect(ups()[0].body.batches[0].objects[0].item_data).not.toHaveProperty('tax_ids')
     cfg.classTaxId = ''
     await syncClassToSquare(c)
