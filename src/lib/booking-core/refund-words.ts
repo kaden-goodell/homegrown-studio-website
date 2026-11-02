@@ -15,6 +15,13 @@ export const SQUARE_REFUND_CAP = 20
 export const NOT_PAID_HERE = 'Refund this one in Square, where it was paid.'
 export const SQUARE_NO_ANSWER = "Square didn't confirm the refund. Try again. It won't refund twice."
 export const SQUARE_TURNED_DOWN = "Square turned the refund down, so nothing was refunded. Try again."
+/** Square's final answer that nothing (more) can go back on the payment: already refunded, or a refund of it is going through. */
+export const SQUARE_ALREADY_REFUNDED = 'Square says this payment was already refunded (or a refund of it is going through), so nothing more was refunded.'
+/**
+ * Square error codes that are a final answer about the payment itself (more than is left to refund, a
+ * refund already pending, the payment can't be refunded): never "no answer", never re-sent with the same key.
+ */
+export const SQUARE_REFUND_FINAL_CODES = ['REFUND_AMOUNT_INVALID', 'REFUND_ALREADY_PENDING', 'PAYMENT_NOT_REFUNDABLE']
 
 export const NOT_WAITING = "That refund isn't waiting on Square any more."
 export const STILL_WAITING_ON_SQUARE = 'A refund on this booking is still waiting on Square. Check it in Square first.'

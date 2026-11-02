@@ -297,7 +297,7 @@ export async function freeOrphanHold(partyId: string, startIso: string, by: By, 
     const after = new Date(Date.parse(hold.at) + ORPHAN_MIN_AGE_MS).toISOString()
     throw new OrphanHoldError(409, `This time was held only a few minutes ago, so it may be a booking still being paid. Try again after ${partyWhenLabel(after)}. Nothing was changed.`)
   }
-  const attached = (await listCheckouts()).filter((c) => c.partyId === partyId && c.state !== 'retired')
+  const attached = (await listCheckouts()).filter((c) => c.partyId === partyId && c.state !== 'retired' && c.state !== 'settled')
   if (attached.length > 0) {
     throw new OrphanHoldError(409, attached.some((c) => c.state === 'paid-elsewhere')
       ? 'Square shows a payment for this time, so it stays held. Sort out that payment first (it has its own item in To decide). Nothing was changed.'

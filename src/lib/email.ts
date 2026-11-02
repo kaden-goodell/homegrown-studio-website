@@ -710,6 +710,13 @@ export async function sendRefundEmail(input: {
    * then unused. `startIso` null → "for your party."
    */
   party?: { startIso: string | null }
+  /**
+   * A refund of a duplicate payment, never worded as a cancellation:
+   * 'changed-party' (paid twice when they changed their party), 'unmatched-party'
+   * (a party payment we couldn't match to a booking), 'class-twice' (charged
+   * twice for a class booking that stays as it is).
+   */
+  duplicate?: 'changed-party' | 'unmatched-party' | 'class-twice'
 }): Promise<{ sent: boolean }> {
   const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
   const phone = siteConfig.contactPhone
@@ -719,7 +726,14 @@ export async function sendRefundEmail(input: {
   const partyDay = input.party?.startIso && !Number.isNaN(Date.parse(input.party.startIso))
     ? new Date(input.party.startIso).toLocaleDateString('en-US', { timeZone: 'America/Chicago', weekday: 'long', month: 'long', day: 'numeric' })
     : null
-  const lines = input.party
+  const ask = phone ? [`Questions? Text us at ${phone}.`] : []
+  const lines = input.duplicate === 'changed-party'
+    ? [`You were charged twice when you changed your party. We refunded the extra ${amount} to ${card}.`, 'Your party booking hasn’t changed.', ...ask]
+    : input.duplicate === 'unmatched-party'
+      ? [`We refunded ${amount} to ${card} for a party payment we couldn’t match to a booking.`, ...ask]
+      : input.duplicate === 'class-twice'
+        ? [`You were charged twice for ${input.className}. We refunded the extra ${amount} to ${card}.`, 'Your booking hasn’t changed.', ...ask]
+        : input.party
     ? [
       `We refunded ${amount} to ${card} for your party${partyDay ? ` on ${partyDay}` : ''}.`,
       input.keptSeat ? 'Your party is still booked, so we will see you then.' : 'We hope to craft with you again soon.',

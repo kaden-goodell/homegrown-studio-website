@@ -54,8 +54,12 @@ import { seatsLabelFor } from './checkout'
 import { claimConfirmation, markConfirmationRetry, releaseConfirmation, sendClassConfirmation, takeConfirmationRetry } from './confirmation'
 import { bookingCap, freeSeatOnly, onSeatFreed } from './refunds'
 import { claimSquareRefund } from '@lib/booking-core/refund-books'
-import { PAID_ELSEWHERE_SCOPE, PARTY_SCOPE } from '@lib/booking-core/refund-runner'
-import { allRefundRequests, listRefundRequests, UNCONFIRMED_AFTER_MS, type SavedRefundRequest } from './refund-requests'
+import { LOOSE_PAYMENT_SCOPES, PAID_ELSEWHERE_SCOPE, PAID_NOT_SEATED_SCOPE, PARTY_SCOPE } from '@lib/booking-core/refund-runner'
+import { refundKey } from '@lib/booking-core/refund-words'
+import { allRefundRequests, changeRefundRequest, listRefundRequests, UNCONFIRMED_AFTER_MS, type SavedRefundRequest } from './refund-requests'
+import { paidElsewhereForPayment, reopenAfterFailedRefund } from '@lib/parties/paid-elsewhere'
+import { notePaidElsewhere } from '@lib/parties/party-checkouts'
+import { decidedKv, tokenOf } from './decided'
 import { getClass } from './class-store'
 import { isComing, isPaidLine, leftOn } from './seat-status'
 import { handlePartyOrder } from '@lib/parties/square-orders'
@@ -73,6 +77,9 @@ const unmatchedKv = makeKvStore('unmatched-pos', 'unmatched-pos')
 const needsDaysKv = makeKvStore('pos-needs-days', 'pos-needs-days')
 const flagsKv = makeKvStore('refund-flags', 'refund-flags')
 const paidNotSeatedKv = makeKvStore('paid-not-seated', 'paid-not-seated')
+/** A refund To decide sent again after Square failed the first one: new Square refund id → what it stands in for. */
+const replacementsKv = makeKvStore('refund-replacements', 'refund-replacements')
+export interface ReplacementRefund { refundId: string; replaces: string; classId: string; bookingId: string; paymentId: string; cents: Cents; at: string }
 const ATTEMPTS = 3
 
 export interface UnmatchedPos {
@@ -112,6 +119,8 @@ export interface RefundFlag {
   resolved: { at: string; by: By; action: RefundFlagAction } | null
   /** refund-unconfirmed: our saved request */
   requestId?: string
+  /** refund-failed: times To decide's "Try the refund again" was turned down by Square (each try a new key) */
+  retries?: number
 }
 
 const money = (m: any): Cents => (Number.isFinite(Number(m?.amount)) ? Number(m.amount) : 0)
@@ -165,7 +174,11 @@ export interface PaidNotSeated {
   /** what the order bought, per line: the seats to give if an owner says so */
   lines: { lineUid: string; passId: string; ticketTypeId: string; qty: number }[]
   at: string
-  resolved?: { at: string; by: By; how: 'seated' | 'sorted' } | null
+  resolved?: { at: string; by: By; how: 'seated' | 'sorted' | 'refunded' } | null
+  /** what Square shows already refunded on this payment (read when an owner chose, or from Square's refund event) */
+  squareRefunded?: { cents: Cents; at: string; ids?: string[] } | null
+  /** our refund of it that Square turned down after it was sent (the item waits again) */
+  refundFailed?: { cents: Cents; at: string } | null
 }
 
 /** The sessions a counter seat on `passId` covers, and whether staff must pick the days. */
@@ -567,8 +580,48 @@ export async function openPaidNotSeated(): Promise<PaidNotSeated[]> {
   return all.filter((_, i) => !seated[i])
 }
 
-/** An owner seated them or sorted it out in Square: it leaves the list. */
-export async function resolvePaidNotSeated(id: string, by: By, how: 'seated' | 'sorted'): Promise<void> {
+/** One paid-not-seated entry (waiting or resolved), or null. */
+export async function getPaidNotSeated(id: string): Promise<PaidNotSeated | null> {
+  const raw = await paidNotSeatedKv.get(id)
+  return raw ? (JSON.parse(raw) as PaidNotSeated) : null
+}
+
+/** The paid-not-seated entry this Square payment paid (never one whose seats were given: those are on the ledger). */
+export async function paidNotSeatedForPayment(paymentId: string): Promise<PaidNotSeated | null> {
+  return (await readAll<PaidNotSeated>(paidNotSeatedKv, 'pns-'))
+    .find((p) => p.resolved?.how !== 'seated' && (p.paymentId === paymentId || p.paymentIds.includes(paymentId))) ?? null
+}
+
+/** Changes one entry (CAS). `fn` returns the next entry or null for no change. */
+async function changePaidNotSeated(id: string, fn: (p: PaidNotSeated) => PaidNotSeated | null): Promise<PaidNotSeated | null> {
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    const { value, etag } = await paidNotSeatedKv.getWithMeta(id)
+    if (!value) return null
+    const next = fn(JSON.parse(value) as PaidNotSeated)
+    if (!next) return JSON.parse(value)
+    if (await paidNotSeatedKv.setIfMatch(id, JSON.stringify(next), etag, true)) return next
+  }
+  throw new Error('Concurrent update — please retry')
+}
+
+/** What Square shows already refunded on a waiting entry's payment (so the item says it and offers what fits). */
+export async function notePaidNotSeated(id: string, squareRefunded: NonNullable<PaidNotSeated['squareRefunded']>): Promise<void> {
+  await changePaidNotSeated(id, (p) => (p.resolved || JSON.stringify(p.squareRefunded ?? null) === JSON.stringify(squareRefunded) ? null : { ...p, squareRefunded }))
+}
+
+/** A refund Square turned down after it was written: the entry waits again (never refunds by itself). True when reopened now. */
+export async function reopenPaidNotSeated(id: string, refundFailed: NonNullable<PaidNotSeated['refundFailed']>): Promise<boolean> {
+  let reopened = false
+  await changePaidNotSeated(id, (p) => {
+    if (p.resolved?.how !== 'refunded') return null
+    reopened = true
+    return { ...p, resolved: null, refundFailed }
+  })
+  return reopened
+}
+
+/** An owner seated them, refunded them, or sorted it out: it leaves the list. */
+export async function resolvePaidNotSeated(id: string, by: By, how: 'seated' | 'sorted' | 'refunded'): Promise<void> {
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     const { value, etag } = await paidNotSeatedKv.getWithMeta(id)
     if (!value) return
@@ -644,6 +697,8 @@ export type RefundOutcome =
   | { action: 'flagged'; kind: RefundFlagKind; recordedCents?: Cents }
   /** a refund made in Square on a party payment, recorded as money on that party */
   | { action: 'recorded'; partyId: string; recordedCents: Cents }
+  /** a refund made in Square on a payment waiting in To decide (paid elsewhere / paid, no seat): noted on that item */
+  | { action: 'noted'; cents: Cents }
 
 interface PaidLine { classId: string; line: LedgerLine }
 
@@ -747,8 +802,22 @@ export async function handleRefund(refund: any, now: Date, opts: { order?: any; 
   const paymentId = refund?.payment_id
   if (!paymentId || !refund?.id) return { action: 'ignored', why: 'not-ours' }
   // A party payment first (a read failure throws: never "not a party"; the nightly run tries again).
+  // A refund To decide sent again in place of one Square failed: its money is already on the records.
+  const replaced = await replacementsKv.get(`rpl-${safeKey(String(refund.id))}`)
+  if (replaced) {
+    const r = JSON.parse(replaced) as ReplacementRefund
+    const st = String(refund.status ?? '')
+    if (st === 'FAILED' || st === 'REJECTED') {
+      await flag('refund-failed', refund, { classId: r.classId, bookingId: r.bookingId }, now, { cents: r.cents })
+      return { action: 'flagged', kind: 'refund-failed' }
+    }
+    return { action: 'ignored', why: 'already-recorded' }
+  }
   const party = await partyForPayment(String(paymentId))
   if (party) return handlePartyRefund(refund, party, now)
+  // A payment waiting in To decide on no booking (Party payment to check, Paid no seat): its own item.
+  const loose = await handleLooseRefund(refund, now)
+  if (loose) return loose
   const ctx = opts.ctx ?? contextFor(await listClasses())
   // In a reconcile run the payment index says which classes to read; otherwise read them all.
   const classIds = ctx.payments ? [...(ctx.payments.get(paymentId) ?? [])] : ctx.classes.map((c) => c.id)
@@ -884,6 +953,77 @@ async function handlePartyRefund(refund: any, at: PartyPaymentEntry, now: Date):
   if (!recordedCents) return { action: 'ignored', why: 'already-recorded' }
   logger.info('Square refund on a party recorded', { refundId, partyId, recordedCents })
   return { action: 'recorded', partyId, recordedCents }
+}
+
+/**
+ * A Square refund on a payment that waits in To decide on no booking: a party
+ * payment on no party (paid-elsewhere) or a class payment with no seat
+ * (paid-not-seated). One of our own saved refunds → saved as that request
+ * (the nightly run finishes one Square never answered us about); one made in
+ * Square → noted on the item (it then says what Square did and offers only
+ * what fits); FAILED/REJECTED on one of ours already written → the item waits
+ * again and the owners are told. Null: not such a payment. Never refunds.
+ */
+async function handleLooseRefund(refund: any, now: Date): Promise<RefundOutcome | null> {
+  const paymentId = String(refund.payment_id)
+  const refundId = String(refund.id)
+  const status = String(refund.status ?? '')
+  const cents = money(refund.amount_money)
+  const asClaimed = { id: refundId, paymentId, cents }
+  const seen = (prev: { cents: Cents; ids?: string[] } | null | undefined) => ({
+    cents: prev?.ids?.includes(refundId) ? prev.cents : (prev?.cents ?? 0) + cents,
+    at: now.toISOString(), ids: [...new Set([...(prev?.ids ?? []), refundId])],
+  })
+
+  const pe = await paidElsewhereForPayment(paymentId)
+  if (pe?.orderId) {
+    const orderId = pe.orderId
+    const ours = (await listRefundRequests(PAID_ELSEWHERE_SCOPE, orderId)).find((r) => r.squareRefundId === refundId)
+    if (status === 'FAILED' || status === 'REJECTED') {
+      if (!ours) return { action: 'ignored', why: 'pending' }
+      await reopenAfterFailedRefund(orderId, ours, now)
+      return { action: 'flagged', kind: 'refund-failed' }
+    }
+    if (status === 'COMPLETED' && (await claimSquareRefund(asClaimed, [{ classId: PAID_ELSEWHERE_SCOPE, bookingId: orderId }]))) {
+      logger.info('Square refund is one of our paid-elsewhere refunds, saved as asked', { refundId, orderId })
+      return { action: 'ignored', why: 'ours' }
+    }
+    if (ours || (status !== 'COMPLETED' && status !== 'PENDING')) return { action: 'ignored', why: 'pending' }
+    if (pe.state !== 'paid-elsewhere') return { action: 'ignored', why: 'already-recorded' }
+    await notePaidElsewhere(orderId, { squareRefunded: seen(pe.squareRefunded) })
+    logger.info('Refund made in Square on a party payment to check: noted on the item', { refundId, orderId })
+    return { action: 'noted', cents }
+  }
+
+  const pns = await paidNotSeatedForPayment(paymentId)
+  if (pns) {
+    const ours = (await listRefundRequests(PAID_NOT_SEATED_SCOPE, pns.id)).find((r) => r.squareRefundId === refundId)
+    if (status === 'FAILED' || status === 'REJECTED') {
+      if (!ours) return { action: 'ignored', why: 'pending' }
+      await reopenPaidNotSeatedAfterFailure(pns, ours, now)
+      return { action: 'flagged', kind: 'refund-failed' }
+    }
+    if (status === 'COMPLETED' && (await claimSquareRefund(asClaimed, [{ classId: PAID_NOT_SEATED_SCOPE, bookingId: pns.id }]))) {
+      logger.info('Square refund is one of our paid-no-seat refunds, saved as asked', { refundId, paidId: pns.id })
+      return { action: 'ignored', why: 'ours' }
+    }
+    if (ours || (status !== 'COMPLETED' && status !== 'PENDING')) return { action: 'ignored', why: 'pending' }
+    if (pns.resolved) return { action: 'ignored', why: 'already-recorded' }
+    await notePaidNotSeated(pns.id, seen(pns.squareRefunded))
+    return { action: 'noted', cents }
+  }
+  return null
+}
+
+/** Square turned down our refund of a paid-no-seat payment after it was written: the item waits again, owners told. */
+async function reopenPaidNotSeatedAfterFailure(p: PaidNotSeated, req: SavedRefundRequest, now: Date): Promise<void> {
+  await changeRefundRequest(PAID_NOT_SEATED_SCOPE, p.id, req.id, (r) => (r.status === 'turned-down' ? null : {
+    ...r, status: 'turned-down', failures: r.failures + 1,
+    idempotencyKey: refundKey(r.bookingId, r.lines.map((x) => x.id), r.totalCents, r.prior, r.failures + 1),
+  }))
+  if (!(await reopenPaidNotSeated(p.id, { cents: req.totalCents, at: now.toISOString() }))) return
+  await decidedKv.set(`done-${tokenOf(p.id)}`, '').catch(() => undefined)
+  await alertOwners(`A $${(req.totalCents / 100).toFixed(2)} refund of a class payment didn't go through in Square, so nothing was refunded. It's back in /admin › To decide.`).catch(() => undefined)
 }
 
 // ---------------------------------------------------------------- webhook + reconcile
@@ -1043,9 +1183,10 @@ const checkedButUnfinished = (r: SavedRefundRequest) => r.status === 'sent' && !
 export async function flagUnconfirmedRequests(now: Date): Promise<number> {
   let open = 0
   for (const r of await allRefundRequests()) {
-    // A refund of a party payment that is on no party: its "Party payment to check" item stays in To decide until
-    // the refund is done, and tapping Refund it again re-sends the same saved request (never a second refund).
-    if (r.classId === PAID_ELSEWHERE_SCOPE) continue
+    // A refund of a payment on no booking (Party payment to check, Paid no seat): its own To decide item says a
+    // refund was started and Square didn't confirm it, and Refund it re-sends the same saved request (never twice).
+    // If Square did make it, its refund (webhook or this nightly run) is claimed as that request and finishes it.
+    if (LOOSE_PAYMENT_SCOPES.has(r.classId)) continue
     if (checkedButUnfinished(r) && now.getTime() - Date.parse(r.cleared!.at) >= UNFINISHED_AFTER_MS) {
       open++
       const id = `flag-refund-unfinished-${safeKey(r.id)}`
@@ -1140,6 +1281,27 @@ export async function listRefundFlags(opts: { includeResolved?: boolean } = {}):
     out.push(f)
   }
   return out.sort((a, b) => b.at.localeCompare(a.at))
+}
+
+/** One refund flag, or null. */
+export async function getRefundFlag(id: string): Promise<RefundFlag | null> {
+  const raw = await flagsKv.get(id)
+  return raw ? (JSON.parse(raw) as RefundFlag) : null
+}
+
+/** "Try the refund again" was turned down by Square: the next try uses a new key. */
+export async function bumpFlagRetries(id: string): Promise<void> {
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    const { value, etag } = await flagsKv.getWithMeta(id)
+    if (!value) return
+    const cur = JSON.parse(value) as RefundFlag
+    if (await flagsKv.setIfMatch(id, JSON.stringify({ ...cur, retries: (cur.retries ?? 0) + 1 }), etag, true)) return
+  }
+}
+
+/** A refund sent again in place of a failed one: Square's later events on it are known (never recorded twice). */
+export async function saveReplacementRefund(r: ReplacementRefund): Promise<void> {
+  await putOnce(replacementsKv, `rpl-${safeKey(r.refundId)}`, r)
 }
 
 /**

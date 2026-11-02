@@ -15,7 +15,10 @@
  *     while its own request may still be running).
  *   - Paid, with nothing here to record it from (no checkout; or the party is
  *     already paid by another order) → a 'paid-elsewhere' entry for /admin ›
- *     To decide, and a text to the owners.
+ *     To decide, and a text to the owners. Once an owner settled that payment
+ *     (refunded, put toward the party, already sorted) its settled marker
+ *     keeps it from ever being raised again (Square's later events and the
+ *     nightly run see the same order).
  *
  * Nothing here charges, cancels or refunds. Never throws to the caller.
  */
@@ -98,7 +101,10 @@ async function handle(order: any, now: Date, opts: { paymentId?: string }): Prom
     host: c?.host ?? { firstName: rec?.hostName ?? '', lastName: '', email: rec?.hostEmail ?? '', phone: rec?.hostPhone ?? '' },
     origin: c?.origin ?? '', via: 'online', at: now.toISOString(), updatedAt: now.toISOString(),
   }
-  if (await savePaidElsewhere(entry)) {
+  const saved = await savePaidElsewhere(entry)
+  // Settled by an owner already (refunded, put toward the party, sorted): never raised again, no owner text.
+  if (saved === 'settled') return { action: 'ignored', why: 'recorded' }
+  if (saved === 'saved') {
     logger.error('PARTY PAID IN SQUARE WITH NOTHING TO RECORD IT FROM', { partyId, orderId, why })
     await alertOwners(
       `Party payment to check: Square shows ${dollars(payment.amount)} paid on order ${orderId} for party ${partyId}, but ${paidElsewhereWhy(why)}. Nothing was refunded. Open /admin › To decide.`,
@@ -150,10 +156,12 @@ async function paymentOf(c: PartyCheckout): Promise<{ orderId: string; payment: 
       try {
         orderId = (await providers.payment.createOrder(c.order)).id
       } catch (err) {
-        if (squareErrorCodes(err).includes('IDEMPOTENCY_KEY_REUSED')) return { orderId: '', payment: null, orderUnknown: true }
-        throw err
+        if (!squareErrorCodes(err).includes('IDEMPOTENCY_KEY_REUSED')) throw err
+        // That key was first used with another request: Square is asked for the order carrying this party id instead.
+        orderId = (await orderByReference(c))
       }
     }
+    if (!orderId) orderId = await orderByReference(c)
     if (!orderId) return { orderId: '', payment: null, orderUnknown: true }
     const payment = await providers.payment.findOrderPayment(orderId)
     if (payment && payment.status === 'completed') return { orderId, payment }
@@ -166,11 +174,17 @@ async function paymentOf(c: PartyCheckout): Promise<{ orderId: string; payment: 
   }
 }
 
+/** Square's order carrying this party id (made around the checkout), or ''. Throws when Square can't be read. */
+async function orderByReference(c: PartyCheckout): Promise<string> {
+  if (!providers.payment.findOrderByReference) return ''
+  return (await providers.payment.findOrderByReference(c.partyId, c.at || c.updatedAt))?.orderId ?? ''
+}
+
 /** A payment Square shows as still going through: neither choice is taken until it settles. */
 export const PAYMENT_GOING_THROUGH = 'Square shows a payment still going through. Try again in a few minutes. Nothing was changed.'
 
 /** Owners' words when this try's order can't be found from here. */
-export const ORDER_UNKNOWN_MESSAGE = 'We can’t tell which Square order this try made, so it can’t be confirmed from here. Look for the payment in Square. If it was paid, the party is booked here by itself once Square tells us (by the next morning). If it wasn’t, choose It wasn’t paid.'
+export const ORDER_UNKNOWN_MESSAGE = 'Square has no order for this try, so there is no payment to confirm. If it was paid, the party is booked here by itself once Square tells us (by the next morning). If it wasn’t, choose It wasn’t paid.'
 
 /**
  * "Confirm the party": only once Square shows the order paid (the money is

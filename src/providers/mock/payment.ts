@@ -6,6 +6,8 @@ import type {
   Refund,
   LineItem,
   Discount,
+  PaymentState,
+  RefundState,
 } from '../interfaces/payment'
 import { taxCents } from '../../lib/tax'
 
@@ -116,13 +118,31 @@ export class MockPaymentProvider implements PaymentProvider {
     reason?: string
   }): Promise<Refund> {
     this.refundCalls.push({ ...input })
+    // The same key gives back the same refund, as Square does.
+    const again = this.refundsByKey.get(input.idempotencyKey)
+    if (again) return { id: again.id, paymentId: again.paymentId, amountCents: again.amountCents, status: again.status }
+    const refund: RefundState = { id: this.generateId('mock-refund'), paymentId: input.paymentId, amountCents: input.amountCents, status: 'COMPLETED', createdAt: new Date().toISOString() }
+    this.refundsByKey.set(input.idempotencyKey, refund)
+    return { id: refund.id, paymentId: refund.paymentId, amountCents: refund.amountCents, status: refund.status }
+  }
 
+  private refundsByKey = new Map<string, RefundState>()
+
+  async readPayment(paymentId: string): Promise<PaymentState> {
+    const pay = [...this.paid.values()].find((p) => p.id === paymentId)
+    const refunds = [...this.refundsByKey.values()].filter((r) => r.paymentId === paymentId)
     return {
-      id: this.generateId('mock-refund'),
-      paymentId: input.paymentId,
-      amountCents: input.amountCents,
-      status: 'COMPLETED',
+      id: paymentId, orderId: pay?.orderId ?? null, status: 'COMPLETED', amountCents: pay?.amount ?? 0,
+      refundedCents: refunds.filter((r) => r.status === 'COMPLETED').reduce((s, r) => s + r.amountCents, 0), refunds, createdAt: null,
     }
+  }
+
+  async readRefund(refundId: string): Promise<RefundState | null> {
+    return [...this.refundsByKey.values()].find((r) => r.id === refundId) ?? null
+  }
+
+  async findOrderByReference(): Promise<{ orderId: string } | null> {
+    return null
   }
 
   async cancelOrder(input: { orderId: string; version: number; locationId: string }): Promise<void> {

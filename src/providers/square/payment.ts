@@ -7,6 +7,8 @@ import type {
   Payment,
   Refund,
   PaymentClientConfig,
+  PaymentState,
+  RefundState,
 } from '../interfaces/payment'
 import type { SquareConfig } from '../../config/site.config'
 import { createSquareClient } from './client'
@@ -280,6 +282,67 @@ export class SquarePaymentProvider implements PaymentProvider {
       amountCents: Number(refund.amountMoney!.amount!),
       status: String(refund.status),
     }
+  }
+
+  async readPayment(paymentId: string): Promise<PaymentState> {
+    const p = (await squareFetch(`/payments/${encodeURIComponent(paymentId)}`, { method: 'GET' }))?.payment
+    if (!p) throw new Error('Square returned no payment')
+    const ids: string[] = Array.isArray(p.refund_ids) ? p.refund_ids.filter((x: unknown): x is string => typeof x === 'string') : []
+    const refunds: RefundState[] = []
+    for (const id of ids) {
+      const r = await this.readRefund(id)
+      if (r) refunds.push(r)
+    }
+    return {
+      id: String(p.id ?? paymentId),
+      orderId: typeof p.order_id === 'string' ? p.order_id : null,
+      status: String(p.status ?? ''),
+      amountCents: Number(p.amount_money?.amount ?? 0),
+      refundedCents: Number(p.refunded_money?.amount ?? 0),
+      refunds,
+      createdAt: typeof p.created_at === 'string' ? p.created_at : null,
+    }
+  }
+
+  async readRefund(refundId: string): Promise<RefundState | null> {
+    let r: any
+    try {
+      r = (await squareFetch(`/refunds/${encodeURIComponent(refundId)}`, { method: 'GET' }))?.refund
+    } catch (e) {
+      if ((e as { status?: number })?.status === 404) return null
+      throw e
+    }
+    if (!r) return null
+    return {
+      id: String(r.id ?? refundId),
+      paymentId: String(r.payment_id ?? ''),
+      amountCents: Number(r.amount_money?.amount ?? 0),
+      status: String(r.status ?? ''),
+      createdAt: typeof r.created_at === 'string' ? r.created_at : null,
+    }
+  }
+
+  async findOrderByReference(referenceId: string, aroundIso: string): Promise<{ orderId: string } | null> {
+    const t = Date.parse(aroundIso)
+    const start = new Date((Number.isFinite(t) ? t : Date.now()) - 86_400_000).toISOString()
+    const end = new Date((Number.isFinite(t) ? t : Date.now()) + 86_400_000).toISOString()
+    let cursor: string | undefined
+    for (let page = 0; page < 10; page++) {
+      const res = await squareFetch('/orders/search', {
+        method: 'POST',
+        body: JSON.stringify({
+          location_ids: [this.config.locationId],
+          limit: 500,
+          ...(cursor ? { cursor } : {}),
+          query: { filter: { date_time_filter: { created_at: { start_at: start, end_at: end } } } },
+        }),
+      })
+      const hit = (res?.orders ?? []).find((o: any) => o?.reference_id === referenceId)
+      if (hit?.id) return { orderId: String(hit.id) }
+      cursor = res?.cursor
+      if (!cursor) break
+    }
+    return null
   }
 
   async cancelOrder(input: {

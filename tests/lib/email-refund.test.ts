@@ -17,6 +17,22 @@ beforeEach(async () => {
 })
 
 describe('sendRefundEmail', () => {
+  it('a duplicate payment is worded as a refund of the extra payment, never a cancellation, with no date (M3)', async () => {
+    await email.sendRefundEmail({ to: 'a@example.com', givenName: 'Alice', className: 'your party', cents: 30000, keptSeat: false, party: { startIso: null }, duplicate: 'changed-party' })
+    let m = mockSendMail.mock.calls[0][0]
+    expect(m.text).toContain('You were charged twice when you changed your party. We refunded the extra $300 to your card.')
+    expect(m.text).toContain('Your party booking hasn’t changed.')
+    expect(m.text).not.toMatch(/craft with you again|Saturday/)
+    await email.sendRefundEmail({ to: 'a@example.com', givenName: 'Alice', className: 'your party', cents: 30000, keptSeat: false, party: { startIso: null }, duplicate: 'unmatched-party' })
+    m = mockSendMail.mock.calls[1][0]
+    expect(m.text).toContain('We refunded $300 to your card for a party payment we couldn’t match to a booking.')
+    await email.sendRefundEmail({ to: 'a@example.com', givenName: 'Ada', className: 'Candles', cents: 3270, keptSeat: false, duplicate: 'class-twice' })
+    m = mockSendMail.mock.calls[2][0]
+    expect(m.text).toContain('You were charged twice for Candles. We refunded the extra $32.70 to your card.')
+    expect(m.text).toContain('Your booking hasn’t changed.')
+    for (const c of mockSendMail.mock.calls) expect(c[0].text.split('Text us at')[0]).not.toContain(':')
+  })
+
   it('says how much went back and to which card, with no colons', async () => {
     const r = await email.sendRefundEmail({ to: 'ada@example.com', givenName: 'Ada', className: 'Candles', cents: 3270, last4: '4242', keptSeat: false })
     expect(r.sent).toBe(true)

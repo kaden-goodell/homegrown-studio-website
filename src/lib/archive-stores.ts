@@ -55,6 +55,8 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'seat-choices' },
   { name: 'refund-flags' },
   { name: 'refund-requests' },
+  // a refund To decide sent again in place of one Square failed (so Square's events on it are never recorded twice)
+  { name: 'refund-replacements' },
   { name: 'unmatched-pos' },
   { name: 'pos-needs-days' },
   { name: 'class-alerts' },

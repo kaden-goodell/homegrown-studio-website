@@ -97,7 +97,7 @@ export async function partyWarnings(from: string, to: string, now: Date, opts: {
     squareSide,
   ])
   const byId = new Map(records.map((r) => [r.bookingId, r]))
-  const checkingOut = new Set(checkouts.filter((c) => c.state !== 'paid-elsewhere').map((c) => c.partyId))
+  const checkingOut = new Set(checkouts.filter((c) => c.state !== 'paid-elsewhere' && c.state !== 'settled').map((c) => c.partyId))
   const out: Warning[] = []
 
   // ── Waiting on payment (within 7 days) ─────────────────────────────────────

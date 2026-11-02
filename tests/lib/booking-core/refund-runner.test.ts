@@ -12,12 +12,12 @@ const refundPayment = vi.hoisted(() => vi.fn())
 vi.mock('@config/providers', () => ({ providers: { payment: { refundPayment } } }))
 
 import {
-  claimSquareRefundWith, clearRequest, runRefund,
+  claimSquareRefundWith, clearRequest, retrySavedRequest, runRefund,
   type RefundBook, type RefundScope,
 } from '@lib/booking-core/refund-runner'
 import { refundBookFor } from '@lib/booking-core/refund-books'
 import {
-  AGAIN_IS_STALE, RefundError, refundKey, refundKeyRaw, SQUARE_NO_ANSWER, SQUARE_TURNED_DOWN, STILL_WAITING_ON_SQUARE,
+  AGAIN_IS_STALE, RefundError, refundKey, refundKeyRaw, SQUARE_ALREADY_REFUNDED, SQUARE_NO_ANSWER, SQUARE_TURNED_DOWN, STILL_WAITING_ON_SQUARE,
   type RefundPlan,
 } from '@lib/booking-core/refund-words'
 import { hashOf, listRefundRequests, type SavedRefundRequest } from '@lib/classes/refund-requests'
@@ -175,6 +175,31 @@ describe('runRefund', () => {
     await runRefund(book(1500), { attempt: 'tok_aaaaaa', reason: '' }, owner)
     expect(refundPayment.mock.calls[1][0].idempotencyKey).toBe(refundKey(scope.bookingId, ['x'], 1500, 0, 1))
     expect(state.written).toHaveLength(1)
+  })
+
+  it('Square says the payment is already refunded (REFUND_AMOUNT_INVALID): a final answer (409), turned down with a new key, never “no answer”', async () => {
+    const { book, state, scope } = setup()
+    refundPayment.mockRejectedValueOnce(Object.assign(new Error('Square said: invalid amount'), { errors: [{ code: 'REFUND_AMOUNT_INVALID' }] }))
+    const e = await refusal(runRefund(book(1500), { attempt: 'tok_final01', reason: '' }, owner))
+    expect(e).toMatchObject({ status: 409, message: SQUARE_ALREADY_REFUNDED, extra: { squareSaid: 'already-refunded' } })
+    const [rec] = await listRefundRequests(scope.classId, scope.bookingId)
+    expect(rec).toMatchObject({ status: 'turned-down', failures: 1, idempotencyKey: refundKey(scope.bookingId, ['x'], 1500, 0, 1) })
+    expect(state.written).toEqual([])
+    expect(state.emails).toEqual([])
+  })
+
+  it('retrySavedRequest: a request with no answer is re-sent with its own key; a finished one answers done, nothing sent', async () => {
+    const { book, state, scope } = setup()
+    refundPayment.mockRejectedValueOnce(new Error('socket hang up'))
+    await refusal(runRefund(book(1500), { attempt: 'tok_retry01', reason: '' }, owner))
+    const [rec] = await listRefundRequests(scope.classId, scope.bookingId)
+    const out = await retrySavedRequest(book(1500), rec.id, owner)
+    expect(out.cents).toBe(1500)
+    expect(refundPayment.mock.calls[1][0].idempotencyKey).toBe(refundPayment.mock.calls[0][0].idempotencyKey)
+    expect(state.written).toHaveLength(1)
+    await retrySavedRequest(book(1500), rec.id, owner)
+    expect(refundPayment).toHaveBeenCalledTimes(2)
+    expect(state.emails).toHaveLength(1)
   })
 
   it('a save that fails after Square took it: 500, and a retry only writes', async () => {

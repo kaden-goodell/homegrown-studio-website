@@ -20,8 +20,9 @@ import { providers } from '@config/providers'
 import type { By } from '@lib/staff-auth'
 import {
   AGAIN_IS_STALE, NOT_WAITING, REFUND_JUST_MADE, RefundError, refundKey, SAVED_SPLIT_NO_LONGER_FITS,
-  SQUARE_NO_ANSWER, SQUARE_TURNED_DOWN, STILL_WAITING_ON_SQUARE, type RefundPlan,
+  SQUARE_ALREADY_REFUNDED, SQUARE_NO_ANSWER, SQUARE_REFUND_FINAL_CODES, SQUARE_TURNED_DOWN, STILL_WAITING_ON_SQUARE, type RefundPlan,
 } from './refund-words'
+import { squareErrorCodes } from '@lib/checkout-attempt'
 import {
   changeRefundRequest, claimRequestEmail, doneAsks, hashOf, isWaiting, listRefundRequests, markRequestDone, markRequestSent,
   releaseRequestEmail, resendRefundRequest, sameAsk, saveRefundRequest, type SavedRefundRequest,
@@ -110,6 +111,13 @@ export const PARTY_SCOPE = 'party'
  * bookingId = the Square order id. Never a class.
  */
 export const PAID_ELSEWHERE_SCOPE = 'party-paid-elsewhere'
+/**
+ * The scope of a refund of a class payment with no seat ("Paid, no seat", classes/paid-not-seated-refund):
+ * bookingId = the paid-not-seated entry id. Never a class.
+ */
+export const PAID_NOT_SEATED_SCOPE = 'class-paid-not-seated'
+/** Scopes whose own To decide item shows a refund in flight (never listed as "Refund with no answer"). */
+export const LOOSE_PAYMENT_SCOPES: ReadonlySet<string> = new Set([PAID_ELSEWHERE_SCOPE, PAID_NOT_SEATED_SCOPE])
 
 /**
  * Finds the book that writes refunds for a scope (the static list is
@@ -263,6 +271,27 @@ export async function runRefund<W>(
     rec = out.rec
   }
 
+  return sendAndFinish(book, rec, actor)
+}
+
+/**
+ * Continues one saved request (To decide's "Try the refund again"): a request
+ * with no answer is re-sent with its own saved key (Square hands back the same
+ * refund if it had gone through: never twice); one Square turned down is sent
+ * again as a new try while it still fits. A finished one answers as done.
+ */
+export async function retrySavedRequest<W>(book: RefundBook<W>, requestId: string, actor: Actor): Promise<RefundResult<W>> {
+  const { classId, bookingId } = book.scope
+  const rec = (await listRefundRequests(classId, bookingId)).find((r) => r.id === requestId)
+  if (!rec) throw new RefundError(404, 'That refund isn’t on the booking any more.')
+  if (rec.status === 'done') return doneReply(book, rec, actor, false)
+  if (rec.retired) throw new RefundError(409, SAVED_SPLIT_NO_LONGER_FITS)
+  return sendAndFinish(book, rec, actor)
+}
+
+/** The shared tail: Square (unless already answered), the book's write, done, the email once, the audit once. */
+async function sendAndFinish<W>(book: RefundBook<W>, rec: SavedRefundRequest, actor: Actor): Promise<RefundResult<W>> {
+  const { classId, bookingId } = book.scope
   const checked = checkedButUnfinished(rec)
   let refundId: string | null = rec.status === 'sent' ? rec.squareRefundId : null
   if (!refundId && !checked) {
@@ -286,6 +315,16 @@ export async function runRefund<W>(
         ...(rec.reason ? { reason: rec.reason.slice(0, SQUARE_REASON_MAX) } : {}),
       })
     } catch (e) {
+      if (squareErrorCodes(e).some((c) => SQUARE_REFUND_FINAL_CODES.includes(c))) {
+        // Square's final answer about the payment (already refunded, a refund of it pending): nothing was refunded
+        // by this request, and the same key would get the same answer forever. A later try is a new request.
+        console.error(`[${book.logTag}] Square refused the refund on ${bookingId}: ${squareErrorCodes(e).join(',')}`)
+        await changeRefundRequest(classId, bookingId, rec.id, (r) => r.status === 'done' || r.status === 'sent' ? null : {
+          ...r, status: 'turned-down', failures: r.failures + 1,
+          idempotencyKey: refundKey(r.bookingId, r.lines.map((x) => x.id), r.totalCents, r.prior, r.failures + 1),
+        }).catch(() => undefined)
+        throw new RefundError(409, SQUARE_ALREADY_REFUNDED, { squareSaid: 'already-refunded' })
+      }
       // No clear answer (it may even have gone through): the saved request is sent again next time, same key.
       console.error(`[${book.logTag}] Square gave no answer for ${bookingId}: ${e instanceof Error ? e.message : e}`)
       throw new RefundError(502, SQUARE_NO_ANSWER)

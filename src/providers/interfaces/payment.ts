@@ -40,6 +40,28 @@ export interface Payment {
   receiptUrl?: string
 }
 
+/** A refund as Square shows it now (status: PENDING, COMPLETED, FAILED or REJECTED). */
+export interface RefundState {
+  id: string
+  paymentId: string
+  amountCents: number
+  status: string
+  createdAt: string | null
+}
+
+/** A payment as Square shows it now, with every refund made on it. */
+export interface PaymentState {
+  id: string
+  orderId: string | null
+  /** Square's own status (COMPLETED, APPROVED, PENDING, FAILED, CANCELED) */
+  status: string
+  amountCents: number
+  /** Square's refunded total (completed refunds) */
+  refundedCents: number
+  refunds: RefundState[]
+  createdAt: string | null
+}
+
 export interface PaymentClientConfig {
   appId: string
   locationId: string
@@ -116,6 +138,23 @@ export interface PaymentProvider {
     idempotencyKey: string
     reason?: string
   }): Promise<Refund>
+
+  /**
+   * Read only: the payment and every refund on it, as Square shows them now
+   * (To decide asks before refunding or crediting a payment, and "Ask Square"
+   * on a refund that got no answer). Throws when Square can't be read.
+   */
+  readPayment?(paymentId: string): Promise<PaymentState>
+
+  /** Read only: one refund as Square shows it now. Null when Square has no such refund. Throws when Square can't be read. */
+  readRefund?(refundId: string): Promise<RefundState | null>
+
+  /**
+   * Read only: the order at our location carrying this reference id (our
+   * party id), created around `aroundIso` (a day either side). Null when
+   * there is none. Throws when Square can't be read.
+   */
+  findOrderByReference?(referenceId: string, aroundIso: string): Promise<{ orderId: string } | null>
 
   /** Void an order after a failed charge (kits: no orphaned orders). */
   cancelOrder(input: { orderId: string; version: number; locationId: string }): Promise<void>
