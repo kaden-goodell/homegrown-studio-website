@@ -13,6 +13,7 @@
  * (`classRefundBook`) plus the class rules: planning, keys, words.
  */
 import { recordAudit } from '@lib/audit'
+import { afterReply } from '@lib/after-reply'
 import { sendRefundEmail } from '@lib/email'
 import type { By } from '@lib/staff-auth'
 import { getClass } from './class-store'
@@ -209,12 +210,15 @@ export function planRefund(ledger: Ledger, req: RefundRequest): RefundPlan {
  * calls this. Never throws: a freed seat is never undone by a waitlist problem.
  */
 export async function onSeatFreed(classId: string, _sessionIds: string[]): Promise<void> {
-  try {
-    const { runWaitlist } = await import('./waitlist-runner')
-    await runWaitlist(classId, { reason: 'seat-freed' })
-  } catch (err) {
-    console.error(`[classes/refund] waitlist run after a freed seat failed: ${err instanceof Error ? err.message : String(err)}`)
-  }
+  // M7: after the reply where the platform allows (a refund never waits for the waitlist's charges).
+  await afterReply(async () => {
+    try {
+      const { runWaitlist } = await import('./waitlist-runner')
+      await runWaitlist(classId, { reason: 'seat-freed' })
+    } catch (err) {
+      console.error(`[classes/refund] waitlist run after a freed seat failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
 }
 
 export interface RefundResult {

@@ -9,7 +9,7 @@ import type { ToDecideItem } from '@pages/api/admin/to-decide.json'
 import type { ClassBooking } from '@lib/classes/admin-actions'
 import type { ScheduledClass } from '@lib/classes/types'
 import { formatMoney } from '@lib/money'
-import { api, BOOKINGS, CLASSES, TO_DECIDE } from '../classes/api'
+import { api, BOOKINGS, CLASSES, TO_DECIDE, WAITLIST } from '../classes/api'
 import { isComingBooking } from '../classes/labels'
 import { localDate } from '@lib/party-slots'
 import { dayLabel } from '../classes/dates'
@@ -22,6 +22,8 @@ import { smsAll } from '../sheets/ClassSheet'
 import { useInbox } from './InboxData'
 
 type Detail = Record<string, any>
+/** What Square shows for an unclear waitlist charge (GET waitlist.json?ask=…, waitlist-runner UnclearAnswer). */
+interface UnclearAnswerView { state: string; words: string; cents: number | null; choices: ('add' | 'keep' | 'off')[]; decideFrom: string | null }
 interface Choice { action: string; body?: Record<string, unknown>; toast?: string; undo?: boolean }
 
 /**
@@ -638,39 +640,68 @@ function Contact({ d }: { d: Detail }) {
   )
 }
 
+/**
+ * I5: an unclear waitlist charge, answered here (never the Square dashboard).
+ * The sheet asks Square itself (read only) and says what it shows, then
+ * offers only what fits: Add them (paid), Keep them waiting / Take them off
+ * (no payment, once the charge is 30 minutes old, never resent), or Check
+ * again (still going through, or Square isn't answering).
+ */
 function WaitlistUnclear({ item }: { item: ToDecideItem }) {
   const d = item.detail as Detail
   const { send, busy, error } = useDecide(item)
-  const [sure, setSure] = useState(false)
+  const [answer, setAnswer] = useState<UnclearAnswerView | null>(null)
+  const [asking, setAsking] = useState(false)
+  const [askError, setAskError] = useState('')
+  const [sure, setSure] = useState<'keep' | 'off' | null>(null)
+  async function ask() {
+    if (!item.classId) return
+    setAsking(true)
+    setAskError('')
+    setSure(null)
+    const r = await api<{ answer: UnclearAnswerView }>(`${WAITLIST}?id=${encodeURIComponent(item.classId)}&ask=${encodeURIComponent(String(d.entryId))}`)
+    setAsking(false)
+    if (r.ok && r.data) setAnswer(r.data.answer)
+    else setAskError(r.error ?? DIDNT_SAVE)
+  }
+  useEffect(() => { void ask() }, [item.id])
+  const choices = answer?.choices ?? []
+  const footer = sure
+    ? (
+      <div className="adm-panel is-warn" role="group" aria-label={sure === 'keep' ? `Keep ${d.name} waiting?` : `Take ${d.name} off the waitlist?`}>
+        <b>{sure === 'keep' ? `Keep ${d.name} waiting?` : `Take ${d.name} off the waitlist?`}</b>
+        <span className="adm-small">{sure === 'keep'
+          ? 'Their held seat is let go and they stay on the waitlist. That charge is never sent again; if a seat opens later, it’s a new charge.'
+          : 'Their held seat is let go, their saved card comes off and they get an email saying so. Nothing is charged.'}</span>
+        <div className="adm-two">
+          <button type="button" className="adm-btn is-ghost" onClick={() => setSure(null)}>Not yet</button>
+          <button type="button" className={`adm-btn ${sure === 'off' ? 'is-danger' : 'is-pri'}`} disabled={!!busy} onClick={() => send({ action: sure }).then((r) => { if (!r.ok) void ask() })}>
+            {sure === 'keep' ? label(busy, 'keep', 'Keep them waiting', 'Saving…') : label(busy, 'off', 'Take them off', 'Taking off…')}
+          </button>
+        </div>
+      </div>
+    )
+    : (
+      <div className="adm-stack">
+        {choices.includes('add') && <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'add' }).then((r) => { if (!r.ok) void ask() })}>{label(busy, 'add', 'Add them', 'Adding…')}</button>}
+        {choices.includes('keep') && <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => setSure('keep')}>Keep them waiting</button>}
+        {choices.includes('off') && <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => setSure('off')}>Take them off</button>}
+        <button type="button" className={`adm-btn ${choices.length ? 'is-ghost' : 'is-pri'}`} disabled={asking || !!busy} onClick={ask}>{asking ? 'Asking Square…' : 'Check Square again'}</button>
+      </div>
+    )
   return (
-    <SheetFrame
-      title={item.title}
-      subtitle={item.className}
-      footer={sure
-        ? (
-          <div className="adm-panel is-warn" role="group" aria-label="Sorted it out in Square?">
-            <b>Sorted it out in Square?</b>
-            <span className="adm-small">{`Their held seat is let go and ${d.name} comes off the waitlist. Nobody is told and nothing is refunded for you. Only do this once you’ve checked the payment in Square.`}</span>
-            <div className="adm-two">
-              <button type="button" className="adm-btn is-ghost" onClick={() => setSure(false)}>Not yet</button>
-              <button type="button" className="adm-btn is-danger" disabled={!!busy} onClick={() => send({ action: 'sorted' })}>{label(busy, 'sorted', 'Yes, I sorted it out', 'Saving…')}</button>
-            </div>
-          </div>
-        )
-        : (
-          <div className="adm-stack">
-            <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'check' })}>{label(busy, 'check', 'Check Square again', 'Asking Square…')}</button>
-            <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => setSure(true)}>I sorted it out in Square</button>
-          </div>
-        )}
-    >
+    <SheetFrame title={item.title} subtitle={item.className} footer={footer}>
       <Head item={item} />
       {d.cents ? kv('Charge', formatMoney(d.cents)) : null}
       {kv('Card', `ending ${d.last4}`)}
-      <p className="adm-note adm-gap-top">Check Square again asks Square about this charge. If it went through they’re added and texted; if it didn’t, they go back on the waitlist. Nobody is ever charged twice.</p>
+      <div className="adm-panel adm-gap-top" role="status" aria-live="polite" data-testid="waitlist-square-answer">
+        <b>{asking && !answer ? 'Asking Square…' : answer?.words ?? (askError ? 'We couldn’t ask Square just now.' : 'Asking Square…')}</b>
+        {answer?.state === 'paid' && <span className="adm-small">Add them puts them in the class with the seat they’re holding and sends them the “You’re in” email and text. If you’d rather not keep them, refund them from the class sheet afterwards.</span>}
+      </div>
+      <p className="adm-note adm-gap-top">Check Square again only asks; it never charges anyone. While the waitlist is open, the 10-minute check may send this same charge once more if Square never got it. Square never takes the same charge twice.</p>
       <Contact d={d} />
       {item.classId && <OpenClass id={item.classId} />}
-      <ErrorLine text={error} />
+      <ErrorLine text={error || askError} />
     </SheetFrame>
   )
 }

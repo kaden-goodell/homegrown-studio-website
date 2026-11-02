@@ -7,8 +7,8 @@
  */
 import { formatMoney } from '@lib/money'
 
-/** Bumped whenever the consent sentence changes; stored with each entry. */
-export const CONSENT_VERSION = 'wl-consent-1'
+/** Bumped whenever the consent sentence changes; stored with each entry. 2: the class and its date are named (I2). */
+export const CONSENT_VERSION = 'wl-consent-2'
 
 export const MAX_WAITING_PER_CLASS = 40
 
@@ -22,9 +22,18 @@ export function closesLabel(iso: string): string {
   return `${day} at ${time}`
 }
 
-/** The sentence next to the unticked consent box. `closesIso` = when the waitlist for these dates closes. */
-export function consentText(closesIso: string, maxCents: number): string {
-  return `Save my card with Square. If a spot opens before ${closesLabel(closesIso)}, Hometown Studio adds me and charges this card up to ${formatMoney(maxCents)} without asking again. I’ll get a text and an email right away. I can leave the waitlist any time and my card comes off.`
+/**
+ * The sentence next to the unticked consent box. The panel shows it and the
+ * server stores it, built from the same values (I2: the server refuses a join
+ * whose amount or close time differs from what was shown).
+ *   className  the class's name
+ *   startIso   the first date they're waiting for; `more` when it has more than one
+ *   closesIso  when the waitlist for these dates closes
+ *   maxCents   the most they're ever charged
+ */
+export function consentText(input: { className: string; startIso: string; more?: boolean; closesIso: string; maxCents: number }): string {
+  const when = `${input.more ? 'starts ' : ''}${closesLabel(input.startIso)}`
+  return `Save my card with Square. If a spot opens in ${input.className} (${when}) before the waitlist closes on ${closesLabel(input.closesIso)}, Hometown Studio adds me and charges this card up to ${formatMoney(input.maxCents)} without asking again. I’ll get a text and an email right away. I can leave the waitlist any time and my card comes off.`
 }
 
 export const WAITLIST_MESSAGES = {
@@ -36,8 +45,18 @@ export const WAITLIST_MESSAGES = {
   notOpen: 'This class isn’t taking a waitlist. Nothing was charged.',
   unavailable: 'We couldn’t add you to the waitlist just now. Nothing was charged. Try again in a minute.',
   notFound: 'We couldn’t find that waitlist spot. It may have been removed already.',
-  charging: 'A spot just opened and we’re adding you to the class right now. Check your email in a few minutes.',
+  /** M3/C1: a spot opened and a charge is being made or checked (it may stay unclear for a while). */
+  charging: 'A spot opened and we tried to add you. We’re checking with Square whether your card was charged, and we’ll email you as soon as we know.',
+  /** C1: they asked to leave while that charge is being checked. */
+  leaveAsked: 'We’re checking with Square whether your card was charged. If it wasn’t, nothing will be: you come off the waitlist and your card comes off. If it was, you’re in the class. We’ll email you either way.',
 } as const
+
+/** I2: the price or close time changed since the panel showed the consent (or the page is too old to say); nothing was saved. */
+export function consentChangedMessage(input: { why: 'price' | 'closes' | 'other'; maxCents: number; closesIso: string }): string {
+  if (input.why === 'price') return `The price changed to ${formatMoney(input.maxCents)}. Check it and tick the box again. Nothing was charged.`
+  if (input.why === 'closes') return `The waitlist now closes ${closesLabel(input.closesIso)}. Check it and tick the box again. Nothing was charged.`
+  return 'The details changed. Check them and tick the box again. Nothing was charged.'
+}
 
 /** Panel: why the waitlist step is showing. */
 export function waitlistReason(roomLeft: number, wanted: number): string {

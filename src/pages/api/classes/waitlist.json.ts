@@ -14,13 +14,14 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
-const fail = (status: number, code: string, detail: string) => json(status, { error: 'Waitlist', code, detail })
+const fail = (status: number, code: string, detail: string, extra: Record<string, unknown> = {}) => json(status, { error: 'Waitlist', code, detail, ...extra })
 
 /**
  * Stage 4 waitlist (public).
- *   POST { action: 'join', classId, attemptId, passId, sessionIds?, tickets, seats?, customer, cardToken, verificationToken?, consent: true }
+ *   POST { action: 'join', classId, attemptId, passId, sessionIds?, tickets, seats?, customer, cardToken, verificationToken?, consent: true,
+ *          consentShown: { maxCents, closesIso, text } }   (I2: what the ticked consent said; a change → 409 consent_changed + { maxCents, closesIso })
  *     → 200 { data: { position, waiting, card: { brand, last4 }, emailSent } }
- *   POST { action: 'leave', token } → 200 { data: { result: 'left' | 'already-off' | 'added', className } }
+ *   POST { action: 'leave', token } → 200 { data: { result: 'left' | 'already-off' | 'added' | 'checking', className, cardOff? } }
  * Card data never reaches us: only Square's one-time token from its card form.
  * Prices come from the class, never the page.
  */
@@ -58,6 +59,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     if (!EMAIL_RE.test(email)) return fail(400, 'invalid', 'That email doesn’t look right. Check for typos.')
     if (!isPhone(phone)) return fail(400, 'invalid', CONTACT_MESSAGES.phone)
     const verificationToken = typeof body.verificationToken === 'string' && body.verificationToken.length <= 4000 ? body.verificationToken : null
+    const cs = body.consentShown
+    const consentShown = cs && typeof cs === 'object' && Number.isInteger(cs.maxCents) && typeof cs.closesIso === 'string' && cs.closesIso.length <= 40
+      ? { maxCents: Number(cs.maxCents), closesIso: cs.closesIso, ...(typeof cs.text === 'string' && cs.text.length <= 1000 ? { text: cs.text } : {}) }
+      : null
 
     const data = await joinWaitlist({
       classId, attemptId: body.attemptId,
@@ -67,12 +72,12 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         ...(Array.isArray(body.seats) ? { seats: body.seats } : {}),
       },
       customer: { givenName, familyName, email, phone },
-      cardToken, verificationToken, consent: body.consent === true,
+      cardToken, verificationToken, consent: body.consent === true, consentShown,
       ip: clientAddress ?? '', origin: new URL(request.url).origin,
     })
     return json(200, { data })
   } catch (err) {
-    if (err instanceof WaitlistError) return fail(err.status, err.code, err.message)
+    if (err instanceof WaitlistError) return fail(err.status, err.code, err.message, err.code === 'consent_changed' ? err.extra : {})
     logger.error('Waitlist request failed', { error: err instanceof Error ? err.message : String(err) })
     return fail(502, 'unavailable', WAITLIST_MESSAGES.unavailable)
   }

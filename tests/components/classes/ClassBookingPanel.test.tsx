@@ -646,7 +646,8 @@ describe('ClassBookingPanel — stage 4 waitlist', () => {
     expect(screen.getByTestId('waitlist-step')).toBeInTheDocument()
     expect(paymentFormProps.mode).toBe('store')
     expect(paymentFormProps.wallet).toBeUndefined()
-    expect(screen.getByTestId('waitlist-consent')).toHaveTextContent('Save my card with Square. If a spot opens before Sat, Oct 24 at 11 AM, Hometown Studio adds me and charges this card up to $21.80 without asking again.')
+    // I2: the class and its date are named; the amount and close time are the ones sent with the join.
+    expect(screen.getByTestId('waitlist-consent')).toHaveTextContent('Save my card with Square. If a spot opens in Clay Camp (Sat, Oct 24 at 1 PM) before the waitlist closes on Sat, Oct 24 at 11 AM, Hometown Studio adds me and charges this card up to $21.80 without asking again.')
     expect(screen.getByRole('button', { name: 'Join the waitlist' })).toBeInTheDocument()
   })
 
@@ -663,7 +664,7 @@ describe('ClassBookingPanel — stage 4 waitlist', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('joins: sends only the card token (no price), shows "You\'re on the waitlist"', async () => {
+  it('joins: sends only the card token and the consent exactly as shown (I2), shows "You\'re on the waitlist"', async () => {
     openFull()
     cont()
     const fetchMock = vi.fn().mockResolvedValue(serverSays(200, { data: { position: 2, waiting: 2, card: { brand: 'VISA', last4: '4242' }, emailSent: true } }))
@@ -676,7 +677,26 @@ describe('ClassBookingPanel — stage 4 waitlist', () => {
     expect(url).toBe('/api/classes/waitlist.json')
     const sent = JSON.parse(init.body)
     expect(sent).toMatchObject({ action: 'join', classId: 'cls_1', passId: 'all', tickets: { person: 1 }, consent: true, cardToken: 'cnon:test-token', verificationToken: null })
-    expect(JSON.stringify(sent)).not.toMatch(/Cents|price|amount/)
+    // The server prices it itself; the consent shown is sent only so a changed one is refused (I2).
+    expect(sent.consentShown).toEqual({ maxCents: 2180, closesIso: '2026-10-24T16:00:00.000Z', text: screen.queryByTestId('waitlist-consent')?.textContent ?? expect.stringContaining('up to $21.80') })
+    const { consentShown: _shown, ...rest } = sent
+    expect(JSON.stringify(rest)).not.toMatch(/Cents|price|amount/)
+  })
+
+  it('I2: the price changed while the panel was open → the new amount shows, the box is unticked, nothing joined', async () => {
+    openFull()
+    cont()
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(serverSays(409, { code: 'consent_changed', detail: 'The price changed to $25.07. Check it and tick the box again. Nothing was charged.', maxCents: 2507, closesIso: '2026-10-24T16:00:00.000Z' }))
+      .mockResolvedValue(serverSays(200, {}))
+    vi.stubGlobal('fetch', fetchMock)
+    fillContact()
+    fireEvent.click(screen.getByRole('button', { name: 'Join the waitlist' }))
+    expect(await screen.findByText('The price changed to $25.07. Check it and tick the box again. Nothing was charged.')).toBeInTheDocument()
+    expect(screen.getByTestId('waitlist-consent')).toHaveTextContent('charges this card up to $25.07 without asking again')
+    expect(screen.getByText(/Up to \$25\.07, tax included, charged only if a spot opens\./)).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /Save my card with Square/ })).not.toBeChecked()
+    expect(screen.queryByText('You’re on the waitlist')).toBeNull()
   })
 
   it('a spot opened meanwhile: "A spot just opened. Book it now." and fresh seat counts are fetched', async () => {

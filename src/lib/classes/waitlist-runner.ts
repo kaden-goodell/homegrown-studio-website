@@ -6,27 +6,44 @@
  * What starts a run (S4-R3): a refund or "free the seat" that frees seats
  * (onSeatFreed), a POS return that frees seats, an owner raising capacity,
  * an owner's "Run the waitlist now", a public booking refused because the
- * waitlist goes first, and the 10-minute sweep. A refund that keeps the seat
- * never does. Cancelling a class closes its waitlist without charging.
+ * waitlist goes first, a leave asked mid-charge, a class cancel, and the
+ * 10-minute sweep. A refund that keeps the seat never does.
  *
  * One run per class at a time: a lock in the waitlist document (CAS). Another
  * live run → this one returns at once (the sweep picks up anything left).
  *
  * Each try at adding someone is attempt n of their entry, with idempotency
- * keys `wl:{entryId}:{n}:order` / `:pay`, its amount and note written down
- * BEFORE the charge, so a retry of that try sends exactly the same order and
- * charge and Square can never take the money twice. A new try (n + 1) is only
- * ever made after Square says the last one wasn't paid (or refused it).
+ * keys `wl:{entryId}:{n}:order` / `:pay`, its order, amount and note written
+ * down BEFORE the charge, so a resend of that try sends exactly the same
+ * order and charge and Square can never take the money twice.
+ *
+ * MONEY RULES (waitlist fix round, C1 / I1 / I4). This charges cards without
+ * the customer present, so:
+ *  - A new try (n + 1, new keys, new order) is made ONLY after a final "not
+ *    charged": a 4xx refusal, a FAILED or CANCELED payment, or a charge that
+ *    was never sent. Anything else keeps the SAME order, amount and keys.
+ *  - An unclear try is RESENT (same keys, order, amount, note) only while the
+ *    waitlist for their dates is open, the class is open and they haven't
+ *    asked to leave. Otherwise it is READ ONLY: Square is asked, and
+ *      paid                → they're added (and told; a cancelled class tells
+ *                            the owners to refund instead)
+ *      not paid (final)    → nothing is sent, the seat is let go, the card
+ *                            comes off, they come off the list
+ *      still going through → the seat stays held; asked again next run
+ *  - The seat is held WAITLIST_HOLD_MINUTES before the charge, longer than
+ *    STALE_CHARGE_MS, so a try that crashed still holds its seat when it is
+ *    picked up. An unclear hold never runs past the class's start.
  *
  *   paid     → seats confirmed, entry added, card off file (OWNER-S4-3),
  *              "You're in" text + email, owners told
  *   declined → hold let go, entry declined, card off file, family told
  *              kindly, owners alerted, next person (OWNER-S4-10)
- *   unknown  → seat kept held a day (R15), entry stays charging, owners
- *              alerted, the run STOPS; the next run asks Square first
+ *   unknown  → seat kept held (R15, capped at the start), entry stays
+ *              charging, owners alerted once, the run STOPS
  *   setup    → Square refused the request itself (our token, permission, a
  *              field): hold let go, entry back to waiting, card kept, nobody
- *              told but the owners (once a day), the run STOPS
+ *              told but the owners (once a day), the run STOPS (I3: the
+ *              public may book the seat meanwhile)
  *
  * Never refunds, never removes anyone else, never releases a paid seat.
  *
@@ -39,7 +56,7 @@ import { recordAudit } from '@lib/audit'
 import { judgeDrift, tellOwnersOfDrift } from '@lib/booking-core/charge'
 import { idFor } from '@lib/booking-core/ids'
 import { chargeOutcomeOf, squareErrorCodes } from '@lib/checkout-attempt'
-import { sendWaitlistMissedEmail } from '@lib/email'
+import { sendWaitlistMissedEmail, sendWaitlistOffEmail } from '@lib/email'
 import { createLogger } from '@lib/logger'
 import { alertOwners } from '@lib/owner-alert'
 import { sendQuoText } from '@lib/quo'
@@ -47,18 +64,18 @@ import { alertCardSetupOnce } from '@lib/saved-card-alerts'
 import { cardTroubleOf, CHARGE_TROUBLE_WORDS, type CardTrouble } from '@lib/saved-cards'
 import type { By } from '@lib/staff-auth'
 import { formatSlotLabel } from '@lib/studio-time'
-import type { Payment } from '@providers/interfaces/payment'
-import { CLASS_TAX_PERCENT, HOLD_MINUTES, orderLinesFor, UNCLEAR_HOLD_HOURS } from './checkout'
+import type { OrderPaymentStatus, Payment } from '@providers/interfaces/payment'
+import { CLASS_TAX_PERCENT, orderLinesFor, UNCLEAR_HOLD_HOURS } from './checkout'
 import { getClass } from './class-store'
 import { claimConfirmation, releaseConfirmation, sendClassConfirmation } from './confirmation'
 import { quote, type Quote } from './pricing'
 import { confirm, extendHold, getLedger, hold, release, type HoldInput } from './seat-ledger'
 import { isLiveHold } from './seat-status'
 import type { ScheduledClass } from './types'
-import { closeEntries, nameOfEntry, siteOrigin, waitlistSeatsWords, waitlistWhen } from './waitlist'
+import { cardOffAndNote, closeEntries, nameOfEntry, siteOrigin, waitlistSeatsWords, waitlistWhen } from './waitlist'
 import { fitsNow, waitlistOpen } from './waitlist-rules'
 import {
-  getWaitlist, lastAttempt, mutateWaitlist, updateEntry, type WaitlistAttempt, type WaitlistEntry,
+  cardStillOn, getWaitlist, lastAttempt, mutateWaitlist, updateEntry, type WaitlistAttempt, type WaitlistEntry,
 } from './waitlist-store'
 
 const logger = createLogger('classes:waitlist-runner')
@@ -69,8 +86,16 @@ export const RUN_LOCK_MS = 2 * 60_000
 export const INLINE_BUDGET = 3
 /** A try left mid-charge (no outcome written) is only picked up again after this long. */
 export const STALE_CHARGE_MS = 10 * 60_000
+/** I1: the seat is held this long before the charge: longer than STALE_CHARGE_MS, so a crashed try still has its seat. */
+export const WAITLIST_HOLD_MINUTES = 30
+/**
+ * An unclear charge Square shows no payment for is only settled as "not
+ * paid" (read only, or by an owner) once it was last sent this long ago, so a
+ * payment still on its way has time to show.
+ */
+export const UNCLEAR_SETTLE_MS = 30 * 60_000
 
-export type RunReason = 'seat-freed' | 'capacity' | 'sweep' | 'owner' | 'booking'
+export type RunReason = 'seat-freed' | 'capacity' | 'sweep' | 'owner' | 'booking' | 'leave' | 'cancel'
 export interface RunResult {
   ran: boolean
   added: number
@@ -98,7 +123,8 @@ export type SavedChargeResult =
  * Charge a saved card for one order (the waitlist's twin of booking-core
  * chargeOrder). A 4xx is "not charged": a card problem is declined, a refusal
  * of our request is setup. No answer → ask Square whether the order is paid
- * before saying unknown. A payment marked failed is declined.
+ * before saying unknown. A payment marked failed (FAILED or CANCELED) is
+ * declined. APPROVED or PENDING is still going through: unknown.
  */
 export async function chargeSaved(input: {
   orderId: string; cardId: string; customerId: string; amount: number; idempotencyKey: string; email: string; note: string
@@ -127,6 +153,36 @@ export async function chargeSaved(input: {
   return { kind: 'paid', payment }
 }
 
+// ── Small rules ──────────────────────────────────────────────────────────────
+
+/** C1: an unclear try may be RESENT only while the waitlist is open, the class is open, and they haven't asked to leave. */
+export function mayResend(cls: ScheduledClass, e: WaitlistEntry, now: Date): boolean {
+  return cls.status === 'open' && waitlistOpen(cls, e.sessionIds, now) && !e.leaveAskedAt
+}
+
+const firstStart = (cls: ScheduledClass, sessionIds: string[]) =>
+  cls.sessions.filter((s) => sessionIds.includes(s.id)).sort((a, b) => a.startIso.localeCompare(b.startIso))[0]?.startIso ?? cls.sessions[0]?.startIso ?? ''
+
+/** C1: an unclear hold lasts UNCLEAR_HOLD_HOURS, never past the start of their first date. */
+function unclearHoldUntil(cls: ScheduledClass, e: WaitlistEntry, now: Date): string {
+  const day = now.getTime() + UNCLEAR_HOLD_HOURS * 3_600_000
+  const start = Date.parse(firstStart(cls, e.sessionIds))
+  return new Date(Number.isFinite(start) ? Math.max(now.getTime(), Math.min(day, start)) : day).toISOString()
+}
+
+/** When this try's charge was last sent (or the try began, for an older record). */
+const lastSent = (a: WaitlistAttempt) => Date.parse(a.sentAt ?? a.at)
+
+/** Asks Square about one try's order (read only). Throws when Square can't be asked. */
+async function askOrder(a: WaitlistAttempt, e: WaitlistEntry): Promise<OrderPaymentStatus> {
+  if (!a.orderId) return { state: 'none' }
+  return providers.payment.orderPaymentStatus({ orderId: a.orderId, since: new Date(Date.parse(a.at) - 60_000).toISOString(), last4: e.square.last4 })
+}
+
+/** One attempt patched in place. */
+const patchAttempt = (e: WaitlistEntry, n: number, patch: Partial<WaitlistAttempt>): WaitlistEntry =>
+  ({ ...e, attempts: e.attempts.map((x) => (x.n === n ? { ...x, ...patch } : x)) })
+
 // ── The run ──────────────────────────────────────────────────────────────────
 
 interface Ctx {
@@ -153,18 +209,21 @@ async function releaseLock(classId: string, id: string): Promise<void> {
     .catch((err) => logger.error('Waitlist run lock not released (it runs out by itself)', { classId, error: String(err) }))
 }
 
+/** Something on this list for a run to do: people waiting or being charged, or a card still to take off (I6). */
+const hasWork = (entries: WaitlistEntry[]) => entries.some((e) => e.state === 'waiting' || e.state === 'charging' || cardStillOn(e))
+
 /**
- * Runs the class's waitlist: settles anything left mid-charge (asking Square),
- * closes entries whose cutoff passed, then adds the next people who fit, at
- * most INLINE_BUDGET charge tries. Never throws.
+ * Runs the class's waitlist: takes off cards still on file, settles anything
+ * left mid-charge (asking Square), closes entries whose cutoff passed, then
+ * adds the next people who fit, at most INLINE_BUDGET charge tries. Never
+ * throws.
  */
 export async function runWaitlist(classId: string, opts: { reason: RunReason; origin?: string; by?: By | null } = { reason: 'sweep' }, now = new Date()): Promise<RunResult> {
   const result = blank()
   const lockId = randomUUID()
   try {
-    // Nothing on the list: nothing to lock or do.
     const before = await getWaitlist(classId)
-    if (!before.entries.some((e) => e.state === 'waiting' || e.state === 'charging')) {
+    if (!hasWork(before.entries)) {
       result.note = 'Nobody is waiting.'
       return result
     }
@@ -200,10 +259,10 @@ function noteOf(r: RunResult): string {
   const bits: string[] = []
   if (r.added) bits.push(`Added ${r.added} ${r.added === 1 ? 'person' : 'people'} and charged their saved card.`)
   if (r.declined) bits.push(`${r.declined} ${r.declined === 1 ? 'card' : 'cards'} didn’t go through; they came off the list.`)
-  if (r.skipped) bits.push(`${r.skipped} skipped because the price is now higher than they agreed to.`)
+  if (r.skipped) bits.push(`${r.skipped} skipped because the price went up or what they picked isn’t sold any more.`)
   if (r.closed) bits.push(`${r.closed} came off because the waitlist closed.`)
   if (r.stopped === 'unknown') bits.push('Square didn’t say whether a card was charged, so the seat is held and it stopped there. It shows in To decide.')
-  if (r.stopped === 'setup') bits.push('Square refused the request, so nobody was charged. Take waitlisted people by phone meanwhile.')
+  if (r.stopped === 'setup') bits.push('Square refused the request, so nobody was charged. People can book the free seat normally meanwhile.')
   if (r.stopped === 'register') bits.push('The register’s price for this class doesn’t match, so nobody was charged. Tap Update the register on this class, then run it again.')
   if (r.stopped === 'error') bits.push('Square couldn’t be reached, so nobody was charged. Try again in a few minutes.')
   if (!bits.length) bits.push('Nobody on the waitlist fits the free seats right now.')
@@ -214,16 +273,21 @@ async function run(ctx: Ctx, reason: RunReason): Promise<void> {
   const { cls, now, result } = ctx
   let list = await getWaitlist(cls.id)
 
-  // A cancelled class: the list closes, nobody is charged.
-  if (cls.status === 'cancelled') {
-    result.closed += await closeEntries(cls, list.entries.filter((e) => e.state === 'waiting').map((e) => e.id), 'cancelled', now, ctx.origin)
-    return
-  }
+  // 0. I6: cards that didn't come off file before come off now.
+  for (const e of list.entries.filter(cardStillOn)) await cardOffAndNote(cls.id, e, now)
 
   // 1. Anything left mid-charge or unanswered: ask Square before anything else (never a second payment).
+  //    I4: a cancelled class still settles these, read only.
   for (const e of list.entries.filter((x) => x.state === 'charging')) {
     const go = await settleCharging(ctx, e)
     if (go === 'stop') return
+  }
+
+  // A cancelled class: the list closes, nobody is charged.
+  if (cls.status === 'cancelled') {
+    list = await getWaitlist(cls.id)
+    result.closed += await closeEntries(cls, list.entries.filter((e) => e.state === 'waiting').map((e) => e.id), 'cancelled', now, ctx.origin)
+    return
   }
 
   // 2. Entries whose waitlist closed: off the list, cards off, a kind email. A seat freed after the cutoff stays open.
@@ -255,34 +319,68 @@ function timeIsUp(cls: ScheduledClass, e: WaitlistEntry, now: Date): boolean {
 
 type Go = 'next' | 'stop'
 
+const holdInputFor = (entry: WaitlistEntry, a: WaitlistAttempt): HoldInput => ({
+  bookingId: a.bookingId, passId: entry.request.passId, source: 'online', customer: { ...entry.customer },
+  ttlMinutes: WAITLIST_HOLD_MINUTES, ...(entry.request.seats ? { seats: entry.request.seats } : {}), waitlistEntryId: entry.id,
+})
+
 /** A new try for an entry that is waiting and fits. */
 async function tryToAdd(ctx: Ctx, entry: WaitlistEntry, reason: RunReason): Promise<Go> {
   const { cls, now, result } = ctx
+
+  // I1 belt and braces: a try an owner settled as "no payment" is asked about once more before any new try.
+  const prev = lastAttempt(entry)
+  if (prev && prev.orderId && prev.amountCents !== null && (prev.outcome === 'no-payment' || prev.outcome === 'unpaid')) {
+    let st: OrderPaymentStatus
+    try {
+      st = await askOrder(prev, entry)
+    } catch (err) {
+      logger.error('Could not ask Square about an earlier waitlist try — nobody charged', { entryId: entry.id, n: prev.n, error: String(err) })
+      result.stopped = 'error'
+      return 'stop'
+    }
+    if (st.state === 'paid' && st.payment) {
+      const priced = quote(cls, { ...entry.request, promoCode: undefined }, new Date(prev.at), CLASS_TAX_PERCENT)
+      return finishPaid(ctx, entry, prev, priced.ok ? priced.value : null, st.payment, prev.orderId, undefined)
+    }
+    if (st.state === 'going-through') {
+      result.unknown++
+      result.stopped = 'unknown'
+      return 'stop'
+    }
+  }
+
   const priced = quote(cls, { ...entry.request, promoCode: undefined }, now, CLASS_TAX_PERCENT)
 
   // Not sold any more (the option was removed), or today's price is above what they agreed to: skipped, never charged.
   if (!priced.ok || priced.value.totalCents > entry.maxCents) {
-    const why = priced.ok ? 'price' : 'gone'
+    const why: 'price' | 'gone' = priced.ok ? 'price' : 'gone'
     const n = entry.attempts.length + 1
     const changed = await updateEntry(cls.id, entry.id, (e) => (e.state === 'waiting' ? {
       ...e, state: 'skipped',
-      attempts: [...e.attempts, { n, at: now.toISOString(), attemptId: `wl:${e.id}:${n}`, bookingId: '', orderId: null, amountCents: priced.ok ? priced.value.totalCents : null, note: null, outcome: 'price-rose' }],
+      attempts: [...e.attempts, { n, at: now.toISOString(), attemptId: `wl:${e.id}:${n}`, bookingId: '', orderId: null, amountCents: priced.ok ? priced.value.totalCents : null, note: null, outcome: 'price-rose', skipWhy: why }],
     } : null), { by: null, change: why === 'price' ? `A seat opened, but the price is now ${money(priced.ok ? priced.value.totalCents : 0)}, above the ${money(entry.maxCents)} they agreed to. Not charged.` : 'A seat opened, but what they asked for isn’t sold any more. Not charged.' }, now)
     if (changed?.state !== 'skipped') return 'next'
     result.skipped++
-    await cardOff(cls.id, changed)
-    await sendWaitlistMissedEmail({
+    const off = await cardOffAndNote(cls.id, changed, now)
+    const emailed = (await sendWaitlistMissedEmail({
       to: entry.customer.email, givenName: entry.customer.givenName, className: cls.content.name, whenLabel: waitlistWhen(cls, entry.sessionIds),
-      why: 'price', last4: entry.square.last4, classUrl: `${ctx.origin}/classes/${cls.id}`,
-    }).catch(() => undefined)
+      why, last4: entry.square.last4, classUrl: `${ctx.origin}/classes/${cls.id}`, cardOff: off,
+    }).catch(() => ({ sent: false }))).sent
+    await updateEntry(cls.id, entry.id, (e) => patchAttempt(e, n, { told: { text: false, email: emailed } }), null, now).catch(() => undefined)
     await alertOwners(why === 'price'
-      ? `Waitlist skipped ${nameOfEntry(entry)} for ${cls.content.name}: the price is now ${money(priced.ok ? priced.value.totalCents : 0)}, above the ${money(entry.maxCents)} they agreed to. Not charged; they were told. The seat goes to the next person.`
-      : `Waitlist skipped ${nameOfEntry(entry)} for ${cls.content.name}: what they asked for isn't sold any more. Not charged; they were told.`).catch(() => undefined)
+      ? `Waitlist skipped ${nameOfEntry(entry)} for ${cls.content.name}: the price is now ${money(priced.ok ? priced.value.totalCents : 0)}, above the ${money(entry.maxCents)} they agreed to. Not charged${emailed ? '; they were emailed' : ''}. The seat goes to the next person.`
+      : `Waitlist skipped ${nameOfEntry(entry)} for ${cls.content.name}: what they asked for isn't sold any more. Not charged${emailed ? '; they were emailed' : ''}.`).catch(() => undefined)
     return 'next'
   }
   const q = priced.value
   const lines = orderLinesFor(cls, q, entry.request.seats)
   if (!lines.ok) {
+    // I3: written down on the entry (nothing sent), so the public isn't refused while the waitlist can't take the seat.
+    const n = entry.attempts.length + 1
+    await updateEntry(cls.id, entry.id, (e) => (e.state === 'waiting' && e.attempts.length === n - 1 ? {
+      ...e, attempts: [...e.attempts, { n, at: now.toISOString(), attemptId: `wl:${e.id}:${n}`, bookingId: '', orderId: null, amountCents: null, note: null, outcome: 'register' }],
+    } : null), { by: null, change: 'A seat opened, but the class isn’t on the register, so nobody was charged.' }, now)
     await alertOwners(`${cls.content.name} isn't on the register yet, so the waitlist can't add anyone. Open the class in /admin and tap Put it on the register.`).catch(() => undefined)
     ctx.result.stopped = 'register'
     return 'stop'
@@ -300,10 +398,15 @@ async function tryToAdd(ctx: Ctx, entry: WaitlistEntry, reason: RunReason): Prom
 }
 
 /**
- * A `charging` entry from an earlier run: if its try has no outcome yet and is
- * recent, another run may still be charging it: leave it. Otherwise ask
- * Square whether its order is paid; paid → finish adding them; not paid →
- * carry on with the SAME try (same keys, same amount and note).
+ * A `charging` entry from an earlier run (or one an owner asked about). If
+ * its try has no outcome yet and is recent, another run may still be
+ * charging it: leave it. Otherwise (C1 / I1 / I4):
+ *  - never sent → nothing can be paid: carry on (resend allowed) or let go
+ *  - Square shows it paid → finish adding them, whatever else changed
+ *  - still going through → keep the seat, ask again next time
+ *  - failed (final) → declined (resend allowed) or off the list (read only)
+ *  - no payment → resend the SAME try while allowed; read only, it is settled
+ *    as not paid once it was last sent UNCLEAR_SETTLE_MS ago
  */
 async function settleCharging(ctx: Ctx, entry: WaitlistEntry): Promise<Go> {
   const { cls, now } = ctx
@@ -312,38 +415,71 @@ async function settleCharging(ctx: Ctx, entry: WaitlistEntry): Promise<Go> {
     await updateEntry(cls.id, entry.id, (e) => (e.state === 'charging' ? { ...e, state: 'waiting' } : null), { by: null, change: 'Back to waiting' }, now)
     return 'next'
   }
-  if (a.outcome === null && now.getTime() - Date.parse(a.at) < STALE_CHARGE_MS) return 'next'
+  if (a.outcome === null && now.getTime() - lastSent(a) < STALE_CHARGE_MS) return 'next'
+  const allowed = mayResend(cls, entry, now)
   const priced = quote(cls, { ...entry.request, promoCode: undefined }, new Date(a.at), CLASS_TAX_PERCENT)
-  if (a.orderId) {
-    let found: Payment | null
-    try {
-      found = await providers.payment.findOrderPayment(a.orderId)
-    } catch (err) {
-      logger.error('Could not ask Square about a waitlist charge — still held', { entryId: entry.id, n: a.n, error: String(err) })
-      ctx.result.unknown++
-      ctx.result.stopped = 'unknown'
-      return 'stop'
+
+  // The charge was never sent: Square can't have this money.
+  if (a.amountCents === null) {
+    if (!allowed) return settleNotPaid(ctx, entry, a, 'never-sent')
+    if (!priced.ok) {
+      await letGoOf(cls.id, a.bookingId)
+      await backToWaiting(ctx, entry, a, 'error', 'What they asked for can’t be priced any more. Still waiting; nothing was sent.')
+      return 'next'
     }
-    if (found?.status === 'completed') {
-      return finishPaid(ctx, entry, a, priced.ok ? priced.value : null, found, a.orderId, undefined)
-    }
+    return proceed(ctx, entry, a, priced.value)
   }
-  if (!priced.ok) {
-    // What they asked for can't be priced any more and Square shows no payment: stays held for a person.
+
+  let st: OrderPaymentStatus
+  try {
+    st = await askOrder(a, entry)
+  } catch (err) {
+    logger.error('Could not ask Square about a waitlist charge — still held', { entryId: entry.id, n: a.n, error: String(err) })
+    await keepHeld(ctx, entry, a)
     ctx.result.unknown++
     ctx.result.stopped = 'unknown'
     return 'stop'
   }
-  return proceed(ctx, entry, a, priced.value)
+
+  if (st.state === 'paid' && st.payment) {
+    return finishPaid(ctx, entry, a, priced.ok ? priced.value : null, st.payment, a.orderId!, undefined)
+  }
+  if (st.state === 'going-through') {
+    // Not final yet: never resend, never let go.
+    await keepHeld(ctx, entry, a)
+    if (a.outcome !== 'unknown') await markUnknown(ctx, entry, a, 'Square shows the payment is still going through. Seat held; we ask again on the next run.')
+    ctx.result.unknown++
+    ctx.result.stopped = 'unknown'
+    return 'stop'
+  }
+  if (st.state === 'failed') {
+    if (!allowed) return settleNotPaid(ctx, entry, a, 'failed')
+    await letGoOf(cls.id, a.bookingId)
+    return declined(ctx, entry, a, 'declined')
+  }
+
+  // No payment on Square for this try.
+  if (allowed) {
+    if (!priced.ok) {
+      // What they asked for can't be priced any more: the seat stays held for a person (To decide).
+      await keepHeld(ctx, entry, a)
+      ctx.result.unknown++
+      ctx.result.stopped = 'unknown'
+      return 'stop'
+    }
+    return proceed(ctx, entry, a, priced.value)
+  }
+  if (now.getTime() - lastSent(a) >= UNCLEAR_SETTLE_MS) return settleNotPaid(ctx, entry, a, 'no-payment')
+  // Read only and too soon to call it: the seat stays held, asked again next run.
+  await keepHeld(ctx, entry, a)
+  return 'next'
 }
 
 /** Hold → order → R14 → amount written down → charge → outcome. Shared by a new try and a resumed one. */
 async function proceed(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, q: Quote): Promise<Go> {
   const { cls, now } = ctx
-  const holdInput: HoldInput = {
-    bookingId: a.bookingId, passId: entry.request.passId, source: 'online', customer: { ...entry.customer },
-    ttlMinutes: HOLD_MINUTES, ...(entry.request.seats ? { seats: entry.request.seats } : {}), waitlistEntryId: entry.id,
-  }
+  const holdInput = holdInputFor(entry, a)
+  const sentBefore = a.amountCents !== null
 
   // The seat: this try's hold if it is still running, else a new hold under the same booking.
   const ledger = await getLedger(cls.id)
@@ -356,19 +492,22 @@ async function proceed(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, q: Qu
       logger.error('Waitlist hold failed', { entryId: entry.id, error: String(err) })
     }
     if (!ok) {
-      await backToWaiting(ctx, entry, a, a.amountCents === null ? 'no-seat' : 'unpaid', 'The seat was taken before it could be held. Still waiting; not charged.')
+      if (!sentBefore) {
+        await backToWaiting(ctx, entry, a, 'no-seat', 'The seat was taken before it could be held. Still waiting; not charged.')
+        return 'next'
+      }
+      // I1: this try's charge may have gone out. Keep the SAME try (never n + 1); ask Square again next run.
+      if (a.outcome !== 'unknown') await markUnknown(ctx, entry, a, 'The seat was taken meanwhile. Still asking Square about the charge; nothing new is sent.')
+      ctx.result.unknown++
       return 'next'
     }
-  }
-  const letGo = async () => {
-    await release(cls.id, a.bookingId).catch((err) => logger.error('Waitlist hold not released (it runs out by itself)', { bookingId: a.bookingId, error: String(err) }))
   }
 
   // The order (same key every time for this try: Square hands back the same order).
   const lines = orderLinesFor(cls, q, entry.request.seats)
-  if (!lines.ok) {
-    await letGo()
-    await backToWaiting(ctx, entry, a, 'error', 'The class isn’t on the register, so nobody was charged.')
+  if (!lines.ok && !sentBefore) {
+    await letGoOf(cls.id, a.bookingId)
+    await backToWaiting(ctx, entry, a, 'register', 'The class isn’t on the register, so nobody was charged.')
     ctx.result.stopped = 'register'
     return 'stop'
   }
@@ -377,6 +516,7 @@ async function proceed(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, q: Qu
     // A resumed try: the order and amount written down before its charge are reused exactly.
     order = { orderId: a.orderId, totalCents: a.amountCents }
   } else try {
+    if (!lines.ok) throw new Error('not on the register')
     order = await providers.payment.createClassOrder({
       locationId: siteConfig.providers.booking.config.locationId,
       customerId: entry.square.customerId,
@@ -391,7 +531,7 @@ async function proceed(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, q: Qu
       return unknownOutcome(ctx, entry, a, err)
     }
     logger.error('Waitlist order failed — nobody charged', { entryId: entry.id, error: err instanceof Error ? err.message : String(err) })
-    await letGo()
+    await letGoOf(cls.id, a.bookingId)
     await backToWaiting(ctx, entry, a, 'error', 'Square couldn’t make the order. Still waiting; not charged.')
     ctx.result.stopped = 'error'
     return 'stop'
@@ -402,8 +542,8 @@ async function proceed(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, q: Qu
   if (amount === null) {
     const verdict = judgeDrift(q.totalCents, order.totalCents, { tellBelowCents: q.lines.length })
     if (verdict.kind === 'refuse' || order.totalCents > entry.maxCents) {
-      await letGo()
-      await backToWaiting(ctx, entry, a, 'error', `The register asked ${money(order.totalCents)}, more than the website price. Not charged.`)
+      await letGoOf(cls.id, a.bookingId)
+      await backToWaiting(ctx, entry, { ...a, orderId: order.orderId }, 'register', `The register asked ${money(order.totalCents)}, more than the website price. Not charged.`)
       await alertOwners(`Waitlist didn't charge ${nameOfEntry(entry)} for ${cls.content.name}: the register asked ${money(order.totalCents)}, the website ${money(q.totalCents)} (they agreed to ${money(entry.maxCents)}). Open the class in /admin and tap Update the register, then run the waitlist. Nothing was charged.`).catch(() => undefined)
       ctx.result.stopped = 'register'
       return 'stop'
@@ -412,26 +552,32 @@ async function proceed(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, q: Qu
       await tellOwnersOfDrift(`Waitlist price differed — ${cls.content.name}`, `booking ${a.bookingId}`, q.totalCents, order.totalCents, '')
     }
     amount = order.totalCents
-    // Written down before the charge: every retry of this try sends exactly this.
-    const saved = await updateEntry(cls.id, entry.id, (e) => ({
-      ...e, attempts: e.attempts.map((x) => (x.n === a.n ? { ...x, orderId: order.orderId, amountCents: amount } : x)),
-    }), null, now)
-    if (!saved) throw new Error('waitlist entry vanished')
+  }
+
+  // Written down before the charge: every resend of this try sends exactly this (order, amount, note, key).
+  // C1: written only while this is still their live try and they haven't asked to leave; otherwise nothing is sent.
+  const sentAt = new Date().toISOString()
+  const saved = await updateEntry(cls.id, entry.id, (e) => (e.state === 'charging' && !e.leaveAskedAt && lastAttempt(e)?.n === a.n
+    ? patchAttempt(e, a.n, { orderId: order.orderId, amountCents: amount, sentAt }) : null), null, now)
+  if (!saved) throw new Error('waitlist entry vanished')
+  if (saved.leaveAskedAt || saved.state !== 'charging' || lastAttempt(saved)?.sentAt !== sentAt) {
+    // They asked to leave (or the try changed) just now: never send it; settle read only.
+    return saved.state === 'charging' ? settleCharging(ctx, saved) : 'next'
   }
 
   const charged = await chargeSaved({
     orderId: order.orderId, cardId: entry.square.cardId, customerId: entry.square.customerId, amount: amount!,
     idempotencyKey: `${a.attemptId}:pay`, email: entry.customer.email, note: a.note ?? `Hometown waitlist ${a.bookingId}`,
   })
-  const withOrder = { ...a, orderId: order.orderId, amountCents: amount }
+  const withOrder: WaitlistAttempt = { ...a, orderId: order.orderId, amountCents: amount, sentAt }
   switch (charged.kind) {
     case 'paid':
       return finishPaid(ctx, entry, withOrder, q, charged.payment, order.orderId, order.lineTotals, holdInput)
     case 'declined':
-      await letGo()
+      await letGoOf(cls.id, a.bookingId)
       return declined(ctx, entry, withOrder, charged.trouble)
     case 'setup':
-      await letGo()
+      await letGoOf(cls.id, a.bookingId)
       await backToWaiting(ctx, entry, withOrder, 'setup', 'Square refused the request (a setup problem). Still waiting; not charged; card kept.')
       await alertCardSetupOnce('charge', now)
       ctx.result.stopped = 'setup'
@@ -441,49 +587,57 @@ async function proceed(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, q: Qu
   }
 }
 
+async function letGoOf(classId: string, bookingId: string): Promise<void> {
+  await release(classId, bookingId).catch((err) => logger.error('Waitlist hold not released (it runs out by itself)', { bookingId, error: String(err) }))
+}
+
+/** A FINAL "not charged" (I1): back to waiting; the next try is n + 1 with new keys. */
 async function backToWaiting(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, outcome: WaitlistAttempt['outcome'], change: string): Promise<void> {
   await updateEntry(ctx.cls.id, entry.id, (e) => (e.state === 'charging' ? {
-    ...e, state: 'waiting', attempts: e.attempts.map((x) => (x.n === a.n ? { ...x, outcome } : x)),
+    ...patchAttempt(e, a.n, { outcome, ...(a.orderId ? { orderId: a.orderId } : {}) }), state: 'waiting',
   } : null), { by: null, change }, ctx.now)
 }
 
-/** Takes the saved card off file (OWNER-S4-3) and notes it. Never throws. */
-async function cardOff(classId: string, entry: WaitlistEntry): Promise<void> {
+/** The unclear try's seat stays held, never past the class's start (C1). */
+async function keepHeld(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt): Promise<void> {
+  await extendHold(ctx.cls.id, a.bookingId, unclearHoldUntil(ctx.cls, entry, ctx.now))
+    .catch((e) => logger.error('Could not extend the hold on an unclear waitlist charge', { bookingId: a.bookingId, error: String(e) }))
+}
+
+async function markUnknown(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, change: string): Promise<void> {
+  await updateEntry(ctx.cls.id, entry.id, (e) => (e.state === 'charging' ? patchAttempt(e, a.n, { outcome: 'unknown' }) : null), { by: null, change }, ctx.now)
+}
+
+async function text(to: string, content: string): Promise<boolean> {
+  if (!to) return false
   try {
-    await providers.payment.disableCard(entry.square.cardId)
-    await updateEntry(classId, entry.id, (e) => ({ ...e, cardOffAt: new Date().toISOString() }), null).catch(() => undefined)
+    await sendQuoText({ to, content })
+    return true
   } catch (err) {
-    logger.error('Saved card not taken off file', { entryId: entry.id, error: err instanceof Error ? err.message : String(err) })
+    logger.warn('Waitlist text not sent', { error: String(err) })
+    return false
   }
 }
-
-async function text(to: string, content: string): Promise<void> {
-  if (!to) return
-  await sendQuoText({ to, content }).catch((err) => logger.warn('Waitlist text not sent', { error: String(err) }))
-}
-
-const firstStart = (cls: ScheduledClass, sessionIds: string[]) =>
-  cls.sessions.filter((s) => sessionIds.includes(s.id)).sort((a, b) => a.startIso.localeCompare(b.startIso))[0]?.startIso ?? cls.sessions[0]?.startIso ?? ''
 
 /** "Sat, Oct 24 at 10 AM" */
 const whenWords = (iso: string) => formatSlotLabel(iso).replace(' CT', '').replace(' · ', ' at ').replace(':00 ', ' ')
 
-/** Paid: confirm the seats (never refuses a paid booking), entry added, card off, "You're in", owners told. */
+/**
+ * Paid: confirm the seats (never refuses a paid booking), entry added, card
+ * off, "You're in", owners told. I4: on a cancelled class nobody is told
+ * they're in; the owners are told to refund them from the class sheet.
+ */
 async function finishPaid(
   ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, q: Quote | null, payment: Payment, orderId: string,
   lineTotals: { totalCents: number; taxCents: number }[] | undefined, input?: HoldInput,
 ): Promise<Go> {
   const { cls, now, result } = ctx
   const chargedCents = payment.amount || a.amountCents || q?.totalCents || 0
-  const holdInput: HoldInput = input ?? {
-    bookingId: a.bookingId, passId: entry.request.passId, source: 'online', customer: { ...entry.customer },
-    ttlMinutes: HOLD_MINUTES, ...(entry.request.seats ? { seats: entry.request.seats } : {}), waitlistEntryId: entry.id,
-  }
+  const holdInput: HoldInput = input ?? holdInputFor(entry, a)
   // The entry first: once Square has the money, nobody may ever charge this person again.
   const added = await updateEntry(cls.id, entry.id, (e) => ({
-    ...e, state: 'added', bookingId: a.bookingId,
-    attempts: e.attempts.map((x) => (x.n === a.n ? { ...x, orderId, amountCents: chargedCents, outcome: 'paid', paymentId: payment.id } : x)),
-  }), { by: null, change: `Added and charged ${money(chargedCents)} to the card ending ${entry.square.last4}` }, now)
+    ...patchAttempt(e, a.n, { orderId, amountCents: chargedCents, outcome: 'paid', paymentId: payment.id }), state: 'added', bookingId: a.bookingId,
+  }), { by: ctx.by, change: `Added and charged ${money(chargedCents)} to the card ending ${entry.square.last4}` }, now)
   if (!added) logger.error('WAITLIST PAID BUT ENTRY NOT MARKED ADDED', { entryId: entry.id, orderId })
   result.added++
 
@@ -496,26 +650,30 @@ async function finishPaid(
     logger.error('WAITLIST PAID, SEATS NOT RECORDED', { entryId: entry.id, bookingId: a.bookingId, orderId, error: String(err) })
     await extendHold(cls.id, a.bookingId, new Date(now.getTime() + UNCLEAR_HOLD_HOURS * 3_600_000).toISOString()).catch(() => undefined)
   }
-  await cardOff(cls.id, entry)
+  await cardOffAndNote(cls.id, added ?? entry, now)
 
-  const start = firstStart(cls, entry.sessionIds)
-  const seatsLabel = waitlistSeatsWords(cls, entry)
   const name = nameOfEntry(entry)
-  // One confirmation per booking (Square's payment notice may race us): whoever claims it sends it.
-  if (await claimConfirmation(a.bookingId)) {
-    const sent = await sendClassConfirmation({
-      origin: ctx.origin, bookingId: a.bookingId, cls, sessionIds: q?.sessionIds ?? entry.sessionIds, seats: entry.seats, seatsLabel,
-      email: entry.customer.email, givenName: entry.customer.givenName, receiptUrl: payment.receiptUrl ?? null, totalChargedCents: chargedCents,
-      lead: `A spot opened and you’re in! We charged ${money(chargedCents)} to your card ending ${entry.square.last4}.`,
-    }).catch(() => false)
-    if (!sent) await releaseConfirmation(a.bookingId)
+  if (cls.status === 'cancelled') {
+    await alertOwners(`${name} was charged ${money(chargedCents)} by the waitlist just before ${cls.content.name} was cancelled. Refund them from the class sheet.`).catch(() => undefined)
+  } else {
+    const start = firstStart(cls, entry.sessionIds)
+    const seatsLabel = waitlistSeatsWords(cls, entry)
+    // One confirmation per booking (Square's payment notice may race us): whoever claims it sends it.
+    if (await claimConfirmation(a.bookingId)) {
+      const sent = await sendClassConfirmation({
+        origin: ctx.origin, bookingId: a.bookingId, cls, sessionIds: q?.sessionIds ?? entry.sessionIds, seats: entry.seats, seatsLabel,
+        email: entry.customer.email, givenName: entry.customer.givenName, receiptUrl: payment.receiptUrl ?? null, totalChargedCents: chargedCents,
+        lead: `A spot opened and you’re in! We charged ${money(chargedCents)} to your card ending ${entry.square.last4}.`,
+      }).catch(() => false)
+      if (!sent) await releaseConfirmation(a.bookingId)
+    }
+    await text(entry.customer.phone, `Hometown Studio here. A spot opened in ${cls.content.name} on ${whenWords(start)} and you're in! We charged ${money(chargedCents)} to your card ending ${entry.square.last4}. See you there.`)
+    await alertOwners(`Waitlist added ${name} to ${cls.content.name} (${money(chargedCents)}).${entry.leaveAskedAt ? ' They had asked to leave, but Square shows the charge went through, so they’re in.' : ''}${recorded ? '' : ` Their seats aren't recorded yet; Square's payment notice books them, or it shows in /admin › To decide. Order ${orderId}.`}`).catch(() => undefined)
   }
-  await text(entry.customer.phone, `Hometown Studio here. A spot opened in ${cls.content.name} on ${whenWords(start)} and you're in! We charged ${money(chargedCents)} to your card ending ${entry.square.last4}. See you there.`)
-  await alertOwners(`Waitlist added ${name} to ${cls.content.name} (${money(chargedCents)}).${recorded ? '' : ` Their seats aren't recorded yet; Square's payment notice books them, or it shows in /admin › To decide. Order ${orderId}.`}`).catch(() => undefined)
   await recordAudit({
-    by: { id: 'waitlist', name: 'Waitlist', role: 'owner' },
+    by: ctx.by ? { ...ctx.by, role: 'owner' } : { id: 'waitlist', name: 'Waitlist', role: 'owner' },
     action: 'waitlist-added', target: { kind: 'class', id: cls.id, label: cls.content.name },
-    details: { entryId: entry.id, bookingId: a.bookingId, orderId, paymentId: payment.id, cents: chargedCents, n: a.n, name, recovered: a.outcome === 'unknown' },
+    details: { entryId: entry.id, bookingId: a.bookingId, orderId, paymentId: payment.id, cents: chargedCents, n: a.n, name, recovered: a.outcome === 'unknown', cancelled: cls.status === 'cancelled' },
   }).catch(() => undefined)
   return 'next'
 }
@@ -524,17 +682,20 @@ async function finishPaid(
 async function declined(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, trouble: CardTrouble): Promise<Go> {
   const { cls, now, result } = ctx
   const changed = await updateEntry(cls.id, entry.id, (e) => ({
-    ...e, state: 'declined', attempts: e.attempts.map((x) => (x.n === a.n ? { ...x, orderId: a.orderId, amountCents: a.amountCents, outcome: 'declined', trouble } : x)),
+    ...patchAttempt(e, a.n, { orderId: a.orderId, amountCents: a.amountCents, outcome: 'declined', trouble }), state: 'declined',
   }), { by: null, change: `The card ending ${entry.square.last4} didn’t go through (${CHARGE_TROUBLE_WORDS[trouble]}). Off the list; not charged.` }, now)
   result.declined++
-  await cardOff(cls.id, changed ?? entry)
+  const off = await cardOffAndNote(cls.id, changed ?? entry, now)
   const start = firstStart(cls, entry.sessionIds)
-  await sendWaitlistMissedEmail({
+  const emailed = (await sendWaitlistMissedEmail({
     to: entry.customer.email, givenName: entry.customer.givenName, className: cls.content.name, whenLabel: waitlistWhen(cls, entry.sessionIds),
-    why: 'declined', last4: entry.square.last4, classUrl: `${ctx.origin}/classes/${cls.id}`,
-  }).catch(() => undefined)
-  await text(entry.customer.phone, `Hometown Studio here. A spot opened in ${cls.content.name} but your card ending ${entry.square.last4} didn't go through, so it went to the next person. You can join the waitlist again on our site.`)
-  await alertOwners(`Waitlist: ${nameOfEntry(entry)}'s card ending ${entry.square.last4} didn't go through for ${cls.content.name} ${whenWords(start)} (${CHARGE_TROUBLE_WORDS[trouble]}). Nothing was charged; they were told, and the seat goes to the next person.`).catch(() => undefined)
+    why: 'declined', last4: entry.square.last4, classUrl: `${ctx.origin}/classes/${cls.id}`, cardOff: off,
+  }).catch(() => ({ sent: false }))).sent
+  const texted = await text(entry.customer.phone, `Hometown Studio here. A spot opened in ${cls.content.name} but your card ending ${entry.square.last4} didn't go through, so it went to the next person. You can join the waitlist again on our site.`)
+  // M5: what was actually sent, for To decide.
+  await updateEntry(cls.id, entry.id, (e) => patchAttempt(e, a.n, { told: { text: texted, email: emailed } }), null, now).catch(() => undefined)
+  const told = texted && emailed ? 'they were texted and emailed' : texted ? 'they were texted' : emailed ? 'they were emailed' : 'we couldn’t text or email them'
+  await alertOwners(`Waitlist: ${nameOfEntry(entry)}'s card ending ${entry.square.last4} didn't go through for ${cls.content.name} ${whenWords(start)} (${CHARGE_TROUBLE_WORDS[trouble]}). Nothing was charged; ${told}, and the seat goes to the next person.`).catch(() => undefined)
   await recordAudit({
     by: { id: 'waitlist', name: 'Waitlist', role: 'owner' },
     action: 'waitlist-declined', target: { kind: 'class', id: cls.id, label: cls.content.name },
@@ -543,27 +704,59 @@ async function declined(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, trou
   return 'next'
 }
 
-/** No answer from Square: the seat stays held a day (R15), the entry stays charging, owners alerted once, the run stops. */
+/**
+ * C1 / I4, read only: the try can't be resent (the waitlist closed, the class
+ * was cancelled or isn't open, or they asked to leave) and Square shows it
+ * wasn't paid (or it was never sent). Nothing is sent; the seat is let go,
+ * the card comes off, they come off the list and are told.
+ */
+async function settleNotPaid(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, why: 'never-sent' | 'failed' | 'no-payment'): Promise<Go> {
+  const { cls, now, result } = ctx
+  const left = !!entry.leaveAskedAt
+  const state: WaitlistEntry['state'] = left ? 'left' : 'closed'
+  const reasonWords = left ? 'they asked to leave' : cls.status === 'cancelled' ? 'the class was cancelled' : 'the waitlist closed'
+  const square = why === 'failed' ? 'Square shows the card didn’t go through' : why === 'never-sent' ? 'The charge was never sent' : 'Square shows no payment for the charge'
+  const changed = await updateEntry(cls.id, entry.id, (e) => (e.state === 'charging' ? {
+    ...patchAttempt(e, a.n, { outcome: why === 'failed' ? 'declined' : 'no-payment' }), state,
+  } : null), { by: null, change: `${square}, and ${reasonWords}. Nothing more is sent; seat let go.` }, now)
+  if (!changed || changed.state !== state) return 'next'
+  await letGoOf(cls.id, a.bookingId)
+  result.closed++
+  const off = await cardOffAndNote(cls.id, changed, now)
+  const whenLabel = waitlistWhen(cls, entry.sessionIds)
+  if (left) {
+    await sendWaitlistOffEmail({ to: entry.customer.email, givenName: entry.customer.givenName, className: cls.content.name, whenLabel, byStudio: false, cardOff: off }).catch(() => undefined)
+  } else if (cls.status !== 'cancelled') {
+    await sendWaitlistMissedEmail({
+      to: entry.customer.email, givenName: entry.customer.givenName, className: cls.content.name, whenLabel,
+      why: 'closed', last4: entry.square.last4, classUrl: `${ctx.origin}/workshops`, cardOff: off,
+    }).catch(() => undefined)
+  }
+  if (a.amountCents !== null) {
+    await alertOwners(`Waitlist settled ${nameOfEntry(entry)}'s unclear charge for ${cls.content.name}. ${square}, and ${reasonWords}. Nothing more was sent, their seat was let go and their card is coming off.`).catch(() => undefined)
+  }
+  return 'next'
+}
+
+/** No answer from Square: the seat stays held (R15, never past the start), the entry stays charging, owners alerted once, the run stops. */
 async function unknownOutcome(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, err: unknown): Promise<Go> {
   const { cls, now, result } = ctx
   logger.error('WAITLIST CHARGE OUTCOME UNKNOWN — seat kept, run stopped', { entryId: entry.id, n: a.n, orderId: a.orderId, codes: squareErrorCodes(err), error: err instanceof Error ? err.message : String(err) })
-  await extendHold(cls.id, a.bookingId, new Date(now.getTime() + UNCLEAR_HOLD_HOURS * 3_600_000).toISOString())
-    .catch((e) => logger.error('Could not extend the hold on an unclear waitlist charge', { bookingId: a.bookingId, error: String(e) }))
+  await keepHeld(ctx, entry, a)
   const first = a.outcome !== 'unknown'
-  await updateEntry(cls.id, entry.id, (e) => ({
-    ...e, attempts: e.attempts.map((x) => (x.n === a.n ? { ...x, orderId: a.orderId, amountCents: a.amountCents, outcome: 'unknown' } : x)),
-  }), first ? { by: null, change: 'Square didn’t say whether the card was charged. Seat held; we ask Square again on the next run.' } : null, now)
+  await updateEntry(cls.id, entry.id, (e) => patchAttempt(e, a.n, { orderId: a.orderId, amountCents: a.amountCents, outcome: 'unknown' }),
+    first ? { by: null, change: 'Square didn’t say whether the card was charged. Seat held; we ask Square again on the next run.' } : null, now)
   result.unknown++
   result.stopped = 'unknown'
   if (first) {
-    await alertOwners(`Waitlist charge unclear: ${nameOfEntry(entry)}, ${cls.content.name}${a.amountCents ? `, ${money(a.amountCents)}` : ''}. Their seat is held a day and we ask Square again every 10 minutes; nobody is charged twice. If Square shows it paid they're added and texted. See /admin › To decide.`).catch(() => undefined)
+    await alertOwners(`Waitlist charge unclear: ${nameOfEntry(entry)}, ${cls.content.name}${a.amountCents ? `, ${money(a.amountCents)}` : ''}. Their seat is held and we ask Square again every 10 minutes. If Square shows it paid they're added and texted. Square never takes the same charge twice. See /admin › To decide.`).catch(() => undefined)
   }
   return 'stop'
 }
 
 // ── The sweep ────────────────────────────────────────────────────────────────
 
-/** Every class with someone on its list: settle, close passed cutoffs, add who fits. Stops starting classes after `budgetMs`. */
+/** Every class with someone on its list (or a card still to take off): settle, close passed cutoffs, add who fits. Stops starting classes after `budgetMs`. */
 export async function sweepWaitlists(now = new Date(), opts: { budgetMs?: number; ids?: string[] } = {}): Promise<{ classes: number; added: number; declined: number; closed: number; unknown: number; left: number }> {
   const { waitlistClassIds } = await import('./waitlist-store')
   const ids = opts.ids ?? (await waitlistClassIds())
@@ -572,7 +765,7 @@ export async function sweepWaitlists(now = new Date(), opts: { budgetMs?: number
   for (const id of ids) {
     if (Date.now() - started > (opts.budgetMs ?? 6_000)) { out.left++; continue }
     const list = await getWaitlist(id).catch(() => null)
-    if (!list?.entries.some((e) => e.state === 'waiting' || e.state === 'charging')) continue
+    if (!list || !hasWork(list.entries)) continue
     const r = await runWaitlist(id, { reason: 'sweep' }, now)
     out.classes++
     out.added += r.added
@@ -583,27 +776,142 @@ export async function sweepWaitlists(now = new Date(), opts: { budgetMs?: number
   return out
 }
 
-/** For To decide › "Check Square again" on one unclear entry: runs the class (which asks Square first). */
-export async function checkEntryAgain(classId: string, entryId: string, by: By, now = new Date()): Promise<{ state: WaitlistEntry['state'] | null; result: RunResult }> {
-  const result = await runWaitlist(classId, { reason: 'owner', by }, now)
-  const e = (await getWaitlist(classId)).entries.find((x) => x.id === entryId)
-  return { state: e?.state ?? null, result }
+// ── I5: an unclear charge, answered in the app (no Square dashboard) ────────
+
+/**
+ * What Square shows for an entry's unclear charge, in words, and which
+ * choices fit:
+ *   paid            → [Add them]
+ *   going-through   → [Check again] (seat stays held)
+ *   failed          → [Keep them waiting] [Take them off] (a final no)
+ *   no-payment      → the same two, once the charge was last sent
+ *                     UNCLEAR_SETTLE_MS ago (`decideFrom`); before that only
+ *                     [Check again]
+ *   unreachable     → [Check again] (seat stays held)
+ *   not-unclear     → nothing to decide any more
+ * Read only: asking never charges or changes anything.
+ */
+export interface UnclearAnswer {
+  state: 'paid' | 'going-through' | 'failed' | 'no-payment' | 'unreachable' | 'not-unclear'
+  words: string
+  cents: number | null
+  paidAt: string | null
+  /** No payment: when Keep them waiting / Take them off become possible. */
+  decideFrom: string | null
+  /** The choices that fit now. */
+  choices: ('add' | 'keep' | 'off')[]
+  /** Keep them waiting fits only while the waitlist is still open for them. */
+  canKeep: boolean
+}
+
+const clock = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' })
+
+function unclearOf(list: WaitlistEntry[], entryId: string): { e: WaitlistEntry; a: WaitlistAttempt } | null {
+  const e = list.find((x) => x.id === entryId)
+  const a = e ? lastAttempt(e) : undefined
+  return e && a && e.state === 'charging' && a.outcome === 'unknown' ? { e, a } : null
+}
+
+/** Asks Square about one unclear entry (read only) and says what it shows. Never throws. */
+export async function askAboutEntry(classId: string, entryId: string, now = new Date()): Promise<UnclearAnswer> {
+  const none = (state: UnclearAnswer['state'], words: string): UnclearAnswer => ({ state, words, cents: null, paidAt: null, decideFrom: null, choices: [], canKeep: false })
+  let found: { e: WaitlistEntry; a: WaitlistAttempt } | null
+  let cls: ScheduledClass | null
+  try {
+    found = unclearOf((await getWaitlist(classId)).entries, entryId)
+    cls = await getClass(classId)
+  } catch {
+    return none('unreachable', 'The waitlist couldn’t be read just now. Their seat stays held. Check again in a minute.')
+  }
+  if (!found || !cls) return none('not-unclear', 'This isn’t waiting on Square any more.')
+  const { e, a } = found
+  const canKeep = cls.status === 'open' && waitlistOpen(cls, e.sessionIds, now)
+  let st: OrderPaymentStatus
+  try {
+    st = await askOrder(a, e)
+  } catch {
+    return { ...none('unreachable', 'Square isn’t answering right now. Their seat stays held. Check again in a few minutes.'), cents: a.amountCents }
+  }
+  if (st.state === 'paid' && st.payment) {
+    const at = st.payment.createdAt ?? null
+    const cents = st.payment.amount || a.amountCents
+    return { state: 'paid', words: `Square shows it paid (${cents ? money(cents) : 'the charge'}${at ? `, ${clock(at)}` : ''}).`, cents, paidAt: at, decideFrom: null, choices: ['add'], canKeep }
+  }
+  if (st.state === 'going-through') {
+    return { ...none('going-through', 'Square shows the payment is still going through. Their seat stays held. Check again in a few minutes.'), cents: a.amountCents }
+  }
+  const choices: UnclearAnswer['choices'] = canKeep ? ['keep', 'off'] : ['off']
+  if (st.state === 'failed' || a.amountCents === null) {
+    return { state: 'failed', words: a.amountCents === null ? 'The charge was never sent, so nothing was charged.' : 'Square shows the card didn’t go through, so nothing was charged.', cents: a.amountCents, paidAt: null, decideFrom: null, choices, canKeep }
+  }
+  const from = new Date(lastSent(a) + UNCLEAR_SETTLE_MS).toISOString()
+  if (now.getTime() < Date.parse(from)) {
+    return { state: 'no-payment', words: `Square shows no payment for this charge yet. A payment can take a little while to show, so give it until ${clock(from)}. Their seat stays held until then.`, cents: a.amountCents, paidAt: null, decideFrom: from, choices: [], canKeep }
+  }
+  return { state: 'no-payment', words: 'Square shows no payment for this charge.', cents: a.amountCents, paidAt: null, decideFrom: from, choices, canKeep }
+}
+
+export class UnclearError extends Error {
+  constructor(message: string, public answer?: UnclearAnswer) { super(message) }
 }
 
 /**
- * To decide › "I sorted it out in Square" on an unclear waitlist charge: the
- * held seat is let go, the entry comes off (card off), nobody is told. Only an
- * entry still charging with an unknown outcome.
+ * To decide › an unclear waitlist charge, decided in the app after asking
+ * Square again (never on a guess):
+ *   add   Square shows it paid → they're added (seats confirmed, told)
+ *   keep  no payment (or a final no) → the seat is let go, they go back to
+ *         waiting; that charge is NEVER sent again (a later try is a new one)
+ *   off   no payment (or a final no) → the seat is let go, they come off the
+ *         list, the card comes off, they're emailed
+ * Refused (with Square's current answer) when the choice doesn't fit it.
+ * Audited. Holds the class's run lock so it never races a run.
  */
-export async function sortedInSquare(classId: string, entryId: string, by: By, now = new Date()): Promise<WaitlistEntry> {
-  const list = await getWaitlist(classId)
-  const e = list.entries.find((x) => x.id === entryId)
-  const a = e ? lastAttempt(e) : undefined
-  if (!e || e.state !== 'charging' || !a) throw new Error('This isn’t waiting on Square any more.')
-  const changed = await updateEntry(classId, entryId, (x) => (x.state === 'charging' ? { ...x, state: 'removed' } : null), { by, change: `Sorted out in Square by ${by.name}. Seat let go.` }, now)
-  if (!changed || changed.state !== 'removed') throw new Error('This isn’t waiting on Square any more.')
-  await release(classId, a.bookingId).catch(() => undefined)
-  await cardOff(classId, changed)
-  return changed
+export async function decideUnclear(classId: string, entryId: string, choice: 'add' | 'keep' | 'off', by: By, now = new Date()): Promise<WaitlistEntry> {
+  const answer = await askAboutEntry(classId, entryId, now)
+  if (answer.state === 'not-unclear') throw new UnclearError('This isn’t waiting on Square any more.', answer)
+  if (!answer.choices.includes(choice)) {
+    throw new UnclearError(choice === 'add'
+      ? `That doesn’t match what Square shows now. ${answer.words}`
+      : choice === 'keep' && !answer.canKeep && answer.choices.includes('off')
+        ? 'The waitlist for this class has closed, so they can’t wait any more. Take them off instead.'
+        : `That doesn’t match what Square shows now. ${answer.words}`, answer)
+  }
+  const lockId = randomUUID()
+  if (!(await claimLock(classId, lockId, now))) throw new UnclearError('The waitlist is running for this class right now. Try again in a minute.')
+  try {
+    const cls = await getClass(classId)
+    const found = unclearOf((await getWaitlist(classId)).entries, entryId)
+    if (!cls || !found) throw new UnclearError('This isn’t waiting on Square any more.')
+    const { e, a } = found
+    const ctx: Ctx = { cls, now, origin: siteOrigin(), result: blank(), by }
+    if (choice === 'add') {
+      const st = await askOrder(a, e)
+      if (st.state !== 'paid' || !st.payment) throw new UnclearError('Square no longer shows it paid. Check again.')
+      const priced = quote(cls, { ...e.request, promoCode: undefined }, new Date(a.at), CLASS_TAX_PERCENT)
+      await finishPaid(ctx, e, a, priced.ok ? priced.value : null, st.payment, a.orderId!, undefined)
+    } else {
+      // Asked again under the lock: a payment that showed up meanwhile is never let go.
+      const st = await askOrder(a, e)
+      if (st.state === 'paid' || st.state === 'going-through') throw new UnclearError('Square shows a payment for this charge now. Check again.')
+      const words = choice === 'keep'
+        ? `${by.name} kept them waiting: Square showed no payment for this charge. Seat let go; that charge is never sent again.`
+        : `${by.name} took them off: Square showed no payment for this charge. Seat let go; nothing was charged.`
+      const changed = await updateEntry(classId, e.id, (x) => (x.state === 'charging' && lastAttempt(x)?.n === a.n ? {
+        ...patchAttempt(x, a.n, { outcome: answer.state === 'failed' && a.amountCents !== null ? 'declined' : 'no-payment' }), state: choice === 'keep' ? 'waiting' : 'removed',
+      } : null), { by, change: words }, now)
+      if (!changed || changed.state === 'charging') throw new UnclearError('This isn’t waiting on Square any more.')
+      await letGoOf(classId, a.bookingId)
+      if (choice === 'off') {
+        const off = await cardOffAndNote(classId, changed, now)
+        await sendWaitlistOffEmail({ to: e.customer.email, givenName: e.customer.givenName, className: cls.content.name, whenLabel: waitlistWhen(cls, e.sessionIds), byStudio: true, cardOff: off }).catch(() => undefined)
+      }
+    }
+    await recordAudit({
+      by: { ...by, role: 'owner' }, action: `waitlist-unclear-${choice}`, target: { kind: 'class', id: classId, label: cls.content.name },
+      details: { entryId: e.id, n: a.n, orderId: a.orderId, square: answer.state, cents: a.amountCents, name: nameOfEntry(e) },
+    }).catch(() => undefined)
+    return (await getWaitlist(classId)).entries.find((x) => x.id === entryId) ?? e
+  } finally {
+    await releaseLock(classId, lockId)
+  }
 }
-

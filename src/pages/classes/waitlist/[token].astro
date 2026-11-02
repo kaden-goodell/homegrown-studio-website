@@ -15,18 +15,21 @@ const token = Astro.params.token ?? ''
 Astro.response.headers.set('Cache-Control', 'private, no-store')
 Astro.response.headers.set('Referrer-Policy', 'no-referrer')
 
-let view: 'ask' | 'left' | 'already-off' | 'added' | 'charging' | 'missing' | 'failed' = 'missing'
+// C1/M3: 'charging' = a charge for them is being made or checked (it can stay unclear a while); they can
+// still ask to leave, which is written down: that charge is never sent again, and they're emailed either way.
+let view: 'ask' | 'left' | 'already-off' | 'added' | 'charging' | 'checking' | 'missing' | 'failed' = 'missing'
 let className = ''
 let line = ''
+let cardOff = true
 try {
   if (Astro.request.method === 'POST') {
     try {
       const r = await leaveWaitlist(token)
       view = r.result
       className = r.className
+      cardOff = r.cardOff !== false
     } catch (err) {
-      if (err instanceof WaitlistError && err.code === 'charging') view = 'charging'
-      else if (err instanceof WaitlistError && err.code === 'not_found') view = 'missing'
+      if (err instanceof WaitlistError && err.code === 'not_found') view = 'missing'
       else throw err
     }
   } else {
@@ -34,7 +37,8 @@ try {
     if (found) {
       className = found.cls?.content.name ?? 'the class'
       const e = found.entry
-      view = e.state === 'waiting' ? 'ask' : e.state === 'charging' ? 'charging' : e.state === 'added' ? 'added' : 'already-off'
+      view = e.state === 'waiting' ? 'ask' : e.state === 'charging' ? (e.leaveAskedAt ? 'checking' : 'charging') : e.state === 'added' ? 'added' : 'already-off'
+      cardOff = !!e.cardOffAt
       line = found.cls ? `${waitlistWhen(found.cls, e.sessionIds)} · ${waitlistSeatsWords(found.cls, e)} · card ending ${e.square.last4}` : ''
     }
   }
@@ -50,16 +54,21 @@ const heading = {
   left: 'You’re off the waitlist',
   'already-off': 'You’re already off the waitlist',
   added: 'You’re in the class',
-  charging: 'A spot just opened',
+  charging: 'A spot opened for you',
+  checking: 'We got your request to leave',
   missing: 'We couldn’t find that waitlist spot',
   failed: 'We couldn’t load this just now',
 }[view]
 const body = {
   ask: 'Your card comes off and nothing is charged.',
-  left: `Nothing was charged, and your card is no longer saved with us. We sent you an email to say so.`,
+  // I6: only once Square has taken the card off file do we say it's off.
+  left: cardOff
+    ? 'Nothing was charged, and your card is no longer saved with us. We sent you an email to say so.'
+    : 'Nothing was charged, and we’re taking your card off file. We sent you an email to say so.',
   'already-off': 'Nothing more to do here. Nothing was charged.',
   added: 'A spot opened and we added you. Check your email for the details. To change plans, text or call us.',
   charging: WAITLIST_MESSAGES.charging,
+  checking: WAITLIST_MESSAGES.leaveAsked,
   missing: 'It may have been removed already, or the link may be old.',
   failed: 'Please refresh in a minute.',
 }[view]
@@ -74,6 +83,11 @@ const body = {
       <form method="post" class="mt-6">
         <button type="submit" class="btn btn-primary">Leave the waitlist</button>
         <p class="mt-4 text-sm"><a href="/workshops" class="underline" style="color: var(--color-primary);">Stay on it</a></p>
+      </form>
+    ) : view === 'charging' ? (
+      <form method="post" class="mt-6">
+        <p class="text-sm" style="color: var(--color-text);">Changed your mind? If your card wasn’t charged, nothing will be, and you come off the waitlist. If it was, you’re in the class.</p>
+        <button type="submit" class="btn btn-primary mt-4">Leave the waitlist</button>
       </form>
     ) : (
       <p class="mt-6"><a href="/workshops" class="btn btn-primary">See workshops</a></p>

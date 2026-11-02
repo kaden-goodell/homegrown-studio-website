@@ -54,6 +54,19 @@ export interface SavedCard {
   expYear: number
 }
 
+/**
+ * What Square shows for the payment on one order (stage 4 waitlist, I1):
+ *   paid           a COMPLETED payment
+ *   going-through  an APPROVED or PENDING payment (not final yet)
+ *   failed         only FAILED or CANCELED payments: a final "not charged"
+ *   none           no payment for this order at all
+ */
+export interface OrderPaymentStatus {
+  state: 'paid' | 'going-through' | 'failed' | 'none'
+  /** The payment behind `state` (paid / going-through / failed). */
+  payment?: Payment & { createdAt?: string }
+}
+
 export interface PaymentClientConfig {
   appId: string
   locationId: string
@@ -118,9 +131,10 @@ export interface PaymentProvider {
    * M9, for Task 10: a retry MUST send the identical body for the same key
    * (`wl:{entryId}:{n}:pay`): same amount, same order, same note, same
    * customer_details. A different body under the same key is refused as
-   * IDEMPOTENCY_KEY_REUSED, which is "unknown" for good. A re-quote (a price
-   * change) is a new attempt n, made only after findOrderPayment says the
-   * order is unpaid. Classify refusals with cardTroubleOf: 'setup' stops the
+   * IDEMPOTENCY_KEY_REUSED, which is "unknown" for good. A new attempt n
+   * (new keys, new order) is made only after a FINAL "not charged" (a 4xx, a
+   * FAILED or CANCELED payment, or a charge never sent); otherwise the same
+   * order, amount and keys are kept (orderPaymentStatus tells which). Classify refusals with cardTroubleOf: 'setup' stops the
    * run and never disables a card or tells a family (saved-cards.ts).
    */
   chargeSavedCard(input: { orderId: string; cardId: string; customerId: string; amount: number; idempotencyKey: string; buyerEmailAddress?: string; note: string }): Promise<Payment>
@@ -155,6 +169,16 @@ export interface PaymentProvider {
    * the backend is asked, nothing is remembered on our side.
    */
   findOrderPayment(orderId: string): Promise<Payment | null>
+
+  /**
+   * Stage 4 (waitlist I1): the real status of the latest payment on this
+   * order, not only a completed one. Read only. Asks the order's tenders, and,
+   * when they show nothing and `since` is given, also lists the location's
+   * payments since then (with `last4`) and keeps those on this order, so an
+   * APPROVED, PENDING, FAILED or CANCELED payment is seen too. Throws when
+   * Square can't be asked.
+   */
+  orderPaymentStatus(input: { orderId: string; since?: string; last4?: string }): Promise<OrderPaymentStatus>
 
   refundPayment(input: {
     paymentId: string

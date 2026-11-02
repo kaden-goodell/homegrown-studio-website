@@ -5,16 +5,22 @@
  * Remove asks in the sheet first: the card comes off file and they get an
  * email; nothing is charged. "Run the waitlist now" adds and charges the next
  * person who fits when a seat is free (the same run a freed seat starts).
+ * I3: when the waitlist has stopped (Square refused our request, the
+ * register's price didn't match, Square was down) a line says why, that the
+ * public can book the seat meanwhile, and gives the button that fixes it.
  */
 import { useEffect, useState } from 'react'
 import type { WaitlistRow } from '@lib/classes/waitlist'
 import { formatMoney } from '@lib/money'
-import { api, WAITLIST } from './api'
+import { api, CLASSES, WAITLIST } from './api'
 import { dayAndClock } from '../shell/time'
 import { DIDNT_SAVE, useToast } from '../shell/Toast'
 import { telHref } from '../inbox/describe'
 
 export interface RunAnswer { added: number; declined: number; unknown: number; skipped: number; stopped: string | null; note: string }
+/** I3 (from the server): why the waitlist stopped, and the button that fixes it. */
+export interface WaitlistStopLine { why: string; words: string; button: string; action: 'sync-pos' | 'update-register' | 'run' }
+type View = { rows: WaitlistRow[]; canRun: boolean; stopped?: WaitlistStopLine | null }
 
 export default function WaitlistSection({ classId, onChanged }: { classId: string; onChanged?: () => void }) {
   const toast = useToast()
@@ -25,21 +31,27 @@ export default function WaitlistSection({ classId, onChanged }: { classId: strin
   const [busy, setBusy] = useState<string | null>(null)
   const [opened, setOpened] = useState<string | null>(null)
   const [ran, setRan] = useState<string>('')
+  const [stopped, setStopped] = useState<WaitlistStopLine | null>(null)
+
+  function take(v: View) {
+    setRows(v.rows)
+    setCanRun(!!v.canRun)
+    setStopped(v.stopped ?? null)
+  }
 
   async function load() {
-    const r = await api<{ rows: WaitlistRow[]; canRun: boolean }>(`${WAITLIST}?id=${encodeURIComponent(classId)}`)
-    if (r.ok && r.data) { setRows(r.data.rows); setCanRun(!!r.data.canRun); setError('') } else setError(r.error ?? DIDNT_SAVE)
+    const r = await api<View>(`${WAITLIST}?id=${encodeURIComponent(classId)}`)
+    if (r.ok && r.data) { take(r.data); setError('') } else setError(r.error ?? DIDNT_SAVE)
   }
   useEffect(() => { void load() }, [classId])
 
   async function remove(row: WaitlistRow) {
     setBusy(row.id)
-    const r = await api<{ rows: WaitlistRow[]; canRun: boolean }>(WAITLIST, { action: 'remove', classId, entryId: row.id })
+    const r = await api<View>(WAITLIST, { action: 'remove', classId, entryId: row.id })
     setBusy(null)
     setAsking(null)
     if (r.ok && r.data) {
-      setRows(r.data.rows)
-      setCanRun(!!r.data.canRun)
+      take(r.data)
       toast(`${row.name} is off the waitlist. Their card came off and they got an email.`)
       onChanged?.()
     } else {
@@ -48,19 +60,32 @@ export default function WaitlistSection({ classId, onChanged }: { classId: strin
     }
   }
 
-  async function run() {
-    setBusy('run')
+  async function run(busyKey = 'run') {
+    setBusy(busyKey)
     setRan('')
-    const r = await api<{ rows: WaitlistRow[]; canRun: boolean; run: RunAnswer }>(WAITLIST, { action: 'run', classId })
+    const r = await api<View & { run: RunAnswer }>(WAITLIST, { action: 'run', classId })
     setBusy(null)
     if (r.ok && r.data) {
-      setRows(r.data.rows)
-      setCanRun(!!r.data.canRun)
+      take(r.data)
       setRan(r.data.run.note)
       onChanged?.()
     } else {
       setError(r.error ?? DIDNT_SAVE)
     }
+  }
+
+  /** I3: fix what stopped it (the register), then run it again. */
+  async function fixStop(line: WaitlistStopLine) {
+    if (line.action === 'run') return run('fix')
+    setBusy('fix')
+    setError('')
+    const r = await api<unknown>(CLASSES, { action: line.action, id: classId })
+    if (!r.ok) {
+      setBusy(null)
+      setError(r.error ?? DIDNT_SAVE)
+      return
+    }
+    await run('fix')
   }
 
   if (!rows && !error) return null
@@ -75,11 +100,17 @@ export default function WaitlistSection({ classId, onChanged }: { classId: strin
           {error} <button type="button" className="adm-btn is-ghost is-sm" onClick={() => { setError(''); void load() }}>Try again</button>
         </p>
       )}
-      {waiting.length > 0 && canRun && (
+      {stopped && (
+        <div className="adm-panel is-warn" role="group" aria-label="The waitlist has stopped" data-testid="waitlist-stopped">
+          <b>{stopped.words}</b>
+          <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => fixStop(stopped)}>{busy === 'fix' ? 'Working…' : stopped.button}</button>
+        </div>
+      )}
+      {waiting.length > 0 && canRun && !stopped && (
         <div className="adm-panel" role="group" aria-label="Run the waitlist">
           <b>{waiting.some((r) => r.state === 'charging') ? 'Someone is being added, or Square hasn’t answered yet.' : 'A seat is free and people are waiting.'}</b>
-          <span className="adm-small">Running it asks Square about anything unclear first, then adds the next person whose group fits and charges their saved card, up to what they agreed to. Nobody is charged twice.</span>
-          <button type="button" className="adm-btn is-pri" disabled={busy === 'run'} onClick={run}>{busy === 'run' ? 'Running…' : 'Run the waitlist now'}</button>
+          <span className="adm-small">Running it asks Square about anything unclear first. While the waitlist is open, a charge Square never got is sent once more, the very same one. Then it adds the next person whose group fits and charges their saved card, up to what they agreed to. Square never takes the same charge twice.</span>
+          <button type="button" className="adm-btn is-pri" disabled={busy === 'run'} onClick={() => run()}>{busy === 'run' ? 'Running…' : 'Run the waitlist now'}</button>
         </div>
       )}
       {ran && <p className="adm-small" role="status">{ran}</p>}

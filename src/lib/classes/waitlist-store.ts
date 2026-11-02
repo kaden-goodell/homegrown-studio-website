@@ -41,13 +41,27 @@ export interface WaitlistAttempt {
    * paid · declined (the card said no) · unknown (Square never answered) ·
    * price-rose (today's price is above what they agreed to; never charged) ·
    * setup (Square refused the request itself; nobody charged) ·
-   * no-seat (the seat was taken before it could be held) · error (Square
-   * couldn't make the order; nothing charged) · unpaid (asked again, Square
-   * says it wasn't paid) · null while running
+   * no-seat (the seat was taken before the charge was ever sent) · error
+   * (Square couldn't make the order; nothing sent) · register (the
+   * register's price or listing didn't match; nothing sent) · no-payment
+   * (the charge was unclear and Square shows no payment for it; settled
+   * without ever sending it again) · unpaid (older name for no-payment) ·
+   * null while running
+   *
+   * I1: a new try (n + 1) is only ever made after a FINAL "not charged":
+   * setup, error, register, no-seat (nothing sent), declined, or no-payment
+   * decided by an owner or settled read-only. While a try is `unknown` the
+   * same order, amount and keys are kept.
    */
-  outcome: 'paid' | 'declined' | 'unknown' | 'price-rose' | 'setup' | 'no-seat' | 'error' | 'unpaid' | null
+  outcome: 'paid' | 'declined' | 'unknown' | 'price-rose' | 'setup' | 'no-seat' | 'error' | 'register' | 'no-payment' | 'unpaid' | null
   /** Why a saved-card charge didn't go through (saved-cards.ts). */
   trouble?: CardTrouble
+  /** When the charge was last sent to Square (every resend of this same try updates it). */
+  sentAt?: string
+  /** price-rose: today's price is higher ('price') or what they picked isn't sold any more ('gone'). */
+  skipWhy?: 'price' | 'gone'
+  /** What we actually sent the family about this try (M5). */
+  told?: { text: boolean; email: boolean }
 }
 
 export interface WaitlistEntry {
@@ -66,8 +80,14 @@ export interface WaitlistEntry {
   state: WaitlistState
   attempts: WaitlistAttempt[]
   history: { at: string; by: By | null; change: string }[]
-  /** Set once the saved card is off file (DisableCard answered). */
+  /** Set once the saved card is off file (DisableCard answered). Until then the sweep keeps trying (I6). */
   cardOffAt?: string
+  /**
+   * C1: they asked to leave (their link) while a charge was unclear. From then
+   * on that charge is never sent again; Square is only asked. Paid → they're
+   * in (and told); not paid → off the list, card off, emailed.
+   */
+  leaveAskedAt?: string
   /** The booking the waitlist made for them (state added). */
   bookingId?: string
 }
@@ -123,6 +143,12 @@ export async function mutateWaitlist<T>(classId: string, fn: (cur: Waitlist) => 
     throw new Error(WAITLIST_RETRY)
   })
 }
+
+/** Off the list for good (their card should be off file). */
+export const isFinal = (e: Pick<WaitlistEntry, 'state'>): boolean => e.state !== 'waiting' && e.state !== 'charging'
+
+/** I6: an entry off the list whose saved card isn't confirmed off file yet. */
+export const cardStillOn = (e: Pick<WaitlistEntry, 'state' | 'cardOffAt'>): boolean => isFinal(e) && !e.cardOffAt
 
 /** Entries still on the list: waiting, or being charged right now. */
 export const isOnList = (e: Pick<WaitlistEntry, 'state'>): boolean => e.state === 'waiting' || e.state === 'charging'

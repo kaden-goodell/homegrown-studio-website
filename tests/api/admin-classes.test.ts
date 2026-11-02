@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   archive: vi.fn(),
   squareFetch: vi.fn(),
   audit: vi.fn(),
+  runWaitlist: vi.fn(async (..._a: any[]) => ({ ran: true, added: 0 })),
   libraryDown: false,
   classDown: 0,
   /** RM3: runs once just before the next class update (another sheet saving in between). */
@@ -39,6 +40,7 @@ vi.mock('@lib/party-store', () => ({ getPartyRecord: (id: string) => mocks.party
 vi.mock('@lib/classes/square-catalog', () => ({ syncClassToSquare: mocks.sync, archiveClassInSquare: mocks.archive, CLASS_TAX_NOT_SET: "Class tax isn't set up yet." }))
 vi.mock('@lib/classes/square-api', () => ({ squareFetch: mocks.squareFetch, squareSettings: () => ({ environment: 'sandbox' }) }))
 vi.mock('@lib/audit', () => ({ recordAudit: mocks.audit }))
+vi.mock('@lib/classes/waitlist-runner', () => ({ runWaitlist: (...a: any[]) => mocks.runWaitlist(...a) }))
 vi.mock('@lib/classes/library-store', async (importOriginal) => {
   const real = await importOriginal<typeof import('@lib/classes/library-store')>()
   return {
@@ -370,6 +372,19 @@ describe('editing a class with bookings', () => {
     expect(r.body.error).toMatch(/Apr 3/)
     const ok = await update({ id: cls.id, sessions: [{ ...cls.sessions[0], capacity: 4 }, cls.sessions[1]] })
     expect(ok.status).toBe(200)
+  })
+
+  it('stage 4 (S4-R3): raising a date\'s capacity starts the waitlist; lowering it or other edits don\'t', async () => {
+    const cls = await booked('2031-04-05', 'Wait Class')
+    mocks.runWaitlist.mockClear()
+    const lower = await update({ id: cls.id, sessions: [{ ...cls.sessions[0], capacity: cls.sessions[0].capacity - 1 }, cls.sessions[1]] })
+    expect(lower.status).toBe(200)
+    expect(mocks.runWaitlist).not.toHaveBeenCalled()
+    const raise = await update({ id: cls.id, sessions: [{ ...cls.sessions[0], capacity: cls.sessions[0].capacity + 2 }, cls.sessions[1]] })
+    expect(raise.status).toBe(200)
+    expect(mocks.runWaitlist).toHaveBeenCalledTimes(1)
+    expect(mocks.runWaitlist.mock.calls[0][0]).toBe(cls.id)
+    expect(mocks.runWaitlist.mock.calls[0][1]).toMatchObject({ reason: 'capacity' })
   })
 
   it('refuses removing a booked session, pass or price cell', async () => {

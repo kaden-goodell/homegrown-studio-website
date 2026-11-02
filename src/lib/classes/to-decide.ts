@@ -27,8 +27,10 @@
  *                        Or Square shows a party order paid with nothing here
  *                        to record it from → Sorted it in Square
  *   waitlist-unknown     the waitlist charged a saved card and Square never said
- *                        whether it went through; the seat is held
- *                        → Check Square again · I sorted it out in Square
+ *                        whether it went through; the seat is held. The sheet
+ *                        asks Square (read only) and offers what fits (I5):
+ *                        → Add them (paid) · Keep them waiting · Take them off
+ *                          (no payment, after 30 minutes; never resent)
  *   waitlist-declined    a waitlist card didn't go through (or the price rose)
  *                        → Got it
  *   paid-not-seated      Square shows one of our online bookings paid, but its
@@ -66,7 +68,7 @@ import { confirmUnclearParty, notPaidUnclearParty, PartyUnclearError } from '@li
 import type { Cents, ScheduledClass } from './types'
 import { waitlistItems } from './waitlist-items'
 import { waitlistClassIds } from './waitlist-store'
-import { checkEntryAgain, sortedInSquare } from './waitlist-runner'
+import { decideUnclear, UnclearError } from './waitlist-runner'
 
 export type ToDecideKind =
   | 'pos-unmatched' | 'refund-plain' | 'refund-failed' | 'refund-unfinished' | 'refund-unconfirmed'
@@ -433,9 +435,9 @@ async function waitlistDecideItems(cache: ClassCache, skip: Set<string>, now: Da
       const e = w.entry
       out.push({
         id: w.id, kind: w.kind, at: w.at, classId: cls.id, className: cls.content.name,
-        title: w.kind === 'waitlist-unknown' ? 'Waitlist charge unclear' : e.state === 'skipped' ? 'Waitlist price went up' : 'Waitlist card didn’t go through',
+        title: w.kind === 'waitlist-unknown' ? 'Waitlist charge unclear' : e.state === 'skipped' ? (e.attempts[e.attempts.length - 1]?.skipWhy === 'gone' ? 'Waitlist choice not sold any more' : 'Waitlist price went up') : 'Waitlist card didn’t go through',
         head: w.head,
-        hint: w.kind === 'waitlist-unknown' ? 'Check Square again, or sort it out in Square' : 'Call them if you like',
+        hint: w.kind === 'waitlist-unknown' ? 'Ask Square what happened, then decide here' : 'Call them if you like',
         detail: {
           entryId: e.id, name: `${e.customer.givenName} ${e.customer.familyName}`.trim(), phone: e.customer.phone, email: e.customer.email,
           cents: e.attempts[e.attempts.length - 1]?.amountCents ?? null, last4: e.square.last4, state: e.state,
@@ -506,7 +508,7 @@ const ACTIONS: Record<ToDecideKind, string[]> = {
   'counter-match-check': ['confirm', 'move'],
   'party-paid-unclear': ['confirm', 'not-paid', 'sorted'],
   'paid-not-seated': ['seat', 'sorted'],
-  'waitlist-unknown': ['check', 'sorted'],
+  'waitlist-unknown': ['add', 'keep', 'off'],
   'waitlist-declined': ['seen'],
 }
 
@@ -743,22 +745,22 @@ export async function decide(id: string, action: string, body: any, by: By, now 
       return { decided, classId: item.classId, seats: lines.map((l) => ({ lineId: l.id, seat: l.seat, named: !!l.customer })) }
     }
     case 'waitlist-unknown': {
+      // I5: decided in the app after asking Square again (never the Square dashboard, never a resend).
       const entryId = str(d.entryId)
-      if (action === 'sorted') {
-        try {
-          await sortedInSquare(item.classId!, entryId, by, now)
-        } catch (e) {
-          throw new DecideError(409, e instanceof Error ? e.message : 'That didn’t work. Try again.')
-        }
-        return { decided: await record(item, 'Sorted out in Square. Their seat was let go', by, action) }
+      const choice = action as 'add' | 'keep' | 'off'
+      try {
+        await decideUnclear(item.classId!, entryId, choice, by, now)
+      } catch (e) {
+        if (e instanceof UnclearError) throw new DecideError(409, e.message)
+        throw new DecideError(409, 'That didn’t work. Try again.')
       }
-      const r = await checkEntryAgain(item.classId!, entryId, by, now)
-      if (r.state === 'added') return { decided: await record(item, 'Square showed it paid. They’re added', by, action) }
-      if (r.state === 'declined') return { decided: await record(item, 'Square said the card didn’t go through. They came off the list', by, action) }
-      if (r.state === 'waiting') return { decided: await record(item, 'Square showed it wasn’t paid. They’re back on the waitlist', by, action) }
-      throw new DecideError(409, r.result.stopped === 'busy'
-        ? 'The waitlist is running for this class right now. Try again in a minute.'
-        : 'Square still hasn’t said. Their seat stays held. Try again in a few minutes, or check the payment in Square.')
+      return {
+        decided: await record(item, choice === 'add'
+          ? 'Square showed it paid. They’re added'
+          : choice === 'keep'
+            ? 'Square showed no payment. They’re back on the waitlist, and that charge is never sent again'
+            : 'Square showed no payment. They’re off the waitlist and their card is coming off', by, action),
+      }
     }
     case 'waitlist-declined':
       return { decided: await record(item, 'Seen', by, action) }

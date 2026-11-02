@@ -5,7 +5,7 @@
 import { classCutoffHours } from './checkout'
 import { seatsTaken, type Ledger } from './seat-ledger'
 import type { ScheduledClass } from './types'
-import { isOnList, type Waitlist } from './waitlist-store'
+import { isOnList, type Waitlist, type WaitlistEntry } from './waitlist-store'
 
 /** Hours before the start that the waitlist closes: its own cutoff, never later than sign-ups close. */
 export function waitlistCutoffHours(cls: ScheduledClass): number {
@@ -40,6 +40,22 @@ export function fitsNow(cls: ScheduledClass, ledger: Ledger, sessionIds: string[
   })
 }
 
+/**
+ * I3: the outcomes that STOP the runner without charging anyone: Square
+ * refused our request (setup), the register's price or listing didn't match
+ * (register), or Square couldn't make the order (error). While a waiting
+ * entry's last try ended so, the waitlist can't take a seat for them, so the
+ * public may book it (waitlistGoesFirst skips them) and the class sheet says
+ * why it stopped, with a button. The next run tries again.
+ */
+export const STOP_OUTCOMES = ['setup', 'register', 'error'] as const
+export type StopOutcome = (typeof STOP_OUTCOMES)[number]
+export function waitlistStopped(e: Pick<WaitlistEntry, 'state' | 'attempts'>): StopOutcome | null {
+  if (e.state !== 'waiting') return null
+  const o = e.attempts[e.attempts.length - 1]?.outcome
+  return (STOP_OUTCOMES as readonly string[]).includes(o ?? '') ? (o as StopOutcome) : null
+}
+
 /** People waiting (or being added right now) for a session, for the public view and the roster. */
 export function waitingOn(list: Waitlist | null, sessionId: string): number {
   return (list?.entries ?? []).filter((e) => isOnList(e) && e.sessionIds.includes(sessionId)).length
@@ -51,12 +67,15 @@ export function waitingOn(list: Waitlist | null, sessionId: string): number {
  * sessions would take a seat someone waiting needs. True when a waiting entry
  * whose waitlist is still open fits now, shares a date with the booking, and
  * would no longer fit after it. A booking that leaves room for them is fine.
+ * An entry the waitlist can't currently take (waitlistStopped, I3) doesn't count.
  * Comps and counter (POS) sales never ask this.
  */
 export function waitlistGoesFirst(cls: ScheduledClass, ledger: Ledger, list: Waitlist, sessionIds: string[], seats: number, now: Date): string | null {
   const open = cls.status === 'open'
   for (const e of list.entries) {
     if (e.state !== 'waiting' || !open || !waitlistOpen(cls, e.sessionIds, now)) continue
+    // I3: the waitlist can't take this seat right now (its last try stopped on setup, the register or Square being down).
+    if (waitlistStopped(e)) continue
     if (!e.sessionIds.some((id) => sessionIds.includes(id))) continue
     if (!fitsNow(cls, ledger, e.sessionIds, e.seats, now)) continue
     const short = e.sessionIds.find((id) => {

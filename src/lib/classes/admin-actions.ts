@@ -12,6 +12,7 @@
  * Cancelling never refunds and never frees a seat; owners do that by hand.
  */
 import { createHash } from 'node:crypto'
+import { afterReply } from '@lib/after-reply'
 import { recordAudit } from '@lib/audit'
 import { makeKvStore } from '@lib/blob-store'
 import { CREATE_KEY_RE } from '@lib/booking-core/ids'
@@ -733,9 +734,12 @@ export async function updateScheduledClass(body: {
   const { cls: synced, warning: posWarning } = await syncPos(saved, by)
   const warning = [ebDropped.note, libraryWarning, posWarning].filter(Boolean).join(' ') || undefined
   // Stage 4 (S4-R3): more seats on a date → the waitlist runs (adds and charges the next person who fits).
+  // M7: after the reply where the platform allows, so the save never waits for the charges.
   if (sessions.some((s) => s.capacity > (cls.sessions.find((o) => o.id === s.id)?.capacity ?? Infinity))) {
-    const { runWaitlist } = await import('./waitlist-runner')
-    await runWaitlist(cls.id, { reason: 'capacity', by }).catch(() => undefined)
+    await afterReply(async () => {
+      const { runWaitlist } = await import('./waitlist-runner')
+      await runWaitlist(cls.id, { reason: 'capacity', by })
+    })
   }
   await audit(by, 'class-update', { kind: 'class', id: cls.id, label: synced.content.name }, {
     changes: changes.join(', ') || 'none', moved: moved.length, alsoUpdateLibrary: body.alsoUpdateLibrary === true,
@@ -775,6 +779,11 @@ export async function cancelClass(body: { id?: unknown; expectedUpdatedAt?: unkn
   // Stage 4: cancelling closes the waitlist; nobody on it is charged, every saved card comes off.
   const { closeWaitlist } = await import('./waitlist')
   await closeWaitlist(cls.id)
+  // I4: anyone mid-charge is settled read only (paid → kept and the owners told to refund; not paid → off, card off).
+  await afterReply(async () => {
+    const { runWaitlist } = await import('./waitlist-runner')
+    await runWaitlist(cls.id, { reason: 'cancel', by })
+  })
   await audit(by, 'class-cancel', { kind: 'class', id: cls.id, label: cls.content.name }, { booked: booked.length })
   return { data: { class: saved, booked }, ...(warning ? { warning } : {}) }
 }

@@ -4,8 +4,9 @@ import { createLogger } from '@lib/logger'
 import { getClass } from '@lib/classes/class-store'
 import { getWaitlist } from '@lib/classes/waitlist-store'
 import { removeFromWaitlist, waitlistRows, WaitlistError } from '@lib/classes/waitlist'
-import { runWaitlist } from '@lib/classes/waitlist-runner'
-import { fitsNow, waitlistOpen } from '@lib/classes/waitlist-rules'
+import { askAboutEntry, runWaitlist } from '@lib/classes/waitlist-runner'
+import { fitsNow, waitlistOpen, waitlistStopped, type StopOutcome } from '@lib/classes/waitlist-rules'
+import { notOnRegister } from '@lib/classes/pos-plan'
 import { getLedger } from '@lib/classes/seat-ledger'
 import { recordAudit } from '@lib/audit'
 import type { ScheduledClass } from '@lib/classes/types'
@@ -17,21 +18,50 @@ const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
 const UNREACHABLE = 'The waitlist couldn’t be reached. Try again.'
 
-/** The list, and whether "Run the waitlist now" would add someone (a waiting group fits a free seat). */
+/**
+ * I3: the waitlist has stopped (its last try ended on setup, the register or
+ * Square being down) while a seat it could take is free: one line for the
+ * class sheet saying why, and the button that fixes it. `action`:
+ *   'sync-pos'        Put it on the register (then run it again)
+ *   'update-register' Update the register (then run it again)
+ *   'run'             Run the waitlist again
+ */
+export interface WaitlistStop { why: StopOutcome; words: string; button: string; action: 'sync-pos' | 'update-register' | 'run' }
+
+function stopOf(cls: ScheduledClass, why: StopOutcome, now: Date): WaitlistStop {
+  const tail = 'Nobody was charged, and people can book the free seat normally until it runs again.'
+  if (why === 'register') {
+    return notOnRegister(cls, now)
+      ? { why, words: `The waitlist has stopped because this class isn’t on the register. ${tail}`, button: 'Put it on the register', action: 'sync-pos' }
+      : { why, words: `The waitlist has stopped because the register’s price for this class doesn’t match the website. ${tail}`, button: 'Update the register', action: 'update-register' }
+  }
+  if (why === 'setup') return { why, words: `The waitlist has stopped because Square refused our request (a setup problem on our side, not the customer’s card). ${tail}`, button: 'Try the waitlist again', action: 'run' }
+  return { why, words: `The waitlist has stopped because Square couldn’t be reached. ${tail}`, button: 'Try the waitlist again', action: 'run' }
+}
+
+/** The list, whether "Run the waitlist now" would add someone (a waiting group fits a free seat), and why it stopped, if it did. */
 async function view(cls: ScheduledClass) {
   const [list, ledger] = await Promise.all([getWaitlist(cls.id), getLedger(cls.id)])
   const now = new Date()
-  const canRun = cls.status === 'open' && list.entries.some((e) => e.state === 'waiting' && waitlistOpen(cls, e.sessionIds, now) && fitsNow(cls, ledger, e.sessionIds, e.seats, now))
+  const fits = (e: (typeof list.entries)[number]) => e.state === 'waiting' && waitlistOpen(cls, e.sessionIds, now) && fitsNow(cls, ledger, e.sessionIds, e.seats, now)
+  const canRun = cls.status === 'open' && list.entries.some(fits)
   const unsettled = list.entries.some((e) => e.state === 'charging')
-  return { rows: waitlistRows(cls, list), canRun: canRun || unsettled }
+  const stoppedOn = cls.status === 'open' ? list.entries.filter(fits).map((e) => waitlistStopped(e)).find(Boolean) ?? null : null
+  return { rows: waitlistRows(cls, list), canRun: canRun || unsettled, stopped: stoppedOn ? stopOf(cls, stoppedOn, now) : null }
 }
 
-/** GET ?id=cls_…: the class's waitlist in order, with what happened to each person. Owners only. */
+/**
+ * GET ?id=cls_…: the class's waitlist in order, with what happened to each person. Owners only.
+ * GET ?id=cls_…&ask=wle_…: I5, what Square shows for that person's unclear charge, in words, and the
+ * choices that fit (read only; asking never charges or changes anything).
+ */
 export const GET: APIRoute = async ({ request, url }) => {
   if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
   try {
     const cls = await getClass(url.searchParams.get('id') ?? '')
     if (!cls) return json(404, { error: 'That class is gone. Reload the page.' })
+    const ask = url.searchParams.get('ask')
+    if (ask) return json(200, { data: { answer: await askAboutEntry(cls.id, ask) } })
     return json(200, { data: await view(cls) })
   } catch (err) {
     logger.error('Waitlist read failed', { error: err instanceof Error ? err.message : String(err) })

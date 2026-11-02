@@ -234,3 +234,56 @@ describe('MockPaymentProvider saved cards (parity)', () => {
     expect(cardTroubleOf(await m.chargeSavedCard({ ...chargeInput, cardId: c.cardId }).catch((e) => e))).toBe('setup')
   })
 })
+
+describe('SquarePaymentProvider orderPaymentStatus (waitlist I1, read only)', () => {
+  let p: SquarePaymentProvider
+  beforeEach(() => { squareFetch.mockReset(); p = new SquarePaymentProvider(cfg) })
+  const route = (answers: Record<string, unknown>) => squareFetch.mockImplementation(async (path: string, init?: any) => {
+    if (init?.method && init.method !== 'GET') throw new Error('orderPaymentStatus must only read')
+    const key = Object.keys(answers).find((k) => path.startsWith(k))
+    if (!key) throw new Error(`unexpected ${path}`)
+    return answers[key]
+  })
+
+  it('a COMPLETED tender → paid, with the payment', async () => {
+    route({ '/orders/ORD1': { order: { id: 'ORD1', tenders: [{ id: 'T1', payment_id: 'PAY1' }] } }, '/payments/PAY1': { payment: { id: 'PAY1', status: 'COMPLETED', amount_money: { amount: 2180 }, created_at: '2026-11-02T21:05:00Z', receipt_url: 'https://r' } } })
+    expect(await p.orderPaymentStatus({ orderId: 'ORD1', since: '2026-11-02T21:00:00Z', last4: '4242' })).toEqual({
+      state: 'paid', payment: { id: 'PAY1', orderId: 'ORD1', amount: 2180, status: 'completed', receiptUrl: 'https://r', createdAt: '2026-11-02T21:05:00Z' },
+    })
+  })
+
+  it('APPROVED or PENDING → still going through', async () => {
+    route({ '/orders/ORD1': { order: { tenders: [{ payment_id: 'PAY1' }] } }, '/payments/PAY1': { payment: { id: 'PAY1', status: 'APPROVED', amount_money: { amount: 2180 } } } })
+    expect((await p.orderPaymentStatus({ orderId: 'ORD1' })).state).toBe('going-through')
+  })
+
+  it('no tender: lists the payments since the try (location, last 4) and keeps the ones on this order; FAILED/CANCELED → failed', async () => {
+    route({
+      '/orders/ORD1': { order: { id: 'ORD1' } },
+      '/payments?': { payments: [{ id: 'P0', order_id: 'OTHER', status: 'COMPLETED' }, { id: 'P1', order_id: 'ORD1', status: 'FAILED', amount_money: { amount: 2180 } }] },
+    })
+    expect(await p.orderPaymentStatus({ orderId: 'ORD1', since: '2026-11-02T21:00:00Z', last4: '4242' })).toMatchObject({ state: 'failed', payment: { id: 'P1', status: 'failed' } })
+    const listPath = squareFetch.mock.calls.find(([path]: any[]) => String(path).startsWith('/payments?'))![0]
+    const q = new URLSearchParams(String(listPath).split('?')[1])
+    expect(Object.fromEntries(q)).toEqual({ begin_time: '2026-11-02T21:00:00Z', location_id: 'LOC1', sort_order: 'ASC', limit: '100', last_4: '4242' })
+  })
+
+  it('nothing anywhere → none; a paid payment beats a failed one', async () => {
+    route({ '/orders/ORD1': { order: {} }, '/payments?': { payments: [] } })
+    expect(await p.orderPaymentStatus({ orderId: 'ORD1', since: 'x' })).toEqual({ state: 'none' })
+    squareFetch.mockReset()
+    route({ '/orders/ORD1': { order: {} }, '/payments?': { payments: [{ id: 'P1', order_id: 'ORD1', status: 'FAILED' }, { id: 'P2', order_id: 'ORD1', status: 'COMPLETED', amount_money: { amount: 2180 } }] } })
+    expect((await p.orderPaymentStatus({ orderId: 'ORD1', since: 'x' })).state).toBe('paid')
+  })
+
+  it('Square can\'t be asked → throws (the caller keeps the seat held)', async () => {
+    squareFetch.mockRejectedValue(timeout())
+    await expect(p.orderPaymentStatus({ orderId: 'ORD1' })).rejects.toThrow(/timeout/)
+  })
+
+  it('a saved-card charge answered CANCELED is a final "not charged" (failed), never unknown', async () => {
+    squareFetch.mockReset()
+    squareFetch.mockResolvedValue({ payment: { id: 'PAYX', status: 'CANCELED', amount_money: { amount: 2180 } } })
+    expect((await p.chargeSavedCard(chargeInput)).status).toBe('failed')
+  })
+})

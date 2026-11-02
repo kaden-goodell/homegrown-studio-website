@@ -329,3 +329,87 @@ describe('To decide sheets', () => {
     expect(screen.getAllByText("Didn't save. Try again.").length).toBeGreaterThan(0)
   })
 })
+
+// ── Stage 4 waitlist sheets (waitlist fix round: I5, M2, M5) ────────────────
+describe('To decide › waitlist', () => {
+  const WL = '/api/admin/classes/waitlist.json'
+  const unclear = item({
+    kind: 'waitlist-unknown', title: 'Waitlist charge unclear', classId: 'cls_1', className: 'Potholder Looms',
+    head: 'We charged Jane Doe’s saved card (ending 4242) $21.80 from the waitlist for Potholder Looms, and Square didn’t say whether it went through.',
+    detail: { entryId: 'wle_1', name: 'Jane Doe', phone: '(402) 980-2907', email: 'jane@example.com', cents: 2180, last4: '4242', state: 'charging' },
+  })
+  /** The inbox's routes plus the waitlist "ask Square" answers, in order. */
+  function showWaitlist(t: any, answers: any[], o: Parameters<typeof server>[1] = {}) {
+    const base = server([t], o)
+    let i = 0
+    const f = vi.fn(async (url: string, init?: any) => {
+      if (url.startsWith(WL)) return answers[Math.min(i++, answers.length - 1)]
+      return base(url, init)
+    })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<InboxProvider><ToDecideSheet id="td_1" /></InboxProvider>)
+    return f
+  }
+  const answer = (a: any) => ok({ data: { answer: { cents: 2180, decideFrom: null, choices: [], ...a } } })
+
+  it('asks Square on open; paid → only "Add them"; the note says Check again never charges (M2)', async () => {
+    const f = showWaitlist(unclear, [answer({ state: 'paid', words: 'Square shows it paid ($21.80, 3:05 PM).', choices: ['add'] })],
+      { decide: (b) => (b.action === 'add' ? { ...ok({ data: { decided: { what: 'Square showed it paid. They’re added' } } }), what: 'Square showed it paid. They’re added' } : null) })
+    expect(await screen.findByText('Square shows it paid ($21.80, 3:05 PM).')).toBeInTheDocument()
+    expect(f.mock.calls.some(([u]: any[]) => u === `${WL}?id=cls_1&ask=wle_1`)).toBe(true)
+    expect(screen.getByText(/Check Square again only asks; it never charges anyone\./)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /sorted it out/i })).toBeNull()
+    expect(within(footer()).queryByRole('button', { name: 'Keep them waiting' })).toBeNull()
+    expect(within(footer()).queryByRole('button', { name: 'Take them off' })).toBeNull()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add them' }))
+    await waitFor(() => expect(decisions(f)[0]).toEqual({ id: 'td_1', action: 'add' }))
+    expect(await screen.findByText('Done. Square showed it paid. They’re added.')).toBeInTheDocument()
+  })
+
+  it('no payment yet → only "Check Square again"; asking again later offers Keep / Take off, each asking first', async () => {
+    const f = showWaitlist(unclear, [
+      answer({ state: 'no-payment', words: 'Square shows no payment for this charge yet. A payment can take a little while to show, so give it until 3:35 PM. Their seat stays held until then.' }),
+      answer({ state: 'no-payment', words: 'Square shows no payment for this charge.', choices: ['keep', 'off'] }),
+    ])
+    expect(await screen.findByText(/give it until 3:35 PM/)).toBeInTheDocument()
+    expect(within(footer()).queryByRole('button', { name: 'Add them' })).toBeNull()
+    expect(within(footer()).queryByRole('button', { name: 'Keep them waiting' })).toBeNull()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Check Square again' }))
+    expect(await screen.findByText('Square shows no payment for this charge.')).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Take them off' }))
+    const ask = screen.getByRole('group', { name: 'Take Jane Doe off the waitlist?' })
+    expect(ask).toHaveTextContent('Their held seat is let go, their saved card comes off and they get an email saying so. Nothing is charged.')
+    expect(decisions(f)).toHaveLength(0)
+    fireEvent.click(within(ask).getByRole('button', { name: 'Not yet' }))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Keep them waiting' }))
+    const keep = screen.getByRole('group', { name: 'Keep Jane Doe waiting?' })
+    expect(keep).toHaveTextContent('That charge is never sent again')
+    fireEvent.click(within(keep).getByRole('button', { name: 'Keep them waiting' }))
+    await waitFor(() => expect(decisions(f)[0]).toEqual({ id: 'td_1', action: 'keep' }))
+  })
+
+  it('a refused decision shows the error and asks Square again; Square not answering → only Check again', async () => {
+    const f = showWaitlist(unclear, [
+      answer({ state: 'paid', words: 'Square shows it paid ($21.80).', choices: ['add'] }),
+      answer({ state: 'unreachable', words: 'Square isn’t answering right now. Their seat stays held. Check again in a few minutes.' }),
+    ], { decide: () => refuse(409, { error: 'That doesn’t match what Square shows now.' }) })
+    fireEvent.click(await screen.findByRole('button', { name: 'Add them' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('That doesn’t match what Square shows now.')
+    expect(await screen.findByText(/Square isn’t answering right now/)).toBeInTheDocument()
+    expect(within(footer()).queryByRole('button', { name: 'Add them' })).toBeNull()
+    expect(within(footer()).getByRole('button', { name: 'Check Square again' })).toBeInTheDocument()
+    expect(f.mock.calls.filter(([u]: any[]) => String(u).startsWith(WL))).toHaveLength(2)
+  })
+
+  it('a declined card: "Got it", the head says only what went out (M5), phone and email links', async () => {
+    const t = item({ kind: 'waitlist-declined', title: 'Waitlist card didn’t go through', classId: 'cls_1', className: 'Potholder Looms',
+      head: 'A seat opened in Potholder Looms, but Jane Doe’s card ending 4242 didn’t go through, so they came off the waitlist and the seat went to the next person. They got an email (no text went out). Nothing was charged.',
+      detail: { entryId: 'wle_1', name: 'Jane Doe', phone: '(402) 980-2907', email: 'jane@example.com', state: 'declined' } })
+    const f = showWaitlist(t, [])
+    expect(await screen.findByText(/They got an email \(no text went out\)\./)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '(402) 980-2907' })).toHaveAttribute('href', 'tel:4029802907')
+    expect(screen.getByRole('link', { name: 'jane@example.com' })).toHaveAttribute('href', 'mailto:jane@example.com')
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Got it' }))
+    await waitFor(() => expect(decisions(f)[0]).toEqual({ id: 'td_1', action: 'seen' }))
+  })
+})

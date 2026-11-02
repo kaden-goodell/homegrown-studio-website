@@ -23,7 +23,7 @@ import { hold, getLedger } from '@lib/classes/seat-ledger'
 import { quote } from '@lib/classes/pricing'
 import { defaultRules } from '@lib/classes/validate'
 import { getWaitlist } from '@lib/classes/waitlist-store'
-import { readLeaveToken } from '@lib/classes/waitlist'
+import { consentFor, readLeaveToken } from '@lib/classes/waitlist'
 import { consentText, WAITLIST_MESSAGES } from '@lib/classes/waitlist-words'
 import { toPublicClass } from '@lib/classes/public-view'
 import type { ScheduledClass } from '@lib/classes/types'
@@ -61,9 +61,17 @@ async function fill(cls: ScheduledClass, seats = cls.sessions[0].capacity) {
 }
 
 const customer = { givenName: 'Jane', familyName: 'Doe', email: 'jane@example.com', phone: '(402) 980-2907' }
+/** I2: the consent as the panel shows it (today's price and close time, the same words). */
+function shownFor(cls: ScheduledClass, tickets: Record<string, number> = { person: 1 }, sessionIds?: string[]) {
+  const q = quote(cls, { passId: 'all', tickets, ...(sessionIds ? { sessionIds } : {}) }, NOW, 9)
+  if (!q.ok) return null
+  const c = consentFor(cls, q.value.sessionIds, q.value.totalCents)
+  return c ? { maxCents: q.value.totalCents, closesIso: c.closesIso, text: c.text } : null
+}
 const joinBody = (cls: ScheduledClass, over: Record<string, any> = {}) => ({
   action: 'join', classId: cls.id, attemptId: attempt(), passId: 'all', tickets: { person: 1 }, customer,
-  cardToken: 'cnon:card-nonce-ok', verificationToken: 'verf-1', consent: true, ...over,
+  cardToken: 'cnon:card-nonce-ok', verificationToken: 'verf-1', consent: true,
+  consentShown: shownFor(cls, over.tickets ?? { person: 1 }, over.sessionIds), ...over,
 })
 let ip = 0
 const call = (payload: any) => POST({
@@ -107,8 +115,9 @@ describe('waitlist join', () => {
     expect(e.square).toEqual({ customerId: 'cust-1', cardId: expect.any(String), brand: 'VISA', last4: '4242', expMonth: 12, expYear: expect.any(Number) })
     // Only the card's face: no number, CVV or token is kept.
     expect(JSON.stringify(e)).not.toMatch(/cnon:|card_number|cvv/i)
-    expect(e.consent.text).toBe(consentText('2026-10-17T13:00:00.000Z', 2180))
-    expect(e.consent.text).toContain('before Sat, Oct 17 at 8 AM')
+    expect(e.consent.text).toBe(consentText({ className: 'Potholder Looms', startIso: '2026-10-17T15:00:00.000Z', closesIso: '2026-10-17T13:00:00.000Z', maxCents: 2180 }))
+    expect(e.consent.text).toBe(body.consentShown!.text) // I2: stored exactly as shown
+    expect(e.consent.text).toContain('If a spot opens in Potholder Looms (Sat, Oct 17 at 10 AM) before the waitlist closes on Sat, Oct 17 at 8 AM')
     expect(e.consent.text).toContain('up to $21.80')
 
     const m = mail.joined.mock.calls[0][0]
@@ -225,7 +234,51 @@ describe('waitlist join', () => {
     const cls = makeClass()
     await fill(cls)
     const body = joinBody(cls)
-    expect(Object.keys(body).sort()).toEqual(['action', 'attemptId', 'cardToken', 'classId', 'consent', 'customer', 'passId', 'tickets', 'verificationToken'])
+    expect(Object.keys(body).sort()).toEqual(['action', 'attemptId', 'cardToken', 'classId', 'consent', 'consentShown', 'customer', 'passId', 'tickets', 'verificationToken'])
+    expect(Object.keys(body.consentShown!).sort()).toEqual(['closesIso', 'maxCents', 'text'])
+  })
+
+  it('I2: a stale price in the consent shown is refused with the new amount; nothing is saved', async () => {
+    const cls = makeClass()
+    await fill(cls)
+    const shown = shownFor(cls)!
+    // Catherine raises the price while the panel is open.
+    cls.content.prices = { all: { person: 2300 } }
+    const res = await call(joinBody(cls, { consentShown: shown }))
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: 'consent_changed', detail: 'The price changed to $25.07. Check it and tick the box again. Nothing was charged.', maxCents: 2507, closesIso: shown.closesIso })
+    expect(h.square.saveCardCalls).toHaveLength(0)
+    expect(h.findOrCreate).not.toHaveBeenCalled()
+    expect((await getWaitlist(cls.id)).entries).toHaveLength(0)
+    // Ticking again with the new terms joins, and the stored consent is exactly the new text.
+    const fresh = shownFor(cls)!
+    const ok = await call(joinBody(cls, { consentShown: fresh }))
+    expect(ok.status).toBe(200)
+    expect((await getWaitlist(cls.id)).entries[0].consent).toMatchObject({ text: fresh.text, textVersion: 'wl-consent-2' })
+    expect(fresh.text).toContain('up to $25.07')
+  })
+
+  it('I2: a changed close time, changed words, or a page too old to send the consent are refused too', async () => {
+    const cls = makeClass()
+    await fill(cls)
+    const shown = shownFor(cls)!
+    const closes = await call(joinBody(cls, { consentShown: { ...shown, closesIso: '2026-10-17T12:00:00.000Z' } }))
+    expect(await closes.json()).toMatchObject({ code: 'consent_changed', detail: 'The waitlist now closes Sat, Oct 17 at 8 AM. Check it and tick the box again. Nothing was charged.' })
+    const words = await call(joinBody(cls, { consentShown: { ...shown, text: shown.text.replace('up to', 'at most') } }))
+    expect((await words.json()).code).toBe('consent_changed')
+    const old = await call(joinBody(cls, { consentShown: undefined }))
+    expect(await old.json()).toMatchObject({ code: 'consent_changed', detail: 'The details changed. Check them and tick the box again. Nothing was charged.' })
+    expect(h.square.saveCardCalls).toHaveLength(0)
+  })
+
+  it('M4: the consent keeps only a keyed hash of the IP', async () => {
+    const { createHash } = await import('node:crypto')
+    const cls = makeClass()
+    await fill(cls)
+    await call(joinBody(cls))
+    const e = (await getWaitlist(cls.id)).entries[0]
+    expect(e.consent.ipHash).toMatch(/^[0-9a-f]{16}$/)
+    expect(e.consent.ipHash).not.toBe(createHash('sha256').update(`ip:203.0.113.${ip % 250}`).digest('hex').slice(0, 16))
   })
 
   it('a draft or cancelled class takes no waitlist', async () => {
@@ -247,7 +300,7 @@ describe('waitlist leave', () => {
     const { cls, token } = await joined()
     const res = await call({ action: 'leave', token })
     expect(res.status).toBe(200)
-    expect((await res.json()).data).toEqual({ result: 'left', className: 'Potholder Looms' })
+    expect((await res.json()).data).toEqual({ result: 'left', cardOff: true, className: 'Potholder Looms' })
     const e = (await getWaitlist(cls.id)).entries[0]
     expect(e.state).toBe('left')
     expect(e.cardOffAt).toBeTruthy()
@@ -257,6 +310,21 @@ describe('waitlist leave', () => {
     const again = await call({ action: 'leave', token })
     expect((await again.json()).data.result).toBe('already-off')
     expect(h.square.disableCardCalls).toHaveLength(1)
+  })
+
+  it('C1: leaving while a charge is being made or checked → "checking", written down, nothing taken off yet', async () => {
+    const { cls, token } = await joined()
+    const { updateEntry } = await import('@lib/classes/waitlist-store')
+    const e0 = (await getWaitlist(cls.id)).entries[0]
+    await updateEntry(cls.id, e0.id, (e) => ({ ...e, state: 'charging', attempts: [{ n: 1, at: NOW.toISOString(), attemptId: `wl:${e.id}:1`, bookingId: 'bkg_x', orderId: 'ORD', amountCents: 2180, note: 'n', outcome: 'unknown', sentAt: NOW.toISOString() }] }), null)
+    const res = await call({ action: 'leave', token })
+    expect(res.status).toBe(200)
+    expect((await res.json()).data).toEqual({ result: 'checking', className: 'Potholder Looms' })
+    const e = (await getWaitlist(cls.id)).entries[0]
+    expect(e).toMatchObject({ state: 'charging', leaveAskedAt: NOW.toISOString() })
+    expect(h.square.disableCardCalls).toHaveLength(0)
+    expect(h.square.chargeSavedCardCalls).toHaveLength(0)
+    expect(WAITLIST_MESSAGES.leaveAsked).toBe('We’re checking with Square whether your card was charged. If it wasn’t, nothing will be: you come off the waitlist and your card comes off. If it was, you’re in the class. We’ll email you either way.')
   })
 
   it('a wrong token gets the same 404 as a missing one', async () => {

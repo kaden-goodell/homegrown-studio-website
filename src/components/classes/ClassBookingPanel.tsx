@@ -241,6 +241,8 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   const [askToLeave, setAskToLeave] = useState(false)
   // Stage 4 waitlist: the consent tick, and the answer once they're on it.
   const [consented, setConsented] = useState(false)
+  // I2: the server's amount and close time after it refused a stale consent (for this booking shape only).
+  const [wlTerms, setWlTerms] = useState<{ shape: string; maxCents: number; closesIso: string } | null>(null)
   const [consentProblem, setConsentProblem] = useState(false)
   const [joined, setJoined] = useState<null | { position: number; last4: string; emailSent: boolean }>(null)
   const consentRef = useRef<HTMLInputElement>(null)
@@ -293,6 +295,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   const wantSeats = Object.values(counts).reduce((a, b) => a + (b || 0), 0)
   const waitlistMode = wlOpen && (!choose || picked.length === choose) && wantSeats > 0 && wantSeats > roomLeft
   const wlClosesIso = wlSessions.map((s) => s.waitlist?.closesIso ?? '').filter(Boolean).sort()[0] ?? null
+  const wlFirstStart = [...wlSessions].sort((a, b) => a.startIso.localeCompare(b.startIso))[0]?.startIso ?? null
 
   const request: BookingRequest = {
     passId,
@@ -575,6 +578,15 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
    * nothing is charged now. The server prices it, checks it is still full and
    * the waitlist still open, and keeps only Square's card id.
    */
+  /** I2: the consent exactly as shown (its amount, close time and words), or null before it can be shown. */
+  function consentShown(): { maxCents: number; closesIso: string; text: string } | null {
+    const terms = wlTerms && wlTerms.shape === shape ? wlTerms : null
+    const maxCents = terms?.maxCents ?? q?.totalCents ?? 0
+    const closesIso = terms?.closesIso ?? wlClosesIso
+    if (!closesIso || !wlFirstStart || maxCents <= 0) return null
+    return { maxCents, closesIso, text: consentText({ className: workshop.name, startIso: wlFirstStart, more: wlSessions.length > 1, closesIso, maxCents }) }
+  }
+
   async function handleJoin(e?: FormEvent) {
     e?.preventDefault()
     if (processing || !paymentReady) return
@@ -613,7 +625,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'join', classId: own.classId, attemptId: attemptId.current, passId,
-            ...(choose ? { sessionIds: picked } : {}), tickets: counts, seats, consent: true,
+            ...(choose ? { sessionIds: picked } : {}), tickets: counts, seats, consent: true, consentShown: consentShown(),
             cardToken: card.token, verificationToken: card.verificationToken ?? null,
             customer: { givenName: contact.firstName.trim(), familyName: contact.lastName.trim(), email: contact.email.trim(), phone: contact.phone.trim() },
           }),
@@ -634,6 +646,12 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
       if (body?.code) tr.trackBookingProblem('workshop', `waitlist_${String(body.code)}`)
       // A seat opened while they were joining: the card came back off, and they book it instead.
       if (body?.code === 'spot_open') void refreshAvailability()
+      // I2: the price or close time changed since the consent was shown. Nothing was saved: show the new terms, untick.
+      if (body?.code === 'consent_changed' && Number.isInteger(body.maxCents) && typeof body.closesIso === 'string') {
+        setWlTerms({ shape, maxCents: Number(body.maxCents), closesIso: body.closesIso })
+        setConsented(false)
+        void refreshAvailability()
+      }
       setError(typeof body?.detail === 'string' ? body.detail : WAITLIST_MESSAGES.unavailable)
     } finally {
       setProcessing(false)
@@ -1199,7 +1217,8 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
 
   // ── Step 3 (waitlist): contact, card to save, consent ──────────────────────
   function renderWaitlist() {
-    const most = q?.totalCents ?? 0
+    const shownConsent = consentShown()
+    const most = shownConsent?.maxCents ?? q?.totalCents ?? 0
     return (
       <form id={formId} onSubmit={handleJoin} noValidate>
         <p role="status" data-testid="waitlist-step" style={{ margin: '0 0 1rem', fontSize: '0.9375rem', lineHeight: 1.5, fontWeight: 600, color: 'var(--color-dark)' }}>
@@ -1231,7 +1250,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
               style={{ marginTop: '0.2rem', width: '1.25rem', height: '1.25rem', flexShrink: 0, cursor: 'pointer', accentColor: 'var(--color-primary)' }}
             />
             <span style={{ fontSize: '0.9375rem', color: 'var(--color-dark)', lineHeight: 1.5 }} data-testid="waitlist-consent">
-              {wlClosesIso ? consentText(wlClosesIso, most) : ''}
+              {shownConsent?.text ?? ''}
             </span>
           </label>
           {consentProblem && <p id={consentErrorId} role="alert" className="field-error" style={{ marginTop: '0.375rem' }}>{WAITLIST_MESSAGES.consent}</p>}

@@ -7,6 +7,7 @@ import type {
   LineItem,
   Discount,
   SavedCard,
+  OrderPaymentStatus,
 } from '../interfaces/payment'
 import { taxCents } from '../../lib/tax'
 
@@ -175,6 +176,19 @@ export class MockPaymentProvider implements PaymentProvider {
 
   async findOrderPayment(orderId: string): Promise<Payment | null> {
     return this.paid.get(orderId) ?? null
+  }
+
+  /** Tests set an order's not-yet-final or failed payment here (paid orders answer from charges). */
+  orderStates = new Map<string, Exclude<OrderPaymentStatus['state'], 'paid'>>()
+  orderPaymentStatusCalls: { orderId: string; since?: string; last4?: string }[] = []
+
+  async orderPaymentStatus(input: { orderId: string; since?: string; last4?: string }): Promise<OrderPaymentStatus> {
+    this.orderPaymentStatusCalls.push({ ...input })
+    const paid = await this.findOrderPayment(input.orderId)
+    if (paid?.status === 'completed') return { state: 'paid', payment: paid }
+    const state = this.orderStates.get(input.orderId) ?? 'none'
+    if (state === 'none') return { state }
+    return { state, payment: { id: `mock-payment-${state}`, orderId: input.orderId, amount: 0, status: state === 'failed' ? 'failed' : 'pending' } }
   }
 
   async refundPayment(input: {

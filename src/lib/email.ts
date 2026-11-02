@@ -823,9 +823,17 @@ export async function sendWaitlistJoinedEmail(input: {
   })
 }
 
-/** "You're off the waitlist": they left, or an owner took them off. The card is off file. */
+/**
+ * The money line every waitlist goodbye ends with. I6: it says the card is no
+ * longer saved only once Square has taken it off file.
+ */
+export function waitlistCardLine(cardOff: boolean): string {
+  return cardOff ? 'Nothing was charged, and your card is no longer saved with us.' : 'Nothing was charged, and we’re taking your card off file.'
+}
+
+/** "You're off the waitlist": they left, or an owner took them off. */
 export async function sendWaitlistOffEmail(input: {
-  to: string; givenName: string; className: string; whenLabel: string; byStudio: boolean
+  to: string; givenName: string; className: string; whenLabel: string; byStudio: boolean; cardOff?: boolean
 }): Promise<{ sent: boolean }> {
   return partyMoneyEmail({
     to: input.to,
@@ -835,7 +843,7 @@ export async function sendWaitlistOffEmail(input: {
       input.byStudio
         ? `We took you off the waitlist for ${input.className} on ${input.whenLabel}.`
         : `You’re off the waitlist for ${input.className} on ${input.whenLabel}.`,
-      'Nothing was charged, and your card is no longer saved with us.',
+      waitlistCardLine(input.cardOff !== false),
       'We hope to see you at another class soon.',
     ],
   })
@@ -843,24 +851,27 @@ export async function sendWaitlistOffEmail(input: {
 
 /**
  * The waitlist couldn't add them: the card didn't go through (`declined`), the
- * waitlist closed before a spot opened (`closed`), or the price went up past
- * what they agreed to (`price`). Nothing was charged; the card is off file.
+ * waitlist closed before a spot opened (`closed`), the price went up past
+ * what they agreed to (`price`), or what they picked isn't sold any more
+ * (`gone`, M1). Nothing was charged; the card comes off file.
  */
 export async function sendWaitlistMissedEmail(input: {
-  to: string; givenName: string; className: string; whenLabel: string; why: 'declined' | 'closed' | 'price'; last4: string; classUrl: string
+  to: string; givenName: string; className: string; whenLabel: string; why: 'declined' | 'closed' | 'price' | 'gone'; last4: string; classUrl: string; cardOff?: boolean
 }): Promise<{ sent: boolean }> {
   const first = input.why === 'declined'
     ? `A spot opened in ${input.className} on ${input.whenLabel}, but your card ending ${input.last4} didn’t go through, so it went to the next person.`
     : input.why === 'price'
       ? `A spot opened in ${input.className} on ${input.whenLabel}, but the price is now higher than when you joined, so we didn’t charge you.`
-      : `No spot opened in ${input.className} on ${input.whenLabel} before the waitlist closed.`
+      : input.why === 'gone'
+        ? `A spot opened in ${input.className} on ${input.whenLabel}, but what you picked isn’t offered any more, so we didn’t charge you.`
+        : `No spot opened in ${input.className} on ${input.whenLabel} before the waitlist closed.`
   return partyMoneyEmail({
     to: input.to,
     subject: input.why === 'closed' ? 'The waitlist has closed' : 'We couldn’t add you to the class',
     givenName: input.givenName,
     lines: [
       first,
-      'Nothing was charged, and your card is no longer saved with us.',
+      waitlistCardLine(input.cardOff !== false),
       input.why === 'closed' ? 'We hope to see you at another class soon.' : 'You can book or join the waitlist again on our site.',
     ],
     link: { label: input.why === 'closed' ? 'See our classes' : 'Open the class', url: input.classUrl },
