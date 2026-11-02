@@ -5,6 +5,7 @@ import { createLogger } from '@lib/logger'
 import { sendEmail } from '@lib/email'
 import { loadCatalogIndex, loadOrders, loadSourceOrders, summarizeTax, renderTaxReport, previousMonth } from '@lib/tax-report'
 import { registerIds } from '@lib/classes/register-setup'
+import { listReaderOrderLinks } from '@lib/classes/reader-store'
 
 export const prerender = false
 const logger = createLogger('api:jobs:tax-report')
@@ -46,7 +47,12 @@ export const POST: APIRoute = async ({ request }) => {
     const config = { ...(siteConfig.providers.payment.config as SquareConfig), classesCategoryId: (await registerIds()).classesCategoryId }
     const [index, orders] = await Promise.all([loadCatalogIndex(config), loadOrders(config, month)])
     const sources = await loadSourceOrders(config, orders)
-    const report = renderTaxReport(month, summarizeTax(orders, index, sources), { classesCategoryMissing: !config.classesCategoryId })
+    // OWNER-S4-8: reader charges' tax from our own records (Square saw a plain amount). Unreadable → counted as Square has them.
+    const reader = new Map((await listReaderOrderLinks().catch((e) => {
+      logger.error('Reader orders unreadable — counted as custom amounts', { error: e instanceof Error ? e.message : String(e) })
+      return []
+    })).map((l) => [l.orderId, { netCents: l.netCents, taxCents: l.taxCents }]))
+    const report = renderTaxReport(month, summarizeTax(orders, index, sources, reader), { classesCategoryMissing: !config.classesCategoryId })
     const { sent } = await sendEmail({ to, ...report })
     logger.info('Tax report', { month, orders: orders.length, sent })
     return json({ data: { month, orders: orders.length, sent } }, 200)

@@ -109,6 +109,7 @@ export function ToDecideSheet({ id }: { id: string }) {
     case 'paid-not-seated': return <PaidNoSeat item={t} />
     case 'waitlist-unknown': return <WaitlistUnclear item={t} />
     case 'waitlist-declined': return <WaitlistDeclined item={t} />
+    case 'reader-waiting': return <ReaderWaiting item={t} />
   }
 }
 
@@ -713,6 +714,50 @@ function WaitlistDeclined({ item }: { item: ToDecideItem }) {
     <SheetFrame title={item.title} subtitle={item.className} footer={<button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'seen' })}>{label(busy, 'seen', 'Got it', 'Saving…')}</button>}>
       <Head item={item} />
       <p className="adm-note adm-gap-top">Nothing was charged and their card is off file. You can call or text them if you’d like to help them book.</p>
+      <Contact d={d} />
+      {item.classId && <OpenClass id={item.classId} />}
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}
+
+/**
+ * Stage 4: a "Charge on the reader" sale that never came back from the Square
+ * app (or whose payment didn't match). Ask Square seats them when Square shows
+ * the payment; Let the seat go asks Square first and is refused when it shows paid.
+ */
+function ReaderWaiting({ item }: { item: ToDecideItem }) {
+  const d = item.detail as Detail
+  const { send, busy, error } = useDecide(item)
+  const [sure, setSure] = useState(false)
+  return (
+    <SheetFrame
+      title={item.title}
+      subtitle={item.className}
+      footer={sure
+        ? (
+          <div className="adm-panel is-warn" role="group" aria-label="Let the seat go?">
+            <b>Let the seat go?</b>
+            <span className="adm-small">{`Square is asked first. If it shows the payment, ${d.name} keeps the seat. If not, the seat goes back on sale. Nothing is refunded or charged.`}</span>
+            <div className="adm-two">
+              <button type="button" className="adm-btn is-ghost" onClick={() => setSure(false)}>Keep it held</button>
+              <button type="button" className="adm-btn is-danger" disabled={!!busy} onClick={() => send({ action: 'let-go' })}>{label(busy, 'let-go', 'Let the seat go', 'Asking Square…')}</button>
+            </div>
+          </div>
+        )
+        : (
+          <div className="adm-stack">
+            <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'check' })}>{label(busy, 'check', 'Ask Square', 'Asking Square…')}</button>
+            <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => setSure(true)}>Let the seat go</button>
+          </div>
+        )}
+    >
+      <Head item={item} />
+      {kv('Amount', formatMoney(d.cents))}
+      {d.by && kv('Sold by', String(d.by))}
+      <p className="adm-note adm-gap-top">{d.offline
+        ? 'Square took this payment while the iPad was offline. It shows up once the iPad is back online. Ask Square then.'
+        : 'Ask Square looks for this payment in Square. If it went through, the seat is marked paid. Nobody is charged twice.'}</p>
       <Contact d={d} />
       {item.classId && <OpenClass id={item.classId} />}
       <ErrorLine text={error} />

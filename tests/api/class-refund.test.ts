@@ -1048,3 +1048,15 @@ describe('fix round 5: "Refund again" keeps one identity across retries (R31)', 
     expect(seen.body.data.already.at).toBeNull()
   })
 })
+
+describe('stage 4: a seat charged on the reader', () => {
+  it('refunds through Square on the ledger’s payment id, like any card seat (never "at the register")', async () => {
+    const a = line({ source: 'door-reader', square: { orderId: 'ORD_R', paymentId: 'PAY_R', lineUid: null, chargedCents: 3270 } })
+    const classId = await setup([a])
+    const r = await staff({ classId, bookingId: 'bkg_r1', kind: 'booking', reason: 'Changed their mind' })
+    expect(r.status).toBe(200)
+    expect(mocks.refundPayment).toHaveBeenCalledTimes(1)
+    expect(mocks.refundPayment.mock.calls[0][0]).toMatchObject({ paymentId: 'PAY_R', amountCents: 3270 })
+    expect((await byId(classId))[a.id].refunds[0]).toMatchObject({ cents: 3270, freedSeat: true })
+  })
+})

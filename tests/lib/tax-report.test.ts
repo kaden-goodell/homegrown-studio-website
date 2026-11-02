@@ -114,3 +114,28 @@ describe('our own classes and party fees', () => {
     expect(renderTaxReport('2026-10', s).text).not.toContain('may be under')
   })
 })
+
+describe('Charge on the reader (OWNER-S4-8: tax from our records)', () => {
+  // Square sees a plain amount: one custom line of $32.70 with no tax.
+  const readerOrder = { id: 'ORD_R', total_money: { amount: 3270 }, line_items: [{ name: 'Custom Amount', total_money: { amount: 3270 }, total_tax_money: { amount: 0 } }] }
+  const split = new Map([['ORD_R', { netCents: 3000, taxCents: 270 }]])
+
+  it('counts a reader charge under classes with our net and tax, not as a custom amount', () => {
+    const s = summarizeTax([readerOrder], index, new Map(), split)
+    expect(s.classes).toEqual({ salesCents: 3000, taxCents: 270, lines: 1 })
+    expect(s.other).toEqual({ salesCents: 0, taxCents: 0, lines: 0 })
+  })
+
+  it('without our record it stays a custom amount (nothing guessed)', () => {
+    const s = summarizeTax([readerOrder], index)
+    expect(s.other).toEqual({ salesCents: 3270, taxCents: 0, lines: 1 })
+  })
+
+  it('a refund of a reader charge takes its share of our split back off classes', () => {
+    const refund = { id: 'RF', returns: [{ source_order_id: 'ORD_R', return_line_items: [{ total_money: { amount: 3270 }, total_tax_money: { amount: 0 } }] }] }
+    const s = summarizeTax([readerOrder, refund], index, new Map(), split)
+    expect(s.classes).toEqual({ salesCents: 0, taxCents: 0, lines: 1 })
+    const half = { id: 'RF2', returns: [{ source_order_id: 'ORD_R', return_line_items: [{ total_money: { amount: 1635 }, total_tax_money: { amount: 0 } }] }] }
+    expect(summarizeTax([half], index, new Map(), split).classes).toEqual({ salesCents: -1500, taxCents: -135, lines: 0 })
+  })
+})

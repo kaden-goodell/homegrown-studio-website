@@ -21,6 +21,9 @@
  *   item for /admin › To decide. Never refunded, never cancelled.
  * - A 'choose' pass sold at the counter can't know its days: it is put on the
  *   next upcoming session(s) and listed in 'pos-needs-days' for staff.
+ * - A plain-amount order whose payment note names one of our "Charge on the
+ *   reader" sales (stage 4, reader-flow) is that sale's: checked against the
+ *   sale and seated, never a counter sale and never unmatched.
  * - A class item we can't match (Classes category, or sku 'cls_…') → kv
  *   'unmatched-pos'. Add-on lines attach to nothing (logged).
  * - A Square refund on one of our payments (any of the order's tenders): one
@@ -48,6 +51,7 @@ import { listClasses } from './class-store'
 import { squareFetch, squareSettings } from './square-api'
 import { registerIds } from './register-setup'
 import { codeFromDiscountName, codeOnLines } from '@lib/promos/rules'
+import { bookingInNote } from './reader'
 import { confirmUse, countUse } from '@lib/promos/promo-store'
 import { confirmBooking, getLedger, moveLines, paidBy, recordPos, recordRefund, type LedgerLine, type PosLineInput } from './seat-ledger'
 import { alertOwners } from '@lib/owner-alert'
@@ -331,7 +335,21 @@ export async function handleOrder(
   if (ref.startsWith('bkg_')) return handleOwnOrder(order, now, opts, out)
 
   const lineItems: any[] = (order.line_items ?? []).filter((li: any) => li?.catalog_object_id && li?.uid)
-  if (!lineItems.length) return { ...out, skipped: 'no-class-lines' }
+  if (!lineItems.length) {
+    // Stage 4: a "Charge on the reader" payment (a plain amount whose note names one of our reader sales) is that
+    // sale's, never a counter sale or an unmatched one. It is checked and seated like the app's own answer.
+    if ((order.tenders ?? []).some((t: any) => bookingInNote(t?.note))) {
+      try {
+        const { settleReaderOrderFromSquare } = await import('./reader-flow')
+        if (await settleReaderOrderFromSquare(order, siteConfig.url.replace(/\/$/, ''), now)) return { ...out, skipped: 'not-ours' }
+      } catch (e) {
+        // The sale stays waiting; the nightly run, Check again or To decide's Ask Square finds it again.
+        logger.error('Reader order not settled', { orderId, error: e instanceof Error ? e.message : String(e) })
+        return { ...out, skipped: 'not-ours' }
+      }
+    }
+    return { ...out, skipped: 'no-class-lines' }
+  }
   const ctx = opts.ctx ?? contextFor(opts.classes ?? (await listClasses()))
   const saleIso = order.closed_at ?? order.updated_at ?? order.created_at ?? now.toISOString()
   const paymentIds = tenderPaymentIds(order)

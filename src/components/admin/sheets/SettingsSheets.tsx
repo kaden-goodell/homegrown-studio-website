@@ -16,7 +16,8 @@ import type { NotOnRegisterRow, RegisterChoices, RegisterSetupView } from '@lib/
 import { REGISTER_DOWN_PAY, REGISTER_TAX_PERCENT } from '@lib/classes/register-words'
 import { closureOn, type Holiday } from '@config/closures'
 import { cafeHoursEntries, STUDIO_HOURS, type CafeSpecialDay, type CafeWeekly, type Weekday } from '@config/hours'
-import { api, REGISTER, SETTINGS } from '../classes/api'
+import { api, READER_SETTING, REGISTER, SETTINGS } from '../classes/api'
+import type { ReaderStatus } from '@lib/classes/reader-setting'
 import { dayLabel, today } from '../classes/dates'
 import { useRefresh } from '../shell/data'
 import { Failed, Skeleton } from '../shell/items'
@@ -677,6 +678,59 @@ export function RegisterSetupSheet() {
           {!last && d.setup.source.tax === 'site' && <p className="adm-small adm-muted adm-gap-top">Using the studio’s starting setup. Save here to make it yours.</p>}
         </>
       )}
+      <ReaderSetting />
     </SheetFrame>
+  )
+}
+
+/**
+ * Stage 4: Charge on the reader, on or off (Catherine flips it here, not in
+ * Netlify). Saved at once, compare-and-set; the other ways to pay at the door
+ * stay whatever this says.
+ */
+function ReaderSetting() {
+  const toast = useToast()
+  const [s, setS] = useState<ReaderStatus | null>(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [tries, setTries] = useState(0)
+  useEffect(() => {
+    let live = true
+    api<ReaderStatus>(READER_SETTING).then((r) => {
+      if (!live) return
+      if (r.ok && r.data) { setS(r.data); setError('') } else setError(r.error ?? DIDNT_SAVE)
+    })
+    return () => { live = false }
+  }, [tries])
+  async function flip() {
+    if (!s) return
+    setBusy(true)
+    const r = await api<ReaderStatus>(READER_SETTING, { enabled: !s.on, expectedUpdatedAt: s.updatedAt })
+    setBusy(false)
+    if (r.ok && r.data) {
+      setS(r.data)
+      toast(r.data.on ? 'Charge on the reader is on. It shows in Sell a seat on /staff.' : 'Charge on the reader is off.')
+      return
+    }
+    if (r.status === 409) setTries((n) => n + 1)
+    setError(r.error ?? DIDNT_SAVE)
+  }
+  return (
+    <section aria-label="Charge on the reader" className="adm-gap-top">
+      <p className="adm-lbl">Charge on the reader</p>
+      <p className="adm-small adm-muted">Adds Charge on the reader to Sell a seat on /staff. It opens the Square app on the iPad with the amount, then comes back here once the card is paid. Card and gift card only. Cash stays Pay at the counter.</p>
+      {!s && !error && <Skeleton rows={1} label="Loading" />}
+      {s && (
+        <>
+          <p className="adm-small"><b>{s.on ? 'On' : 'Off'}</b>{s.by && s.updatedAt ? ` · changed by ${s.by.name}, ${dayLabel(localDate(s.updatedAt))}` : ''}</p>
+          {s.on && !s.linked && <p className="adm-warntext" role="note">{s.message}</p>}
+          <button type="button" className={`adm-btn ${s.on ? 'is-ghost' : 'is-pri'} is-sm`} disabled={busy} onClick={flip}>
+            {busy ? 'Saving…' : s.on ? 'Turn it off' : 'Turn it on'}
+          </button>
+        </>
+      )}
+      {error && <p className="adm-error" role="alert">{error}</p>}
+      {error && !s && <button type="button" className="adm-btn is-ghost is-sm" onClick={() => { setError(''); setTries((n) => n + 1) }}>Try again</button>}
+    </section>
   )
 }
