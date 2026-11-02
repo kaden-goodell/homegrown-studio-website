@@ -10,7 +10,7 @@ import { groupBookings, type BookingView } from './admin-actions'
 import { getClass } from './class-store'
 import { describeRequest } from './refunds'
 import { isWaiting, listRefundRequests } from './refund-requests'
-import { getLedger, setNames, type Ledger, type LedgerLine } from './seat-ledger'
+import { getLedger, setNames, takesSeat, type Ledger, type LedgerLine } from './seat-ledger'
 import { COUNTER_SALE_NO_NAME, holdsSeat, ownRosterChoices, sessionsOn } from './staff-view'
 import { waitlistOrNull, isOnList } from './waitlist-store'
 
@@ -50,7 +50,8 @@ export async function ownRoster(event: StudioEvent, day: string, signerEmails: s
     return {
       ...b,
       name: fullName(b.customer) || COUNTER_SALE_NO_NAME,
-      seatsToday: lines.filter((l) => onDay(l) && holdsSeat(l)).length,
+      // A reader sale still waiting on the Square app shows the seats it holds.
+      seatsToday: lines.filter((l) => onDay(l) && (holdsSeat(l) || (l.source === 'door-reader' && takesSeat(l, now)))).length,
       waiting: waitingReq ? describeRequest(waitingReq, ledger, cls) : null,
     }
   }))

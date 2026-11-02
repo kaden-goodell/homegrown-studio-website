@@ -5,7 +5,8 @@ const TTL_MS = 15 * 60 * 1000
 const logger = createLogger('reuse-token')
 let warned = false
 
-function secret(): string {
+/** The site's signing secret (LOOKUP_SIGNING_SECRET; required in production). Also signs the reader's state. */
+export function signingSecret(): string {
   const env: any = (typeof import.meta !== 'undefined' && (import.meta as any).env) || {}
   const lookupSecret = env.LOOKUP_SIGNING_SECRET || process.env.LOOKUP_SIGNING_SECRET
   if (lookupSecret) return lookupSecret
@@ -28,7 +29,7 @@ function secret(): string {
   return 'dev-only-not-a-secret'
 }
 
-const sig = (payload: string) => createHmac('sha256', secret()).update(payload).digest('hex')
+const sig = (payload: string) => createHmac('sha256', signingSecret()).update(payload).digest('hex')
 
 export function issueReuseToken(recordId: string, now = Date.now()): string {
   const exp = now + TTL_MS

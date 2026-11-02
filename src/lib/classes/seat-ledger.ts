@@ -18,7 +18,8 @@ export { isComing, isPaidLine, takesSeat } from './seat-status'
 
 const logger = createLogger('classes:seat-ledger')
 
-export type SeatSource = 'online' | 'door-card' | 'door-counter' | 'comp' | 'pos'
+/** door-reader (stage 4): taken at the door on the card reader through the Square POS app (reader-flow). */
+export type SeatSource = 'online' | 'door-card' | 'door-counter' | 'comp' | 'pos' | 'door-reader'
 export interface LedgerLine {
   id: string                 // 'led_'…
   bookingId: string          // groups a booking's lines ('bkg_'…)

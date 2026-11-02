@@ -246,6 +246,7 @@ describe('CompSeatSheet on our own classes (Task 14)', () => {
   const ownEvent = { id: 'cls_camp', title: 'Clay Camp', day: '2026-10-20', own: true as const }
   beforeEach(() => {
     fetchMock.mockReset()
+    readerInfo = { on: false, linked: true, message: null }
     vi.stubGlobal('fetch', fetchMock)
     // The sessions are Oct 20 and 21: pin the clock before them so the counter quote never ages out (only Date is faked).
     vi.useFakeTimers({ toFake: ['Date'] })
@@ -253,9 +254,12 @@ describe('CompSeatSheet on our own classes (Task 14)', () => {
   })
   afterEach(() => { vi.useRealTimers() })
 
+  /** Charge on the reader, as GET /api/staff/reader.json answers it (off unless a test says otherwise). */
+  let readerInfo: { on: boolean; linked: boolean; message: string | null } = { on: false, linked: true, message: null }
   function serveClass(...replies: any[]) {
     fetchMock.mockImplementation(async (url: string, init?: any) => {
       if (String(url).startsWith('/api/staff/class.json')) return { ok: true, status: 200, json: async () => ({ workshop }) }
+      if (String(url) === '/api/staff/reader.json' && !init?.method) return { ok: true, status: 200, json: async () => ({ data: readerInfo }) }
       const r = replies.shift()
       return r ?? { ok: true, status: 200, json: async () => ({ data: { bookingId: 'bkg_1', emailSent: false, seats: 1 } }) }
     })
@@ -376,6 +380,71 @@ describe('CompSeatSheet on our own classes (Task 14)', () => {
     expect(screen.getByRole('button', { name: /Tue, Oct 20/ }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: /Back/ }))
     expect(await screen.findByRole('button', { name: 'Pay at the counter' })).toBeTruthy()
+  })
+
+  const readerCalls = () => fetchMock.mock.calls.filter((c) => c[0] === '/api/staff/reader.json' && c[1]?.method === 'POST')
+
+  it('Charge on the reader is hidden while it’s off', async () => {
+    serveClass()
+    render(<CompSeatSheet mode="sell" event={ownEvent} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    await screen.findByRole('button', { name: 'Pay at the counter' })
+    await waitFor(() => expect(fetchMock.mock.calls.some((c) => c[0] === '/api/staff/reader.json')).toBe(true))
+    expect(screen.queryByRole('button', { name: 'Charge on the reader' })).toBeNull()
+    expect(screen.queryByTestId('reader-not-linked')).toBeNull()
+  })
+
+  it('on but not linked to the Square app: a plain sentence, the other two ways still there', async () => {
+    readerInfo = { on: true, linked: false, message: 'Charge on the reader isn’t linked to the Square app yet, so it can’t be used. Pay on the iPad and Pay at the counter still work.' }
+    serveClass()
+    render(<CompSeatSheet mode="sell" event={ownEvent} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    expect(await screen.findByTestId('reader-not-linked')).toHaveTextContent('Pay on the iPad and Pay at the counter still work.')
+    expect(screen.queryByRole('button', { name: 'Charge on the reader' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Pay on the iPad' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Pay at the counter' })).toBeTruthy()
+  })
+
+  it('Charge on the reader: shows the amount, starts the sale, opens the Square app, then waits with Check again / Let the seat go', async () => {
+    readerInfo = { on: true, linked: true, message: null }
+    const posUrl = 'square-commerce-v1://payment/create?data=%7B%7D'
+    serveClass(
+      { ok: true, status: 200, json: async () => ({ data: { bookingId: 'bkg_r1', amountCents: 3815, posUrl } }) },
+      { ok: true, status: 200, json: async () => ({ data: { outcome: 'paid', message: 'Paid $38.15 on the reader. Ada is on the class list.' } }) },
+    )
+    const hrefs: string[] = []
+    const loc = window.location
+    vi.stubGlobal('location', { ...loc, set href(v: string) { hrefs.push(v) }, get href() { return loc.href } })
+    const onRecorded = vi.fn()
+    render(<CompSeatSheet mode="sell" event={ownEvent} options={[]} onRecorded={onRecorded} onClose={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Charge on the reader' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Wed, Oct 21/ }))
+    expect(screen.getByTestId('reader-total')).toHaveTextContent('$38.15 on the reader, tax included.')
+    fill()
+    fireEvent.click(screen.getByRole('button', { name: 'Charge $38.15 on the reader' }))
+    expect(await screen.findByTestId('reader-waiting')).toHaveTextContent('Finish the $38.15 payment in the Square app')
+    expect(JSON.parse(readerCalls()[0][1].body)).toMatchObject({ action: 'start', classId: 'cls_camp', passId: 'day', sessionIds: ['ses_wed'], tickets: { adult: 1 }, givenName: 'Ada', attempt: expect.any(String) })
+    expect(hrefs).toEqual([posUrl])
+    expect(onRecorded).toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
+    expect(await screen.findByText('Paid $38.15 on the reader. Ada is on the class list.')).toBeTruthy()
+    expect(JSON.parse(readerCalls()[1][1].body)).toEqual({ action: 'check', bookingId: 'bkg_r1' })
+    expect(screen.getByRole('button', { name: 'Done' })).toBeTruthy()
+  })
+
+  it('Charge on the reader: the Square app didn’t open → plain help to check the app and sign-in', async () => {
+    readerInfo = { on: true, linked: true, message: null }
+    serveClass({ ok: true, status: 200, json: async () => ({ data: { bookingId: 'bkg_r2', amountCents: 3815, posUrl: 'square-commerce-v1://payment/create?data=x' } }) })
+    vi.stubGlobal('location', { ...window.location, set href(_v: string) { /* the app isn't there: nothing happens */ }, get href() { return '' } })
+    render(<CompSeatSheet mode="sell" event={ownEvent} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Charge on the reader' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Wed, Oct 21/ }))
+    fill()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] })
+    fireEvent.click(screen.getByRole('button', { name: /on the reader$/ }))
+    await vi.waitFor(() => expect(readerCalls()).toHaveLength(1))
+    await vi.waitFor(() => expect(screen.getByTestId('reader-waiting')).toBeTruthy())
+    vi.advanceTimersByTime(3000)
+    vi.useRealTimers()
+    expect(await screen.findByTestId('reader-no-app')).toHaveTextContent('Check that the Square Point of Sale app is on this iPad and signed in to the studio’s account')
   })
 
   it('R33: no joining partway and the class has started: says so, offers nothing the server would refuse', async () => {

@@ -70,7 +70,13 @@ export default function CompSeatSheet({
   const own = event.own === true
   const [cls, setCls] = useState<(WorkshopData & { own?: OwnClassData }) | null>(null)
   const [clsError, setClsError] = useState<string | null>(null)
-  const [payWay, setPayWay] = useState<null | 'ipad' | 'counter'>(sell ? null : 'counter')
+  const [payWay, setPayWay] = useState<null | 'ipad' | 'counter' | 'reader'>(sell ? null : 'counter')
+  // Stage 4: Charge on the reader (the Square POS app), when an owner turned it on.
+  const [readerInfo, setReaderInfo] = useState<null | { on: boolean; linked: boolean; message: string | null }>(null)
+  const [readerSale, setReaderSale] = useState<null | { bookingId: string; amountCents: number; posUrl: string }>(null)
+  const [readerNoApp, setReaderNoApp] = useState(false)
+  const [readerNote, setReaderNote] = useState<null | { text: string; tone: 'ok' | 'warn' }>(null)
+  const [readerPaid, setReaderPaid] = useState(false)
   const [passId, setPassId] = useState('')
   const [days, setDays] = useState<string[]>([])
   const [tickets, setTickets] = useState<Record<string, number>>({})
@@ -109,6 +115,15 @@ export default function CompSeatSheet({
     }
   }
   useEffect(() => { if (own) void loadClass() }, [own, event.id])
+  useEffect(() => {
+    if (!own || !sell) return
+    let live = true
+    fetch('/api/staff/reader.json', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => { if (live && b?.data) setReaderInfo(b.data) })
+      .catch(() => undefined)
+    return () => { live = false }
+  }, [own, sell])
   const ownData = cls?.own ?? null
   const pass = ownData?.passes.find((p) => p.id === passId) ?? null
   const chooseN = pass?.covers.kind === 'choose' ? pass.covers.count : 0
@@ -212,6 +227,7 @@ export default function CompSeatSheet({
   // What the counter rings up, before adding (tax included).
   const counterTotal = (() => {
     if (!own || !sell || !cls?.own || !pass || seatCount < 1) return null
+    if (payWay !== 'counter' && payWay !== 'reader') return null
     const asCls = asScheduledClass(cls.own, cls.name)
     const bare = { ...asCls, content: { ...asCls.content, questions: [], addOns: [] } }
     const q = quote(bare, { passId, tickets: ownTickets, ...(chooseN ? { sessionIds: days } : {}) }, new Date(), cls.own.taxPercent, { door: true })
@@ -242,6 +258,11 @@ export default function CompSeatSheet({
     const picks = seatTokens.flatMap((t, i) =>
       options.map((o) => ({ seat: i + 1, optionId: o.id, choice: selections[key(t.token, o.id)] ?? '' })),
     )
+    if (own && payWay === 'reader') {
+      await startReader(picks, overCapacity)
+      setBusy(false)
+      return
+    }
     try {
       const res = await fetch('/api/staff/comp-seat.json', {
         method: 'POST',
@@ -287,6 +308,74 @@ export default function CompSeatSheet({
       }
     } catch {
       setError('Could not reach the server. Try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Opens the Square app; if this page is still showing a moment later, the app likely isn't there. */
+  function openSquareApp(url: string) {
+    setReaderNoApp(false)
+    window.location.href = url
+    setTimeout(() => { if (document.visibilityState === 'visible') setReaderNoApp(true) }, 2500)
+  }
+
+  /** Charge on the reader: the server prices and holds the seats, then hands back the Square app link. */
+  async function startReader(picks: { seat: number; optionId: string; choice: string }[], overCapacity: boolean) {
+    try {
+      const res = await fetch('/api/staff/reader.json', {
+        method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'start', classId: event.id, givenName: givenName.trim(), familyName: familyName.trim(), email: email.trim(),
+          ...(phone.trim() ? { phone: phone.trim() } : {}), passId, tickets: ownTickets, ...(chooseN ? { sessionIds: days } : {}),
+          picks, attempt: attemptRef.current, sendEmail: notify, ...(overCapacity ? { overCapacity: true } : {}),
+        }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (res.ok && body?.data?.posUrl) {
+        setReaderSale({ bookingId: body.data.bookingId, amountCents: body.data.amountCents, posUrl: body.data.posUrl })
+        setReaderNote(null)
+        onRecorded()
+        openSquareApp(body.data.posUrl)
+      } else if (body?.code === 'sold_out') {
+        setRefused(true)
+        setError(typeof body?.error === 'string' ? body.error : 'That day is full.')
+      } else if (body?.code === 'paid') {
+        setReaderPaid(true)
+        setReaderNote({ text: body.error, tone: 'ok' })
+        onRecorded()
+      } else {
+        setError(typeof body?.error === 'string' && body.error ? body.error : 'Couldn’t start the sale. Nothing was charged.')
+      }
+    } catch {
+      setError('Could not reach the server. Nothing was charged. Try again.')
+    }
+  }
+
+  /** Check again / Let the seat go, from the waiting screen. */
+  async function readerAction(action: 'check' | 'let-go') {
+    if (!readerSale || busy) return
+    setBusy(true)
+    setReaderNote(null)
+    try {
+      const res = await fetch('/api/staff/reader.json', {
+        method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, bookingId: readerSale.bookingId }),
+      })
+      const body = await res.json().catch(() => ({}))
+      const d = body?.data
+      if (res.ok && d) {
+        setReaderNote({ text: d.message, tone: d.outcome === 'paid' ? 'ok' : 'warn' })
+        if (d.outcome === 'paid') setReaderPaid(true)
+        if (d.outcome === 'let-go' || d.outcome === 'cancelled') { setReaderSale(null); setPayWay(null); attemptRef.current = newAttempt() }
+        onRecorded()
+      } else {
+        if (body?.code === 'paid') setReaderPaid(true)
+        setReaderNote({ text: typeof body?.error === 'string' ? body.error : 'That didn’t work. Try again.', tone: body?.code === 'paid' ? 'ok' : 'warn' })
+        onRecorded()
+      }
+    } catch {
+      setReaderNote({ text: 'Could not reach the server. Check the wifi and try again.', tone: 'warn' })
     } finally {
       setBusy(false)
     }
@@ -355,6 +444,11 @@ export default function CompSeatSheet({
           Ring up {money2(counterTotal)} at the counter, tax included.
         </p>
       )}
+      {sell && payWay === 'reader' && counterTotal !== null && (
+        <p data-testid="reader-total" style={{ margin: '0 0 0.65rem', fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-dark)' }}>
+          {money2(counterTotal)} on the reader, tax included.
+        </p>
+      )}
     </div>
   )
 
@@ -407,7 +501,35 @@ export default function CompSeatSheet({
             </ol>
           </div>
         )}
-        {done ? (
+        {own && (readerSale || readerPaid) ? (
+          <div data-testid="reader-waiting" style={{ padding: '0.25rem 0' }}>
+            {readerPaid ? (
+              <p role="status" style={{ margin: '0 0 0.8rem', fontWeight: 700, color: 'rgb(21,128,61)' }}>{readerNote?.text ?? 'Paid on the reader.'}</p>
+            ) : (
+              <>
+                <p style={{ margin: '0 0 0.35rem', fontWeight: 800, fontSize: '1.05rem', color: 'var(--color-dark)' }}>
+                  Finish the {readerSale ? money2(readerSale.amountCents) : ''} payment in the Square app
+                </p>
+                <p style={{ margin: '0 0 0.8rem', fontSize: '0.9rem', color: 'var(--color-dark)' }}>
+                  The seat is held. Once the card is paid, the Square app brings you back here by itself.
+                </p>
+                {readerNoApp && (
+                  <div role="note" data-testid="reader-no-app" style={{ margin: '0 0 0.8rem', padding: '0.7rem', borderRadius: '0.6rem', background: 'rgba(245, 158, 11, 0.12)', fontSize: '0.875rem', color: 'var(--color-dark)' }}>
+                    The Square app didn’t open? Check that the Square Point of Sale app is on this iPad and signed in to the studio’s account, then tap Open the Square app again. Or let the seat go and use Pay on the iPad.
+                  </div>
+                )}
+                {readerNote && <p role={readerNote.tone === 'warn' ? 'alert' : 'status'} style={{ margin: '0 0 0.8rem', fontSize: '0.9rem', fontWeight: 600, color: readerNote.tone === 'ok' ? 'rgb(21,128,61)' : '#b45309' }}>{readerNote.text}</p>}
+                <div style={{ display: 'grid', gap: '0.5rem' }}>
+                  <button type="button" disabled={busy} onClick={() => readerSale && openSquareApp(readerSale.posUrl)} style={{ ...btn(true), minHeight: '2.75rem' }}>Open the Square app again</button>
+                  <button type="button" disabled={busy} onClick={() => readerAction('check')} style={{ ...btn(), minHeight: '2.75rem' }}>{busy ? 'Asking Square…' : 'Check again'}</button>
+                  <button type="button" disabled={busy} onClick={() => readerAction('let-go')} style={{ ...btn(), minHeight: '2.75rem' }}>Let the seat go</button>
+                </div>
+              </>
+            )}
+            <button type="button" onClick={onClose} style={{ ...btn(readerPaid), marginTop: '1rem', padding: '0.7rem 2rem', minHeight: '2.75rem' }}>{readerPaid ? 'Done' : 'Close'}</button>
+            {!readerPaid && <p style={{ margin: '0.4rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Closing keeps the seat held. It shows on the class list as Waiting on the reader.</p>}
+          </div>
+        ) : done ? (
           <div style={{ textAlign: 'center', padding: '1rem 0' }}>
             <p role="status" style={{ margin: 0, fontWeight: 700, color: 'rgb(21,128,61)' }}>
               {own && done.over ? `Added over capacity (${done.over.sold} of ${done.over.capacity}). ` : ''}{own ? (sell ? 'Added to the class.' : 'Added, no charge.') : done.byHand ? 'Recorded.' : sell ? 'Added in Square.' : 'Added in Square, no charge.'} {done.emailed ? 'They’ll get the usual confirmation email.' : 'No email sent.'}
@@ -459,6 +581,14 @@ export default function CompSeatSheet({
             <p style={{ margin: '-0.3rem 0 0.2rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Apple Pay or card, right here. They get the usual confirmation.</p>
             <button type="button" onClick={() => setPayWay('counter')} style={{ ...btn(), minHeight: '3.25rem', fontSize: '1rem' }}>Pay at the counter</button>
             <p style={{ margin: '-0.3rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Add the seat here, then ring it up on the register.</p>
+            {readerInfo?.on && (readerInfo.linked ? (
+              <>
+                <button type="button" onClick={() => setPayWay('reader')} style={{ ...btn(), minHeight: '3.25rem', fontSize: '1rem', marginTop: '0.2rem' }}>Charge on the reader</button>
+                <p style={{ margin: '-0.3rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Card or gift card on the Square reader. Opens the Square app with the amount, then comes back here.</p>
+              </>
+            ) : (
+              <p data-testid="reader-not-linked" role="note" style={{ margin: '0.2rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>{readerInfo.message}</p>
+            ))}
           </div>
         ) : (
           <form onSubmit={(e) => submit(e, signedOut, own && overOk)}>
@@ -627,7 +757,7 @@ export default function CompSeatSheet({
                     <button type="button" onClick={() => { setPayWay(null); setError(null) }} style={{ ...btn(), padding: '0.7rem 1.4rem', minHeight: '2.75rem' }}>Back</button>
                   )}
                   <button type="submit" disabled={busy || (fullHere && !overOk)} style={{ ...btn(true), padding: '0.7rem 1.4rem', minHeight: '2.75rem', opacity: busy || (fullHere && !overOk) ? 0.5 : 1, cursor: fullHere && !overOk ? 'not-allowed' : 'pointer' }}>
-                    {busy ? (signedOut ? 'Recording…' : 'Adding…') : signedOut ? 'I added them in Square' : sell ? (own ? 'Add seat, pay at the counter' : 'Add seat, pay at register') : 'Add comped seat'}
+                    {busy ? (payWay === 'reader' ? 'Opening the Square app…' : signedOut ? 'Recording…' : 'Adding…') : signedOut ? 'I added them in Square' : sell ? (own ? (payWay === 'reader' ? (counterTotal !== null ? `Charge ${money2(counterTotal)} on the reader` : 'Charge on the reader') : 'Add seat, pay at the counter') : 'Add seat, pay at register') : 'Add comped seat'}
                   </button>
                 </div>
                 {fullHere && !overOk && <p data-testid="comp-hint" style={{ margin: '0.4rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>That day is full. Tick Add over capacity to seat them anyway.</p>}

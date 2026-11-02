@@ -31,6 +31,10 @@
  *                        → Check Square again · I sorted it out in Square
  *   waitlist-declined    a waitlist card didn't go through (or the price rose)
  *                        → Got it
+ *   reader-waiting       a "Charge on the reader" sale never came back from the
+ *                        Square app (15 minutes on), or Square showed an order
+ *                        for it that didn't match → Ask Square · Let the seat go
+ *                        (Square is asked first; refused when it shows paid)
  *   paid-not-seated      Square shows one of our online bookings paid, but its
  *                        seats were let go before it could be confirmed (R42)
  *                        → Give them their seat (over capacity if need be) · Sorted it in Square
@@ -67,11 +71,14 @@ import type { Cents, ScheduledClass } from './types'
 import { waitlistItems } from './waitlist-items'
 import { waitlistClassIds } from './waitlist-store'
 import { checkEntryAgain, sortedInSquare } from './waitlist-runner'
+import { listWaitingReaderSales } from './reader-store'
+import { checkReaderSale, letReaderSeatGo, readerNeedsDeciding, readerWhen, ReaderError } from './reader-flow'
+import { siteConfig } from '@config/site.config'
 
 export type ToDecideKind =
   | 'pos-unmatched' | 'refund-plain' | 'refund-failed' | 'refund-unfinished' | 'refund-unconfirmed'
   | 'pos-needs-days' | 'below-minimum' | 'door-unpaid' | 'counter-match-check' | 'party-paid-unclear' | 'paid-not-seated'
-  | 'waitlist-unknown' | 'waitlist-declined'
+  | 'waitlist-unknown' | 'waitlist-declined' | 'reader-waiting'
 
 /** One thing waiting for an owner (or decided lately). */
 export interface ToDecideItem {
@@ -446,6 +453,31 @@ async function waitlistDecideItems(cache: ClassCache, skip: Set<string>, now: Da
   return out
 }
 
+/** Stage 4: reader sales the Square app never answered (or whose order didn't match). */
+async function readerItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]> {
+  const out: ToDecideItem[] = []
+  for (const s of await listWaitingReaderSales()) {
+    if (!readerNeedsDeciding(s, now)) continue
+    const id = tokenOf(`reader-${s.bookingId}`)
+    if (skip.has(id)) continue
+    const name = `${s.customer.givenName} ${s.customer.familyName}`.trim()
+    const sent = new Date(s.startedAt).toLocaleTimeString('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit' })
+    out.push({
+      id, kind: 'reader-waiting', title: s.problem ? 'Reader payment didn’t match' : 'Reader payment didn’t come back', at: s.startedAt,
+      classId: s.classId, className: s.className,
+      head: s.problem
+        ? `${name}, ${s.seatsLabel} of ${s.className} on ${readerWhen(s)}. Square shows a payment for this sale that doesn’t match the ${money(s.amountCents)} asked, so the seat is held, not paid. Nothing was refunded.`
+        : `${name}, ${s.seatsLabel} of ${s.className} on ${readerWhen(s)}. ${money(s.amountCents)} was sent to the Square app at ${sent} and the payment never came back here. The seat is held.`,
+      hint: 'Ask Square, or let the seat go',
+      detail: {
+        bookingId: s.bookingId, name, email: s.customer.email, phone: s.customer.phone, cents: s.amountCents, by: s.by.name,
+        startedAt: s.startedAt, problem: s.problem?.why ?? null, offline: !!s.offline,
+      },
+    })
+  }
+  return out
+}
+
 /**
  * Everything waiting, newest first, then what was decided in the last two
  * weeks. Each source is read on its own: one that fails is named in
@@ -470,6 +502,7 @@ export async function listToDecide(now = new Date()): Promise<{ items: ToDecideI
     safe('party payments', () => partyItems(skip, now)),
     safe('paid bookings', () => paidNotSeatedItems(cache, skip)),
     safe('waitlist', () => waitlistDecideItems(cache, skip, now)),
+    safe('reader sales', () => readerItems(skip, now)),
   ])
   const open = groups.flat().sort((a, b) => b.at.localeCompare(a.at))
   // Notes on waiting items (R40: "Texted the people booked"), shown on the item.
@@ -508,6 +541,7 @@ const ACTIONS: Record<ToDecideKind, string[]> = {
   'paid-not-seated': ['seat', 'sorted'],
   'waitlist-unknown': ['check', 'sorted'],
   'waitlist-declined': ['seen'],
+  'reader-waiting': ['check', 'let-go'],
 }
 
 async function record(item: ToDecideItem, what: string, by: By, action: string, undo?: Decided['undo']): Promise<Decided> {
@@ -762,6 +796,23 @@ export async function decide(id: string, action: string, body: any, by: By, now 
     }
     case 'waitlist-declined':
       return { decided: await record(item, 'Seen', by, action) }
+    case 'reader-waiting': {
+      const origin = siteConfig.url.replace(/\/$/, '')
+      try {
+        if (action === 'let-go') {
+          await letReaderSeatGo(str(d.bookingId), { ...by, role: 'owner' }, origin, now)
+          return { decided: await record(item, 'Square showed no payment. The seat was let go', by, action) }
+        }
+        const r = await checkReaderSale(str(d.bookingId), origin, now)
+        if (r.outcome === 'paid') return { decided: await record(item, 'Square showed it paid. They have their seat', by, action) }
+        throw new DecideError(r.outcome === 'unknown' ? 503 : 409, r.outcome === 'not-found'
+          ? 'Square doesn’t show this payment. Their seat stays held. If they paid another way, or didn’t pay, let the seat go.'
+          : r.message)
+      } catch (e) {
+        if (e instanceof ReaderError) throw new DecideError(e.status, e.message)
+        throw e
+      }
+    }
     case 'counter-match-check': {
       if (action === 'confirm') {
         await markCounterMatchChecked(item.classId!, str(d.lineId), by, now)

@@ -73,6 +73,29 @@ function OwnBooking({ b, classId, households, taken, ticketLabels, onChanged }: 
     }
   }
   const refunded = b.refundedCents > 0
+  // Stage 4: a reader sale still waiting on the Square app.
+  const readerWaiting = b.source === 'door-reader' && b.state === 'held'
+  const [readerMsg, setReaderMsg] = useState<string | null>(null)
+  async function reader(action: 'check' | 'let-go') {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    setReaderMsg(null)
+    try {
+      const res = await fetch('/api/staff/reader.json', {
+        method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, bookingId: b.bookingId }),
+      })
+      const json = await res.json().catch(() => null)
+      if (res.ok && json?.data) setReaderMsg(json.data.message)
+      else setError(json?.error ?? 'That didn’t work. Try again.')
+      onChanged()
+    } catch {
+      setError('Couldn’t reach the website — check wifi and try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <li data-testid="own-booking" style={{ padding: '0.6rem 0', borderTop: '1px solid rgba(var(--color-primary-rgb),0.12)', listStyle: 'none' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
@@ -101,10 +124,18 @@ function OwnBooking({ b, classId, households, taken, ticketLabels, onChanged }: 
           )}
         </div>
       )}
+      {readerWaiting && (
+        <div data-testid="reader-waiting-row" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '0.4rem' }}>
+          <span style={{ flexBasis: '100%', fontSize: '0.875rem', color: '#b45309', fontWeight: 600 }}>The seat is held until the payment comes back from the Square app.</span>
+          <button type="button" disabled={busy} onClick={() => reader('check')} style={{ ...btn(true), minHeight: '2.75rem' }}>{busy ? 'Asking Square…' : 'Check again'}</button>
+          <button type="button" disabled={busy} onClick={() => reader('let-go')} style={{ ...btn(), minHeight: '2.75rem' }}>Let the seat go</button>
+        </div>
+      )}
+      {readerMsg && <p role="status" style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: 'var(--color-dark)', fontWeight: 600 }}>{readerMsg}</p>}
       {error && <p role="alert" style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: '#b91c1c', fontWeight: 600 }}>{error}</p>}
-      <div style={{ marginTop: '0.4rem' }}>
+      {!readerWaiting && <div style={{ marginTop: '0.4rem' }}>
         <RefundPanel classId={classId} booking={b} endpoint={STAFF_REFUND} reasonRequired counterSalesAtRegister waiting={b.waiting} ticketLabel={(t) => ticketLabels[t] ?? t} onDone={onChanged} />
-      </div>
+      </div>}
     </li>
   )
 }

@@ -66,6 +66,9 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'to-decide' },
   // Stage 4: each class's waitlist (who joined, consent, Square card id and last 4, every try; never card numbers)
   { name: 'waitlists' },
+  // Stage 4: "Charge on the reader" sales (who, what, how much, how each ended) and which Square order paid which
+  { name: 'reader-sales' },
+  { name: 'reader-orders' },
   // A small photo comes along; a large one is listed by key (the live store keeps it).
   { name: 'class-photos', maxValueBytes: 300 * 1024 },
 ]
