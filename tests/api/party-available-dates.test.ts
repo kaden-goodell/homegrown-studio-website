@@ -89,15 +89,18 @@ describe('POST /api/party/available-dates.json', () => {
 
   it('sends the open times with each date, so the panel need not ask again', async () => {
     const { data } = await ask()
-    // Saturday has one party time (1:30 PM CST), Sunday two (1:00 and 3:30 PM CST).
-    expect(data.times['2026-11-14'].map((t: any) => t.startAt)).toEqual(['2026-11-14T19:30:00.000Z'])
+    // Saturday has two party times (2:00 and 4:30 PM CST), Sunday two (1:00 and 3:30 PM CST).
+    expect(data.times['2026-11-14'].map((t: any) => t.startAt)).toEqual([
+      '2026-11-14T20:00:00.000Z',
+      '2026-11-14T22:30:00.000Z',
+    ])
     expect(data.times['2026-11-08'].map((t: any) => t.startAt)).toEqual([
       '2026-11-08T19:00:00.000Z',
       '2026-11-08T21:30:00.000Z',
     ])
     expect(data.times['2026-11-14'][0]).toEqual({
-      startAt: '2026-11-14T19:30:00.000Z',
-      endAt: '2026-11-14T21:00:00.000Z',
+      startAt: '2026-11-14T20:00:00.000Z',
+      endAt: '2026-11-14T21:30:00.000Z',
       durationMinutes: 90,
     })
     expect(Object.keys(data.times).sort()).toEqual(data.dates)
@@ -119,8 +122,8 @@ describe('POST /api/party/available-dates.json', () => {
     expect(data.bookedDates).toEqual(['2026-11-08'])
   })
 
-  it('lists a Saturday as booked once its single 1:30 PM time is taken', async () => {
-    mockListBookings.mockResolvedValue([booked('2026-11-14T19:30:00.000Z')])
+  it('lists a Saturday as booked once both its times (2:00 and 4:30 PM) are taken', async () => {
+    mockListBookings.mockResolvedValue([booked('2026-11-14T20:00:00.000Z'), booked('2026-11-14T22:30:00.000Z')])
     const { data } = await ask()
     expect(data.dates).not.toContain('2026-11-14')
     expect(data.dates).toContain('2026-11-15')
@@ -129,7 +132,7 @@ describe('POST /api/party/available-dates.json', () => {
 
   it('does not call a day "Booked" when a class took its only party time', async () => {
     mockListAllWorkshops.mockResolvedValue([
-      // Thu 12 Nov, 6–8 PM CST: no room for the 4:00 party and its cleanup.
+      // Thu 12 Nov, 6–8 PM CST: no room for the 4:30 party and its cleanup.
       { id: 'e', scheduleId: 'clssch_earrings', name: 'Christmas Earring Bar', startAt: '2026-11-13T00:00:00.000Z', durationMinutes: 120 },
     ])
     const { data } = await ask()

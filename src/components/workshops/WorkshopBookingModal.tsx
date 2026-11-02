@@ -148,7 +148,6 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   const tax = seatsTaxCents(seatPrices, workshop.taxPercent)
   const total = subtotal + tax
   const taxKnown = typeof workshop.taxPercent === 'number'
-  const totalLabel = tax > 0 ? `${formatMoney(total, workshop.currency)} incl. tax` : formatMoney(total, workshop.currency)
   const [chargedCents, setChargedCents] = useState<number | null>(null)
   const [partly, setPartly] = useState<{ booked: number; asked: number } | null>(null)
   const when = formatDayAndSpan(workshop.startTime, workshop.endTime)
@@ -745,7 +744,8 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
           setStep('pay')
         }}
       >
-        Continue · {totalLabel}
+        {/* Price before tax; the tax is added on the payment step (Kaden, 1 Nov 2026). */}
+        Continue · {formatMoney(subtotal, workshop.currency)}
       </button>
     )
   } else {
@@ -774,7 +774,8 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
       summary={
         completed ? undefined : (
           <p style={{ margin: 0, fontSize: '0.9375rem', color: 'var(--color-dark)' }}>
-            {when} · {seatWord} · <strong>{totalLabel}</strong>
+            {/* No price here: the button carries it (Kaden, 1 Nov 2026). */}
+            {when} · {seatWord}
           </p>
         )
       }

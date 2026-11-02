@@ -1,0 +1,39 @@
+---
+name: project_seat-options-oct2026
+description: "Oct 6 2026 — IN PROGRESS build on branch kaden/seat-options: per-seat options (pumpkin colour), sign-up cutoffs, parties yield to classes, no-class-over-party guard, staff warning panel + daily email; spec committed; plan being written; October class roster facts"
+metadata:
+  node_type: memory
+  type: project
+  originSessionId: 2dcd1843-324d-4cfb-b5af-16c757c96ae5
+  modified: 2026-10-07T02:44:14.956Z
+---
+
+**Spec:** `docs/superpowers/specs/2026-10-06-seat-options-and-conflicts-design.md` (branch `kaden/seat-options` off `dev`). **Plan:** `docs/superpowers/plans/2026-10-06-seat-options-and-conflicts.md`. Approved by Kaden in chat 2026-10-06 ("the rest of the stuff is good"). Build order E→F→G→A→B→C→D (spec sections). One writer at a time.
+
+**Decisions:** options = event-meta setting (gear sheet + CLI); one pick per seat, required, "you pick what you get — no changes" (copy borrowed from party made-to-order line, kept short); cutoff default 0 h / **24 h when options exist**, editable per class; Square gets only a booking note; `seat-choices` store; parties yield to classes with 60-min cleanup BEFORE the class; class creation refuses over a booked party (no --force); warning panel on /staff Today = "BIG no-no" board + daily 7 AM CT email. **NOTHING auto-cancels — see [[feedback_never-cancel-bookings]].**
+
+**First real use:** Bedazzled Pumpkin Pails, Sun Oct 18 1–3 PM, $25, 35 seats, colours Light Pink / Light Blue / Black / Lavender (schedule `clssch_3zmjrls78xk21q`, item `CFQ6MSASMMBRCC3HX3FTXSKQ`). Must be on PROD before sign-ups open; prod (`main`@7fa927e) is still pre-waiver-rail — Kaden's push.
+
+**October classes as of 10/6 (all in Square, all on the site):** Kinusaiga Fri 10/16 7–9 **$35** (was $40) · Fall Earring Bar Sat 10/17 7 PM $35 · Pumpkin Pails Sun 10/18 1–3 $25 · Halloween Cookie Decorating Sun 10/18 4–6 $40, 25 seats, Mrs. Megan / Nutmeg's Cookies, **drop-off** · Fall Embroidery 101 Sun 10/18 7 PM $50, 12 seats · Tallow Skincare Sat 10/24 7 PM $45 · Girls Grades 9–12 Craft Night Sun 10/25 **3–5 PM** $35, **drop-off** · Needlepoint 101 Sun 10/25 **6–8 PM** $60, 35 seats, Louise & Co. Stitchery. Sundays 10/18 and 10/25 collide with party slots (1:00/3:30) until section E ships. Catherine is still moving dates ("willy nilly"); November to even out.
+
+**Tools that now exist:** `scripts/set-dropoff.ts` (prod event-meta via netlify CLI), class create/reschedule from inside Kaden's signed-in Square tab (see [[square-class-schedule-create]]), `scripts/update-class-description.ts --price`, `scripts/upload-workshop-image.ts` (upload 1600×1200 JPEGs — Square serves originals; a 5.4 MB upload made the card crawl).
+
+Related: [[feedback_craft-copy-voice]] (workshop copy = less specific, Catherine-approved), [[project_waiver-custody-rail-shipped]].
+
+
+**STATUS 2026-10-07 ~00:30 CDT:** all 28 plan tasks built, each reviewed by a fresh reviewer (fix rounds on T5, T6, T7, T9, T13, T15, T16, T19); gate at `fa578d8`: 156 files / 2,211 tests green, tsc 0, build Complete; browser walkthrough done on local dev with PROVIDER_MODE=mock (gear sheet questions+cutoff, modal picks, booking refusals + success, roster totals/picks/unsigned list, print sheet, edit lock 409, cutoff 409 + "Sign-ups closed", Today red box on scan failure); real-provider read-only checks: Oct 18 + Oct 25 party slots = none, Saturdays keep 4 slots; live warnings scan = 0 warnings. Ledger: `.superpowers/sdd/2026-10-06-seat-options-and-conflicts/progress.md` (gitignored) holds every ruling + deferred minor. Next: final whole-branch review → fix wave → merge to dev → push → preview check → brief for Kaden. Prod push stays Kaden's.
+
+**New tools on the branch:** `scripts/set-event.ts` (`--option "Pumpkin color=A|B|C"`, `--cutoff N`, `--show`, `--on/--off/--days`; `set-dropoff.ts` is an alias; fails closed on a bad blob read), `scripts/square-tab-schedule.js` (two-tab create/move with the party check first; refuses to move a class that has bookings), `GET /api/staff/{conflicts,warnings}.json`, `netlify/functions/daily-warnings.ts` (7 AM CT, emails only when non-empty), `seat-choices` blob store.
+
+
+**MERGED TO DEV 2026-10-07 ~00:50 CDT — `3455c9d`** (45 commits incl. a 6-commit fix wave after the opus whole-branch review; final gate 156 files / 2,245 tests, tsc 0, build clean; preview smoke: staff endpoints 401, public list carries options/signupClosesAt/signupClosed, Oct 18 + Oct 25 party slots = 0, Nov 7 = 4). **Prod push is Kaden's.** Brief: see MEMORY index (Seat Options Ship Brief artifact).
+- **Capacity:** Square's buyer API has NO capacity field → `capacity` is an event setting (gear sheet, `set-event --capacity N|none`, written by create-class after a create). `oversold`/`picks-missing` need it; `capacity-unknown` warns when a class has questions but no capacity. DONE 2026-10-07 08:3x on Kaden's go: Pails has the Pumpkin color question (24 h cutoff, capacity 35) and all 8 October classes have capacity set (35; cookies 25; embroidery 12) in the PROD event-meta store — live on the dev preview, on prod once main is pushed.
+- **I6 FIXED 2026-10-07 (4c29e53, Kaden: "it either works or fails, logs"):** `src/lib/blob-store.ts` now throws + logs when the Blobs probe fails and `NETLIFY=true` (retries next call); local dev/tests keep the fs store.
+- Not verified live: Square accepting `customer_note` on class bookings (retry-without-note covers refusal); the in-tab snippet on a real class; the daily email function on Netlify's schedule.
+- Local test leftovers (this Mac only): mock-sched-1 event-meta with the Pumpkin color question + cutoff 336, one mock seat-choices record, a local waiver for kaden+walk@. Emails sent during the gate: one agreement + one confirmation to kaden+walk@. No texts.
+
+**Gap rule CHANGED by Kaden 2026-10-07:** one hour between ANY two events in either order (party↔class, class↔class, party↔party): parties blocked, classes warned. Replaces "60 min before a class only, nothing after". Implemented + reviewed: 4c89d0a + 3fd4dc0 on dev; preview verified 2026-10-07 08:55 (Sat Oct 17 keeps 4 party slots, Sundays 0; 2,259 tests). `dev` HEAD = 3fd4dc0. Brief republished (Version 2).
+
+**SIMULATED PAYMENTS ON PREVIEWS (2026-10-07, Kaden: "Dev should have the simulated payment stuff"):** `DEV_BYPASS_PAYMENT=true` is set in Netlify for deploy-preview + branch-deploy contexts only. `src/lib/deploy-context.ts` resolves dev → `Netlify.context.deploy.context` runtime global → `process.env.CONTEXT` (build-time only, usually absent at runtime) → request host (`deploy-preview-N--`, `dev--site.netlify.app`; a 20+-hex-id label = permanent deploy link = production) → last request-identified context cached per function instance → unknown (= production). Simulated workshop/party/kit records carry `simulated: true` (`dev_` ids for parties) and are HIDDEN unless preview/dev; the bypass skips Square reserve/charge AND `findOrCreate` (no Square customers from preview testers). Verified live on dev preview 583ef5e: Pails modal picks + "Test mode" card + "You're booked". ⚠️ Preview testers' WAIVER/RSVP rows are real-looking in prod (shared blob stores) — use kaden+… test emails. "Options gone" on the preview at 3fd4dc0 was a failed event-settings read (blob probe) that recovered on the next build; `/api/workshops.json` now returns `settingsErrors` so the message is visible next time.
+
+**Local dev storage gotcha (2026-10-09):** the running `astro dev` server uses the Netlify adapter's emulated blobs at `.netlify/blobs-serve/entries/<id>/site:<store>/<key>` (+ `{}` metadata files), NOT `.data/<store>` (that is only for scripts/tests outside the dev server). To mirror prod class settings locally, copy prod event-meta blobs into that entries dir. Class settings verified identical on prod, dev preview (shared store) and local 2026-10-09; all 8 capacities match Square total_capacity.

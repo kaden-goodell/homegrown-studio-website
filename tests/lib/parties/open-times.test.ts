@@ -190,11 +190,11 @@ describe('openPartyStarts: the rest of the schedule', () => {
     expect(await openPartyStarts('2026-12-27', { admin: true }, new Date('2026-12-01T12:00:00Z'))).toEqual([])
   })
 
-  it('Craft Café keeps its 60-minute gap (a Saturday 9:00 and 11:00 are out, 1:30 stays)', async () => {
-    const day = '2027-03-13' // Saturday: café 9 to 12:30
-    await setSettings((s) => ({ ...s, times: { ...s.times, dates: { ...s.times.dates, [day]: ['09:00', '11:00', '13:30'] } } }))
+  it('Craft Café keeps its 60-minute gap (a Saturday 9:00, 11:00 and 1:30 are out, 2:00 stays)', async () => {
+    const day = '2027-03-13' // Saturday: café 9 to 1
+    await setSettings((s) => ({ ...s, times: { ...s.times, dates: { ...s.times.dates, [day]: ['09:00', '11:00', '13:30', '14:00'] } } }))
     try {
-      expect(await openPartyStarts(day, {}, NOW)).toEqual([at(day, '13:30')])
+      expect(await openPartyStarts(day, {}, NOW)).toEqual([at(day, '14:00')])
     } finally {
       await setSettings((s) => { const { [day]: _, ...dates } = s.times.dates; return { ...s, times: { ...s.times, dates } } })
     }

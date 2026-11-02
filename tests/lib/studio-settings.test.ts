@@ -69,7 +69,7 @@ describe('nothing saved yet: the config, exactly as before', () => {
     expect(days.cafe.weekly).toEqual(CAFE_HOURS.flatMap((h) => h.days.map((weekday) => ({ weekday, opens: h.opens, closes: h.closes }))))
     // The rules give the same answers as the config always did.
     expect(cafeHoursOn('2026-11-14', days.cafe)).toEqual(cafeHoursOn('2026-11-14'))
-    expect(cafeHoursOn('2026-11-07', days.cafe)).toEqual({ opens: '09:00', closes: '21:00' })
+    expect(cafeHoursOn('2026-11-07', days.cafe)).toEqual({ opens: '09:00', closes: '20:00' })
   })
 
   it('/admin sees the config as settings, with no updatedAt; config closures get stable ids', async () => {
@@ -176,6 +176,14 @@ describe('the minute-long memory', () => {
 })
 
 describe('validation', () => {
+  it('keeps a special day’s announcement through a save (it isn’t edited on /admin), and drops a malformed one', () => {
+    const announce = { headline: 'Grand Opening Day', daysBefore: 21 }
+    const ok = validateSettings({ ...base(), cafeSpecialDays: [{ date: '2026-11-07', opens: '09:00', closes: '20:00', name: 'Craft Café grand opening', announce }] })
+    expect(ok.cafeSpecialDays[0].announce).toEqual(announce)
+    const junk = validateSettings({ ...base(), cafeSpecialDays: [{ date: '2026-11-07', opens: '09:00', closes: '20:00', name: 'x', announce: { headline: '', daysBefore: 'soon' } }] })
+    expect(junk.cafeSpecialDays[0]).not.toHaveProperty('announce')
+  })
+
   const bad = (over: Partial<SettingsInput> | any, field?: string, message?: RegExp) => {
     try {
       validateSettings({ ...base(), ...over })

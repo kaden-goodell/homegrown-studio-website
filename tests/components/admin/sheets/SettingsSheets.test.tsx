@@ -95,7 +95,9 @@ describe('More › Hours & Craft Café', () => {
     isNamed('button', 'Save café hours', button('Save café hours'))
     expect(button('Save café hours')).toBeDisabled()
     expect(screen.getByText('A special day replaces the usual hours for that day. Closed days beat both.')).toBeInTheDocument()
-    expect(screen.getByText('Thursday & Friday')).toBeInTheDocument()
+    // Studio hours (Kaden, 1 Nov 2026): Thursday 6–8 and Friday 4–9 are rows of their own.
+    const studioRows = [...document.querySelectorAll('.adm-kv')].map((r) => r.firstElementChild?.textContent)
+    expect(studioRows).toEqual(expect.arrayContaining(['Thursday', 'Friday', 'Saturday', 'Sunday']))
   })
 
   it('changes Saturday, adds Sunday, saves the whole document with the loaded updatedAt, and says Square has it', async () => {

@@ -373,7 +373,7 @@ export function groupEventsByDay(events: CalendarEvent[], today: string): DayGro
           ...partySlots[0],
           title: 'Private party times',
           openCount: partySlots.length,
-          // A collapsed row links date-scoped, matching aggregatePartySlots;
+          // A collapsed row links date-scoped, like /book's date deeplink;
           // a lone slot keeps its own slot-specific link (/book?start=<ts>).
           ...(collapsed && {
             id: `party-available-agg-${date}`,

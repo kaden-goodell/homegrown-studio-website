@@ -4,6 +4,7 @@ import { closureOn } from '@config/closures'
 import { getStudioDays } from '@lib/studio-settings'
 import { studioDate } from '@lib/studio-time'
 import { publicListHeaders } from '@lib/cache-headers'
+import { cafeDayNotices } from '@lib/special-day-notice'
 
 export const prerender = false
 
@@ -17,6 +18,8 @@ const SPECIAL_AHEAD_DAYS = 60
  * /admin shows without a deploy.
  *   weekly:  [{ days: 'Saturday', time: '9 AM – 12 PM' }]
  *   special: the coming special days (not on a closed day), soonest first
+ *   notices: the announced special days (not on a closed day) for the
+ *            site-wide bar and the big card (`@lib/day-notice-client`)
  */
 export const GET: APIRoute = async ({ request }) => {
   const studio = await getStudioDays()
@@ -26,7 +29,10 @@ export const GET: APIRoute = async ({ request }) => {
     .filter((d) => d.date >= today && d.date <= until && !closureOn(d.date, studio.closures))
     .sort((a, b) => a.date.localeCompare(b.date))
     .map((d) => ({ date: d.date, name: d.name, time: formatCafeRange(d.opens, d.closes) }))
-  return new Response(JSON.stringify({ data: { weekly: formatCafeHours(cafeHoursEntries(studio.cafe)), special } }), {
+  const notices = cafeDayNotices(studio.cafe)
+    .filter((n) => !closureOn(n.date, studio.closures))
+    .map(({ date, hours, regularHours, showFromIso, showUntilIso }) => ({ date, hours, regularHours, showFromIso, showUntilIso }))
+  return new Response(JSON.stringify({ data: { weekly: formatCafeHours(cafeHoursEntries(studio.cafe)), special, notices } }), {
     status: 200,
     headers: publicListHeaders(request),
   })

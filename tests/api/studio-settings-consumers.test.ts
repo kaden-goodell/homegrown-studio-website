@@ -147,7 +147,7 @@ describe('café hours saved on /admin', () => {
 
   it('a special day changes the /craft-cafe hours data, the room schedule (admin calendar) and the party times', async () => {
     const plain = await busyBetween(localToUtcISO(MARKET, '00:00'), localToUtcISO('2026-11-22', '00:00'))
-    expect(plain.find((b) => b.kind === 'cafe')).toMatchObject({ startIso: localToUtcISO(MARKET, '09:00'), endIso: localToUtcISO(MARKET, '12:00') })
+    expect(plain.find((b) => b.kind === 'cafe')).toMatchObject({ startIso: localToUtcISO(MARKET, '09:00'), endIso: localToUtcISO(MARKET, '13:00') })
     const partiesBefore = partyStartsForDate(MARKET, new Date(), await getStudioDays())
 
     await saveSettings(addMarket)
@@ -155,7 +155,7 @@ describe('café hours saved on /admin', () => {
     expect(data.special).toEqual(expect.arrayContaining([{ date: MARKET, name: 'Holiday market', time: '10 AM – 4 PM' }]))
     const busy = await busyBetween(localToUtcISO(MARKET, '00:00'), localToUtcISO('2026-11-22', '00:00'))
     expect(busy.find((b) => b.kind === 'cafe')).toMatchObject({ startIso: localToUtcISO(MARKET, '10:00'), endIso: localToUtcISO(MARKET, '16:00') })
-    // The 1:30 party can't sit inside a 10–4 café.
+    // The 2:00 party can't sit inside a 10–4 café.
     expect(partyStartsForDate(MARKET, new Date(), await getStudioDays()).length).toBeLessThan(partiesBefore.length)
   })
 
@@ -174,7 +174,11 @@ describe('café hours saved on /admin', () => {
   })
 
   it('with nothing saved, every answer is the config’s', async () => {
-    expect((await get(cafeHours, '/api/cafe-hours.json')).body.data.weekly).toEqual([{ days: 'Saturday', time: '9 AM – noon' }])
+    expect((await get(cafeHours, '/api/cafe-hours.json')).body.data.weekly).toEqual([{ days: 'Saturday', time: '9 AM – 1 PM' }])
+    // The announced grand opening, for the site-wide bar and the big card.
+    expect((await get(cafeHours, '/api/cafe-hours.json')).body.data.notices).toEqual([
+      expect.objectContaining({ date: '2026-11-07', hours: '9 AM – 8 PM', regularHours: 'Saturdays 9 AM – 1 PM' }),
+    ])
     expect((await getSettingsView()).closures).toEqual(configSettings().closures)
   })
 })

@@ -112,6 +112,18 @@ function name(v: unknown, field: string, fallback: string): string {
   return n || fallback
 }
 
+/**
+ * A special day's announcement (hours.ts `announce`: the site-wide bar and the
+ * big card). Not edited on /admin, but kept when the owners save, so a save
+ * never silently drops an announced day. Anything malformed is left off.
+ */
+function announceOf(v: any): CafeSpecialDay['announce'] | undefined {
+  const headline = str(v?.headline).replace(/\s+/g, ' ')
+  const daysBefore = Number(v?.daysBefore)
+  if (!headline || headline.length > NAME_MAX || !Number.isInteger(daysBefore) || daysBefore < 0 || daysBefore > 90) return undefined
+  return { headline, daysBefore }
+}
+
 let idSeq = 0
 function newClosureId(): string {
   idSeq = (idSeq + 1) % 1000
@@ -146,7 +158,8 @@ export function validateSettings(body: any): SettingsInput {
   const cafeSpecialDays: CafeSpecialDay[] = specialIn.map((d: any, i: number) => {
     const field = `cafeSpecialDays.${i}`
     if (!realDate(d?.date)) throw new SettingsError(400, 'Pick the day.', field)
-    return { date: d.date, ...times(d.opens, d.closes, field), name: name(d.name, field, 'Special hours') }
+    const announce = announceOf(d.announce)
+    return { date: d.date, ...times(d.opens, d.closes, field), name: name(d.name, field, 'Special hours'), ...(announce ? { announce } : {}) }
   })
   const seenDates = new Set<string>()
   cafeSpecialDays.forEach((d, i) => {

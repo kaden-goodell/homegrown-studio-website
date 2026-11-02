@@ -6,14 +6,14 @@ import { CONFIG_STUDIO_DAYS, type StudioDays } from '@config/studio-days'
 const days = (over: Partial<StudioDays> = {}): StudioDays => ({ ...CONFIG_STUDIO_DAYS, ...over })
 
 describe('the windows', () => {
-  it('from the config: Saturdays 9–12, the Nov 7 grand opening all day, closed days skipped, never before the café starts', () => {
+  it('from the config: Saturdays 9–1, the Nov 7 grand opening 9–8, closed days skipped, never before the café starts', () => {
     const w = cafeWindows(CONFIG_STUDIO_DAYS, '2026-10-01', '2027-01-09')
-    expect(w[0]).toBe('2026-11-07T09:00-21:00')
-    expect(w).toContain('2026-11-14T09:00-12:00')
-    expect(w).toContain('2026-11-28T09:00-12:00')
+    expect(w[0]).toBe('2026-11-07T09:00-20:00')
+    expect(w).toContain('2026-11-14T09:00-13:00')
+    expect(w).toContain('2026-11-28T09:00-13:00')
     // Sat 26 Dec is in the Christmas closure.
     expect(w.some((x) => x.startsWith('2026-12-26'))).toBe(false)
-    expect(w).toContain('2027-01-02T09:00-12:00')
+    expect(w).toContain('2027-01-02T09:00-13:00')
   })
 
   it('from saved settings: a new weekday, a special day and a closure all count', () => {
@@ -65,7 +65,7 @@ describe('writing to Square (the script’s calls, unchanged)', () => {
     const r = await rewriteCafeWindows(CONFIG_STUDIO_DAYS, '2026-11-01', { client: c, itemId: 'ITEM', sandbox: false })
     expect(get).toHaveBeenCalledWith({ objectId: 'ITEM', includeRelatedObjects: false })
     const written: string = upsert.mock.calls[0][0].object.customAttributeValues.programDates.stringValue
-    expect(written.split(',')[0]).toBe('2026-11-07T09:00-21:00')
+    expect(written.split(',')[0]).toBe('2026-11-07T09:00-20:00')
     expect(written.split(',').every((w) => w.slice(0, 10) <= '2027-01-30')).toBe(true)
     expect(r).toMatchObject({ status: 'updated', message: 'Square has the new café hours.' })
     expect(r.coveredThrough).toBe(written.split(',').pop()!.slice(0, 10))

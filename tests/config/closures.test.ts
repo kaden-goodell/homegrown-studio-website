@@ -97,15 +97,15 @@ describe('party dates on a closed day', () => {
     expect(partyStartsForDate('2026-12-26', beforeChristmas)).toEqual([])
     expect(partyStartsForDate('2026-12-27', beforeChristmas)).toEqual([])
     // Open again on Saturday 2 January.
-    expect(partyStartsForDate('2027-01-02', beforeChristmas).length).toBe(1)
+    expect(partyStartsForDate('2027-01-02', beforeChristmas).length).toBe(2)
   })
 
   it('still offers the weekends either side', () => {
     expect(partyStartsForDate('2026-10-24', beforeHalloween)).toEqual([]) // before parties start
     expect(partyStartsForDate('2026-11-07', beforeHalloween)).toEqual([]) // the Craft Café grand opening
-    expect(partyStartsForDate('2026-11-14', beforeHalloween).length).toBe(1) // Saturday: 1:30 only
+    expect(partyStartsForDate('2026-11-14', beforeHalloween).length).toBe(2) // Saturday: 2:00, 4:30
     expect(partyStartsForDate('2026-11-08', beforeHalloween).length).toBe(2) // Sunday: 1:00, 3:30
-    expect(partyStartsForDate('2026-12-19', beforeChristmas).length).toBe(1)
+    expect(partyStartsForDate('2026-12-19', beforeChristmas).length).toBe(2)
     expect(partyStartsForDate('2026-12-20', beforeChristmas).length).toBe(2)
   })
 

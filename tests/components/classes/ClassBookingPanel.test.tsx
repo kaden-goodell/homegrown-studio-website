@@ -127,9 +127,20 @@ describe('ClassBookingPanel — passes and days', () => {
 })
 
 describe('ClassBookingPanel — small rules', () => {
-  it('Continue carries no total', () => {
-    open()
-    expect(screen.getByRole('button', { name: /^Continue/ })).toHaveTextContent(/^Continue$/)
+  it('the first step shows the seats’ price before tax, once, on Continue; tax only on the payment step (Kaden, 1 Nov 2026)', () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    try {
+      const cls = make({ passes: [{ id: 'all', label: 'Full series', covers: { kind: 'all' } }], prices: { all: { person: 4000 } } })
+      const ledger: Ledger = { classId: cls.id, lines: [] }
+      render(<ClassBookingPanel workshop={{ ...toPublicClass(cls, ledger, NOW), own: { ...toPublicClass(cls, ledger, NOW).own!, taxPercent: 10 } } as any} onClose={vi.fn()} syncUrl={false} />)
+      const button = screen.getByRole('button', { name: /^Continue/ })
+      expect(button).toHaveTextContent(/^Continue · \$40(\.00)?$/)
+      expect(document.body.textContent).not.toMatch(/incl\. tax/)
+      expect(screen.getAllByText(/\$40(\.00)?$/).length).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
   it('a tap past N days says how to change, and keeps the picks', () => {
     open(make({ passes: [{ id: 'two', label: 'Two days', covers: { kind: 'choose', count: 2 } }], prices: { two: { person: 2500 } } }))

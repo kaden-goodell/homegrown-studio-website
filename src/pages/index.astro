@@ -9,6 +9,7 @@ import { OPEN_STUDIO_START_DATE, OPEN_STUDIO_START_LABEL } from '@config/opening
 const walkInOpen = new Date() >= new Date(OPEN_STUDIO_START_DATE + 'T00:00:00-06:00')
 import Newsletter from '@components/shared/Newsletter'
 import UpcomingWorkshops from '@components/home/UpcomingWorkshops'
+import DayNoticeCard from '@components/shared/DayNoticeCard.astro'
 
 // Prices here come from config. This page is built ahead of time and never
 // asks Square, so anything priced in Square (crafts, workshop seats) is
@@ -67,30 +68,12 @@ const steps = [
   { n: '3', title: 'Show up and make', text: 'Everything’s set up when you arrive. We handle the rest.' },
 ]
 
-// The banner announces the grand opening (Nov 7), and goes away that day.
-const showOpeningBanner = new Date() < new Date(siteConfig.grandOpeningDate + 'T00:00:00-06:00')
 // "You'll hear from us the day booking opens" is about the doors opening (Oct 16), not the banner.
 const preOpening = new Date() < new Date(siteConfig.openingDate + 'T00:00:00-05:00')
-const openingLabel = new Date(siteConfig.grandOpeningDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
 const testimonials = siteConfig.testimonials?.items ?? []
 ---
 
 <Layout fullTitle="Hometown Studio | Craft Studio in Madison, AL">
-  {showOpeningBanner && (
-    <div id="opening-banner" class="text-center px-4 py-2.5 text-sm font-medium" style="background: var(--color-dark); color: white;">
-      Grand opening {openingLabel} — <a href="/calendar" class="underline font-semibold" style="color: white;">see what’s coming</a>
-    </div>
-  )}
-  {showOpeningBanner && (
-    <script is:inline define:vars={{ openingDate: siteConfig.grandOpeningDate }}>
-      // Page is prerendered; without this, a stale build would keep announcing the
-      // opening after opening day until the next production deploy. Self-hide at runtime.
-      if (new Date() >= new Date(openingDate + 'T00:00:00-06:00')) {
-        document.getElementById('opening-banner')?.remove()
-      }
-    </script>
-  )}
-
   <!-- Hero -->
   <section class="relative flex flex-col items-center justify-center px-4 pt-16 pb-12 sm:pt-24">
     <div class="relative z-10 max-w-4xl mx-auto text-center">
@@ -113,6 +96,10 @@ const testimonials = siteConfig.testimonials?.items ?? []
         <span data-walkin="after" hidden={!walkInOpen}>Craft Café every Saturday morning · parties and workshops by booking</span>
         {' '}· {siteConfig.address.street.replace(/,.*$/, '')}, {siteConfig.address.city}, {siteConfig.address.state} · Ages 8+
       </p>
+    </div>
+    <!-- An announced Craft Café special day (the grand opening), from hours.ts. -->
+    <div class="relative z-10 mt-10 w-full px-0">
+      <DayNoticeCard where="home" />
     </div>
     <!-- The whole photo, uncropped, same width as the headline block (Kaden, 2026-10-08). -->
     <img

@@ -115,7 +115,8 @@ describe('the config as settings', () => {
     expect(s.by).toBeNull()
     expect(s.history).toEqual([])
     expect(PARTY_CLEANUP_MINUTES).toBe(partyConfig.cleanupBufferMinutes)
-    expect(s.times.weekly).toEqual({ '0': ['13:00', '15:30'], '1': [], '2': [], '3': [], '4': ['16:00'], '5': ['16:00'], '6': ['13:30'] })
+    // From Nov 7 (Kaden, 1 Nov 2026): no Thursday parties; Friday 4:30; Saturday 2:00 and 4:30; Sunday 1:00 and 3:30.
+    expect(s.times.weekly).toEqual({ '0': ['13:00', '15:30'], '1': [], '2': [], '3': [], '4': [], '5': ['16:30'], '6': ['14:00', '16:30'] })
     expect(s.times).toMatchObject({ bookingWindowDays: 90, minLeadDays: 7, opensDate: '2026-11-07' })
   })
 
@@ -141,11 +142,11 @@ describe('the config as settings', () => {
 
 describe('times from saved settings', () => {
   const now = new Date('2026-10-19T17:00:00Z')
-  it('a café Saturday drops 1:30 only inside the 60-minute gap', () => {
+  it('a café Saturday drops 2:00 only inside the 60-minute gap', () => {
     const s = configPartySettings()
     const cafeTill = (closes: string): StudioDays => ({ closures: [], cafe: { weekly: [{ weekday: 'Saturday', opens: '09:00', closes }], special: [] } })
-    expect(partyStartsForDate(s, '2026-11-14', now, cafeTill('12:31'))).toEqual([])
-    expect(partyStartsForDate(s, '2026-11-14', now, cafeTill('12:30'))).toEqual(['2026-11-14T19:30:00.000Z'])
+    expect(partyStartsForDate(s, '2026-11-14', now, cafeTill('13:01'))).toEqual(['2026-11-14T22:30:00.000Z'])
+    expect(partyStartsForDate(s, '2026-11-14', now, cafeTill('13:00'))).toEqual(['2026-11-14T20:00:00.000Z', '2026-11-14T22:30:00.000Z'])
   })
 
   it('a closure gives none', () => {
@@ -175,24 +176,25 @@ describe('times from saved settings', () => {
     const satNoon = new Date('2026-11-14T18:00:00Z') // Sat Nov 14, noon CST
     expect(partyStartsForDate(s, '2026-11-14', satNoon, CONFIG_STUDIO_DAYS)).toEqual([])
     expect(partyStartsForDate(s, '2026-11-15', satNoon, CONFIG_STUDIO_DAYS)).toEqual([])
-    expect(partyStartsForDate(s, '2026-11-14', satNoon, CONFIG_STUDIO_DAYS, { admin: true })).toEqual(['2026-11-14T19:30:00.000Z'])
+    expect(partyStartsForDate(s, '2026-11-14', satNoon, CONFIG_STUDIO_DAYS, { admin: true })).toEqual(['2026-11-14T20:00:00.000Z', '2026-11-14T22:30:00.000Z'])
     expect(partyStartsForDate(s, '2026-11-15', satNoon, CONFIG_STUDIO_DAYS, { admin: true })).toEqual(['2026-11-15T19:00:00.000Z', '2026-11-15T21:30:00.000Z'])
     // Past the window too.
-    expect(partyStartsForDate(s, '2027-03-13', satNoon, CONFIG_STUDIO_DAYS, { admin: true })).toEqual(['2027-03-13T19:30:00.000Z'])
-    const satLate = new Date('2026-11-14T19:30:00Z') // exactly 1:30 PM: that start has begun
-    expect(partyStartsForDate(s, '2026-11-14', satLate, CONFIG_STUDIO_DAYS, { admin: true })).toEqual([])
+    expect(partyStartsForDate(s, '2027-03-13', satNoon, CONFIG_STUDIO_DAYS, { admin: true })).toEqual(['2027-03-13T20:00:00.000Z', '2027-03-13T22:30:00.000Z'])
+    const satLate = new Date('2026-11-14T20:00:00Z') // exactly 2:00 PM: that start has begun
+    expect(partyStartsForDate(s, '2026-11-14', satLate, CONFIG_STUDIO_DAYS, { admin: true })).toEqual(['2026-11-14T22:30:00.000Z'])
     expect(partyStartsForDate(s, '2026-11-13', satNoon, CONFIG_STUDIO_DAYS, { admin: true })).toEqual([])
     // A closed day stays closed for owners too.
     expect(partyStartsForDate(s, '2026-11-27', satNoon, CONFIG_STUDIO_DAYS, { admin: true })).toEqual([])
     const range = partyStartsInRange(s, '2026-11-14T06:00:00Z', '2026-11-16T06:00:00Z', satNoon, CONFIG_STUDIO_DAYS, { admin: true })
-    expect(range).toEqual(['2026-11-14T19:30:00.000Z', '2026-11-15T19:00:00.000Z', '2026-11-15T21:30:00.000Z'])
+    expect(range).toEqual(['2026-11-14T20:00:00.000Z', '2026-11-14T22:30:00.000Z', '2026-11-15T19:00:00.000Z', '2026-11-15T21:30:00.000Z'])
   })
 
   it('no notice never offers a start that has passed today', () => {
     const s = settingsWith((x) => { x.times.minLeadDays = 0 })
-    const satTwo = new Date('2026-11-14T20:00:00Z') // 2 PM
-    expect(partyStartsForDate(s, '2026-11-14', satTwo, CONFIG_STUDIO_DAYS)).toEqual([])
-    expect(partyStartsForDate(s, '2026-11-14', new Date('2026-11-14T18:00:00Z'), CONFIG_STUDIO_DAYS)).toEqual(['2026-11-14T19:30:00.000Z'])
+    const satHalfFour = new Date('2026-11-14T22:30:00Z') // 4:30 PM
+    expect(partyStartsForDate(s, '2026-11-14', satHalfFour, CONFIG_STUDIO_DAYS)).toEqual([])
+    expect(partyStartsForDate(s, '2026-11-14', new Date('2026-11-14T20:00:00Z'), CONFIG_STUDIO_DAYS)).toEqual(['2026-11-14T22:30:00.000Z'])
+    expect(partyStartsForDate(s, '2026-11-14', new Date('2026-11-14T18:00:00Z'), CONFIG_STUDIO_DAYS)).toEqual(['2026-11-14T20:00:00.000Z', '2026-11-14T22:30:00.000Z'])
   })
 
   it('a 120-minute package widens the café gap check', () => {
@@ -238,15 +240,13 @@ describe('publicPartyFacts', () => {
 
 // ---------------------------------------------------------------- validation
 
-const TODAY = new Date('2026-10-19T17:00:00Z')
-const good = (): any => {
-  const s = inputOf(structuredClone(configPartySettings()))
-  delete s.times.dates['2026-10-24'] // its 7 PM party's cleanup runs past the 9 PM close (see below)
-  return s
-}
-function refusal(raw: any): { message: string; field?: string } {
+// Nov 1 2026: the config's dated days in October (Oct 22 and 29 at 4 PM, before the 6 PM
+// Thursday opening from Nov 1; Oct 24 at 7 PM, past closing) are past, so kept but not checked.
+const TODAY = new Date('2026-11-01T17:00:00Z')
+const good = (): any => inputOf(structuredClone(configPartySettings()))
+function refusal(raw: any, now: Date = TODAY): { message: string; field?: string } {
   try {
-    validatePartySettings(raw, { now: TODAY })
+    validatePartySettings(raw, { now })
   } catch (e) {
     expect(e).toBeInstanceOf(SettingsError)
     expect((e as SettingsError).status).toBe(400)
@@ -256,21 +256,32 @@ function refusal(raw: any): { message: string; field?: string } {
 }
 
 describe('validatePartySettings', () => {
-  it('accepts the config (less Oct 24) and gives it back tidied', () => {
+  it('accepts the config and gives it back tidied', () => {
     const out = validatePartySettings(good(), { now: TODAY })
     expect(out).toEqual(good())
   })
 
-  it('refuses the config Oct 24 7 PM start: the party and its cleanup must end by closing', () => {
-    expect(refusal(inputOf(configPartySettings()))).toEqual({
-      message: 'Party times on Sat, Oct 24 must start by 6:30 PM, so the party and its cleanup end by closing at 9 PM.',
-      field: 'times.dates.2026-10-24',
+  it('refuses a dated 7 PM start: the party and its cleanup must end by closing', () => {
+    const raw = good()
+    raw.times.dates['2026-12-05'] = ['19:00']
+    expect(refusal(raw)).toEqual({
+      message: 'Party times on Sat, Dec 5 must start by 6:30 PM, so the party and its cleanup end by closing at 9 PM.',
+      field: 'times.dates.2026-12-05',
+    })
+  })
+
+  it('the config’s October Thursday days (4 PM) would be refused before they passed: Thursday opens at 6 PM now', () => {
+    expect(refusal(inputOf(configPartySettings()), new Date('2026-10-19T17:00:00Z'))).toEqual({
+      message: 'Party times on Thu, Oct 22 can’t start before the studio opens at 6 PM.',
+      field: 'times.dates.2026-10-22',
     })
   })
 
   it('a dated day already past is kept but not checked against the hours', () => {
-    const out = validatePartySettings(inputOf(configPartySettings()), { now: new Date('2026-10-26T17:00:00Z') })
+    const out = validatePartySettings(inputOf(configPartySettings()), { now: TODAY })
     expect(out.times.dates['2026-10-24']).toHaveLength(5)
+    expect(out.times.dates['2026-10-22']).toEqual(['16:00', '18:30'])
+    expect(out.times.dates['2026-10-29']).toEqual(['16:00'])
   })
 
   it('sorts starts and dated days', () => {
@@ -291,14 +302,14 @@ describe('validatePartySettings', () => {
     ['nothing', () => {}, 'Nothing to save.', ''],
     ['a bad time', (r) => { r.times.weekly['0'] = ['1pm'] }, 'Write times like 13:30.', 'times.weekly.0'],
     ['too close together', (r) => { r.times.weekly['0'] = ['13:00', '15:00'] }, 'Party times on Sundays must be at least 2 hours 30 minutes apart.', 'times.weekly.0'],
-    ['the same time twice', (r) => { r.times.weekly['6'] = ['13:30', '13:30'] }, 'Party times on Saturdays must be at least 2 hours 30 minutes apart.', 'times.weekly.6'],
+    ['the same time twice', (r) => { r.times.weekly['6'] = ['14:00', '14:00'] }, 'Party times on Saturdays must be at least 2 hours 30 minutes apart.', 'times.weekly.6'],
     ['a longer package widens the gap', (r) => { r.packages[0].minutes = 120 }, 'Party times on Sundays must be at least 3 hours apart.', 'times.weekly.0'],
-    ['before opening', (r) => { r.times.weekly['0'] = ['12:00', '15:30'] }, 'Party times on Sundays can’t start before the studio opens at 12:30 PM.', 'times.weekly.0'],
-    ['past closing', (r) => { r.times.weekly['6'] = ['13:30', '19:00'] }, 'Party times on Saturdays must start by 6:30 PM, so the party and its cleanup end by closing at 9 PM.', 'times.weekly.6'],
+    ['before opening', (r) => { r.times.weekly['0'] = ['12:00', '15:30'] }, 'Party times on Sundays can’t start before the studio opens at 1 PM.', 'times.weekly.0'],
+    ['past closing', (r) => { r.times.weekly['6'] = ['14:00', '19:00'] }, 'Party times on Saturdays must start by 6:30 PM, so the party and its cleanup end by closing at 9 PM.', 'times.weekly.6'],
     ['extra time counts', (r) => {
-      r.times.weekly['4'] = ['18:30']
+      r.times.weekly['5'] = ['18:30']
       r.addOns = [{ id: 'add_hour', label: 'Extra hour', priceCents: 5000, per: 'party', extraMinutes: 30, maxQty: 1, online: true, archived: false }]
-    }, 'Party times on Thursdays must start by 6 PM, so the party and its cleanup end by closing at 9 PM.', 'times.weekly.4'],
+    }, 'Party times on Fridays must start by 6 PM, so the party and its cleanup end by closing at 9 PM.', 'times.weekly.5'],
     ['crossing midnight on a day without hours', (r) => { r.times.weekly['2'] = ['23:00'] }, 'Party times on Tuesdays must start by 9:30 PM, so the party and its cleanup end by midnight.', 'times.weekly.2'],
     ['a bad date', (r) => { r.times.dates['2026-02-30'] = [] }, 'Pick a real day for each dated party day.', 'times.dates'],
     ['too close on a date', (r) => { r.times.dates['2026-11-15'] = ['13:00', '14:00'] }, 'Party times on Sun, Nov 15 must be at least 2 hours 30 minutes apart.', 'times.dates.2026-11-15'],

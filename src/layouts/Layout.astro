@@ -9,6 +9,7 @@ import SeoHead from '@components/shared/SeoHead.astro'
 import Shimmer from '@components/shared/Shimmer'
 import RenameNotice from '@components/shared/RenameNotice'
 import { isPrivatePartyPage, PAGE_KEY_SCRIPT } from '@lib/page-key'
+import DayNoticeBar from '@components/shared/DayNoticeBar.astro'
 import '@styles/global.css'
 import '@styles/textures.css'
 import '@styles/animations.css'
@@ -35,10 +36,16 @@ interface Props {
    * and navigated the iPad off the console mid-pickup (F1).
    */
   bare?: boolean
+  /**
+   * Pages whose address carries a private key (a party host's page): no
+   * analytics or ad pixel at all, so the key never reaches GA, PostHog or Meta.
+   */
+  noAnalytics?: boolean
 }
 
-const { bare } = Astro.props
+const { bare, noAnalytics } = Astro.props
 // Host page and payment link (S2-R9a): no GA4, no Meta Pixel, no session recording; the key leaves the address bar first.
+// A page that says noAnalytics (the host page) gets no PostHog at all either.
 const privateParty = isPrivatePartyPage(Astro.url.pathname)
 const { colors, fonts, textures } = siteConfig.theme
 const textureClass = `texture-${textures.background}`
@@ -53,9 +60,10 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     {/* First, before any analytics: moves a private page's key out of the address bar (src/lib/page-key.ts). */}
     <script is:inline set:html={PAGE_KEY_SCRIPT} />
-    {privateParty && <meta name="referrer" content="same-origin" />}
     <SeoHead {...Astro.props} />
-    <PostHog noRecording={!!bare || Astro.url.pathname.startsWith('/waiver') || privateParty} />
+    {/* Every page: our address never goes to other sites (a private page's key included). */}
+    <meta name="referrer" content="same-origin" />
+    {!noAnalytics && <PostHog noRecording={!!bare || Astro.url.pathname.startsWith('/waiver') || privateParty} />}
     <ViewTransitions />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -91,6 +99,7 @@ const bodyFont = fonts.body.replace(/ /g, '+')
   </head>
   <body class={bare ? undefined : textureClass}>
     {!bare && <Shimmer enabled={siteConfig.theme.animations.particles} client:idle transition:persist />}
+    {!bare && <DayNoticeBar />}
     {!bare && <Header transition:persist />}
     {/* `transition:animate` tags <main> with a view-transition-name, and the
         UA stylesheet gives tagged elements `contain: layout` — which makes
@@ -110,6 +119,6 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     {!bare && <RenameNotice client:idle transition:persist />}
     <script>import '@lib/fade-in'; import '@lib/nav-progress'</script>
     {/* Staff tools (the console, the counter-iPad agreement) aren't visitors. */}
-    {!bare && !privateParty && <Analytics />}
+    {!bare && !privateParty && !noAnalytics && <Analytics />}
   </body>
 </html>

@@ -4,7 +4,7 @@
  * are built from the same list, so the two can never disagree.
  *
  * 24-hour, studio-local (America/Chicago). Days not listed are closed.
- * Hours must cover every scheduled workshop (Sunday workshops run 7–9 PM).
+ * Hours must cover every scheduled workshop (Sunday workshops run 6–8 PM).
  *
  * Client-safe: no imports, no env.
  */
@@ -19,9 +19,10 @@ export interface HoursEntry {
 }
 
 export const STUDIO_HOURS: HoursEntry[] = [
-  { days: ['Thursday', 'Friday'], opens: '16:00', closes: '21:00' },
+  { days: ['Thursday'], opens: '18:00', closes: '20:00' }, // the 6–8 workshop only (Kaden, 1 Nov 2026)
+  { days: ['Friday'], opens: '16:00', closes: '21:00' },
   { days: ['Saturday'], opens: '09:00', closes: '21:00' },
-  { days: ['Sunday'], opens: '12:30', closes: '21:00' }, // 1:00 party hosts arrive 12:30
+  { days: ['Sunday'], opens: '13:00', closes: '20:00' }, // first party 1:00, the 6–8 workshop ends at 8 (Kaden, 1 Nov 2026)
 ]
 
 /**
@@ -30,7 +31,7 @@ export const STUDIO_HOURS: HoursEntry[] = [
  * (Kaden, 8 Oct 2026). Shown wherever the site says "walk-in hours".
  */
 export const CAFE_HOURS: HoursEntry[] = [
-  { days: ['Saturday'], opens: '09:00', closes: '12:00' },
+  { days: ['Saturday'], opens: '09:00', closes: '13:00' }, // 9–1 (Kaden, 1 Nov 2026)
 ]
 
 /**
@@ -46,12 +47,22 @@ export interface CafeSpecialDay {
   /** HH:MM, 24-hour */
   closes: string
   name: string
+  /**
+   * Optional announcement: a slim bar on every page plus a big card on the
+   * homepage and the Craft Café page, from `daysBefore` days ahead until the
+   * café closes that day (see special-day-notice.ts). Leave it off for a
+   * quiet special day.
+   */
+  announce?: { headline: string; daysBefore: number }
 }
 
 export const CAFE_SPECIAL_DAYS: CafeSpecialDay[] = [
   // Kaden, 15 Oct 2026: "Make craft cafe all day November 7th. We're going to
-  // do a big giant grand opening." All day = the Saturday studio hours.
-  { date: '2026-11-07', opens: '09:00', closes: '21:00', name: 'Craft Café grand opening' },
+  // do a big giant grand opening." Kaden, 1 Nov 2026: 9 AM to 8 PM.
+  {
+    date: '2026-11-07', opens: '09:00', closes: '20:00', name: 'Craft Café grand opening',
+    announce: { headline: 'Grand Opening Day', daysBefore: 21 },
+  },
 ]
 
 /** One weekday's Craft Café hours (the owner's "Saturday 9 AM – 12 PM" row). */

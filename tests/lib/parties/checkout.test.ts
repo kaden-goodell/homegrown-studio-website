@@ -112,7 +112,7 @@ describe('partyIdFor', () => {
 
 describe('owners and links', () => {
   it('an owner books inside the notice period, never in the past (R37), and hears the clash by name', async () => {
-    const soon = at('2027-02-04', '16:00') // 3 days out: too soon online
+    const soon = at('2027-02-05', '16:30') // 4 days out: too soon online
     expect(await bookParty(input(soon), NOW)).toMatchObject({ kind: 'refused', code: 'not_open' })
     const owned = await bookParty(input(soon, { audience: 'admin', by: owner, key: 'create-key-0001' }), NOW)
     expect(owned).toMatchObject({ kind: 'booked' })
@@ -153,7 +153,7 @@ describe('money taken always means a party recorded (R6)', () => {
 
   it('the record write failing twice tells the owners, keeps the checkout, and Square’s payment event records it later', async () => {
     m.fail.record = 2
-    const inp = input(at('2027-02-20', '13:30'))
+    const inp = input(at('2027-02-20', '14:00'))
     const partyId = partyIdFor(inp.key)
     const out = await bookParty(inp, NOW)
     expect(out).toMatchObject({ kind: 'booked' })
@@ -325,7 +325,7 @@ describe('fix round 1', () => {
   })
 
   it('I1: Square can’t be asked about the earlier try: in_progress, nothing written over it', async () => {
-    const inp = input(at('2027-03-13', '13:30'))
+    const inp = input(at('2027-03-13', '14:00'))
     const prior = priorOf(inp, 'cust-old')
     await saveCheckout(prior)
     m.createOrder.mockRejectedValueOnce(new Error('Square 500'))
@@ -349,7 +349,7 @@ describe('fix round 1', () => {
   })
 
   it('M1: the same attempt sent twice at once: one books, the other is in_progress; one charge, the hold kept', async () => {
-    const start = at('2027-03-20', '13:30')
+    const start = at('2027-03-20', '14:00')
     const inp = input(start)
     const outs = await Promise.all([bookParty(inp, NOW), bookParty({ ...inp, pay: { kind: 'card', paymentToken: 'cnon:second' } }, NOW)])
     expect(outs.map((o) => o.kind).sort()).toEqual(['booked', 'in_progress'])
@@ -372,7 +372,7 @@ describe('fix round 2', () => {
   })
 
   it('N1: the earlier unpaid try is let go when the retry changed its choices; the old order is never charged', async () => {
-    const start = at('2027-03-27', '13:30')
+    const start = at('2027-03-27', '14:00')
     const inp = input(start, { guests: 12 })
     await saveCheckout(priorFor(inp))
     const out = await bookParty(inp, NOW)
@@ -390,11 +390,11 @@ describe('fix round 2', () => {
   })
 
   it('N2: an earlier unpaid try for another time is let go (its hold too), and the customer starts again', async () => {
-    const start = at('2027-04-01', '16:00')
-    const earlier = at('2027-04-02', '16:00')
+    const start = at('2027-04-04', '13:00')
+    const earlier = at('2027-04-02', '16:30')
     const inp = input(start)
     await saveCheckout(priorFor(inp, earlier))
-    expect((await holdTime({ partyId: partyIdFor(inp.key), startIso: earlier, endIso: at('2027-04-02', '17:30'), ttlMinutes: 10 }, [], new Date())).ok).toBe(true)
+    expect((await holdTime({ partyId: partyIdFor(inp.key), startIso: earlier, endIso: at('2027-04-02', '18:00'), ttlMinutes: 10 }, [], new Date())).ok).toBe(true)
     // N6: while that hold is live its own request may be charging: wait, let nothing go.
     expect(await bookParty(inp, NOW)).toEqual({ kind: 'in_progress' })
     expect(await heldBy(earlier, partyIdFor(inp.key))).toBeTruthy()
@@ -407,7 +407,7 @@ describe('fix round 2', () => {
   })
 
   it('N3: when Square’s payment event records the party first, the request answers the stored party and sends nothing again', async () => {
-    const inp = input(at('2027-04-08', '16:00'))
+    const inp = input(at('2027-04-11', '13:00'))
     const partyId = partyIdFor(inp.key)
     m.processPayment.mockImplementationOnce(async (p: any) => {
       const pay = { id: 'pay-race', orderId: p.orderId, amount: p.amount, status: 'completed', receiptUrl: null }
@@ -425,7 +425,7 @@ describe('fix round 2', () => {
   it('N4: a party record that can’t be read shows its item instead of hiding the others', async () => {
     m.processPayment.mockRejectedValueOnce(new Error('timeout'))
     m.findOrderPayment.mockResolvedValueOnce(null)
-    const inp = input(at('2027-04-09', '16:00'))
+    const inp = input(at('2027-04-09', '16:30'))
     expect(await bookParty(inp, NOW)).toMatchObject({ kind: 'unknown' })
     m.fail.readRecord = partyIdFor(inp.key)
     const { items, failed } = await listToDecide(NOW)
@@ -437,7 +437,7 @@ describe('fix round 2', () => {
 describe('fix round 3', () => {
   it('N5: a record save that landed but threw still counts as made here: one email, one report, then the checkout is cleared', async () => {
     m.fail.landThenThrow = 1
-    const inp = input(at('2027-04-15', '16:00'))
+    const inp = input(at('2027-04-18', '13:00'))
     const partyId = partyIdFor(inp.key)
     const out = await bookParty(inp, NOW)
     expect(out).toMatchObject({ kind: 'booked', emailSent: true })
@@ -450,7 +450,7 @@ describe('fix round 3', () => {
 
   it('a replay answers whether the confirmation really went out', async () => {
     m.email.mockResolvedValueOnce({ sent: false })
-    const inp = input(at('2027-04-16', '16:00'))
+    const inp = input(at('2027-04-16', '16:30'))
     expect(await bookParty(inp, NOW)).toMatchObject({ kind: 'booked', emailSent: false })
     expect(await bookParty(inp, NOW)).toMatchObject({ kind: 'booked', replay: true, emailSent: false })
   })
@@ -458,10 +458,10 @@ describe('fix round 3', () => {
   it('N6: an earlier try whose outcome is already unclear is never let go by a changed retry', async () => {
     m.processPayment.mockRejectedValueOnce(new Error('timeout'))
     m.findOrderPayment.mockResolvedValueOnce(null)
-    const inp = input(at('2027-04-22', '16:00'))
+    const inp = input(at('2027-04-25', '13:00'))
     expect(await bookParty(inp, NOW)).toMatchObject({ kind: 'unknown' })
-    expect(await bookParty({ ...inp, startIso: at('2027-04-23', '16:00') }, NOW)).toEqual({ kind: 'in_progress' })
+    expect(await bookParty({ ...inp, startIso: at('2027-04-23', '16:30') }, NOW)).toEqual({ kind: 'in_progress' })
     expect(await getCheckout(partyIdFor(inp.key))).toMatchObject({ state: 'unclear' })
-    expect(await heldBy(at('2027-04-22', '16:00'), partyIdFor(inp.key))).toBeTruthy()
+    expect(await heldBy(at('2027-04-25', '13:00'), partyIdFor(inp.key))).toBeTruthy()
   })
 })

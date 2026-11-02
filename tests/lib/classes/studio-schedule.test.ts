@@ -79,8 +79,8 @@ describe('busyBetween', () => {
 
     expect(kinds('legacy-class')).toEqual([expect.objectContaining({ id: 'clssch_1', label: 'Square Candle Class', startIso: at('2030-03-16', '14:00'), endIso: at('2030-03-16', '16:00') })])
     expect(kinds('party')).toEqual([expect.objectContaining({ id: 'bk_1', label: 'the Rivera party', endIso: at('2030-03-17', '15:00') })])
-    // Saturday café 9 to 12
-    expect(kinds('cafe')).toEqual([expect.objectContaining({ startIso: at('2030-03-16', '09:00'), endIso: at('2030-03-16', '12:00'), label: 'Craft Café' })])
+    // Saturday café 9 to 1
+    expect(kinds('cafe')).toEqual([expect.objectContaining({ startIso: at('2030-03-16', '09:00'), endIso: at('2030-03-16', '13:00'), label: 'Craft Café' })])
     expect(kinds('blocked')).toEqual([expect.objectContaining({ id: blk.id, label: 'Deep clean' })])
     expect(kinds('closed')).toEqual([])
   })

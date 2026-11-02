@@ -85,19 +85,19 @@ describe('GET /api/admin/settings.json', () => {
     const s = await loaded()
     expect(s.updatedAt).toBeNull()
     expect(s.closures).toEqual(configSettings().closures)
-    expect(s.cafeWeekly).toEqual([{ weekday: 'Saturday', opens: '09:00', closes: '12:00' }])
+    expect(s.cafeWeekly).toEqual([{ weekday: 'Saturday', opens: '09:00', closes: '13:00' }])
   })
 })
 
 describe('POST: save', () => {
   it('saves, records who (audit and history), and rewrites the café windows in Square', async () => {
-    const r = await save({ cafeWeekly: [{ weekday: 'Saturday', opens: '09:00', closes: '13:00' }] })
+    const r = await save({ cafeWeekly: [{ weekday: 'Saturday', opens: '09:00', closes: '12:00' }] })
     expect(r.status).toBe(200)
     expect(r.body.data.changed).toEqual(['Craft Café weekly hours'])
     expect(r.body.data.settings.by).toEqual({ id: 'owner-catherine', name: 'Catherine' })
     expect(r.body.data.square).toMatchObject({ status: 'updated' })
     const written = mocks.upsert.mock.calls[0][0].object.customAttributeValues.programDates.stringValue as string
-    expect(written).toContain('T09:00-13:00')
+    expect(written).toContain('T09:00-12:00')
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({
       by: { id: 'owner-catherine', name: 'Catherine', role: 'owner' }, action: 'studio-settings',
       details: { changed: 'Craft Café weekly hours' },

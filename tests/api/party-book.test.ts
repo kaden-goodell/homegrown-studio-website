@@ -188,7 +188,7 @@ describe('POST /api/party/book.json: one order, one charge, no Square booking', 
   })
 
   it('refuses a craft the catalog doesn’t have, holding nothing', async () => {
-    const start = at('2027-02-20', '13:30')
+    const start = at('2027-02-20', '14:00')
     const { status, json } = await post(body(start, { craftId: 'nope' }))
     expect(status).toBe(404)
     expect(json.field).toBe('craftId')
@@ -413,7 +413,7 @@ describe('POST /api/party/book.json: one order, one charge, no Square booking', 
 
   it('simulated payments: recorded as simulated, no Square call', async () => {
     m.bypass.on = true
-    const { status, json } = await post(body(at('2027-04-24', '13:30')))
+    const { status, json } = await post(body(at('2027-04-24', '14:00')))
     expect(status).toBe(200)
     expect(json.data.simulated).toBe(true)
     for (const f of [m.createOrder, m.processPayment, m.findOrCreate, m.createBooking]) expect(f).not.toHaveBeenCalled()

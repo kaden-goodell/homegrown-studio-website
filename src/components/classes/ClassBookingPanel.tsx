@@ -890,8 +890,14 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   } else if (stuck) {
     footer = <button type="button" className="btn btn-primary" onClick={onClose}>Close</button>
   } else if (step !== 'pay') {
-    // No total here: only the Pay button carries it.
-    footer = <button type="button" className="btn btn-primary" onClick={next}>Continue</button>
+    // The first step shows the seats' price before tax, once, on its button; tax only on the payment step
+    // (Kaden, 1 Nov 2026: never "incl. tax" here). Later steps say just Continue; the Pay button carries the total.
+    const beforeTax = step === steps[0] && total > 0 && seatsOnly.ok ? seatsOnly.value.subtotalCents : null
+    footer = (
+      <button type="button" className="btn btn-primary" onClick={next}>
+        {beforeTax !== null ? `Continue · ${formatMoney(beforeTax, workshop.currency)}` : 'Continue'}
+      </button>
+    )
   } else {
     footer = (
       <>

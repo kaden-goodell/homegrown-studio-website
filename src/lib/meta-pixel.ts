@@ -1,7 +1,7 @@
 /**
  * Meta (Facebook/Instagram) Pixel — lets Kaden show ads to people who already
  * visited and lets Meta aim boosts at people who book. Live site only, never
- * on the waiver or staff pages (families' details are on those pages), and
+ * on the waiver, staff or party host pages (families' details are on those pages), and
  * with Meta's automatic form scraping turned off.
  *
  * Page changes inside the site (view transitions) don't reload the page, so

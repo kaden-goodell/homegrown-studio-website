@@ -8,6 +8,7 @@ import PostHog from '@components/posthog.astro'
 import SeoHead from '@components/shared/SeoHead.astro'
 import Shimmer from '@components/shared/Shimmer'
 import RenameNotice from '@components/shared/RenameNotice'
+import DayNoticeBar from '@components/shared/DayNoticeBar.astro'
 import '@styles/global.css'
 import '@styles/textures.css'
 import '@styles/animations.css'
@@ -76,6 +77,7 @@ const bodyFont = fonts.body.replace(/ /g, '+')
   </head>
   <body class={textureClass}>
     <Shimmer enabled={siteConfig.theme.animations.particles} client:idle transition:persist />
+    <DayNoticeBar />
     <Header transition:persist />
     <main transition:animate="fade">
       <slot />

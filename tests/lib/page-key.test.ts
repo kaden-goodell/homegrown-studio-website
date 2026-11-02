@@ -111,9 +111,11 @@ describe('Layout', () => {
 
   it('leaves out GA4 and the Meta Pixel, never records, and keeps the address to this site on /party/*', () => {
     expect(layout).toContain('const privateParty = isPrivatePartyPage(Astro.url.pathname)')
-    expect(layout).toMatch(/\{!bare && !privateParty && <Analytics \/>\}/)
+    expect(layout).toMatch(/\{!bare && !privateParty && !noAnalytics && <Analytics \/>\}/)
     expect(layout).toMatch(/<PostHog noRecording=\{[^}]*privateParty[^}]*\} \/>/)
-    expect(layout).toContain('{privateParty && <meta name="referrer" content="same-origin" />}')
+    // dev 1bac82d: every page keeps its address to this site; a noAnalytics page (the host page) gets no PostHog at all.
+    expect(layout).toContain('<meta name="referrer" content="same-origin" />')
+    expect(layout).toMatch(/\{!noAnalytics && <PostHog /)
     // GA4 and the pixel load only from <Analytics />.
     expect(layout.match(/googletagmanager|meta-pixel/g)).toBeNull()
   })

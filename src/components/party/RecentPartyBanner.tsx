@@ -50,9 +50,9 @@ export default function RecentPartyBanner() {
         <span style={{ fontSize: '0.9375rem', fontWeight: 500 }}>
           Your {recent.craftName} party is booked for {recent.slotLabel}.
         </span>
+        {/* Carries the host key: PostHog never records this click. */}
         <a
           href={hostPartyUrl(recent, window.location.origin)}
-          // Carries the host key: PostHog never records this click.
           className="ph-no-capture"
           onClick={() => trackRecentPartyBanner('open')}
           style={{
