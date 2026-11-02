@@ -328,4 +328,34 @@ describe('To decide sheets', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Didn’t save. Try again.')
     expect(screen.getAllByText("Didn't save. Try again.").length).toBeGreaterThan(0)
   })
+
+  it('Task 13: an unclear payment on a booked party: It went through / It didn’t go through, Open the party; Square’s refusal shows in the sheet', async () => {
+    const t = item({ id: 'td_pp', kind: 'party-payment-unclear', title: 'Party payment unclear', head: 'Stefanie Justice’s $300 payment (payment link) for their party on Sat Nov 14 2 PM got no answer from Square.',
+      detail: { partyId: 'pty_abc123', partyDay: '2026-11-14', cents: 30000, via: 'link', until: '2026-11-03T15:00:00.000Z' } })
+    const one = show([t], { decide: (b) => (b.action === 'went-through' ? refuse(409, { error: 'Square shows no payment on this order yet, so nothing was recorded.' }) : null) }, 'td_pp')
+    expect(await screen.findByText('$300')).toBeInTheDocument()
+    expect(screen.getByText(/Nothing is charged or refunded from here\./)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'It went through' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Square shows no payment on this order yet, so nothing was recorded.')
+    fireEvent.click(within(footer()).getByRole('button', { name: 'It didn’t go through' }))
+    await waitFor(() => expect(decisions(one.f)).toEqual([{ id: 'td_pp', action: 'went-through' }, { id: 'td_pp', action: 'did-not-go-through' }]))
+    one.unmount()
+    const two = show([t], {}, 'td_pp')
+    fireEvent.click(await screen.findByRole('button', { name: 'Open the party' }))
+    expect(two.sheet.open).toHaveBeenCalledWith({ kind: 'party', day: '2026-11-14', id: 'pty_abc123' })
+  })
+
+  it('Task 13: a paid party with no confirmation: open the party to email the details, then Done', async () => {
+    const t = item({ id: 'td_nc', kind: 'party-no-confirmation', title: 'Party booked, no confirmation', head: 'Alice Smith’s party is paid and booked, but the booking stopped before their confirmation email went out.', detail: { partyId: 'pty_abc', partyDay: '2026-11-14' } })
+    const { f } = show([t], {}, 'td_nc')
+    expect(await screen.findByText(/Open the party and tap the button that emails the host the details/)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Done' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_nc', action: 'sorted' }]))
+  })
+
+  it('Task 13: a paid party order from an earlier try the customer changed says so', async () => {
+    const t = item({ id: 'td_rt', kind: 'party-paid-unclear', title: 'Party payment to check', detail: { partyId: 'pty_x', orderId: 'O', cents: 30000, elsewhere: true, why: 'retired' } })
+    show([t], {}, 'td_rt')
+    expect(await screen.findByText(/it was an earlier try the customer changed and started again, so it isn’t booked/)).toBeInTheDocument()
+  })
 })

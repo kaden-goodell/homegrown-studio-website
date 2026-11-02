@@ -32,8 +32,8 @@ export interface PartyCheckout {
   partyId: string
   /** retired: an unpaid try let go because the retry changed its choices; its attempt id is not used again. */
   state: 'charging' | 'unclear' | 'paid-elsewhere' | 'retired'
-  /** paid-elsewhere only */
-  why?: 'no-checkout' | 'other-payment'
+  /** paid-elsewhere only. retired: an earlier try the customer changed and started again (its tombstone holds the old choices). */
+  why?: 'no-checkout' | 'other-payment' | 'retired'
   startIso: string
   endIso: string
   /** The party record as it is saved once paid (items still due). Null for paid-elsewhere. */

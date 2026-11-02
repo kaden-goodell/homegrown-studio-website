@@ -105,6 +105,8 @@ export function ToDecideSheet({ id }: { id: string }) {
     case 'counter-match-check': return <CounterCheck item={t} />
     case 'party-paid-unclear': return <PartyPaidUnclear item={t} />
     case 'paid-not-seated': return <PaidNoSeat item={t} />
+    case 'party-payment-unclear': return <PartyPaymentUnclear item={t} />
+    case 'party-no-confirmation': return <PartyNoConfirmation item={t} />
   }
 }
 
@@ -171,11 +173,13 @@ function Unconfirmed({ item }: { item: ToDecideItem }) {
 }
 
 function PartyPaidUnclear({ item }: { item: ToDecideItem }) {
-  const d = item.detail as Detail & { elsewhere?: boolean; cents?: number }
+  const d = item.detail as Detail & { elsewhere?: boolean; cents?: number; why?: string | null }
   const { send, busy, error } = useDecide(item)
   if (d.elsewhere) {
     return (
-      <OneChoiceParty item={item} note="Square shows this party order paid, and there is nothing here to book it from. Look it up in Square and sort it out there. Nothing is sent to Square from here." send={send} busy={busy} error={error} />
+      <OneChoiceParty item={item} note={d.why === 'retired'
+        ? 'Square shows this order paid, but it was an earlier try the customer changed and started again, so it isn’t booked. Look it up in Square: if they paid twice, refund the extra payment there. Nothing is sent to Square from here.'
+        : 'Square shows this party order paid, and there is nothing here to book it from. Look it up in Square and sort it out there. Nothing is sent to Square from here.'} send={send} busy={busy} error={error} />
     )
   }
   return (
@@ -192,6 +196,46 @@ function PartyPaidUnclear({ item }: { item: ToDecideItem }) {
       <Head item={item} />
       {kv('Payment', formatMoney(d.cents ?? 0))}
       <p className="adm-note adm-gap-top">Look for the payment in Square. Confirm the party once Square shows it paid: the time is booked and the host gets their confirmation. If it wasn’t paid, the held time is let go. Nothing is charged or refunded from here.</p>
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}
+
+/** A payment on a booked party (link, or a card taken here) that Square never answered. */
+function PartyPaymentUnclear({ item }: { item: ToDecideItem }) {
+  const d = item.detail as Detail & { cents?: number; until?: string }
+  const { send, busy, error } = useDecide(item)
+  return (
+    <SheetFrame
+      title={item.title}
+      subtitle="To decide"
+      footer={(
+        <div className="adm-two">
+          <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => send({ action: 'did-not-go-through' })}>{label(busy, 'did-not-go-through', 'It didn’t go through', 'Checking Square…')}</button>
+          <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'went-through' })}>{label(busy, 'went-through', 'It went through', 'Checking Square…')}</button>
+        </div>
+      )}
+    >
+      <Head item={item} />
+      {kv('Payment', formatMoney(d.cents ?? 0))}
+      <p className="adm-note adm-gap-top">
+        Look for this payment in Square under Payments. Then say what you saw. Either way we ask Square again first: It went through records the payment on the party (the host gets their email once), and It didn’t go through only works when Square shows no payment, and lets a new payment start. Nothing is charged or refunded from here.
+      </p>
+      {d.until && <p className="adm-small">{`Until then, Move, Cancel and new payments on this party wait. If nobody decides, it clears on ${dayAndClock(d.until)} and the next payment asks Square first.`}</p>}
+      <OpenParty item={item} />
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}
+
+/** A party recorded paid whose booking stopped before the host's confirmation went out. */
+function PartyNoConfirmation({ item }: { item: ToDecideItem }) {
+  const { send, busy, error } = useDecide(item)
+  return (
+    <SheetFrame title={item.title} subtitle="To decide" footer={<button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'sorted' })}>{label(busy, 'sorted', 'Done', 'Saving…')}</button>}>
+      <Head item={item} />
+      <p className="adm-note adm-gap-top">The party is paid and on the calendar. Open the party and tap the button that emails the host the details, so they get their host page, invite link and calendar. Then tap Done here.</p>
+      <OpenParty item={item} />
       <ErrorLine text={error} />
     </SheetFrame>
   )
