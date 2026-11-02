@@ -221,8 +221,11 @@ export const HELP_SECTIONS: HelpSection[] = [
     id: 'hours',
     title: 'Hours and Craft Café',
     points: [
-      'More › **Hours & Craft Café**: the café’s usual weekly hours, then **Save café hours**.',
-      '**+ Add a special day**: different hours on one date (a holiday, a grand opening). A special day replaces the usual hours that day; closed days beat both.',
+      'More › **Hours & Craft Café**: the café’s usual weekly hours, then **Save café hours**. Café days can only be on days the studio opens.',
+      '**+ Add a special day**: different hours on one date (a holiday, a grand opening). A special day replaces the usual hours that day; closed days beat both. It can be any day of the week: on a day the studio is usually closed, it opens the studio for Craft Café.',
+      '**Studio hours** (same screen, at the bottom): each day **Open** with its times, or **Closed**, then **Save studio hours**. The days with hours are the days the studio opens. The website footer, Google’s business details on the website, the calendar and party times all follow them.',
+      'If a party time wouldn’t fit the new hours, it says which one. Move it in **Parties setup** first. Parties and classes already booked stay booked.',
+      'Google Maps keeps its own copy of your hours: after a change, tap **Open Google Business Profile** › Edit profile › Hours.',
       'If it says Square didn’t take the café hours, tap **Try again**.',
     ],
   },

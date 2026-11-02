@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro'
+import { getStudioDays } from '@lib/studio-settings'
 import { staffAuthorized, byOf, type StaffMember } from '@lib/staff-auth'
 import { isActiveStaffId } from '@lib/staff-directory'
 import { recordAudit } from '@lib/audit'
@@ -57,10 +58,11 @@ export const GET: APIRoute = async ({ request, url }) => {
   if (!from || !to || Date.parse(to) <= Date.parse(from)) return json(400, { error: 'Pick a start and an end for the range.' })
   if (Date.parse(to) - Date.parse(from) > MAX_RANGE_MS) return json(400, { error: 'Pick ten weeks or less.' })
   return staffingReply(async () => {
-    const [view, availability, feed] = await Promise.all([
+    const [view, availability, feed, studio] = await Promise.all([
       crewView(from, to, me.id, now),
       getAvailability(me.id),
       hasFeed({ staffId: me.id }),
+      getStudioDays(),
     ])
     return {
       data: {
@@ -69,6 +71,7 @@ export const GET: APIRoute = async ({ request, url }) => {
         mine: view.mine,
         open: view.open,
         feed: { has: feed },
+        studioHours: studio.studio,
       },
     }
   })

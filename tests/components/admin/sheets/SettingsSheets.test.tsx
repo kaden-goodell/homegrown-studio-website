@@ -10,7 +10,14 @@ import { at, ok, posts, refuse, renderSheet } from './harness'
 configure({ asyncUtilTimeout: 5000 })
 
 const SETTINGS = '/api/admin/settings.json'
+const STUDIO = [
+  { weekday: 'Thursday', opens: '18:00', closes: '20:00' },
+  { weekday: 'Friday', opens: '16:00', closes: '21:00' },
+  { weekday: 'Saturday', opens: '09:00', closes: '21:00' },
+  { weekday: 'Sunday', opens: '13:00', closes: '20:00' },
+]
 const view = () => ({
+  studioWeekly: STUDIO,
   cafeWeekly: [{ weekday: 'Saturday', opens: '09:00', closes: '12:00' }],
   cafeSpecialDays: [{ date: '2026-11-07', opens: '09:00', closes: '21:00', name: 'Craft Café grand opening' }],
   closures: [
@@ -36,7 +43,7 @@ function server(o: { square?: any; booked?: any[]; stale?: boolean; fail?: boole
       return refuse(409, { error: 'Someone else changed these settings. Check them and save again.', stale: true, current: cur })
     }
     const closures = b.closures.map((c: any, i: number) => ({ ...c, id: c.id ?? `clo_new${i}`, to: c.to || c.from, name: c.name || 'a break' }))
-    cur = { ...cur, cafeWeekly: b.cafeWeekly, cafeSpecialDays: b.cafeSpecialDays, closures, updatedAt: `saved-${++n}`, by: { id: 'owner-catherine', name: 'Catherine' } }
+    cur = { ...cur, studioWeekly: b.studioWeekly, cafeWeekly: b.cafeWeekly, cafeSpecialDays: b.cafeSpecialDays, closures, updatedAt: `saved-${++n}`, by: { id: 'owner-catherine', name: 'Catherine' } }
     return ok({ data: { settings: cur, changed: ['x'], booked: o.booked ?? [], square: o.square === undefined ? { status: 'updated', message: 'Square has the new café hours.' } : o.square } })
   })
   return fn
@@ -95,9 +102,13 @@ describe('More › Hours & Craft Café', () => {
     isNamed('button', 'Save café hours', button('Save café hours'))
     expect(button('Save café hours')).toBeDisabled()
     expect(screen.getByText('A special day replaces the usual hours for that day. Closed days beat both.')).toBeInTheDocument()
-    // Studio hours (Kaden, 1 Nov 2026): Thursday 6–8 and Friday 4–9 are rows of their own.
-    const studioRows = [...document.querySelectorAll('.adm-kv')].map((r) => r.firstElementChild?.textContent)
-    expect(studioRows).toEqual(expect.arrayContaining(['Thursday', 'Friday', 'Saturday', 'Sunday']))
+    // Studio hours (G3): every weekday, open with its times or closed; Save waits for a change.
+    const thu = group('Thursday')
+    expect(within(thu).getByLabelText('Opens')).toHaveValue('18:00')
+    expect(within(thu).getByLabelText('Closes')).toHaveValue('20:00')
+    expect(within(group('Wednesday')).queryByLabelText('Opens')).toBeNull()
+    expect(button('Save studio hours')).toBeDisabled()
+    expect(screen.queryByText(/Ask (Kaden|Catherine)/)).toBeNull()
   })
 
   it('changes Saturday, adds Sunday, saves the whole document with the loaded updatedAt, and says Square has it', async () => {
@@ -208,10 +219,11 @@ describe('More › Hours & Craft Café', () => {
 })
 
 describe('fix round 1', () => {
-  it('studio hours point to the other owner', async () => {
+  it('studio hours never send her to the other owner', async () => {
     vi.stubGlobal('fetch', server())
     renderSheet(<WhoContext.Provider value={{ who: 'Kaden', setWho: () => {} }}><StudioProvider><HoursSheet /></StudioProvider></WhoContext.Provider>)
-    expect(await screen.findByText('Studio hours show on the website and Google. Ask Catherine to change them.', undefined, { timeout: 3000 })).toBeInTheDocument()
+    await findButton('Save studio hours')
+    expect(screen.queryByText(/Ask (Catherine|Kaden)/)).toBeNull()
   })
   it('Add closed days with nothing picked takes her to From', async () => {
     vi.stubGlobal('fetch', server())
@@ -323,5 +335,83 @@ describe('the studio days every /admin screen uses', () => {
     renderSheet(<StudioProvider><Probe /></StudioProvider>)
     expect(screen.getByText(/Halloween weekend, Thanksgiving, the Christmas holidays/)).toBeInTheDocument()
     expect(await screen.findByText('Halloween weekend, Thanksgiving')).toBeInTheDocument()
+  })
+})
+
+describe('More › Hours & Craft Café › Studio hours (G3)', () => {
+  it('opens Wednesday 4–9 and moves Sunday to 10 AM: one save with all the rows, then the Google reminder', async () => {
+    const f = server()
+    vi.stubGlobal('fetch', f)
+    const { dirty } = sheet(<HoursSheet />)
+    const wed = await findGroup('Wednesday')
+    fireEvent.click(within(wed).getByRole('button', { name: 'Open' }))
+    fireEvent.change(within(group('Wednesday')).getByLabelText('Opens'), { target: { value: '16:00' } })
+    fireEvent.change(within(group('Wednesday')).getByLabelText('Closes'), { target: { value: '21:00' } })
+    fireEvent.change(within(group('Sunday')).getByLabelText('Opens'), { target: { value: '10:00' } })
+    expect(dirty()).toBe(true)
+    fireEvent.click(button('Save studio hours'))
+    expect(await screen.findByText('Studio hours saved. The website shows them now.')).toBeInTheDocument()
+    const body = posts(f, SETTINGS)[0].body
+    expect(body.studioWeekly).toEqual([
+      { weekday: 'Wednesday', opens: '16:00', closes: '21:00' },
+      { weekday: 'Thursday', opens: '18:00', closes: '20:00' },
+      { weekday: 'Friday', opens: '16:00', closes: '21:00' },
+      { weekday: 'Saturday', opens: '09:00', closes: '21:00' },
+      { weekday: 'Sunday', opens: '10:00', closes: '20:00' },
+    ])
+    expect(body.cafeWeekly).toEqual([{ weekday: 'Saturday', opens: '09:00', closes: '12:00' }])
+    expect(screen.getByRole('link', { name: 'Open Google Business Profile' })).toHaveAttribute('href', 'https://business.google.com/')
+    await waitFor(() => expect(dirty()).toBe(false))
+  })
+
+  it('closing a day Craft Café runs on is caught before sending, in plain words', async () => {
+    const f = server()
+    vi.stubGlobal('fetch', f)
+    sheet(<HoursSheet />)
+    const sat = await findGroup('Saturday')
+    fireEvent.click(within(sat).getByRole('button', { name: 'Closed' }))
+    fireEvent.click(button('Save studio hours'))
+    expect(await screen.findByText('Craft Café runs on Saturdays. Take that café day off above first, or keep Saturday open.')).toBeInTheDocument()
+    expect(posts(f, SETTINGS)).toHaveLength(0)
+  })
+
+  it('closing before opening is caught before sending', async () => {
+    const f = server()
+    vi.stubGlobal('fetch', f)
+    sheet(<HoursSheet />)
+    const fri = await findGroup('Friday')
+    fireEvent.change(within(fri).getByLabelText('Closes'), { target: { value: '15:00' } })
+    fireEvent.click(button('Save studio hours'))
+    expect(await screen.findByText('Friday: it has to close after it opens.')).toBeInTheDocument()
+    expect(posts(f, SETTINGS)).toHaveLength(0)
+  })
+
+  it('a party time the new hours would leave out: the server’s words show by the button', async () => {
+    const f = vi.fn(async (url: string, init?: any) => {
+      if (init?.method !== 'POST') return ok({ data: { settings: view() } })
+      return refuse(409, { error: 'There’s a party time at 1 PM on Sundays, before the studio would open at 2 PM. Move it in Parties setup first, or keep the studio hours as they are.', field: 'studioWeekly' })
+    })
+    vi.stubGlobal('fetch', f)
+    sheet(<HoursSheet />)
+    const sun = await findGroup('Sunday')
+    fireEvent.change(within(sun).getByLabelText('Opens'), { target: { value: '14:00' } })
+    fireEvent.click(button('Save studio hours'))
+    expect(await screen.findByText(/Move it in Parties setup first/)).toBeInTheDocument()
+  })
+
+  it('café days can only be added on days the studio opens', async () => {
+    vi.stubGlobal('fetch', server())
+    sheet(<HoursSheet />)
+    await findGroup('Saturdays')
+    const options = [...(screen.getByLabelText('Add another day') as HTMLSelectElement).options].map((o) => o.value).filter(Boolean)
+    expect(options).toEqual(['Thursday', 'Friday', 'Sunday'])
+  })
+
+  it('a special day on a usually closed weekday says it opens the studio', async () => {
+    vi.stubGlobal('fetch', server())
+    sheet(<HoursSheet />)
+    fireEvent.click(await findButton('+ Add a special day'))
+    fireEvent.change(screen.getByLabelText('Day'), { target: { value: '2026-11-11' } }) // a Wednesday
+    expect(screen.getByText('The studio is usually closed that day. The special day opens it for Craft Café.')).toBeInTheDocument()
   })
 })

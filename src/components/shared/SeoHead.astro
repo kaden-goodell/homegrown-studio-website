@@ -6,7 +6,9 @@
  * (the static layout used to have no link-preview tags at all).
  */
 import { siteConfig } from '@config/site.config'
-import { STUDIO_HOURS } from '@config/hours'
+import { weeklyEntries } from '@config/hours'
+import { CONFIG_STUDIO_DAYS } from '@config/studio-days'
+import { getStudioDays } from '@lib/studio-settings'
 import { OPEN_STUDIO_START_DATE } from '@config/opening'
 import { SITE_URL, DEFAULT_SHARE_IMAGE, SHARE_IMAGE_WIDTH, SHARE_IMAGE_HEIGHT } from '@config/site-url'
 import { absoluteUrl, canonicalUrl, jsonLdString, localBusinessJsonLd, pageTitle } from '@lib/seo'
@@ -55,7 +57,9 @@ const business = localBusinessJsonLd({
   email: siteConfig.contactEmail,
   address: siteConfig.address,
   image: DEFAULT_SHARE_IMAGE,
-  hours: walkInOpen ? STUDIO_HOURS : undefined,
+  // The studio hours in force: read now on a page rendered on request; a
+  // prerendered page ships the config's and @lib/site-live swaps in the saved ones.
+  hours: walkInOpen && !noindex ? weeklyEntries(Astro.isPrerendered ? CONFIG_STUDIO_DAYS.studio : (await getStudioDays()).studio) : undefined,
 })
 const extra = jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : []
 ---
@@ -84,5 +88,5 @@ const extra = jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : []
 <meta name="twitter:description" content={resolvedDescription} />
 <meta name="twitter:image" content={shareImage} />
 
-{!noindex && <script type="application/ld+json" is:inline set:html={jsonLdString(business)} />}
+{!noindex && <script type="application/ld+json" is:inline data-business-jsonld data-hours-from={`${OPEN_STUDIO_START_DATE}T00:00:00-06:00`} set:html={jsonLdString(business)} />}
 {extra.map((item) => <script type="application/ld+json" is:inline set:html={jsonLdString(item)} />)}

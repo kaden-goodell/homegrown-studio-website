@@ -16,8 +16,8 @@
  */
 import { partyConfig, partyDays, partyDateOverrides, CAFE_PARTY_GAP_MINUTES } from '../../config/party.config'
 import { closureOn } from '../../config/closures'
-import { STUDIO_HOURS, WEEKDAYS } from '../../config/hours'
-import { CONFIG_STUDIO_DAYS, type StudioDays } from '../../config/studio-days'
+import { CONFIG_STUDIO_WEEKLY, WEEKDAYS, type CafeWeekly } from '../../config/hours'
+import { CONFIG_STUDIO_DAYS, studioHoursOnWeekday, type StudioDays } from '../../config/studio-days'
 import { cafeOn } from '../cafe-days'
 import { SettingsError } from '../settings-error'
 import type { PartyAddOn, PartyPackage, PartySettings, PartySettingsInput, PartyTimes, WeekdayKey } from './types'
@@ -360,9 +360,9 @@ function startList(v: unknown, field: string): string[] {
   return [...v].sort()
 }
 
-function hoursOf(weekday: number): { opens: number; closes: number } | null {
-  const name = WEEKDAYS[weekday]
-  const h = STUDIO_HOURS.find((e) => e.days.includes(name))
+/** The studio's hours on a weekday in minutes, from the hours in force (getStudioDays().studio), or null when closed. */
+function hoursOf(weekday: number, studio: CafeWeekly[]): { opens: number; closes: number } | null {
+  const h = studioHoursOnWeekday(weekday, studio)
   return h ? { opens: minutesOfDay(h.opens), closes: minutesOfDay(h.closes) } : null
 }
 
@@ -372,14 +372,14 @@ function hoursOf(weekday: number): { opens: number; closes: number } | null {
  * extra time and cleanup, and never past midnight (no party or its cleanup
  * crosses into the next day).
  */
-function checkDay(starts: string[], weekday: number, name: string, field: string, longest: number, extra: number): void {
+function checkDay(starts: string[], weekday: number, name: string, field: string, longest: number, extra: number, studio: CafeWeekly[]): void {
   const gap = longest + PARTY_CLEANUP_MINUTES
   const need = longest + extra + PARTY_CLEANUP_MINUTES
   const mins = starts.map(minutesOfDay)
   for (let i = 1; i < mins.length; i++) {
     if (mins[i] - mins[i - 1] < gap) throw new SettingsError(400, `Party times on ${name} must be at least ${lengthLabel(gap)} apart.`, field)
   }
-  const hours = hoursOf(weekday)
+  const hours = hoursOf(weekday, studio)
   for (const t of mins) {
     if (hours && t < hours.opens) throw new SettingsError(400, `Party times on ${name} can’t start before the studio opens at ${clockLabel(hours.opens)}.`, field)
     const end = hours ? Math.min(hours.closes, 24 * 60) : 24 * 60
@@ -432,7 +432,8 @@ function validAddOn(a: any, field: string): PartyAddOn {
  * today (`now`, default the clock) are kept as they are and not checked
  * against the hours: they can no longer be booked.
  */
-export function validatePartySettings(raw: unknown, opts: { now?: Date } = {}): PartySettingsInput {
+export function validatePartySettings(raw: unknown, opts: { now?: Date; studio?: CafeWeekly[] } = {}): PartySettingsInput {
+  const studio = opts.studio ?? CONFIG_STUDIO_WEEKLY
   const body = raw as any
   if (!body || typeof body !== 'object') throw new SettingsError(400, 'Nothing to save.')
   const t = body.times
@@ -478,14 +479,69 @@ export function validatePartySettings(raw: unknown, opts: { now?: Date } = {}): 
   // each day's starts against the longest package, the largest extra time, cleanup and the studio hours
   const longest = Math.max(...packages.filter((p) => !p.archived).map((p) => p.minutes))
   const extra = Math.max(0, ...addOns.filter((a) => !a.archived).map((a) => a.extraMinutes))
-  for (const k of WEEKDAY_KEYS) checkDay(weekly[k], Number(k), PLURAL_DAY[Number(k)], `times.weekly.${k}`, longest, extra)
+  for (const k of WEEKDAY_KEYS) {
+    // Weekly times only on days the studio opens; a one-off on a closed weekday is a dated day.
+    if (weekly[k].length && !hoursOf(Number(k), studio)) {
+      throw new SettingsError(400, `The studio is closed on ${PLURAL_DAY[Number(k)]}. Add ${WEEKDAYS[Number(k)]} hours in Hours & Craft Café first, or make it a dated party day.`, `times.weekly.${k}`)
+    }
+    checkDay(weekly[k], Number(k), PLURAL_DAY[Number(k)], `times.weekly.${k}`, longest, extra, studio)
+  }
   const today = localDate((opts.now ?? new Date()).toISOString())
   for (const ymd of Object.keys(dates)) {
     if (ymd < today) continue
-    checkDay(dates[ymd], weekdayOf(ymd), dayLabel(ymd), `times.dates.${ymd}`, longest, extra)
+    checkDay(dates[ymd], weekdayOf(ymd), dayLabel(ymd), `times.dates.${ymd}`, longest, extra, studio)
   }
 
   return { times, packages, addOns, readSquareBookings: body.readSquareBookings }
+}
+
+/**
+ * Saved party times that wouldn't fit these studio hours (More › Hours &
+ * Craft Café › Studio hours): a weekly party time on a day that would close,
+ * or any weekly or coming dated party time that would start before opening or
+ * run (with the longest package, extra time and cleanup) past closing. With
+ * `before` (the hours in force now), only times the change itself would leave
+ * out count: one that already sat outside the old hours (a one-off dated day,
+ * say) is not hers to fix here. The first one in plain words with what to do,
+ * or null when they all fit.
+ */
+export function partyTimesOutsideHours(s: PartySettingsInput, studio: CafeWeekly[], now: Date = new Date(), before?: CafeWeekly[]): string | null {
+  const lengths = s.packages.filter((p) => !p.archived).map((p) => p.minutes)
+  const longest = lengths.length ? Math.max(...lengths) : partyConfig.durationMinutes
+  const extra = Math.max(0, ...s.addOns.filter((a) => !a.archived).map((a) => a.extraMinutes))
+  const need = longest + extra + PARTY_CLEANUP_MINUTES
+  const fix = 'Move it in Parties setup first, or keep the studio hours as they are.'
+  const fits = (t: number, weekday: number, hours: CafeWeekly[]) => {
+    const h = hoursOf(weekday, hours)
+    return !h || (t >= h.opens && t + need <= h.closes)
+  }
+  const check = (starts: string[], weekday: number, name: string): string | null => {
+    const hours = hoursOf(weekday, studio)
+    if (!hours) return null
+    for (const t of starts.map(minutesOfDay)) {
+      if (fits(t, weekday, studio) || (before && !fits(t, weekday, before))) continue
+      if (t < hours.opens) return `There’s a party time at ${clockLabel(t)} on ${name}, before the studio would open at ${clockLabel(hours.opens)}. ${fix}`
+      return `The ${clockLabel(t)} party time on ${name} would run past closing at ${clockLabel(hours.closes)}, with its cleanup. ${fix}`
+    }
+    return null
+  }
+  for (const k of WEEKDAY_KEYS) {
+    const starts = s.times.weekly[k] ?? []
+    if (!starts.length) continue
+    if (!hoursOf(Number(k), studio)) {
+      if (before && !hoursOf(Number(k), before)) continue
+      return `There are party times on ${PLURAL_DAY[Number(k)]}. Remove them in Parties setup first, or keep ${WEEKDAYS[Number(k)]} open.`
+    }
+    const bad = check(starts, Number(k), PLURAL_DAY[Number(k)])
+    if (bad) return bad
+  }
+  const today = localDate(now.toISOString())
+  for (const ymd of Object.keys(s.times.dates).sort()) {
+    if (ymd < today) continue
+    const bad = check(s.times.dates[ymd], weekdayOf(ymd), dayLabel(ymd))
+    if (bad) return bad
+  }
+  return null
 }
 
 // ---------------------------------------------------------------- what changed

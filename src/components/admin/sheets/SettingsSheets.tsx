@@ -6,22 +6,22 @@
  * Craft Café's dated windows in Square (the calendar reads them); if Square
  * refuses, the settings are still saved and the sheet offers Try again.
  */
-import { useContext, useEffect, useRef, useState, type ReactElement } from 'react'
-import { OWNERS } from '@lib/admin-who'
+import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { localDate } from '@lib/party-slots'
 import type { CafeSquareResult } from '@lib/cafe-windows'
 import type { BookedOnClosure } from '@lib/settings-effects'
 import type { SettingsInput, SettingsView, StoredClosure } from '@lib/studio-settings'
 import { closureOn, type Holiday } from '@config/closures'
-import { cafeHoursEntries, STUDIO_HOURS, type CafeSpecialDay, type CafeWeekly, type Weekday } from '@config/hours'
+import { cafeHoursEntries, WEEKDAYS, weeklyEntries, type CafeSpecialDay, type CafeWeekly, type Weekday } from '@config/hours'
+import { openWeekdaysOf } from '@config/studio-days'
 import { api, SETTINGS } from '../classes/api'
 import { dayLabel, today } from '../classes/dates'
 import { useRefresh } from '../shell/data'
 import { Failed, Skeleton } from '../shell/items'
 import { SheetFrame, useSheet, useSheetDirty } from '../shell/Sheet'
-import { WhoContext } from './MoreSheets'
 import { useStudio } from '../shell/studio'
 import { clockRange, dayAndSpan } from '../shell/time'
+import { Seg } from '../shell/items'
 import { DIDNT_SAVE, useToast } from '../shell/Toast'
 
 interface SaveReply {
@@ -33,7 +33,7 @@ interface SaveReply {
 }
 type Saved = { ok: true; data: SaveReply } | { ok: false; error: string; field?: string; stale?: boolean }
 
-const input = (v: SettingsView): SettingsInput => ({ cafeWeekly: v.cafeWeekly, cafeSpecialDays: v.cafeSpecialDays, closures: v.closures })
+const input = (v: SettingsView): SettingsInput => ({ studioWeekly: v.studioWeekly, cafeWeekly: v.cafeWeekly, cafeSpecialDays: v.cafeSpecialDays, closures: v.closures })
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s)
 export const rangeText = (c: { from: string; to: string }) => (c.from === c.to ? dayLabel(c.from) : `${dayLabel(c.from)} – ${dayLabel(c.to)}`)
 const STALE = 'Someone else changed these settings. Check them and save again.'
@@ -129,8 +129,6 @@ export function HoursSheet() {
 
 function HoursForm({ view }: { view: SettingsView }) {
   const { save, square, retrySquare, retrying, toast } = useSettingsSave()
-  const { who } = useContext(WhoContext)
-  const otherOwner = OWNERS.find((o) => o !== who) ?? 'the other owner'
   const { days } = useStudio()
   const [weekly, setWeekly] = useState<CafeWeekly[]>(() => [...view.cafeWeekly].sort(byWeek))
   const [weeklyError, setWeeklyError] = useState('')
@@ -142,18 +140,28 @@ function HoursForm({ view }: { view: SettingsView }) {
   const [stale, setStale] = useState('')
   const weeklyDirty = !sameWeekly(weekly, view.cafeWeekly)
   const specialDirty = adding && (sp.date !== '' || sp.name.trim() !== '')
-  useSheetDirty(weeklyDirty || specialDirty)
+  const [studioDirty, setStudioDirty] = useState(false)
+  useSheetDirty(weeklyDirty || specialDirty || studioDirty)
   // Someone else's save came in and nothing here was touched: show theirs.
   useEffect(() => { if (!weeklyDirty) setWeekly([...view.cafeWeekly].sort(byWeek)) }, [view.updatedAt])
 
   const now = today()
   const special = view.cafeSpecialDays.filter((d) => d.date >= now)
-  const unused = WEEK_ORDER.filter((d) => !weekly.some((w) => w.weekday === d))
+  // Weekly café only on days the studio opens (a special day can be any day).
+  const studioOn = (d: Weekday) => view.studioWeekly.find((w) => w.weekday === d)
+  const unused = WEEK_ORDER.filter((d) => !weekly.some((w) => w.weekday === d) && studioOn(d))
   const setRow = (i: number, p: Partial<CafeWeekly>) => { setWeekly(weekly.map((w, n) => (n === i ? { ...w, ...p } : w))); setWeeklyError('') }
 
   async function saveWeekly() {
     const bad = weekly.find((w) => !w.opens || !w.closes || w.closes <= w.opens)
     if (bad) return setWeeklyError(`${bad.weekday}: it has to close after it opens.`)
+    const outside = weekly.find((w) => { const o = studioOn(w.weekday); return !o || w.opens < o.opens || w.closes > o.closes })
+    if (outside) {
+      const o = studioOn(outside.weekday)
+      return setWeeklyError(o
+        ? `${outside.weekday}: Craft Café has to be inside the studio hours (${clockRange(o.opens, o.closes)}).`
+        : `The studio is closed on ${outside.weekday}s. Add ${outside.weekday} studio hours below first, or make it a special day.`)
+    }
     setSavingWeekly(true)
     setStale('')
     const r = await save((cur) => ({ ...cur, cafeWeekly: weekly }))
@@ -193,6 +201,7 @@ function HoursForm({ view }: { view: SettingsView }) {
   }
 
   const spClosed = sp.date ? closureOn(sp.date, days.closures) : null
+  const spUsuallyShut = !!sp.date && !spClosed && !openWeekdaysOf(view.studioWeekly).has(new Date(`${sp.date}T12:00:00Z`).getUTCDay())
   return (
     <>
       {stale && <p className="adm-error" role="alert">{stale}</p>}
@@ -247,6 +256,7 @@ function HoursForm({ view }: { view: SettingsView }) {
             <label className="adm-fld"><span>Closes</span><input type="time" value={sp.closes} onChange={(e) => { setSp({ ...sp, closes: e.target.value }); setSpError('') }} /></label>
           </div>
           {spClosed && <p className="adm-small adm-warntext">{`That day is closed for ${spClosed.name}. Closed days beat special hours.`}</p>}
+          {spUsuallyShut && <p className="adm-small adm-muted">The studio is usually closed that day. The special day opens it for Craft Café.</p>}
           {spError && <p className="adm-error adm-fielderr" role="alert">{spError}</p>}
           <div className="adm-two">
             <button type="button" className="adm-btn is-ghost" onClick={() => { setAdding(false); setSpError('') }}>Never mind</button>
@@ -258,12 +268,122 @@ function HoursForm({ view }: { view: SettingsView }) {
       )}
       <p className="adm-note adm-gap-top">A special day replaces the usual hours for that day. Closed days beat both.</p>
 
-      <p className="adm-lbl">Studio hours</p>
-      {cafeHoursEntries({ weekly: STUDIO_HOURS.flatMap((h) => h.days.map((weekday) => ({ weekday, opens: h.opens, closes: h.closes }))), special: [] })
-        .map((h) => <div key={h.days.join()} className="adm-kv"><span>{h.days.join(' & ')}</span><span>{clockRange(h.opens, h.closes)}</span></div>)}
-      <p className="adm-small adm-muted adm-gap-top">{`Studio hours show on the website and Google. Ask ${otherOwner} to change them.`}</p>
+      <StudioHoursForm view={view} save={save} toast={toast} cafeWeekly={view.cafeWeekly} onDirty={setStudioDirty} />
     </>
   )
+}
+
+// ---------------------------------------------------------------- Studio hours
+
+const sameRows = (a: CafeWeekly[], b: CafeWeekly[]) => JSON.stringify([...a].sort(byWeek)) === JSON.stringify([...b].sort(byWeek))
+export const GOOGLE_PROFILE_URL = 'https://business.google.com/'
+
+/** "Thursday 6–8 PM · Friday 4–9 PM · …" for the section's summary. */
+export function studioSummary(rows: CafeWeekly[]): string {
+  return weeklyEntries(rows).map((r) => `${r.days.join(' & ')} ${clockRange(r.opens, r.closes)}`).join(' · ')
+}
+
+/**
+ * The studio's weekly hours, editable (G3): each weekday Open with its times,
+ * or Closed. The days with hours are the days the studio opens: the footer,
+ * Google's business details, the calendar, party times and Craft Café all
+ * follow them. Party times that wouldn't fit are refused by the server with
+ * what to move; nothing booked changes.
+ */
+function StudioHoursForm({ view, save, toast, cafeWeekly, onDirty }: {
+  view: SettingsView
+  onDirty: (dirty: boolean) => void
+  save: ReturnType<typeof useSettingsSave>['save']
+  toast: ReturnType<typeof useSettingsSave>['toast']
+  cafeWeekly: CafeWeekly[]
+}) {
+  const fresh = () => [...view.studioWeekly].sort(byWeek)
+  const [rows, setRows] = useState<CafeWeekly[]>(fresh)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [savedNote, setSavedNote] = useState(false)
+  const dirty = !sameRows(rows, view.studioWeekly)
+  useEffect(() => { onDirty(dirty) }, [dirty])
+  useEffect(() => { if (!dirty) setRows(fresh()) }, [view.updatedAt])
+
+  const rowOf = (d: Weekday) => rows.find((r) => r.weekday === d)
+  const setDay = (d: Weekday, p: Partial<CafeWeekly> | null) => {
+    setError('')
+    setSavedNote(false)
+    if (p === null) return setRows(rows.filter((r) => r.weekday !== d))
+    const cur = rowOf(d)
+    // A day opened again starts with the hours it had, or the usual weekend hours.
+    const was = view.studioWeekly.find((r) => r.weekday === d)
+    const next = { ...(cur ?? was ?? { weekday: d, opens: '09:00', closes: '17:00' }), ...p }
+    setRows([...rows.filter((r) => r.weekday !== d), next].sort(byWeek))
+  }
+
+  async function saveStudio() {
+    setError('')
+    const bad = rows.find((r) => !r.opens || !r.closes || r.closes <= r.opens)
+    if (bad) return setError(`${bad.weekday}: it has to close after it opens.`)
+    if (!rows.length) return setError('Keep at least one open day. To close for a while, add closed days instead.')
+    const cafeShut = cafeWeekly.find((c) => !rows.some((r) => r.weekday === c.weekday))
+    if (cafeShut) return setError(`Craft Café runs on ${cafeShut.weekday}s. Take that café day off above first, or keep ${cafeShut.weekday} open.`)
+    const cafeOut = cafeWeekly.find((c) => { const r = rows.find((x) => x.weekday === c.weekday)!; return c.opens < r.opens || c.closes > r.closes })
+    if (cafeOut) return setError(`Craft Café on ${cafeOut.weekday}s (${clockRange(cafeOut.opens, cafeOut.closes)}) has to fit inside the studio hours. Change the café hours above first.`)
+    setSaving(true)
+    const r = await save((cur) => ({ ...cur, studioWeekly: rows }))
+    setSaving(false)
+    if (!r.ok) return setError(r.error)
+    setRows([...r.data.settings.studioWeekly].sort(byWeek))
+    setSavedNote(true)
+    toast('Studio hours saved. The website shows them now.')
+  }
+
+  return (
+    <>
+      <p className="adm-lbl">Studio hours</p>
+      <p className="adm-small adm-muted">The days with hours are the days the studio opens. They show on the website and in Google’s business details, and party times have to fit inside them.</p>
+      {WEEK_ORDER.map((d) => {
+        const row = rowOf(d)
+        return (
+          <fieldset key={d} className="adm-date">
+            <legend>{d}</legend>
+            <Seg
+              label={`Studio on ${d}s`}
+              value={row ? 'open' : 'closed'}
+              options={[['open', 'Open'], ['closed', 'Closed']]}
+              onChange={(v) => setDay(d, v === 'open' ? {} : null)}
+            />
+            {row && (
+              <div className="adm-two">
+                <label className="adm-fld"><span>Opens</span><input type="time" value={row.opens} onChange={(e) => setDay(d, { opens: e.target.value })} /></label>
+                <label className="adm-fld"><span>Closes</span><input type="time" value={row.closes} onChange={(e) => setDay(d, { closes: e.target.value })} /></label>
+              </div>
+            )}
+          </fieldset>
+        )
+      })}
+      {error && <p className="adm-error adm-fielderr" role="alert">{error}</p>}
+      <button type="button" className="adm-btn is-pri" disabled={!dirty || saving} onClick={saveStudio}>{saving ? 'Saving…' : 'Save studio hours'}</button>
+      {savedNote && (
+        <div className="adm-panel adm-gap-top" role="status">
+          <b>Google shows your hours separately</b>
+          <span className="adm-small">Update them on your Google Business Profile too: Edit profile › Hours.</span>
+          <a className="adm-btn is-ghost is-sm" href={GOOGLE_PROFILE_URL} target="_blank" rel="noopener noreferrer">Open Google Business Profile</a>
+        </div>
+      )}
+      <p className="adm-small adm-muted adm-gap-top">Parties and classes already booked stay booked when the hours change.</p>
+    </>
+  )
+}
+
+/** "Monday to Wednesday", "Monday, Tuesday & Wednesday" style words for the usually closed weekdays, or '' when open every day. */
+export function closedWeekdaysText(studio: CafeWeekly[]): string {
+  const open = openWeekdaysOf(studio)
+  const shut = WEEK_ORDER.filter((d) => !open.has(WEEKDAYS.indexOf(d)))
+  if (!shut.length) return ''
+  const idx = shut.map((d) => WEEK_ORDER.indexOf(d))
+  const run = idx.every((n, i) => i === 0 || n === idx[i - 1] + 1)
+  if (shut.length >= 3 && run) return `${shut[0]} to ${shut[shut.length - 1]}`
+  if (shut.length === 1) return shut[0]
+  return `${shut.slice(0, -1).join(', ')} and ${shut[shut.length - 1]}`
 }
 
 // ---------------------------------------------------------------- Closed days
@@ -403,7 +523,7 @@ function ClosedForm({ view, addRef, busy, setBusy }: { view: SettingsView; addRe
       </label>
       {error?.field === '' && <p className="adm-error" role="alert">{error.text}</p>}
       <p className="adm-note">Nothing can be booked on closed days. Anything already booked stays booked, and we’ll tell you about it.</p>
-      <p className="adm-small adm-muted adm-gap-top">The studio is also closed every Monday to Wednesday.</p>
+      {closedWeekdaysText(view.studioWeekly) && <p className="adm-small adm-muted adm-gap-top">{`The studio is also closed every ${closedWeekdaysText(view.studioWeekly)} (change that in Hours & Craft Café).`}</p>}
     </>
   )
 }

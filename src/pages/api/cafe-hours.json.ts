@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { cafeHoursEntries, formatCafeHours, formatCafeRange } from '@config/hours'
+import { cafeHoursEntries, formatCafeHours, formatCafeRange, formatHours, weeklyEntries } from '@config/hours'
 import { closureOn } from '@config/closures'
 import { getStudioDays } from '@lib/studio-settings'
 import { studioDate } from '@lib/studio-time'
@@ -20,6 +20,9 @@ const SPECIAL_AHEAD_DAYS = 60
  *   special: the coming special days (not on a closed day), soonest first
  *   notices: the announced special days (not on a closed day) for the
  *            site-wide bar and the big card (`@lib/day-notice-client`)
+ *   studio:  the studio's hours as the footer lists them [{ days, time }]
+ *   studioHours: the same as rows for Google's business details [{ days, opens, closes }]
+ * One request per page load serves the footer, the bar and the cards (`@lib/site-live`).
  */
 export const GET: APIRoute = async ({ request }) => {
   const studio = await getStudioDays()
@@ -31,8 +34,8 @@ export const GET: APIRoute = async ({ request }) => {
     .map((d) => ({ date: d.date, name: d.name, time: formatCafeRange(d.opens, d.closes) }))
   const notices = cafeDayNotices(studio.cafe)
     .filter((n) => !closureOn(n.date, studio.closures))
-    .map(({ date, hours, regularHours, showFromIso, showUntilIso }) => ({ date, hours, regularHours, showFromIso, showUntilIso }))
-  return new Response(JSON.stringify({ data: { weekly: formatCafeHours(cafeHoursEntries(studio.cafe)), special, notices } }), {
+  const studioHours = weeklyEntries(studio.studio)
+  return new Response(JSON.stringify({ data: { weekly: formatCafeHours(cafeHoursEntries(studio.cafe)), special, notices, studio: formatHours(studioHours), studioHours } }), {
     status: 200,
     headers: publicListHeaders(request),
   })

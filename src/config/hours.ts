@@ -1,7 +1,9 @@
 /**
- * Studio hours. THE single source: the footer, homepage and Open Studio page
- * show `formatHours(STUDIO_HOURS)`, and the business details given to Google
- * are built from the same list, so the two can never disagree.
+ * Studio hours, as the site uses them until an owner first saves studio hours
+ * on /admin (More › Hours & Craft Café › Studio hours); after that the saved
+ * hours win (src/lib/studio-settings.ts → getStudioDays().studio). The footer
+ * and the business details given to Google show the same list, so the two
+ * can never disagree. The weekdays with hours are the days the studio opens.
  *
  * 24-hour, studio-local (America/Chicago). Days not listed are closed.
  * Hours must cover every scheduled workshop (Sunday workshops run 6–8 PM).
@@ -84,10 +86,15 @@ export interface CafeHours {
   special: CafeSpecialDay[]
 }
 
+const rowsOf = (hours: HoursEntry[]): CafeWeekly[] => hours.flatMap((h) => h.days.map((weekday) => ({ weekday, opens: h.opens, closes: h.closes })))
+
 export const CONFIG_CAFE_HOURS: CafeHours = {
-  weekly: CAFE_HOURS.flatMap((h) => h.days.map((weekday) => ({ weekday, opens: h.opens, closes: h.closes }))),
+  weekly: rowsOf(CAFE_HOURS),
   special: CAFE_SPECIAL_DAYS,
 }
+
+/** The studio's weekly hours as one row per open weekday (same shape as the café's rows). */
+export const CONFIG_STUDIO_WEEKLY: CafeWeekly[] = rowsOf(STUDIO_HOURS)
 
 export const WEEKDAYS: readonly Weekday[] = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
@@ -107,9 +114,14 @@ export function cafeHoursOn(ymd: string, cafe: CafeHours = CONFIG_CAFE_HOURS): {
 
 /** The weekly rows as the site's hours list: days with the same hours share a row, in week order (Monday first). */
 export function cafeHoursEntries(cafe: CafeHours = CONFIG_CAFE_HOURS): HoursEntry[] {
+  return weeklyEntries(cafe.weekly)
+}
+
+/** Studio hours rows (getStudioDays().studio) as the site's hours list, like cafeHoursEntries. */
+export function weeklyEntries(rows: CafeWeekly[]): HoursEntry[] {
   const order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
   const out: HoursEntry[] = []
-  for (const w of [...cafe.weekly].sort((a, b) => order.indexOf(a.weekday) - order.indexOf(b.weekday))) {
+  for (const w of [...rows].sort((a, b) => order.indexOf(a.weekday) - order.indexOf(b.weekday))) {
     const same = out.find((e) => e.opens === w.opens && e.closes === w.closes)
     if (same) same.days.push(w.weekday)
     else out.push({ days: [w.weekday], opens: w.opens, closes: w.closes })

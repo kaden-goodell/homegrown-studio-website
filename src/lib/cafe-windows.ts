@@ -14,9 +14,8 @@
  * name "Craft Café", flow "display" and the new programDates.
  */
 import { OPEN_STUDIO_START_DATE } from '@config/opening'
-import { studioOpenOn } from '@config/closures'
 import { cafeHoursOn } from '@config/hours'
-import type { StudioDays } from '@config/studio-days'
+import { isStudioOpenOn, type StudioDays } from '@config/studio-days'
 
 /** Square caps a string custom attribute at 255 characters: about eleven windows. */
 export const SQUARE_WINDOW_LIMIT = 255
@@ -34,8 +33,8 @@ export function cafeWindows(days: StudioDays, from: string, through: string): st
   const start = from < OPEN_STUDIO_START_DATE ? OPEN_STUDIO_START_DATE : from
   const out: string[] = []
   for (let day = start; day <= through; day = addDays(day, 1)) {
-    if (!studioOpenOn(day, days.closures)) continue
-    // A special day (the Nov 7 grand opening) wins over the weekly hours.
+    // A special day (the Nov 7 grand opening) opens the studio and wins over the weekly hours.
+    if (!isStudioOpenOn(day, days)) continue
     const h = cafeHoursOn(day, days.cafe)
     if (h) out.push(`${day}T${h.opens}-${h.closes}`)
   }

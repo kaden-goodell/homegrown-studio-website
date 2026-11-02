@@ -7,7 +7,7 @@ import { SettingsError } from '@lib/studio-settings'
 import { localDate, localToUtcISO } from '@lib/party-slots'
 import {
   PARTY_CLEANUP_MINUTES, bookableDates, bookableOn, configPartySettings, describePartyChanges, partyStartsForDate,
-  partyStartsInRange, publicPartyFacts, startsOn, validatePartySettings,
+  partyStartsInRange, partyTimesOutsideHours, publicPartyFacts, startsOn, validatePartySettings,
 } from '@lib/parties/party-times'
 import type { PartySettings, PartySettingsInput } from '@lib/parties/types'
 
@@ -74,6 +74,7 @@ const SAVED_DAYS: StudioDays = {
     weekly: [{ weekday: 'Saturday', opens: '09:00', closes: '12:31' }, { weekday: 'Sunday', opens: '15:00', closes: '17:00' }],
     special: [{ date: '2026-11-08', opens: '09:00', closes: '11:00', name: 'Sunday café' }],
   },
+  studio: CONFIG_STUDIO_DAYS.studio,
 }
 
 const settingsWith = (patch: (s: PartySettings) => void): PartySettings => {
@@ -144,7 +145,7 @@ describe('times from saved settings', () => {
   const now = new Date('2026-10-19T17:00:00Z')
   it('a café Saturday drops 2:00 only inside the 60-minute gap', () => {
     const s = configPartySettings()
-    const cafeTill = (closes: string): StudioDays => ({ closures: [], cafe: { weekly: [{ weekday: 'Saturday', opens: '09:00', closes }], special: [] } })
+    const cafeTill = (closes: string): StudioDays => ({ closures: [], cafe: { weekly: [{ weekday: 'Saturday', opens: '09:00', closes }], special: [] }, studio: CONFIG_STUDIO_DAYS.studio })
     expect(partyStartsForDate(s, '2026-11-14', now, cafeTill('13:01'))).toEqual(['2026-11-14T22:30:00.000Z'])
     expect(partyStartsForDate(s, '2026-11-14', now, cafeTill('13:00'))).toEqual(['2026-11-14T20:00:00.000Z', '2026-11-14T22:30:00.000Z'])
   })
@@ -199,7 +200,7 @@ describe('times from saved settings', () => {
 
   it('a 120-minute package widens the café gap check', () => {
     // Party at 12:30 on a Sunday; café 3–5, so the party must end by 2.
-    const days: StudioDays = { closures: [], cafe: { weekly: [{ weekday: 'Sunday', opens: '15:00', closes: '17:00' }], special: [] } }
+    const days: StudioDays = { closures: [], cafe: { weekly: [{ weekday: 'Sunday', opens: '15:00', closes: '17:00' }], special: [] }, studio: CONFIG_STUDIO_DAYS.studio }
     const s = settingsWith((x) => { x.times.weekly['0'] = ['12:30'] })
     expect(partyStartsForDate(s, '2026-11-15', now, days)).toEqual(['2026-11-15T18:30:00.000Z'])
     expect(partyStartsForDate(s, '2026-11-15', now, days, { minutes: 120 })).toEqual([])
@@ -310,7 +311,8 @@ describe('validatePartySettings', () => {
       r.times.weekly['5'] = ['18:30']
       r.addOns = [{ id: 'add_hour', label: 'Extra hour', priceCents: 5000, per: 'party', extraMinutes: 30, maxQty: 1, online: true, archived: false }]
     }, 'Party times on Fridays must start by 6 PM, so the party and its cleanup end by closing at 9 PM.', 'times.weekly.5'],
-    ['crossing midnight on a day without hours', (r) => { r.times.weekly['2'] = ['23:00'] }, 'Party times on Tuesdays must start by 9:30 PM, so the party and its cleanup end by midnight.', 'times.weekly.2'],
+    ['crossing midnight on a dated day without hours', (r) => { r.times.dates['2027-03-02'] = ['23:00'] }, 'Party times on Tue, Mar 2 must start by 9:30 PM, so the party and its cleanup end by midnight.', 'times.dates.2027-03-02'],
+    ['weekly times on a day the studio is closed', (r) => { r.times.weekly['3'] = ['17:00'] }, 'The studio is closed on Wednesdays. Add Wednesday hours in Hours & Craft Café first, or make it a dated party day.', 'times.weekly.3'],
     ['a bad date', (r) => { r.times.dates['2026-02-30'] = [] }, 'Pick a real day for each dated party day.', 'times.dates'],
     ['too close on a date', (r) => { r.times.dates['2026-11-15'] = ['13:00', '14:00'] }, 'Party times on Sun, Nov 15 must be at least 2 hours 30 minutes apart.', 'times.dates.2026-11-15'],
     ['window 0', (r) => { r.times.bookingWindowDays = 0 }, 'Take bookings from 1 to 365 days ahead.', 'times.bookingWindowDays'],
@@ -456,5 +458,49 @@ describe('localToUtcISO on clock-change days (Chicago)', () => {
         expect(localDate(iso)).toBe(day)
       }
     }
+  })
+})
+
+describe('party times follow the studio hours the owners set (G3)', () => {
+  const withHours = (extra: { weekday: any; opens: string; closes: string }[]) => [...CONFIG_STUDIO_DAYS.studio.filter((w) => !extra.some((e) => e.weekday === w.weekday)), ...extra]
+
+  it('a Wednesday party: refused while Wednesday is closed, saved and offered once Wednesday has hours', () => {
+    const raw = good()
+    raw.times.weekly['3'] = ['17:00']
+    expect(refusal(raw).field).toBe('times.weekly.3')
+    const studio = withHours([{ weekday: 'Wednesday', opens: '16:00', closes: '21:00' }])
+    const saved = validatePartySettings(raw, { now: TODAY, studio })
+    expect(saved.times.weekly['3']).toEqual(['17:00'])
+    const s = { ...configPartySettings(), ...saved }
+    const days: StudioDays = { ...CONFIG_STUDIO_DAYS, studio }
+    // Wed Dec 2 2026, well inside the window and the notice
+    expect(partyStartsForDate(s, '2026-12-02', TODAY, days)).toEqual([localToUtcISO('2026-12-02', '17:00')])
+  })
+
+  it('a 10 AM Sunday: refused with the usual 1 PM opening, fine once Sunday opens at 10', () => {
+    const raw = good()
+    raw.times.weekly['0'] = ['10:00', '13:00', '15:30']
+    expect(refusal(raw).message).toBe('Party times on Sundays can’t start before the studio opens at 1 PM.')
+    const studio = withHours([{ weekday: 'Sunday', opens: '10:00', closes: '20:00' }])
+    expect(validatePartySettings(raw, { now: TODAY, studio }).times.weekly['0']).toEqual(['10:00', '13:00', '15:30'])
+  })
+
+  it('new studio hours that would leave a party time out say which, and what to do', () => {
+    const s = inputOf(configPartySettings())
+    expect(partyTimesOutsideHours(s, CONFIG_STUDIO_DAYS.studio, TODAY)).toBeNull()
+    // Sunday opening at 2 PM: the 1 PM party no longer fits
+    expect(partyTimesOutsideHours(s, withHours([{ weekday: 'Sunday', opens: '14:00', closes: '20:00' }]), TODAY))
+      .toBe('There’s a party time at 1 PM on Sundays, before the studio would open at 2 PM. Move it in Parties setup first, or keep the studio hours as they are.')
+    // Saturday closing at 6:30: the 4:30 party and its cleanup run past it
+    expect(partyTimesOutsideHours(s, withHours([{ weekday: 'Saturday', opens: '09:00', closes: '18:30' }]), TODAY))
+      .toBe('The 4:30 PM party time on Saturdays would run past closing at 6:30 PM, with its cleanup. Move it in Parties setup first, or keep the studio hours as they are.')
+    // Closing Fridays altogether
+    expect(partyTimesOutsideHours(s, CONFIG_STUDIO_DAYS.studio.filter((w) => w.weekday !== 'Friday'), TODAY))
+      .toBe('There are party times on Fridays. Remove them in Parties setup first, or keep Friday open.')
+
+    // Only what the change itself leaves out: a dated 4 PM Thursday already outside the usual 6–8 PM isn't hers to fix here.
+    const dated = { ...s, times: { ...s.times, dates: { '2026-11-12': ['16:00'] } } }
+    expect(partyTimesOutsideHours(dated, withHours([{ weekday: 'Friday', opens: '16:00', closes: '21:30' }]), TODAY, CONFIG_STUDIO_DAYS.studio)).toBeNull()
+    expect(partyTimesOutsideHours(dated, withHours([{ weekday: 'Friday', opens: '16:00', closes: '21:30' }]), TODAY)).toMatch(/4 PM on Thu, Nov 12/)
   })
 })

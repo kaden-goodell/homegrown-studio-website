@@ -63,7 +63,7 @@ describe('R41: a test site with no store of its own', () => {
         await expect(addBlocked({ startIso: '2031-06-02T15:00:00.000Z', endIso: '2031-06-02T16:00:00.000Z', reason: 'Setup', by })).rejects.toThrow(NO_TEST_STORE)
         await expect(removeBlocked(b.id, by)).rejects.toThrow(NO_TEST_STORE)
         await expect(saveLibraryVersion({ content, by, note: '' })).rejects.toThrow(NO_TEST_STORE)
-        await expect(saveStudioSettings({ cafeWeekly: {} as any, cafeSpecialDays: [], closures: [] }, { expectedUpdatedAt: null, by })).rejects.toThrow(NO_TEST_STORE)
+        await expect(saveStudioSettings({ studioWeekly: [], cafeWeekly: {} as any, cafeSpecialDays: [], closures: [] }, { expectedUpdatedAt: null, by })).rejects.toThrow(NO_TEST_STORE)
         const refused = decide('td_x', 'keep', {}, by).catch((e) => e)
         expect(await refused).toBeInstanceOf(DecideError)
         expect((await refused).message).toBe(NO_TEST_STORE)

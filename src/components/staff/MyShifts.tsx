@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
+import type { CafeWeekly } from '@config/hours'
 import StaffHeader from '@components/staff/StaffHeader'
 import AvailabilityEditor from '@components/staff/AvailabilityEditor'
 import CalendarLinkSheet from '@components/staff/CalendarLinkSheet'
@@ -29,6 +30,8 @@ interface ShiftsData {
   mine: StaffingRow[]
   open: OpenEvent[]
   feed: { has: boolean }
+  /** The studio's hours in force (the usual week shows its open days). */
+  studioHours?: CafeWeekly[]
 }
 
 type OpenRoster = (e: { kind: EventKind; id: string; title: string; day?: string }) => void
@@ -285,7 +288,7 @@ export default function MyShifts({ staff, onOpenRoster }: { staff: StaffMember; 
 
           <section aria-labelledby="ms-times">
             <h2 id="ms-times" style={h2}>When I can work</h2>
-            <AvailabilityEditor initial={data.availability} onSaved={(a) => setData((d) => d && { ...d, availability: a })} />
+            <AvailabilityEditor initial={data.availability} studioHours={data.studioHours} onSaved={(a) => setData((d) => d && { ...d, availability: a })} />
           </section>
 
           <section aria-labelledby="ms-cal" style={{ marginBottom: '5rem' }}>

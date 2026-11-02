@@ -52,9 +52,25 @@ const fetched = new Map<string, { at: number; events: CalendarEvent[]; incomplet
 /** The studio's closed days the server sent with each month (owners edit them on /admin). */
 const shutByMonth = new Map<string, Closure[]>()
 
+/** The weekdays the studio opens (its hours, as the owners set them) and the dates a café special day opens, as the server said. */
+let openWeekdays: ReadonlySet<number> = OPEN_WEEKDAYS
+const openDatesByMonth = new Map<string, string[]>()
+
 /** The closed days that apply to a date: what the server said for its month, or the config before it has answered. */
 export function closuresFor(dateStr: string): Closure[] {
   return shutByMonth.get(dateStr.slice(0, 7)) ?? configClosures
+}
+
+/** Open on this date: an open weekday or a café special day, and not a closed day. */
+export function openOn(dateStr: string): boolean {
+  const shut = closuresFor(dateStr)
+  if (studioOpenOn(dateStr, shut, openWeekdays)) return true
+  return !closureOn(dateStr, shut) && (openDatesByMonth.get(dateStr.slice(0, 7)) ?? []).includes(dateStr)
+}
+
+/** The open weekdays in force (0 = Sunday), for the day headers. */
+export function openWeekdaysNow(): ReadonlySet<number> {
+  return openWeekdays
 }
 
 function held(key: string): CalendarEvent[] | null {
@@ -84,13 +100,15 @@ function keysFrom(first: string, count: number): string[] {
 async function fetchMonths(first: string, count: number): Promise<void> {
   const res = await fetch(`/api/calendar.json?month=${first}${count > 1 ? `&months=${count}` : ''}`)
   if (!res.ok) throw new Error(`calendar fetch failed: ${res.status}`)
-  const data: { events?: CalendarEvent[]; incomplete?: boolean; closures?: Closure[] } = await res.json()
+  const data: { events?: CalendarEvent[]; incomplete?: boolean; closures?: Closure[]; openWeekdays?: number[]; openDates?: string[] } = await res.json()
+  if (Array.isArray(data?.openWeekdays) && data.openWeekdays.every((n) => Number.isInteger(n) && n >= 0 && n <= 6)) openWeekdays = new Set(data.openWeekdays)
   const events = Array.isArray(data?.events) ? data.events : []
   const incomplete = data?.incomplete === true
   const at = Date.now()
   for (const key of keysFrom(first, count)) {
     fetched.set(key, { at, incomplete, events: events.filter((e) => e.date.startsWith(key)) })
     if (Array.isArray(data?.closures)) shutByMonth.set(key, data.closures)
+    if (Array.isArray(data?.openDates)) openDatesByMonth.set(key, data.openDates.filter((d) => typeof d === 'string' && d.startsWith(key)))
   }
 }
 
@@ -105,6 +123,8 @@ async function fetchMonth(key: string): Promise<CalendarEvent[]> {
 export function forgetFetchedMonths(): void {
   fetched.clear()
   shutByMonth.clear()
+  openDatesByMonth.clear()
+  openWeekdays = OPEN_WEEKDAYS
 }
 
 interface WhatsOnCalendarProps {
@@ -745,7 +765,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
             fontWeight: 700,
             letterSpacing: '0.08em',
             textTransform: 'uppercase',
-            color: OPEN_WEEKDAYS.has(i) ? 'var(--color-dark)' : 'rgba(var(--color-primary-rgb), 0.45)',
+            color: openWeekdaysNow().has(i) ? 'var(--color-dark)' : 'rgba(var(--color-primary-rgb), 0.45)',
             padding: '0.25rem 0 0.5rem',
           }}>
             {d}
@@ -777,9 +797,9 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
             return <div key={`empty-${i}`} style={{ background: 'rgba(255,255,255,0.35)', minHeight: compact ? '2.75rem' : DAY_MIN_HEIGHT }} />
           }
           const dateStr = `${monthStr}-${String(day).padStart(2, '0')}`
-          // Closed: the usual Mon–Wed, and any day the studio has closed (see closures.ts).
+          // Closed: a weekday without studio hours (unless a café special day opens it), and any closed day.
           const shut = closuresFor(dateStr)
-          const isOpenDay = studioOpenOn(dateStr, shut)
+          const isOpenDay = openOn(dateStr)
           const holiday = closureOn(dateStr, shut)?.holiday
           const isPast = dateStr < todayStr
           const isToday = dateStr === todayStr

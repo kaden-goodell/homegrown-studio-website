@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
 import { closureOn, OPEN_WEEKDAYS, type Closure } from '@config/closures'
+import { openWeekdaysOf, type StudioDays } from '@config/studio-days'
 import { useStudio } from '../shell/studio'
 import { useCalendar, useShell } from '../shell/data'
 import { useStaffTags } from '../staffing/api'
@@ -38,8 +39,9 @@ export const GRID_MIN_PX = 720
 export const MONTH_CHIPS_MIN_PX = 560
 
 const shortDay = (d: string) => dayLabel(d).split(' ')[0]
-/** A usual closed weekday (Mon–Wed) with nothing on it. */
-const quietClosed = (d: string, list: CalendarItem[]) => !list.length && !OPEN_WEEKDAYS.has(weekday(d))
+/** A usual closed weekday (no studio hours, no café special day) with nothing on it. */
+const quietClosedIn = (d: string, list: CalendarItem[], days: StudioDays | null) =>
+  !list.length && (days ? !openWeekdaysOf(days.studio).has(weekday(d)) && !days.cafe.special.some((s) => s.date === d) : !OPEN_WEEKDAYS.has(weekday(d)))
 const HOLIDAY_NAME: Record<string, string> = { halloween: 'Halloween', thanksgiving: 'Thanksgiving', christmas: 'Christmas' }
 /** What a named closure is called in a small month cell. */
 const closureShort = (c: Closure) => (c.holiday ? HOLIDAY_NAME[c.holiday] : c.name.replace(/^the /, ''))
@@ -74,6 +76,7 @@ export default function CalendarView({ initialDay, onOpen }: {
 }) {
   const wide = useWide()
   const studio = useStudio()
+  const quietClosed = (d: string, list: CalendarItem[]) => quietClosedIn(d, list, studio.days)
   const { activeToken } = useShell()
   const [box, width] = useWidth<HTMLDivElement>()
   const [view, setView] = useState<View>('week')

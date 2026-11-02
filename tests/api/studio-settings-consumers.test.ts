@@ -182,3 +182,41 @@ describe('café hours saved on /admin', () => {
     expect((await getSettingsView()).closures).toEqual(configSettings().closures)
   })
 })
+
+describe('studio hours saved on /admin (G3)', () => {
+  const WED = '2026-11-18' // a Wednesday: usually closed
+  const withWednesday = (s: SettingsInput): SettingsInput => ({ ...s, studioWeekly: [...s.studioWeekly, { weekday: 'Wednesday', opens: '16:00', closes: '21:00' }] })
+
+  it('a café special day on a Wednesday shows everywhere, though the studio is usually closed', async () => {
+    await saveSettings((s) => ({ ...s, cafeSpecialDays: [...s.cafeSpecialDays, { date: WED, opens: '10:00', closes: '14:00', name: 'Midweek café' }] }))
+    expect((await get(cafeHours, '/api/cafe-hours.json')).body.data.special).toEqual(expect.arrayContaining([{ date: WED, name: 'Midweek café', time: '10 AM – 2 PM' }]))
+    const busy = await busyBetween(localToUtcISO(WED, '00:00'), localToUtcISO('2026-11-19', '00:00'))
+    expect(busy.find((b) => b.kind === 'cafe')).toMatchObject({ startIso: localToUtcISO(WED, '10:00'), endIso: localToUtcISO(WED, '14:00') })
+    expect((await get(events, `/api/staff/events.json?date=${WED}`)).body.data.cafeOpen).toBe(true)
+    const pub = await get(calendar, '/api/calendar.json?month=2026-11')
+    expect(pub.body.openDates).toContain(WED)
+    expect(pub.body.openWeekdays).toEqual([0, 4, 5, 6])
+  })
+
+  it('the footer and Google get the saved hours; the calendar opens Wednesdays', async () => {
+    const before = (await get(cafeHours, '/api/cafe-hours.json')).body.data
+    expect(before.studio).toEqual([
+      { days: 'Thursday', time: '6 – 8 PM' }, { days: 'Friday', time: '4 – 9 PM' }, { days: 'Saturday', time: '9 AM – 9 PM' }, { days: 'Sunday', time: '1 – 8 PM' },
+    ])
+    await saveSettings(withWednesday)
+    resetStudioDaysCache()
+    forgetAll()
+    const data = (await get(cafeHours, '/api/cafe-hours.json')).body.data
+    expect(data.studio[0]).toEqual({ days: 'Wednesday & Friday', time: '4 – 9 PM' })
+    expect(data.studioHours).toEqual(expect.arrayContaining([{ days: ['Wednesday', 'Friday'], opens: '16:00', closes: '21:00' }]))
+    const pub = await get(calendar, '/api/calendar.json?month=2026-11')
+    expect(pub.body.openWeekdays).toEqual([0, 3, 4, 5, 6])
+  })
+
+  it('a party on a Wednesday is a closed-day warning until Wednesday has hours', async () => {
+    expect((await holdTime({ partyId: 'pty_wednesday00000001', startIso: localToUtcISO(WED, '17:00'), endIso: localToUtcISO(WED, '18:30'), ttlMinutes: null }, [], new Date())).ok).toBe(true)
+    expect((await listWarnings({ from: WED, to: WED })).map((w) => w.code)).toContain('party-on-closed-day')
+    await saveSettings(withWednesday)
+    expect((await listWarnings({ from: WED, to: WED })).map((w) => w.code)).not.toContain('party-on-closed-day')
+  })
+})

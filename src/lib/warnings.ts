@@ -16,8 +16,8 @@
  * no capacity anywhere gets a capacity-unknown line rather than silence.
  */
 import { providers } from '@config/providers'
-import { studioOpenOn, type Closure } from '@config/closures'
-import { getClosures } from '@lib/studio-settings'
+import { isStudioOpenOn, type StudioDays } from '@config/studio-days'
+import { getStudioDays } from '@lib/studio-settings'
 import { getEventMeta, type EventMeta } from '@lib/event-meta'
 import { listSeatChoicesByEvent } from '@lib/seat-choices'
 import { partyBusy } from '@lib/classes/studio-schedule'
@@ -197,9 +197,9 @@ function oversold(s: Scan): Warning[] {
   })
 }
 
-function partyOnClosedDay(s: Scan, closed: Closure[]): Warning[] {
+function partyOnClosedDay(s: Scan, days: StudioDays): Warning[] {
   return s.parties
-    .filter((p) => !studioOpenOn(studioDate(p.startIso), closed))
+    .filter((p) => !isStudioOpenOn(studioDate(p.startIso), days))
     .map((p): Warning => ({
       code: 'party-on-closed-day',
       eventKind: 'party',
@@ -428,7 +428,7 @@ export async function listWarnings({ from, to }: { from: string; to: string }, o
   // The owners' closed days (config until they first save on /admin). Staffing
   // lines never fail the scan: a staffing read that fails is one line of its own.
   const staffingOrNone = opts.staffing === false ? Promise.resolve([] as Warning[]) : staffingWarnings(from, to, now)
-  const [s, own, parties, closed, staffing] = await Promise.all([scanOrNull, ownOrError, partiesOrError, getClosures(), staffingOrNone])
+  const [s, own, parties, closed, staffing] = await Promise.all([scanOrNull, ownOrError, partiesOrError, getStudioDays(), staffingOrNone])
   const squareLines: Warning[] = s
     ? [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s, closed), ...(await seatCounts(s))]
     : [{
