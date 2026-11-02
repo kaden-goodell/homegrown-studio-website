@@ -23,13 +23,27 @@ function isNotFound(err: any): boolean {
   )
 }
 
+/**
+ * Square's documented sandbox gift-card test nonces. CreatePayment accepts them,
+ * but no gift card stands behind them: RetrieveGiftCardFromNonce answers 404
+ * "There is no giftcard associated with that nonce" (sandbox, 2026-11-02), so the
+ * gift-card check before a hold refused the paying test card. In the sandbox only,
+ * the ok nonce stands for an active card with plenty on it. Never consulted
+ * against production.
+ */
+const SANDBOX_TEST_GIFT_CARDS: Record<string, number> = {
+  'cnon:gift-card-nonce-ok': 100_000_00,
+}
+
 export class SquareGiftCardProvider implements GiftCardProvider {
   private client: ReturnType<typeof createSquareClient>
   private locationId: string
+  private sandbox: boolean
 
   constructor(config: SquareConfig, client: ReturnType<typeof createSquareClient> = createSquareClient(config)) {
     this.client = client
     this.locationId = config.locationId
+    this.sandbox = config.environment === 'sandbox'
   }
 
   /**
@@ -68,6 +82,10 @@ export class SquareGiftCardProvider implements GiftCardProvider {
   }
 
   async fromNonce(nonce: string): Promise<GiftCard | null> {
+    if (this.sandbox && Object.hasOwn(SANDBOX_TEST_GIFT_CARDS, nonce)) {
+      logger.warn('Sandbox test gift-card nonce: standing in for Square\'s card lookup', { nonce })
+      return { id: `sandbox-test:${nonce}`, gan: '', balanceCents: SANDBOX_TEST_GIFT_CARDS[nonce], state: 'ACTIVE' }
+    }
     return this.lookup((gc) => gc.getFromNonce({ nonce }))
   }
 

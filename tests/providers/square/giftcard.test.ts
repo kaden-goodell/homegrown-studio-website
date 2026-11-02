@@ -84,4 +84,18 @@ describe('SquareGiftCardProvider', () => {
     getFromNonce.mockRejectedValueOnce({ statusCode: 401, errors: [{ category: 'AUTHENTICATION_ERROR', code: 'UNAUTHORIZED' }] })
     await expect(provider.fromNonce('e')).rejects.toMatchObject({ statusCode: 401 })
   })
+
+  it('sandbox: Square\'s gift-card test nonce (no card behind it in Square) stands for an active card with plenty on it', async () => {
+    const card = await provider.fromNonce('cnon:gift-card-nonce-ok')
+    expect(card).toMatchObject({ state: 'ACTIVE' })
+    expect(card!.balanceCents).toBeGreaterThanOrEqual(1_000_000)
+    expect(getFromNonce).not.toHaveBeenCalled()
+  })
+
+  it('production: the test nonce is asked of Square like any other (and is no card)', async () => {
+    const live = new SquareGiftCardProvider({ ...testConfig, environment: 'production' })
+    getFromNonce.mockRejectedValueOnce({ statusCode: 404, errors: [{ code: 'NOT_FOUND', category: 'INVALID_REQUEST_ERROR' }] })
+    expect(await live.fromNonce('cnon:gift-card-nonce-ok')).toBeNull()
+    expect(getFromNonce).toHaveBeenCalledWith({ nonce: 'cnon:gift-card-nonce-ok' })
+  })
 })
