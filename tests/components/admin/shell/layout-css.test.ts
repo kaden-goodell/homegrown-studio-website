@@ -91,5 +91,9 @@ describe('admin.css', () => {
     expect(blocks('.adm-actpanel').join('\n')).toContain('scroll-margin-top')
     // The payment link wraps anywhere, so a long link never scrolls the page sideways.
     expect(blocks('.adm-linkbox').join('\n')).toContain('overflow-wrap: anywhere')
+    // Not told yet's Call / Text / Write to …: wrap to a stack on narrow sheets, each at least 44px tall (re-review I7).
+    expect(blocks('.adm-contactrow').join('\n')).toContain('flex-wrap: wrap')
+    expect(blocks('.adm-contactrow > .adm-btn').join('\n')).toMatch(/flex: 1 1 11rem;[\s\S]*min-height: 44px/)
+    expect(readFileSync('src/components/admin/parties/PartySheet.tsx', 'utf8')).toContain('adm-contactrow')
   })
 })

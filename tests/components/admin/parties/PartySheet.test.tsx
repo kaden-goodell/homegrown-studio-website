@@ -276,14 +276,38 @@ describe('Party sheet', () => {
     expect(within(foot).getByRole('link', { name: 'Call' })).toBeInTheDocument()
   })
 
-  it('a time still held for the party after a move (m8): offers to let it go, the same request as finishing the move', async () => {
+  it('a time still held for the party after a move (m8): Let … go asks only to let that time go, with the start and version on screen (N1)', async () => {
     const OLD = at('2031-03-08', '13:00')
-    const f = server(party({ leftoverHolds: [OLD] }), { [ACT]: { body: { data: { party: party(), hostToTell: tell, message: 'Moved to …', replay: true } } } })
+    const message = 'Sat, Mar 8 at 1:00 PM is free again. The party stays on Sat, Mar 15 at 2:00 PM. Nothing was sent to Stefanie.'
+    const f = server(party({ leftoverHolds: [OLD] }), { [ACT]: { body: { data: { party: { ...party(), leftoverHolds: [] }, released: OLD, message } } } })
     open()
     const held = await screen.findByRole('group', { name: /still held$/ })
     fireEvent.click(within(held).getByRole('button', { name: /^Let .+ go$/ }))
-    expect(await screen.findByRole('heading', { name: 'Held time' })).toHaveAccessibleDescription(/is free again. Nothing else changed and nothing was sent to Stefanie\./)
-    expect(posts(f, ACT)[0].body).toEqual({ id: ID, action: 'move', startIso: T1, fromIso: OLD })
+    expect(await screen.findByRole('heading', { name: 'Held time' })).toHaveAccessibleDescription(message)
+    expect(posts(f, ACT)[0].body).toEqual({ id: ID, action: 'release-hold', holdIso: OLD, shownStartIso: T1, shownVersion: 2 })
+    // The held-time panel goes at once (the reply carries what is still held).
+    await waitFor(() => expect(screen.queryByRole('group', { name: /still held$/ })).toBeNull())
+  })
+
+  it('Let … go on a stale screen: the refusal is shown plainly, nothing claims it was let go (N1)', async () => {
+    const OLD = at('2031-03-08', '13:00')
+    const error = 'This party changed since this screen loaded. It’s on Sat, Mar 8 at 1:00 PM now. Nothing was let go. Check it, then try again.'
+    server(party({ leftoverHolds: [OLD] }), { [ACT]: { status: 409, body: { error } } })
+    open()
+    const held = await screen.findByRole('group', { name: /still held$/ })
+    fireEvent.click(within(held).getByRole('button', { name: /^Let .+ go$/ }))
+    expect(await screen.findByRole('heading', { name: 'Held time' })).toHaveAccessibleDescription(error)
+    expect(screen.queryByText(/is free again/)).toBeNull()
+  })
+
+  it('Not told yet: Call, Text and Write to … sit in a row that stacks on narrow sheets, with no empty slots (I7)', async () => {
+    server(party({ hostPhone: '', notTold: { at: '2031-03-05T15:00:00Z', what: ['details'], message: 'Stefanie hasn’t been told about the changed details.' } }))
+    open()
+    const remind = await screen.findByRole('group', { name: 'Not told yet · let Stefanie know' })
+    const write = within(remind).getByRole('link', { name: 'Write to Stefanie' })
+    expect(write.parentElement).toHaveClass('adm-contactrow')
+    expect(write.parentElement!.children).toHaveLength(1)
+    expect(within(remind).queryByRole('link', { name: 'Call' })).toBeNull()
   })
 
   it('Take card now: Square’s card box, charges what is due', async () => {

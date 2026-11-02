@@ -25,8 +25,14 @@
  *    and its lease frees itself within the lease time (30 s);
  *  - fencing: before each write that matters (the party book, the record),
  *    the action calls `assertPartyLockHeld()`, which renews the lease and
- *    refuses (PartyBusyError, nothing written) if another server took it
- *    over meanwhile (a heartbeat that couldn't reach the store for 30 s).
+ *    refuses (PartyLockLostError, nothing written) if another server took it
+ *    over meanwhile, or if the store can't confirm it and the last good
+ *    renewal is older than the lease;
+ *  - renewals are one at a time per lease (the heartbeat skips while one is
+ *    in flight, a fencing check queues behind it), and "not ours" is decided
+ *    by re-reading the lease's holder, never by a lost compare-and-set alone;
+ *  - after a real loss (`partyLockTaken()`), callers skip their cleanup
+ *    writes, which could undo the other server's change.
  * Requests on one server queue in process; each still has its own WAIT_MS
  * for the store lease once it reaches the front.
  *
@@ -54,8 +60,24 @@ export function _setPartyLockTimes(t: { renewMs?: number; leaseMs?: number }): v
   if (t.leaseMs) leaseMs = t.leaseMs
 }
 
+export const PARTY_BUSY = 'Someone else is changing this party right now. Wait a moment, then try again. Nothing was changed.'
+
 export class PartyBusyError extends Error {
-  constructor() { super('Someone else is changing this party right now. Wait a moment, then try again. Nothing was changed.') }
+  constructor(message: string = PARTY_BUSY) { super(message) }
+}
+
+/**
+ * The lease was lost while the action ran (thrown by assertPartyLockHeld):
+ * `taken` = another server holds it now; `unreachable` = the store couldn't
+ * confirm it for longer than a lease. Callers that already wrote something
+ * say so in their own words (the default here says only that it stopped).
+ */
+export class PartyLockLostError extends PartyBusyError {
+  constructor(public reason: 'taken' | 'unreachable') {
+    super(reason === 'taken'
+      ? 'Someone else started changing this party at the same moment, so this stopped. Open the party again to check it, then try again.'
+      : 'The party couldn’t be reached for a while, so this stopped to be safe. Open the party again to check it, then try again.')
+  }
 }
 
 const queues = new Map<string, Promise<unknown>>()
@@ -92,39 +114,82 @@ async function acquire(partyId: string): Promise<string> {
   }
 }
 
-/** Extends our lease; false when it is no longer ours (it ran out and another server took it). */
-async function renew(partyId: string, token: string): Promise<boolean> {
-  const k = keyOf(partyId)
-  const { value, etag } = await kv.getWithMeta(k)
-  if (parse(value)?.token !== token) return false
-  return kv.setIfMatch(k, JSON.stringify({ token, until: Date.now() + leaseMs } satisfies Lease), etag, true)
+/**
+ * The action's hold on the lease.
+ *  - `lost`: another server holds the lease now (decided by re-reading it, never by a
+ *    failed compare-and-set alone, which our own heartbeat can cause). Final.
+ *  - `validUntil`: monotonic time until which the lease is surely ours: the start of
+ *    the last successful renewal plus the lease, less a margin (N2b).
+ *  - `chain`: renewals run one at a time per lease (heartbeat and fencing never race, N2a).
+ */
+interface Held { partyId: string; token: string; lost: boolean; validUntil: number; chain: Promise<unknown>; renewing: boolean }
+
+const marginMs = () => Math.min(2_000, Math.floor(leaseMs / 5))
+
+/**
+ * Extends our lease, one renewal at a time. 'ok' (renewed), 'lost' (the
+ * store says another server holds it now). Throws when the store can't be
+ * reached (the caller decides by `validUntil`).
+ */
+function renewHeld(h: Held): Promise<'ok' | 'lost'> {
+  const run = h.chain.then(async (): Promise<'ok' | 'lost'> => {
+    h.renewing = true
+    try {
+      if (h.lost) return 'lost'
+      const k = keyOf(h.partyId)
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const started = performance.now()
+        const { value, etag } = await kv.getWithMeta(k)
+        if (parse(value)?.token !== h.token) { h.lost = true; return 'lost' }
+        if (await kv.setIfMatch(k, JSON.stringify({ token: h.token, until: Date.now() + leaseMs } satisfies Lease), etag, true)) {
+          h.validUntil = started + leaseMs - marginMs()
+          return 'ok'
+        }
+        // The compare-and-set lost: read the lease again and decide by its holder.
+      }
+      throw new Error('Party lock not renewed after 3 tries')
+    } finally {
+      h.renewing = false
+    }
+  })
+  h.chain = run.catch(() => undefined)
+  return run
 }
 
-interface Held { partyId: string; token: string; lost: boolean }
 const held = new AsyncLocalStorage<Held>()
 
 /**
  * Fencing: call right before a write that matters. Renews the lease and
- * throws PartyBusyError (nothing written) when another server holds it now.
- * Outside withPartyLock it does nothing.
+ * throws PartyLockLostError (nothing written) when another server holds it
+ * now, or when the store can't confirm it and the last renewal is older
+ * than the lease. Outside withPartyLock it does nothing.
  */
 export async function assertPartyLockHeld(): Promise<void> {
   const h = held.getStore()
   if (!h) return
-  let ok = !h.lost
-  if (ok) {
-    try {
-      ok = await renew(h.partyId, h.token)
-    } catch (e) {
-      // The store didn't answer: the lease stands until `until`, and the heartbeat keeps trying.
-      logger.warn('Party lock not renewed', { partyId: h.partyId, error: String(e) })
-    }
+  let res: 'ok' | 'lost'
+  try {
+    res = await renewHeld(h)
+  } catch (e) {
+    logger.warn('Party lock not renewed', { partyId: h.partyId, error: String(e) })
+    // The store didn't answer: the lease stands only while the last renewal is fresh.
+    if (performance.now() < h.validUntil) return
+    logger.error('PARTY LOCK unconfirmed before a write', { partyId: h.partyId })
+    throw new PartyLockLostError('unreachable')
   }
-  if (!ok) {
-    h.lost = true
+  if (res === 'lost') {
     logger.error('PARTY LOCK lost before a write', { partyId: h.partyId })
-    throw new PartyBusyError()
+    throw new PartyLockLostError('taken')
   }
+}
+
+/**
+ * True when this action's lease was taken by another server: its cleanup
+ * writes (letting a time go, shrinking a hold back) must not run, since they
+ * could undo that server's write (N2c). False outside a lock.
+ */
+export function partyLockTaken(): boolean {
+  return held.getStore()?.lost === true
 }
 
 async function release(partyId: string, token: string): Promise<void> {
@@ -142,11 +207,13 @@ async function release(partyId: string, token: string): Promise<void> {
 /** Runs `fn` as the only time-changing action on this party (this server and every other). */
 export function withPartyLock<T>(partyId: string, fn: () => Promise<T>): Promise<T> {
   return inProcess(partyId, async () => {
+    const started = performance.now()
     const token = await acquire(partyId)
-    const h: Held = { partyId, token, lost: false }
+    const h: Held = { partyId, token, lost: false, validUntil: started + leaseMs - marginMs(), chain: Promise.resolve(), renewing: false }
     const beat = setInterval(() => {
-      if (h.lost) return
-      renew(partyId, token).then((ok) => { if (!ok) h.lost = true }, () => undefined)
+      // One renewal in flight at a time; a fencing check queued meanwhile renews after it.
+      if (h.lost || h.renewing) return
+      renewHeld(h).catch((e) => logger.warn('Party lock heartbeat failed', { partyId, error: String(e) }))
     }, renewMs)
     ;(beat as { unref?: () => void }).unref?.()
     try {

@@ -32,6 +32,8 @@ const m = vi.hoisted(() => ({
   fault: { landThenThrow: 0, throwOnSet: 0, getFailsAfterSetThrow: 0, getFails: 0 },
   /** the next party-record write pauses (ms) just before or just after it lands, and says so (`onPause`): to line up two requests */
   pause: { before: 0, after: 0, onPause: null as null | (() => void) },
+  /** runs (once) before the next compare-and-set read of a party record: to change the store in between */
+  beforeGetMeta: null as null | ((k: string) => void),
   paid: new Map<string, any>(),
   data: new Map<string, { value: string; etag: string }>(),
   n: 0,
@@ -44,7 +46,7 @@ vi.mock('@lib/blob-store', async (orig) => {
   const mem = {
     async get(k: string) { readFault(); return m.data.get(k)?.value ?? null },
     async set(k: string, v: string) { put(k, v) },
-    async getWithMeta(k: string) { readFault(); const h = m.data.get(k); return { value: h?.value ?? null, etag: h?.etag ?? null } },
+    async getWithMeta(k: string) { readFault(); if (m.beforeGetMeta) { const f = m.beforeGetMeta; m.beforeGetMeta = null; f(k) } const h = m.data.get(k); return { value: h?.value ?? null, etag: h?.etag ?? null } },
     async setIfMatch(k: string, v: string, etag: string | null, exists: boolean) {
       await new Promise((r) => setTimeout(r, 0))
       const hold = async (ms: number) => { m.pause.onPause?.(); m.pause.onPause = null; await new Promise((r) => setTimeout(r, ms)) }
@@ -121,7 +123,7 @@ import * as timesRoute from '@pages/api/admin/parties/times.json'
 import * as refundRoute from '@pages/api/admin/parties/refund.json'
 import { adminCookie } from '@lib/admin-auth'
 import { createPartyRecord, getPartyRecord, updatePartyRecord, type PartyRecord } from '@lib/party-store'
-import { holdsBetween } from '@lib/parties/party-book'
+import { holdsBetween, moveTime } from '@lib/parties/party-book'
 import { localToUtcISO } from '@lib/parties/party-times'
 import { configPartySettings } from '@lib/parties/party-times'
 import { resetPartySettingsCache, savePartySettings } from '@lib/parties/settings-store'
@@ -214,6 +216,7 @@ beforeEach(() => {
   m.testSite.on = false
   Object.assign(m.fault, { landThenThrow: 0, throwOnSet: 0, getFailsAfterSetThrow: 0, getFails: 0 })
   Object.assign(m.pause, { before: 0, after: 0, onPause: null })
+  m.beforeGetMeta = null
   m.releaseClaim.mockReset().mockResolvedValue(undefined)
   m.alert.mockReset().mockResolvedValue(undefined)
   m.audit.mockReset().mockResolvedValue(undefined)
@@ -1304,5 +1307,146 @@ describe('Not told yet (DV8, T12 review I3) and what the host was last told (m9,
     await decide(item.id, 'told', {}, KADEN, NOW)
     expect((await getPartyRecord(id))!.notTold).toBeNull()
     expect((await listToDecide(NOW)).items.find((i) => i.id === item.id)?.done).toBe('Told them')
+  })
+})
+
+// ── T12 re-review 1, fix round 2 ────────────────────────────────────────────
+
+describe('Let … go: release-hold (T12 re-review N1)', () => {
+  const view = async (id: string) => (await act({ id, action: 'edit-details', guests: 10 })).body.data.party // nothing changed: the view as saved
+
+  it('the reviewer’s repro: a stale sheet (party on Sat 2 PM, Sun 1 PM held) after another device finished the move to Sun 1 PM is refused; the party is never moved back', async () => {
+    const w = weekend()
+    const id = (await book(cardBody(w.sat2))).body.data.party.bookingId
+    const stale = await view(id) // Catherine's sheet: Sat 2 PM, "Sun 1 PM still shows as held"
+    expect(stale.startIso).toBe(new Date(w.sat2).toISOString())
+    // Kaden, on another device, taps Finish the move: the party is on Sun 1 PM now and Sat 2 PM is free.
+    expect((await act({ id, action: 'move', startIso: w.sun1 })).status).toBe(200)
+    const before = (await getPartyRecord(id))!
+    m.audit.mockClear()
+    const r = await act({ id, action: 'release-hold', holdIso: w.sun1, shownStartIso: stale.startIso, shownVersion: stale.timeVersion })
+    expect(r.status).toBe(409)
+    expect(r.body.error).toMatch(/^This party changed since this screen loaded\. It’s on Sun, .* at 1:00 PM now\. Nothing was let go\. Check it, then try again\.$/)
+    const after = (await getPartyRecord(id))!
+    expect(after.startIso).toBe(new Date(w.sun1).toISOString())
+    expect(after.notTold).toEqual(before.notTold)
+    expect(after.history!.length).toBe(before.history!.length)
+    expect((await holdsOf(id)).map((h) => h.startIso)).toEqual([new Date(w.sun1).toISOString()])
+    expect(audits('party-release-hold')).toHaveLength(0)
+  })
+
+  it('moved away and back (same start, newer version): refused, nothing let go', async () => {
+    const w = weekend()
+    const id = (await book(cardBody(w.sat2))).body.data.party.bookingId
+    const stale = await view(id)
+    await act({ id, action: 'move', startIso: w.sun1 })
+    await act({ id, action: 'move', startIso: w.sat2 })
+    const r = await act({ id, action: 'release-hold', holdIso: w.sun1, shownStartIso: stale.startIso, shownVersion: stale.timeVersion })
+    expect(r.status).toBe(409)
+    expect((await holdsOf(id)).map((h) => h.startIso)).toEqual([new Date(w.sat2).toISOString()])
+  })
+
+  it('a real leftover: only that time goes; the party, its record and the host are untouched; audited', async () => {
+    const w = weekend()
+    const id = (await book(cardBody(w.sat2))).body.data.party.bookingId
+    // A move that stopped after writing the new time ("Not now" on Finish the move): Sun 1 PM held too.
+    expect((await moveTime(id, { startIso: w.sat2 }, { startIso: w.sun1, endIso: new Date(Date.parse(w.sun1) + 90 * 60_000).toISOString() }, [], NOW)).ok).toBe(true)
+    const shown = await view(id)
+    const before = (await getPartyRecord(id))!
+    m.audit.mockClear(); m.confirmEmail.mockClear(); m.text.mockClear()
+    const r = await act({ id, action: 'release-hold', holdIso: w.sun1, shownStartIso: shown.startIso, shownVersion: shown.timeVersion })
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    expect(r.body.data.message).toMatch(/^Sun, .* at 1:00 PM is free again\. The party stays on Sat, .* at 2:00 PM\. Nothing was sent to Stefanie\.$/)
+    expect(r.body.data.party.leftoverHolds).toEqual([])
+    expect((await holdsOf(id)).map((h) => h.startIso)).toEqual([new Date(w.sat2).toISOString()])
+    expect(await getPartyRecord(id)).toEqual(before)
+    expect(audits('party-release-hold')).toEqual([expect.objectContaining({ target: expect.objectContaining({ id }), details: { startIso: new Date(w.sun1).toISOString() } })])
+    expect(m.confirmEmail).not.toHaveBeenCalled()
+    expect(m.text).not.toHaveBeenCalled()
+  })
+
+  it('never the party’s own time; a screen without its start and version is told to reload; a test site writes nothing (R41)', async () => {
+    const w = weekend()
+    const id = (await book(cardBody(w.sat2))).body.data.party.bookingId
+    const shown = await view(id)
+    const own = await act({ id, action: 'release-hold', holdIso: w.sat2, shownStartIso: shown.startIso, shownVersion: shown.timeVersion })
+    expect(own.status).toBe(409)
+    expect(own.body.error).toMatch(/is this party’s own time, so it stays held\.$/)
+    expect((await act({ id, action: 'release-hold', holdIso: w.sun1 })).status).toBe(400)
+    m.testSite.on = true
+    expect((await act({ id, action: 'release-hold', holdIso: w.sun1, shownStartIso: shown.startIso, shownVersion: shown.timeVersion })).status).toBe(503)
+    m.testSite.on = false
+    expect((await holdsOf(id)).map((h) => h.startIso)).toEqual([new Date(w.sat2).toISOString()])
+  })
+})
+
+describe('Book: the price check only on a fresh attempt (T12 re-review N3)', () => {
+  it('a retry of the same card attempt while the first is still charging is told to wait, never "price changed"', async () => {
+    const w = weekend()
+    let finish!: () => void
+    const charging = new Promise<void>((res) => { finish = res })
+    const realPay = m.processPayment.getMockImplementation()!
+    let called!: () => void
+    const reached = new Promise<void>((res) => { called = res })
+    m.processPayment.mockImplementationOnce(async (p: any) => { called(); await charging; return realPay(p) })
+    const body = cardBody(w.sat2)
+    const first = book(body)
+    await reached
+    // Kaden saved a new price meanwhile; the sheet retries the same attempt with the old amount on it.
+    const retry = await book({ ...body, expectedCents: 100 })
+    expect(retry.body.why).not.toBe('price_changed')
+    expect(retry.body.error ?? '').not.toMatch(/nothing was charged/)
+    finish()
+    expect((await first).status).toBe(200)
+    expect(m.processPayment).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Not told yet edge cases (T12 re-review N4)', () => {
+  it('moving back to the time the host was told clears the time reminder; other untold changes stay', async () => {
+    const w = weekend()
+    const id = (await book(cardBody(w.sat2))).body.data.party.bookingId
+    await act({ id, action: 'move', startIso: w.sun1 })
+    expect((await getPartyRecord(id))!.notTold).toMatchObject({ what: ['time'] })
+    const back = await act({ id, action: 'move', startIso: w.sat2 })
+    expect(back.status).toBe(200)
+    expect(back.body.data.party.notTold).toBeNull()
+    expect((await getPartyRecord(id))!.notTold).toBeNull()
+    // With a details change untold, moving away and back leaves only that.
+    await act({ id, action: 'edit-details', craftId: 'craft-2' })
+    await act({ id, action: 'move', startIso: w.sun1 })
+    await act({ id, action: 'move', startIso: w.sat2 })
+    const rec = (await getPartyRecord(id))!
+    expect(rec.notTold).toMatchObject({ what: ['details'] })
+    expect(rec.notTold!.fromStartIso).toBeUndefined()
+  })
+
+  it('the first payment on a phone booking sends the full confirmation with the new time: that clears the reminder', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    vi.setSystemTime(new Date(NOW.getTime() + 60_000))
+    await act({ id, action: 'move', startIso: w.sun1 })
+    expect((await getPartyRecord(id))!.notTold).toMatchObject({ what: ['time'] })
+    m.confirmEmail.mockClear()
+    const r = await act({ id, action: 'take-card', attemptId: randomUUID(), paymentToken: 'cnon:ok', expectedCents: 30000 })
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    expect(m.confirmEmail).toHaveBeenCalledTimes(1)
+    const rec = (await getPartyRecord(id))!
+    expect(rec.notTold).toBeNull()
+    expect(rec.told).toMatchObject({ how: 'email' })
+    expect(rec.confirmation).toMatchObject({ sent: true, startIso: new Date(w.sun1).toISOString() })
+  })
+
+  it('To decide “I told them” on a party deleted meanwhile: a plain answer, not a server error', async () => {
+    const { listToDecide, decide, DecideError, PARTY_GONE } = await import('@lib/classes/to-decide')
+    const w = weekend()
+    const id = (await book(cardBody(w.sat2))).body.data.party.bookingId
+    await act({ id, action: 'move', startIso: w.sun1 })
+    const item = (await listToDecide(NOW)).items.find((i) => i.kind === 'party-not-told' && i.detail.partyId === id)!
+    m.beforeGetMeta = (k) => { if (k === id) m.data.delete(id) }
+    const err = await decide(item.id, 'told', {}, KADEN, NOW).catch((e) => e)
+    expect(err).toBeInstanceOf(DecideError)
+    expect(err.status).toBe(404)
+    expect(err.message).toBe(PARTY_GONE)
   })
 })

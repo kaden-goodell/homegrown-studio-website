@@ -264,10 +264,13 @@ function OurParty({ party: p, guests, notice }: { party: AdminParty; guests: Adm
     show({ title: 'Extras', text, warn: !r.ok || !!r.warning })
   }
 
-  /** A time left held for this party (m8): let it go, the same request as finishing a move. */
+  /**
+   * A time left held for this party (m8): let only that time go (release-hold, never a move). The start and
+   * version this screen shows go with it, so a party changed elsewhere meanwhile is refused (T12 re-review N1).
+   */
   async function letGoOf(iso: string) {
-    const r = await act<{ message: string }>({ action: 'move', startIso: p.startIso, fromIso: iso }, `free-${iso}`)
-    const text = !r.ok ? r.error : r.warning ? r.warning : `${dayAndClock(iso)} is free again. Nothing else changed and nothing was sent to ${first}.`
+    const r = await act<{ message: string }>({ action: 'release-hold', holdIso: iso, shownStartIso: p.startIso, shownVersion: p.timeVersion }, `free-${iso}`)
+    const text = r.ok ? (r.warning ?? r.data.message) : r.error
     toast(text)
     show({ title: 'Held time', text, warn: !r.ok || !!r.warning })
   }
@@ -459,10 +462,10 @@ function NotTold({ party: p, busy, onEmail, onTold }: { party: AdminParty; busy:
         <button type="button" className="adm-btn is-pri" disabled={busy === 'details'} onClick={onEmail}>{busy === 'details' ? 'Sending…' : p.sendDetails.label}</button>
       )}
       {(p.hostPhone || p.hostEmail) && (
-        <div className="adm-three">
-          {p.hostPhone ? <a className="adm-btn is-ghost" href={telHref(p.hostPhone)}>Call</a> : <span />}
-          {p.hostPhone ? <a className="adm-btn is-ghost" href={smsHref(p.hostPhone)}>Text</a> : <span />}
-          {p.hostEmail ? <a className="adm-btn is-ghost" href={`mailto:${p.hostEmail}`}>{`Write to ${first}`}</a> : <span />}
+        <div className="adm-contactrow">
+          {p.hostPhone && <a className="adm-btn is-ghost" href={telHref(p.hostPhone)}>Call</a>}
+          {p.hostPhone && <a className="adm-btn is-ghost" href={smsHref(p.hostPhone)}>Text</a>}
+          {p.hostEmail && <a className="adm-btn is-ghost" href={`mailto:${p.hostEmail}`}>{`Write to ${first}`}</a>}
         </div>
       )}
       <button type="button" className="adm-btn is-ghost" disabled={busy === 'told'} onClick={onTold}>{busy === 'told' ? 'Saving…' : 'I told them'}</button>

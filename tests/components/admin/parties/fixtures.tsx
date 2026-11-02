@@ -26,7 +26,7 @@ export const party = (over: any = {}) => ({
   status: 'booked', legacy: false, endIso: at(DAY, '15:30'), packageId: 'pkg_whole', craftId: 'craft_neck',
   items: [{ id: 'itm_pkg', kind: 'package', refId: 'pkg_whole', label: 'Whole studio', qty: 1, count: 1, unitCents: 30000, cents: 30000, extraMinutes: 0, chargeId: null, addedAt: '2031-03-01T00:00:00Z', by: null }],
   charges: [], refunds: [], dueCents: 30000, paymentState: 'waiting', linkSent: [], overlap: false, paymentGoingThrough: false, paymentInFlight: null,
-  cancelled: null, sendDetails: { action: 'send-details', label: 'Email Stefanie the details' }, refundRequests: [], ...over,
+  cancelled: null, sendDetails: { action: 'send-details', label: 'Email Stefanie the details' }, refundRequests: [], timeVersion: 2, ...over,
 })
 
 export const paid = (over: any = {}) => party({

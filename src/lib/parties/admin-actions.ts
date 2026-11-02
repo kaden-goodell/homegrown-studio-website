@@ -49,7 +49,7 @@ import { quoteAddOn } from './pricing'
 import { describePartyRequest, partyLabel } from './refunds'
 import { getPartySettings } from './settings-store'
 import { partyWritesRefusal } from './test-site'
-import { assertPartyLockHeld, PartyBusyError, withPartyLock } from './party-lock'
+import { assertPartyLockHeld, PartyBusyError, PartyLockLostError, partyLockTaken, withPartyLock } from './party-lock'
 import type { PartyTimes } from './types'
 
 const logger = createLogger('parties:admin')
@@ -233,6 +233,8 @@ export interface AdminPartyView {
   lastTold: { startIso: string; at: string } | null
   /** The last time someone noted the host was told. */
   told: PartyRecord['told'] | null
+  /** Bumped by every change to the party's time or details (calendarSeq): "Let … go" sends it back so a stale screen is refused (N1). */
+  timeVersion: number
 }
 
 export function adminPartyView(r: PartyRecord, now: Date = new Date(), origin?: string): AdminPartyView {
@@ -277,6 +279,7 @@ export function adminPartyView(r: PartyRecord, now: Date = new Date(), origin?: 
       : null,
     lastTold: last ? { startIso: last.startIso, at: last.at } : null,
     told: r.told ?? null,
+    timeVersion: r.calendarSeq ?? 0,
   }
 }
 
@@ -284,10 +287,22 @@ export function adminPartyView(r: PartyRecord, now: Date = new Date(), origin?: 
 
 type Untold = NonNullable<PartyRecord['notTold']>['what'][number]
 
-/** The reminder after an owner's change: what changed, kept until the host is told. */
-export function noteNotTold(cur: PartyRecord, what: Untold, by: By, now: Date): PartyRecord['notTold'] {
+/**
+ * The reminder after an owner's change: what changed, kept until the host is
+ * told. `next` (a time change): the party's new start and end. When that is
+ * the time the host was last told, the time is no longer news: 'time' goes
+ * (and the reminder with it when nothing else is untold, N4).
+ */
+export function noteNotTold(cur: PartyRecord, what: Untold, by: By, now: Date, next?: { startIso: string; endIso: string }): PartyRecord['notTold'] {
   const prev = cur.notTold ?? null
   const at = now.toISOString()
+  if (what === 'time' && next) {
+    const told = lastToldEntry(cur)
+    if (told && sameStart(told.startIso, next.startIso) && (!told.endIso || sameStart(told.endIso, next.endIso))) {
+      const rest = (prev?.what ?? []).filter((w) => w !== 'time' && w !== 'cancelled')
+      return rest.length ? { at, by, what: rest } : null
+    }
+  }
   const fromStartIso = prev?.fromStartIso ?? (what === 'time' ? cur.startIso : undefined)
   const list: Untold[] = what === 'cancelled' ? ['cancelled'] : [...new Set([...(prev?.what ?? []).filter((w) => w !== 'cancelled'), what])]
   return { at, by, what: list, ...(fromStartIso ? { fromStartIso } : {}) }
@@ -458,6 +473,8 @@ async function moveLocked(body: { id?: unknown; startIso?: unknown; fromIso?: un
     await assertPartyLockHeld()
     moved = await moveTime(r.bookingId, { startIso: from }, { startIso: to, endIso: toEnd }, open.busy, now)
   } catch (e) {
+    // Fencing refused before the party book was written: nothing to clean up (N2c).
+    if (e instanceof PartyLockLostError) throw e
     logger.error('Party move did not finish in the party book', { partyId: r.bookingId, error: String(e) })
     const cur = await afterFailure()
     if (cur !== 'not-moved') return finishMove(cur, true)
@@ -479,9 +496,11 @@ async function moveLocked(body: { id?: unknown; startIso?: unknown; fromIso?: un
       if (cur.status === 'cancelled') stop(409, PARTY_CANCELLED)
       if (paymentGoingThrough(cur, now)) stop(409, paymentWaitMessage(cur, now))
       if (!sameStart(cur.startIso, from)) stop(409, CHANGED_MEANWHILE)
-      return { ...cur, startIso: to, endIso: toEnd, calendarSeq: (cur.calendarSeq ?? 0) + 1, notTold: noteNotTold(cur, 'time', by, now) }
+      return { ...cur, startIso: to, endIso: toEnd, calendarSeq: (cur.calendarSeq ?? 0) + 1, notTold: noteNotTold(cur, 'time', by, now, { startIso: to, endIso: toEnd }) }
     }, `Moved from ${formatSlotLabel(from)} to ${formatSlotLabel(to)}`, by)
   } catch (e) {
+    // The lease was lost: no cleanup (it could undo another server's write); the new time may stay held (N2c).
+    if (e instanceof PartyLockLostError || partyLockTaken()) throw moveStoppedMessage(e, from, wrote ? to : null)
     // Re-read before letting the new time go: the write may have landed.
     const cur = await afterFailure()
     // This request's own write landed (nobody else changes the party inside the lock): audited as its move (M-e).
@@ -502,6 +521,16 @@ async function moveLocked(body: { id?: unknown; startIso?: unknown; fromIso?: un
     if (!replay) await audit(by, 'party-move', cur, { from, to })
     return reply(cur, from, { ...(replay ? { replay: true as const } : {}), ...(warning ? { warning } : {}) })
   }
+}
+
+/** The lease was lost before the record was saved (N2c): what stands, and how to let a left-behind time go. */
+function moveStoppedMessage(e: unknown, from: string, held: string | null): PartyActionError {
+  const why = e instanceof PartyLockLostError && e.reason === 'unreachable'
+    ? 'The party couldn’t be reached for a while'
+    : 'Someone else started changing this party at the same moment'
+  return new PartyActionError(409, `${why}, so the move stopped before it was saved. The party is still on ${partyWhenLabel(from)}.${held
+    ? ` ${partyWhenLabel(held)} may still show as held for it. Open the party again: it offers to let that time go.`
+    : ' Open the party again to check it.'}`)
 }
 
 /** Someone else moved the party after the sheet loaded (M-f). */
@@ -656,6 +685,10 @@ async function addExtraLocked(
       }
     }, `Added ${q.value.label}${q.value.topUp ? ` for ${q.value.forGuests} more guests` : ''}`, by)
   } catch (e) {
+    if (extra > 0 && (e instanceof PartyLockLostError || partyLockTaken())) {
+      // The lease was lost: no shrink-back (it could undo another server's write, N2c).
+      throw new PartyActionError(409, `${e instanceof PartyLockLostError && e.reason === 'unreachable' ? 'The party couldn’t be reached for a while' : 'Someone else started changing this party at the same moment'}, so ${q.value.label} wasn’t added. The calendar may already show the party ${extra} minutes longer. Open the party again and add it again to finish it.`)
+    }
     if (extra > 0) {
       // Back to the party's end as saved now (another extra may have grown it meanwhile); unreadable → leave it longer (safe).
       try {
@@ -934,6 +967,49 @@ export async function markPartyTold(body: { id?: unknown; notToldAt?: unknown },
   }, `${by.name} told ${first} about the changes`, by)
   if (cleared) await audit(by, 'party-told', saved, { what: r.notTold.what.join(', ') })
   return { party: adminPartyView(saved, now), message: `Noted that ${first} has been told.`, ...(cleared ? {} : { replay: true as const }) }
+}
+
+// ── Let go of a leftover hold (T12 re-review N1) ────────────────────────────
+
+export interface ReleaseHoldResult { party: AdminPartyView & { leftoverHolds: string[] }; released: string; message: string }
+
+/**
+ * "Let 2 PM go": frees one held time of this party that is NOT its current
+ * start (a leftover after "Not now" on Finish the move, or after a move that
+ * stopped). Never moves the party. Refused when the party's time changed
+ * since the screen loaded (`shownStartIso` and `shownVersion`, the view's
+ * start and timeVersion), so a stale sheet can't free the time the party is
+ * on now. Inside the party's lock, fenced, audited; nothing is sent.
+ */
+export async function releasePartyHold(
+  body: { id?: unknown; holdIso?: unknown; shownStartIso?: unknown; shownVersion?: unknown }, by: By, request: Request, now: Date = new Date(),
+): Promise<ReleaseHoldResult> {
+  return locked(body.id, request, async () => {
+    const r = await writable(body.id, request)
+    const holdMs = typeof body.holdIso === 'string' ? Date.parse(body.holdIso) : NaN
+    if (!Number.isFinite(holdMs)) throw new PartyActionError(400, 'Pick the time to let go.')
+    const shownMs = typeof body.shownStartIso === 'string' ? Date.parse(body.shownStartIso) : NaN
+    const version = body.shownVersion
+    if (!Number.isFinite(shownMs) || typeof version !== 'number' || !Number.isInteger(version)) throw new PartyActionError(400, 'Reload the page and try again.')
+    const hold = new Date(holdMs).toISOString()
+    if (Date.parse(r.startIso) !== shownMs || (r.calendarSeq ?? 0) !== version) {
+      throw new PartyActionError(409, `This party changed since this screen loaded. It’s on ${partyWhenLabel(r.startIso)} now. Nothing was let go. Check it, then try again.`, { startIso: r.startIso })
+    }
+    if (sameStart(hold, r.startIso)) throw new PartyActionError(409, `${partyWhenLabel(hold)} is this party’s own time, so it stays held.`)
+    await assertPartyLockHeld()
+    try {
+      await releaseTime(r.bookingId, hold)
+    } catch (e) {
+      logger.error('Leftover party time not let go', { partyId: r.bookingId, startIso: hold, error: String(e) })
+      throw new PartyActionError(503, `${partyWhenLabel(hold)} couldn’t be let go just now. Nothing else changed. Try again.`)
+    }
+    await audit(by, 'party-release-hold', r, { startIso: hold })
+    return {
+      // The holds still left, so the sheet drops the one let go at once.
+      party: { ...adminPartyView(r, now), leftoverHolds: await leftoverHolds(r, now) }, released: hold,
+      message: `${partyWhenLabel(hold)} is free again. The party stays on ${partyWhenLabel(r.startIso)}. Nothing was sent to ${firstOf(r)}.`,
+    }
+  })
 }
 
 // ── Parties setup: what a save takes away ───────────────────────────────────

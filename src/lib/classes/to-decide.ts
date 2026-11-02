@@ -53,7 +53,7 @@ import {
 import { isComing } from './seat-status'
 import { assertClassWritesAllowed, TestSiteStoreError } from './test-site-guard'
 import { onStaffConsole } from './staff-view'
-import { getPartyRecord, isOurs, listParties, updatePartyRecord } from '@lib/party-store'
+import { getPartyRecord, isOurs, listParties, PartyNotFoundError, updatePartyRecord } from '@lib/party-store'
 import { clearPartyRefundRequest, partyLabel } from '@lib/parties/refunds'
 import { PARTY_SCOPE } from '@lib/booking-core/refund-runner'
 import { deletePaidElsewhere, listCheckouts } from '@lib/parties/party-checkouts'
@@ -392,6 +392,9 @@ async function partyItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]>
  * them" since. Only parties still to come. One item per change (a later
  * change makes a new one); it goes by itself once the host is told.
  */
+/** "I told them" on a party that is no longer here. */
+export const PARTY_GONE = 'That party isn’t on the books any more, so there’s nothing to tell the host. Reload to clear this.'
+
 async function partyNotToldItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]> {
   const out: ToDecideItem[] = []
   for (const r of await listParties()) {
@@ -774,11 +777,18 @@ export async function decide(id: string, action: string, body: any, by: By, now 
       const partyId = str(d.partyId)
       const shown = str(d.notToldAt)
       const at = now.toISOString()
-      await updatePartyRecord(partyId, (cur) => {
-        if (!cur.notTold) return null
-        if (cur.notTold.at !== shown) throw new DecideError(409, 'Something else changed on this party since. Open the party to check it.')
-        return { ...cur, notTold: null, told: { at, by, how: 'owner' } }
-      }, `${by.name} told ${str(d.host).split(' ')[0] || 'the host'} about the changes`, by)
+      try {
+        await updatePartyRecord(partyId, (cur) => {
+          if (!isOurs(cur)) throw new DecideError(409, PARTY_GONE)
+          if (!cur.notTold) return null
+          if (cur.notTold.at !== shown) throw new DecideError(409, 'Something else changed on this party since. Open the party to check it.')
+          return { ...cur, notTold: null, told: { at, by, how: 'owner' } }
+        }, `${by.name} told ${str(d.host).split(' ')[0] || 'the host'} about the changes`, by)
+      } catch (e) {
+        // The party was deleted meanwhile (or is hidden here): nothing left to tell, said plainly (not a 500).
+        if (e instanceof PartyNotFoundError) throw new DecideError(404, PARTY_GONE)
+        throw e
+      }
       return { decided: await record(item, 'Told them', by, action) }
     }
   }

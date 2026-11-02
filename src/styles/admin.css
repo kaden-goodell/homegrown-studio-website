@@ -2442,6 +2442,17 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.5rem;
 }
+/* Not told yet's Call / Text / Write to …: side by side only when each gets 11rem; on a phone or a
+   narrow sheet they stack, each a full-width 44px button (T12 review I7). */
+.adm-contactrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.adm-contactrow > .adm-btn {
+  flex: 1 1 11rem;
+  min-height: 44px;
+}
 /* Fields three across only when each gets at least 11rem; on a phone they wrap or stack (T12 review I7). */
 .adm-three.is-fields {
   grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));

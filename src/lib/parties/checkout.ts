@@ -351,7 +351,17 @@ export async function recordPaidParty(
  */
 export async function confirmationDone(partyId: string, rec: PartyRecord | null, sent: boolean, simulated = false): Promise<void> {
   if (!rec) return
-  await updatePartyRecord(partyId, (r) => ({ ...r, confirmation: { at: new Date().toISOString(), sent, startIso: r.startIso } }), sent ? 'Confirmation emailed' : 'Confirmation email did not send', null)
+  const at = new Date().toISOString()
+  await updatePartyRecord(partyId, (r) => ({
+    ...r,
+    // What the email named: the party as it was when the email was made (`rec`).
+    confirmation: { at, sent, startIso: rec.startIso, ...(rec.endIso ? { endIso: rec.endIso } : {}) },
+    // A full confirmation (first payment on a phone booking, DV4) told the host everything as of
+    // `rec`: the Not told yet reminder it covered goes; a change made after stays (T12 re-review N4).
+    ...(sent && r.notTold && rec.notTold && r.notTold.at === rec.notTold.at && Date.parse(r.startIso) === Date.parse(rec.startIso)
+      ? { notTold: null, told: { at, by: null, how: 'email' as const } }
+      : {}),
+  }), sent ? 'Confirmation emailed' : 'Confirmation email did not send', null)
     .catch((err) => logger.error('Party confirmation not noted', { partyId, error: String(err) }))
   if (!simulated) await deleteCheckout(partyId).catch((err) => logger.error('Party checkout not cleared', { partyId, error: String(err) }))
 }
@@ -486,10 +496,6 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
   if (!resolved.ok) return resolved.out
   const theme = resolved.theme
   let quotedCents = q.totalCents + (theme?.priceCents ?? 0)
-  if (input.expectedCents !== undefined && input.expectedCents !== quotedCents) {
-    logger.info('Owner booking refused: the price changed since the sheet opened', { partyId, expected: input.expectedCents, quoted: quotedCents })
-    return refuse(409, 'invalid', PRICE_CHANGED_MESSAGE, 'price', { why: 'price_changed', newCents: quotedCents, oldCents: input.expectedCents })
-  }
 
   // Is this party's time already held by an earlier try of this key?
   let mine: Awaited<ReturnType<typeof holdsBetween>>[number] | undefined
@@ -561,6 +567,13 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
       endIso = prior.endIso
       quotedCents = prior.quotedCents
     }
+  }
+  // The price the owner's sheet showed (I1): checked only on a fresh attempt. A retry of an attempt
+  // still going through (its hold, or its unpaid order carried on) charges what it started with; a
+  // "price changed" there could be false and would start a second booking (T12 re-review N3).
+  if (!mine && !reuse && input.expectedCents !== undefined && input.expectedCents !== quotedCents) {
+    logger.info('Owner booking refused: the price changed since the sheet opened', { partyId, expected: input.expectedCents, quoted: quotedCents })
+    return refuse(409, 'invalid', PRICE_CHANGED_MESSAGE, 'price', { why: 'price_changed', newCents: quotedCents, oldCents: input.expectedCents })
   }
   const minutes = reuse ? Math.round((Date.parse(reuse.endIso) - startMs) / MINUTE) : q.minutes
 
