@@ -17,6 +17,7 @@ import type { ClassContent, ClassStatus, LibraryClass, ScheduledClass } from '@l
 import { formatMoney } from '@lib/money'
 import { localDate } from '@lib/party-slots'
 import RefundPanel, { ADMIN_REFUND } from '@components/shared/RefundPanel'
+import WaitlistSection from '../classes/WaitlistSection'
 import { api, BOOKINGS, CLASSES, LIBRARY } from '../classes/api'
 import { build, fieldOf, fixLine, toForm, type Errors, type Form } from '../classes/class-form'
 import { DetailsFields, focusFirstError, PreviewButton } from '../classes/ClassDetails'
@@ -475,6 +476,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
               </p>
             )}
             {bookings.map((b) => <BookingRow key={b.bookingId} b={b} cls={cls} ticket={ticket} onChanged={() => { load(); bump() }} />)}
+            <WaitlistSection classId={cls.id} freeSeats={false} onChanged={() => { load(); bump() }} />
           </section>
         )}
 

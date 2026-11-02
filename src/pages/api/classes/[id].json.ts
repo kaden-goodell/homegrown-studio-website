@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro'
 import { createLogger } from '@lib/logger'
 import { getClass } from '@lib/classes/class-store'
 import { getLedger } from '@lib/classes/seat-ledger'
+import { waitlistOrNull } from '@lib/classes/waitlist-store'
 import { toPublicClass, viewableByLink } from '@lib/classes/public-view'
 
 export const prerender = false
@@ -19,7 +20,7 @@ export const GET: APIRoute = async ({ params }) => {
   try {
     const cls = await getClass(id)
     if (!cls || !viewableByLink(cls)) return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers })
-    const workshop = toPublicClass(cls, await getLedger(cls.id), new Date())
+    const workshop = toPublicClass(cls, await getLedger(cls.id), new Date(), {}, await waitlistOrNull(cls.id))
     return new Response(JSON.stringify({ workshop }), { status: 200, headers })
   } catch (err) {
     logger.error('Class unreadable', { id, error: err instanceof Error ? err.message : String(err) })

@@ -42,10 +42,26 @@ export function workshopStatus(w: WorkshopData) {
   return { comingSoon, soldOut, closed, bookable, seats, meta, status }
 }
 
+/** Stage 4: one of our own classes, sold out, with a waitlist people can join now (opens the booking panel). */
+export function ownWaitlistOpen(workshop: WorkshopData): boolean {
+  const own = (workshop as { own?: { sessions?: { waitlist?: { open: boolean } }[] } }).own
+  return !!own?.sessions?.some((s) => s.waitlist?.open)
+}
+
+/** "Join the waitlist" on a sold-out class of ours: opens the panel, which takes them through it. */
+export function JoinWaitlistButton({ workshop, onJoin }: { workshop: WorkshopData; onJoin: (w: WorkshopData) => void }) {
+  return (
+    <button type="button" className="btn btn-secondary" style={{ width: '100%' }} onClick={() => { trackWaitlistOpened(workshop.id, workshop.name, 'sold_out'); onJoin(workshop) }}>
+      Join the waitlist
+    </button>
+  )
+}
+
 /** What a workshop offers instead of booking: the email sign-up when not yet on sale or sold out, a call when sign-ups closed early. */
-export function WorkshopWaitlist({ workshop }: { workshop: WorkshopData }) {
+export function WorkshopWaitlist({ workshop, onJoin }: { workshop: WorkshopData; onJoin?: (w: WorkshopData) => void }) {
   const [asking, setAsking] = useState(false)
   const { comingSoon, soldOut, closed } = workshopStatus(workshop)
+  if (soldOut && !closed && onJoin && ownWaitlistOpen(workshop)) return <JoinWaitlistButton workshop={workshop} onJoin={onJoin} />
   if (comingSoon) {
     return asking ? (
       <NotifyMe

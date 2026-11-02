@@ -14,6 +14,8 @@ import { seatsTaken, type Ledger } from './seat-ledger'
 import { earlyBirdRunning } from './early-bird'
 import type { Cents, ScheduledClass } from './types'
 import { sellableCells } from './validate'
+import type { Waitlist } from './waitlist-store'
+import { waitingOn, waitlistClosesIso } from './waitlist-rules'
 
 /** Shown on the public list: open or closed, and not link-only. */
 export function listedPublicly(cls: ScheduledClass): boolean {
@@ -26,7 +28,8 @@ export function viewableByLink(cls: ScheduledClass): boolean {
 }
 
 /** `door`: as the crew at the door see it: a session stays open until it ends, whatever the online cutoff. */
-export function toPublicClass(cls: ScheduledClass, ledger: Ledger, now: Date, opts: SaleOptions = {}): WorkshopData {
+/** `waitlist` (stage 4): the class's waitlist, for each date's count and whether it can be joined; null = not read (nobody can join). */
+export function toPublicClass(cls: ScheduledClass, ledger: Ledger, now: Date, opts: SaleOptions = {}, waitlist: Waitlist | null = null): WorkshopData {
   const c = cls.content
   const sessionsSorted = [...cls.sessions].sort((a, b) => a.startIso.localeCompare(b.startIso))
   // R33: at the door, a class that doesn't take people partway closes as a whole once its first session has run,
@@ -38,6 +41,10 @@ export function toPublicClass(cls: ScheduledClass, ledger: Ledger, now: Date, op
     endIso: s.endIso,
     left: Math.max(0, s.capacity - seatsTaken(ledger, s.id, now)),
     closed: opts.door ? wholeClassClosed || Date.parse(s.endIso) <= now.getTime() : cutoffRefusal(cls, [s.id], now) !== null,
+    ...(opts.door ? {} : (() => {
+      const closesIso = waitlistClosesIso(cls, [s.id])
+      return closesIso ? { waitlist: { open: waitlist !== null && cls.status === 'open' && now.getTime() < Date.parse(closesIso), closesIso, waiting: waitingOn(waitlist, s.id) } } : {}
+    })()),
   }))
 
   const sellable = new Set(sellableCells(c).map((cell) => cell.passId))

@@ -108,7 +108,6 @@ describe('SquarePaymentProvider saved cards', () => {
     ['INSUFFICIENT_FUNDS', 400, 'no-funds'],
     ['CARD_EXPIRED', 400, 'expired'],
     ['CARD_DECLINED_VERIFICATION_REQUIRED', 400, 'verify'],
-    ['NOT_FOUND', 404, 'card-gone'],
     ['CARD_NOT_FOUND', 400, 'card-gone'],
   ])('decline mapping: %s → not charged (never retried as unknown), %s', async (code, status, trouble) => {
     squareFetch.mockRejectedValue(refusal(status, code))
@@ -116,6 +115,25 @@ describe('SquarePaymentProvider saved cards', () => {
     expect(chargeOutcomeOf(err)).toBe('not_charged')
     expect(cardTroubleOf(err)).toBe(trouble)
     expect(CHARGE_TROUBLE_WORDS[cardTroubleOf(err)]).toEqual(expect.any(String))
+  })
+
+  it('fix3 review: NOT_FOUND naming the card (detail or field) is card-gone; any other NOT_FOUND is setup', async () => {
+    const nf = (detail: string, field?: string) => Object.assign(new Error(`Square said: ${detail}`), {
+      status: 404, errors: [{ code: 'NOT_FOUND', detail, category: 'INVALID_REQUEST_ERROR', ...(field ? { field } : {}) }],
+    })
+    for (const [err, want] of [
+      [nf('Card not found.'), 'card-gone'],
+      [nf('Resource not found.', 'source_id'), 'card-gone'],
+      [nf('Order not found.', 'order_id'), 'setup'],
+      [nf('Location not found.', 'location_id'), 'setup'],
+      [nf('Customer not found.', 'customer_id'), 'setup'],
+      [Object.assign(new Error('x'), { status: 404 }), 'setup'],
+    ] as const) {
+      squareFetch.mockRejectedValueOnce(err)
+      const e = await p.chargeSavedCard(chargeInput).catch((x) => x)
+      expect(chargeOutcomeOf(e)).toBe('not_charged')
+      expect(cardTroubleOf(e)).toBe(want)
+    }
   })
 
   it.each([

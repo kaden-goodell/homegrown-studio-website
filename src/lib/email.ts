@@ -398,6 +398,8 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
   picksFinalLine?: string
   /** Every date of a class that meets more than once ("Sat, Oct 17 · 1–3 PM"). */
   sessionLines?: string[]
+  /** Stage 4: a first sentence under the heading (the waitlist's "A spot opened and you're in!"). */
+  lead?: string
 }): Promise<{ sent: boolean }> {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
   const paid = dollars(input.totalChargedCents)
@@ -416,6 +418,7 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
   const text = [
     `You're booked, ${input.firstName}! ${input.workshopName}`,
     ``,
+    ...(input.lead ? [input.lead, ``] : []),
     `When: ${input.whenLabel} (${input.timeRange})`,
     ...(input.sessionLines && input.sessionLines.length > 1 ? [`Your dates:`, ...input.sessionLines.map((l) => `  ${l}`)] : []),
     `Where: Hometown Studio, ${address}`,
@@ -452,6 +455,7 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
   <p style="margin:0 0 2px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#7a4a2e;font-weight:700;">Hometown Studio</p>
   <h1 style="margin:0 0 2px;font-size:22px;color:#3d3630;">You&rsquo;re booked, ${esc(input.firstName)}!</h1>
   <p style="margin:0 0 16px;font-size:15px;font-weight:600;color:#3d3630;">${esc(input.workshopName)}</p>
+  ${input.lead ? `<p style="${P}margin:0 0 14px;font-size:15px;">${esc(input.lead)}</p>` : ''}
   ${input.imageUrl ? `<img src="${esc(input.imageUrl)}" alt="${esc(input.workshopName)}" width="552" style="display:block;width:100%;max-width:552px;border-radius:12px;margin:0 0 14px;" />` : ''}
   <p style="${LABEL}">When</p>
   <p style="${P}"><strong>${esc(input.whenLabel)}</strong> &middot; ${esc(input.timeRange)}</p>
@@ -797,5 +801,68 @@ export async function sendPartyPaidEmail(input: {
     givenName: input.givenName,
     lines,
     ...(input.receiptUrl ? { link: { label: 'See your receipt', url: input.receiptUrl } } : {}),
+  })
+}
+
+// ── Stage 4: the class waitlist (DRAFT copy for Kaden) ────────────────────────
+
+/** "You're on the waitlist": what happens next, and the link to leave. */
+export async function sendWaitlistJoinedEmail(input: {
+  to: string; givenName: string; className: string; whenLabel: string; seatsLabel: string; maxCents: number; last4: string; leaveUrl: string; closesLabel: string
+}): Promise<{ sent: boolean }> {
+  return partyMoneyEmail({
+    to: input.to,
+    subject: `You're on the waitlist for ${input.className.replace(/[\r\n]+/g, ' ')}`,
+    givenName: input.givenName,
+    lines: [
+      `You’re on the waitlist for ${input.className} on ${input.whenLabel}, ${input.seatsLabel}.`,
+      `We’ll add you and charge your card ending ${input.last4} if a spot opens before ${input.closesLabel}. It’s never more than ${formatMoney(input.maxCents)}. You’ll get a text and an email right away.`,
+      'If no spot opens, nothing is charged and your card comes off.',
+    ],
+    link: { label: 'Leave the waitlist', url: input.leaveUrl },
+  })
+}
+
+/** "You're off the waitlist": they left, or an owner took them off. The card is off file. */
+export async function sendWaitlistOffEmail(input: {
+  to: string; givenName: string; className: string; whenLabel: string; byStudio: boolean
+}): Promise<{ sent: boolean }> {
+  return partyMoneyEmail({
+    to: input.to,
+    subject: 'You’re off the waitlist',
+    givenName: input.givenName,
+    lines: [
+      input.byStudio
+        ? `We took you off the waitlist for ${input.className} on ${input.whenLabel}.`
+        : `You’re off the waitlist for ${input.className} on ${input.whenLabel}.`,
+      'Nothing was charged, and your card is no longer saved with us.',
+      'We hope to see you at another class soon.',
+    ],
+  })
+}
+
+/**
+ * The waitlist couldn't add them: the card didn't go through (`declined`), the
+ * waitlist closed before a spot opened (`closed`), or the price went up past
+ * what they agreed to (`price`). Nothing was charged; the card is off file.
+ */
+export async function sendWaitlistMissedEmail(input: {
+  to: string; givenName: string; className: string; whenLabel: string; why: 'declined' | 'closed' | 'price'; last4: string; classUrl: string
+}): Promise<{ sent: boolean }> {
+  const first = input.why === 'declined'
+    ? `A spot opened in ${input.className} on ${input.whenLabel}, but your card ending ${input.last4} didn’t go through, so it went to the next person.`
+    : input.why === 'price'
+      ? `A spot opened in ${input.className} on ${input.whenLabel}, but the price is now higher than when you joined, so we didn’t charge you.`
+      : `No spot opened in ${input.className} on ${input.whenLabel} before the waitlist closed.`
+  return partyMoneyEmail({
+    to: input.to,
+    subject: input.why === 'closed' ? 'The waitlist has closed' : 'We couldn’t add you to the class',
+    givenName: input.givenName,
+    lines: [
+      first,
+      'Nothing was charged, and your card is no longer saved with us.',
+      input.why === 'closed' ? 'We hope to see you at another class soon.' : 'You can book or join the waitlist again on our site.',
+    ],
+    link: { label: input.why === 'closed' ? 'See our classes' : 'Open the class', url: input.classUrl },
   })
 }

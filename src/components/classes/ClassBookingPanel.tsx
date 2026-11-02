@@ -40,6 +40,7 @@ import {
   trackWaiverLinkClick,
 } from '@lib/analytics'
 import { readAttribution } from '@lib/attribution'
+import { consentText, joinedLine, WAITLIST_MESSAGES, waitlistReason } from '@lib/classes/waitlist-words'
 
 export interface ClassBookingPanelProps {
   /** A list row for one of our own classes (`own` set). */
@@ -66,6 +67,8 @@ export interface ClassBookingPanelProps {
 
 type Step = 'details' | 'seats' | 'pay'
 const STEP_NAMES: Record<Step, string> = { details: 'Details', seats: 'For each person', pay: 'Your details and payment' }
+/** Stage 4: the last step when they're joining the waitlist instead of paying. */
+const WAITLIST_STEP_NAME = 'Your details and card'
 const POLICY_UNTICKED = 'Tick the box to agree to the booking and cancellation policy.'
 
 /** What the server says about a class booking it couldn't finish; its own sentence wins. */
@@ -197,7 +200,12 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   const cls = useMemo(() => asScheduledClass(own, workshop.name), [own, workshop.name])
   const shownPasses = own.passes.filter((p) => p.state !== 'closed')
   // At the door a full option can still be picked: the crew decide to add over capacity.
-  const canBook = (p: PublicPass) => p.state === 'open' || (door && p.state === 'full')
+  // Stage 4: online, a full option can still be picked when its waitlist is open (they join it instead of paying).
+  const sessionWl = (id: string) => own.sessions.find((s) => s.id === id)?.waitlist
+  const passWaitlistOpen = (p: PublicPass) => !door && (p.covers.kind === 'choose'
+    ? own.sessions.some((s) => !s.closed && s.waitlist?.open)
+    : !!p.sessionIds?.length && p.sessionIds.every((id) => sessionWl(id)?.open))
+  const canBook = (p: PublicPass) => p.state === 'open' || (p.state === 'full' && (door || passWaitlistOpen(p)))
   const firstOpen = shownPasses.find((p) => p.state === 'open') ?? (door ? shownPasses.find(canBook) : undefined) ?? shownPasses[0] ?? own.passes[0]
 
   const [step, setStep] = useState<Step>('details')
@@ -231,6 +239,12 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     bookingId: string | null; receiptUrl: string | null; emailSent: boolean; chargedCents: number | null; ticketsLabel: string | null; sessionIds: string[]
   }>(null)
   const [askToLeave, setAskToLeave] = useState(false)
+  // Stage 4 waitlist: the consent tick, and the answer once they're on it.
+  const [consented, setConsented] = useState(false)
+  const [consentProblem, setConsentProblem] = useState(false)
+  const [joined, setJoined] = useState<null | { position: number; last4: string; emailSent: boolean }>(null)
+  const consentRef = useRef<HTMLInputElement>(null)
+  const consentErrorId = useId()
   // Stage 4: a code, priced by the server for this exact booking (shape); and the server's own total after "the price changed".
   const [codeOpen, setCodeOpen] = useState(false)
   const [codeText, setCodeText] = useState('')
@@ -270,8 +284,15 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     : pass?.left ?? 0
   // m6: on a pick-a-day option, only once a day is picked.
   const needsOver = door && (!choose || picked.length > 0) && roomLeft < Math.max(1, Object.values(counts).reduce((a, b) => a + (b || 0), 0))
+  // Stage 4: the waitlist is open for what's picked (every picked date, or any date before one is picked).
+  const wlSessions = choose ? pickedSessions : own.sessions.filter((s) => pass?.sessionIds?.includes(s.id))
+  const wlOpen = !door && !!pass && (choose && !picked.length ? passWaitlistOpen(pass) : wlSessions.length > 0 && wlSessions.every((s) => s.waitlist?.open))
   // At the door the counters go up to a full booking; past the seats left needs "Add over capacity".
-  const maxSeats = door ? own.rules.maxPerBooking : Math.max(0, Math.min(own.rules.maxPerBooking, roomLeft))
+  // Online with the waitlist open they do too: past the seats left means joining the waitlist.
+  const maxSeats = door || wlOpen ? own.rules.maxPerBooking : Math.max(0, Math.min(own.rules.maxPerBooking, roomLeft))
+  const wantSeats = Object.values(counts).reduce((a, b) => a + (b || 0), 0)
+  const waitlistMode = wlOpen && (!choose || picked.length === choose) && wantSeats > 0 && wantSeats > roomLeft
+  const wlClosesIso = wlSessions.map((s) => s.waitlist?.closesIso ?? '').filter(Boolean).sort()[0] ?? null
 
   const request: BookingRequest = {
     passId,
@@ -549,6 +570,76 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     setCodeError(null)
   }
 
+  /**
+   * Stage 4: join the waitlist. Square saves the card (STORE, card only);
+   * nothing is charged now. The server prices it, checks it is still full and
+   * the waitlist still open, and keeps only Square's card id.
+   */
+  async function handleJoin(e?: FormEvent) {
+    e?.preventDefault()
+    if (processing || !paymentReady) return
+    if (!full.ok || !q) {
+      setError(full.ok ? workshopMessages.unavailable : full.error)
+      return
+    }
+    const contactOk = contactRef.current?.check() ?? false
+    if (!consented) {
+      setConsentProblem(true)
+      if (contactOk) {
+        consentRef.current?.focus()
+        consentRef.current?.scrollIntoView?.({ block: 'center' })
+      }
+    }
+    if (!contactOk || !consented) {
+      setError(null)
+      return
+    }
+    setError(null)
+    setProcessing(true)
+    try {
+      let card: { token: string; verificationToken?: string }
+      try {
+        card = await paymentFormRef.current!.tokenizeAndVerify({
+          givenName: contact.firstName.trim(), familyName: contact.lastName.trim(), email: contact.email.trim(), phone: contact.phone.trim(),
+        })
+      } catch {
+        setError('We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.')
+        return
+      }
+      let res: Response
+      try {
+        res = await fetch('/api/classes/waitlist.json', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'join', classId: own.classId, attemptId: attemptId.current, passId,
+            ...(choose ? { sessionIds: picked } : {}), tickets: counts, seats, consent: true,
+            cardToken: card.token, verificationToken: card.verificationToken ?? null,
+            customer: { givenName: contact.firstName.trim(), familyName: contact.lastName.trim(), email: contact.email.trim(), phone: contact.phone.trim() },
+          }),
+        })
+      } catch {
+        // Nothing came back. A retry sends the same attempt, so it can't add them twice.
+        setError('We couldn’t tell whether that went through. Check your email, or try again. Nothing was charged.')
+        return
+      }
+      const body = await res.json().catch(() => null)
+      if (res.ok && body?.data) {
+        setJoined({ position: Number(body.data.position) || 1, last4: String(body.data.card?.last4 ?? ''), emailSent: body.data.emailSent === true })
+        setAskToLeave(false)
+        if (!door) rememberContact(contact)
+        return
+      }
+      attemptId.current = newAttemptId()
+      if (body?.code) tr.trackBookingProblem('workshop', `waitlist_${String(body.code)}`)
+      // A seat opened while they were joining: the card came back off, and they book it instead.
+      if (body?.code === 'spot_open') void refreshAvailability()
+      setError(typeof body?.detail === 'string' ? body.detail : WAITLIST_MESSAGES.unavailable)
+    } finally {
+      setProcessing(false)
+    }
+  }
+
   /** `walletToken`: Apple Pay or Google Pay already approved the payment. */
   async function handlePay(e?: FormEvent, walletToken?: string) {
     e?.preventDefault()
@@ -754,6 +845,28 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     )
   }
 
+  // ── Joined the waitlist ───────────────────────────────────────────────────
+  function renderJoined() {
+    const j = joined!
+    return (
+      <BookingConfirmed
+        heading="You’re on the waitlist"
+        what={<>{joinedLine(j.position, j.last4 || '…', workshop.name)}</>}
+        email={contact.email.trim()}
+        emailSent={j.emailSent}
+      >
+        <div style={{ marginTop: '1.25rem' }}>
+          <ConfirmedBlock label="If a spot opens">
+            We add you, charge your card and send you a text and an email right away. If no spot opens, nothing is charged and your card comes off.
+          </ConfirmedBlock>
+          <ConfirmedBlock label="Changed your mind?">
+            The email we sent has a link to leave the waitlist.
+          </ConfirmedBlock>
+        </div>
+      </BookingConfirmed>
+    )
+  }
+
   // ── Step 1: what, which pass and days, how many ───────────────────────────
   function renderDetails() {
     const paragraphs = workshop.description.split(/\n\s*\n|\n/).map((p) => p.trim()).filter(Boolean)
@@ -781,7 +894,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
                   <button key={p.id} type="button" aria-pressed={p.id === passId} disabled={!open} onClick={() => choosePass(p.id)} style={choiceButton(p.id === passId, open)}>
                     <span style={{ fontWeight: 600 }}>{p.label}</span>
                     <span style={{ fontSize: '0.875rem', color: 'var(--color-text)' }}>
-                      {p.state === 'open' ? `${new Set(prices).size > 1 ? 'From ' : ''}${formatMoney(from, workshop.currency)}` : door && open ? 'Full' : 'Sold out'}
+                      {p.state === 'open' ? `${new Set(prices).size > 1 ? 'From ' : ''}${formatMoney(from, workshop.currency)}` : door && open ? 'Full' : open ? 'Full · waitlist' : 'Sold out'}
                     </span>
                   </button>
                 )
@@ -797,11 +910,12 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
               <div role="group" aria-label={choose === 1 ? 'Pick a day' : `Pick ${choose} days`} style={{ display: 'grid', gap: '0.5rem' }}>
                 {own.sessions.filter((s) => !s.closed).map((s) => {
                   const on = picked.includes(s.id)
-                  const enabled = s.left > 0 || door
+                  const wl = !door && !!s.waitlist?.open
+                  const enabled = s.left > 0 || door || wl
                   return (
                     <button key={s.id} type="button" aria-pressed={on} disabled={!enabled} onClick={() => toggleSession(s.id)} style={choiceButton(on, enabled)}>
                       <span>{formatDayAndSpan(s.startIso, s.endIso)}</span>
-                      <span style={{ fontSize: '0.8125rem', color: 'var(--color-text)' }}>{s.left > 0 ? seatsLeftLabel(s.left) : door ? 'Full' : 'Sold out'}</span>
+                      <span style={{ fontSize: '0.8125rem', color: 'var(--color-text)' }}>{s.left > 0 ? seatsLeftLabel(s.left) : door ? 'Full' : wl ? 'Full · waitlist' : 'Sold out'}</span>
                     </button>
                   )
                 })}
@@ -868,7 +982,12 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
                 Add over capacity
               </label>
             )}
-            {total >= maxSeats && maxSeats > 0 && (
+            {waitlistMode && (
+              <p role="status" data-testid="waitlist-note" style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+                {waitlistReason(roomLeft, total)}
+              </p>
+            )}
+            {total >= maxSeats && maxSeats > 0 && !waitlistMode && (
               <p role="status" style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-text)' }}>
                 {maxSeats >= own.rules.maxPerBooking && roomLeft > maxSeats
                   ? `One booking holds up to ${plural(own.rules.maxPerBooking, 'seat')}.`
@@ -1078,8 +1197,59 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     )
   }
 
+  // ── Step 3 (waitlist): contact, card to save, consent ──────────────────────
+  function renderWaitlist() {
+    const most = q?.totalCents ?? 0
+    return (
+      <form id={formId} onSubmit={handleJoin} noValidate>
+        <p role="status" data-testid="waitlist-step" style={{ margin: '0 0 1rem', fontSize: '0.9375rem', lineHeight: 1.5, fontWeight: 600, color: 'var(--color-dark)' }}>
+          {waitlistReason(roomLeft, total)}
+        </p>
+        <ContactFields ref={contactRef} value={contact} onChange={setContact} phoneRequired disabled={processing} />
+
+        <div style={{ margin: '1.25rem 0 0.75rem', padding: '0.875rem 1rem', borderRadius: '0.75rem', background: 'var(--color-sand)' }}>
+          <p style={{ margin: 0, fontSize: '0.9375rem', color: 'var(--color-dark)' }}>
+            {workshop.name}{own.passes.length > 1 && pass ? `, ${pass.label}` : ''} · {ticketsLabel}
+          </p>
+          <p style={{ margin: '0.125rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>
+            {`Up to ${formatMoney(most, workshop.currency)}${own.taxPercent > 0 ? ', tax included' : ''}, charged only if a spot opens.`}
+          </p>
+        </div>
+
+        <PaymentForm bookingKind="workshop" mode="store" ref={paymentFormRef} onReadyChange={setPaymentReady} />
+
+        <div style={{ marginTop: '1rem' }}>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', cursor: 'pointer', minHeight: '2.75rem' }}>
+            <input
+              ref={consentRef}
+              type="checkbox"
+              name="waitlist-consent"
+              checked={consented}
+              onChange={(e) => { setConsented(e.target.checked); if (e.target.checked) setConsentProblem(false) }}
+              aria-invalid={consentProblem ? true : undefined}
+              aria-describedby={consentProblem ? consentErrorId : undefined}
+              style={{ marginTop: '0.2rem', width: '1.25rem', height: '1.25rem', flexShrink: 0, cursor: 'pointer', accentColor: 'var(--color-primary)' }}
+            />
+            <span style={{ fontSize: '0.9375rem', color: 'var(--color-dark)', lineHeight: 1.5 }} data-testid="waitlist-consent">
+              {wlClosesIso ? consentText(wlClosesIso, most) : ''}
+            </span>
+          </label>
+          {consentProblem && <p id={consentErrorId} role="alert" className="field-error" style={{ marginTop: '0.375rem' }}>{WAITLIST_MESSAGES.consent}</p>}
+          <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem', color: 'var(--color-text)' }}>
+            Once you’re added, the{' '}
+            <a href={`${POLICY_PATH}#${POLICY_ANCHORS.workshops}`} target="_blank" rel="noopener" style={{ color: 'var(--color-primary)', fontWeight: 600, textDecoration: 'underline' }}>booking and cancellation policy</a>
+            {' '}applies.
+          </p>
+        </div>
+        {error && <p role="alert" className="field-error" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5 }}>{error}</p>}
+      </form>
+    )
+  }
+
   let footer
-  if (booked) {
+  if (joined) {
+    footer = <button type="button" className="btn btn-primary" onClick={onClose}>Done</button>
+  } else if (booked) {
     footer = <button type="button" className="btn btn-primary" onClick={finish}>Done</button>
   } else if (stuck) {
     footer = <button type="button" className="btn btn-primary" onClick={onClose}>Close</button>
@@ -1090,6 +1260,12 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     footer = (
       <button type="button" className="btn btn-primary" onClick={next}>
         {beforeTax !== null ? `Continue · ${formatMoney(beforeTax, workshop.currency)}` : 'Continue'}
+      </button>
+    )
+  } else if (waitlistMode) {
+    footer = (
+      <button type="submit" form={formId} className="btn btn-primary" disabled={processing || !paymentReady}>
+        {processing ? 'Saving…' : !paymentReady ? 'Loading the card form…' : 'Join the waitlist'}
       </button>
     )
   } else {
@@ -1108,22 +1284,22 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   return (
     <BookingPanel
       title={workshop.name}
-      onRequestClose={booked ? finish : stuck ? onClose : requestClose}
-      stepKey={booked ? 'confirmed' : step}
-      stepName={booked ? undefined : STEP_NAMES[step]}
+      onRequestClose={booked ? finish : stuck || joined ? onClose : requestClose}
+      stepKey={booked ? 'confirmed' : joined ? 'joined' : step === 'pay' && waitlistMode ? 'waitlist' : step}
+      stepName={booked || joined ? undefined : step === 'pay' && waitlistMode ? WAITLIST_STEP_NAME : STEP_NAMES[step]}
       stepNumber={steps.indexOf(step) + 1}
       stepCount={steps.length}
       summary={
-        booked ? undefined : (
+        booked || joined ? undefined : (
           <p style={{ margin: 0, fontSize: '0.9375rem', color: 'var(--color-dark)' }}>
             {[whenShort, (q?.sessionIds.length ?? 0) > 1 ? plural(q!.sessionIds.length, 'session') : '', ticketsLabel].filter(Boolean).join(' · ')}
           </p>
         )
       }
-      onBack={!booked && !stuck && !processing ? (step !== 'details' ? back : door && onExit ? onExit : undefined) : undefined}
+      onBack={!booked && !joined && !stuck && !processing ? (step !== 'details' ? back : door && onExit ? onExit : undefined) : undefined}
       footer={footer}
       leavePrompt={
-        askToLeave && !booked
+        askToLeave && !booked && !joined
           ? {
               title: 'Leave without booking?',
               body: 'Nothing is saved until you pay.',
@@ -1135,9 +1311,9 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           : null
       }
     >
-      {booked ? renderConfirmation() : stuck ? (
+      {joined ? renderJoined() : booked ? renderConfirmation() : stuck ? (
         <p role="alert" style={{ margin: 0, fontSize: '0.9375rem', lineHeight: 1.6, color: 'var(--color-dark)' }}>{stuck}</p>
-      ) : step === 'details' ? renderDetails() : step === 'seats' ? renderSeats() : renderPay()}
+      ) : step === 'details' ? renderDetails() : step === 'seats' ? renderSeats() : waitlistMode ? renderWaitlist() : renderPay()}
     </BookingPanel>
   )
 }

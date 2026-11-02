@@ -78,6 +78,8 @@ export async function sendClassConfirmation(input: {
   free?: boolean
   /** a door seat paid at the counter: what is still to pay there */
   dueAtStudioCents?: number
+  /** Stage 4: the waitlist's first sentence ("A spot opened and you're in!…"). */
+  lead?: string
 }): Promise<boolean> {
   const { cls, origin } = input
   const sessions = cls.sessions
@@ -131,6 +133,7 @@ export async function sendClassConfirmation(input: {
     bookingRef: input.bookingId,
     ...(sessions.length > 1 ? { sessionLines: sessions.map((s) => formatDayAndSpan(s.startIso, s.endIso)) } : {}),
     ...(input.pickLines?.length ? { pickLines: input.pickLines } : {}),
+    ...(input.lead ? { lead: input.lead } : {}),
   })
   return sent
 }

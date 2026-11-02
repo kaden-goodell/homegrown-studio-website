@@ -29,11 +29,26 @@ const DECLINED = new Set([
 const NO_FUNDS = new Set(['INSUFFICIENT_FUNDS'])
 const EXPIRED = new Set(['CARD_EXPIRED', 'INVALID_EXPIRATION', 'EXPIRATION_FAILURE'])
 const VERIFY = new Set(['CARD_DECLINED_VERIFICATION_REQUIRED', 'BUYER_VERIFICATION_REQUIRED', 'INVALID_VERIFICATION_TOKEN'])
-const GONE = new Set(['NOT_FOUND', 'CARD_NOT_FOUND', 'CARD_DISABLED', 'CUSTOMER_NOT_FOUND'])
+/** Codes that can only be about the card itself. */
+const GONE = new Set(['CARD_NOT_FOUND', 'CARD_DISABLED'])
 /** The one-time token from the card form is spent or stale: typing the card again fixes it. */
 const TRY_AGAIN = new Set(['CARD_TOKEN_EXPIRED', 'CARD_TOKEN_USED', 'SOURCE_USED', 'SOURCE_EXPIRED'])
 
 const SETUP_STATUS = new Set([401, 403, 429])
+/**
+ * fix3 review: a plain NOT_FOUND (or a bare 404) is "card gone" only when
+ * Square's error names the card or the payment source (its field or detail);
+ * any other NOT_FOUND is OUR order, location or customer id being wrong:
+ * 'setup' (the run stops, nobody's card is blamed or turned off).
+ */
+const refersToCard = (error: unknown): boolean => {
+  const errors = (error as { errors?: unknown } | null)?.errors
+  if (!Array.isArray(errors)) return false
+  return errors.some((e) => {
+    const x = (e ?? {}) as { field?: unknown; detail?: unknown }
+    return /\bcard|source(_id)?\b/i.test(`${String(x.field ?? '')} ${String(x.detail ?? '')}`)
+  })
+}
 const categories = (error: unknown): string[] => {
   const errors = (error as { errors?: unknown } | null)?.errors
   return Array.isArray(errors) ? errors.map((e) => String((e as { category?: unknown })?.category ?? '')).filter(Boolean) : []
@@ -49,7 +64,9 @@ export function cardTroubleOf(error: unknown): CardTrouble {
   if (has(NO_FUNDS)) return 'no-funds'
   if (has(EXPIRED)) return 'expired'
   if (has(VERIFY)) return 'verify'
-  if (has(GONE) || (error as { statusCode?: unknown })?.statusCode === 404) return 'card-gone'
+  if (has(GONE)) return 'card-gone'
+  if ((codes.includes('NOT_FOUND') || status === 404) && refersToCard(error)) return 'card-gone'
+  if (codes.includes('NOT_FOUND') || codes.includes('CUSTOMER_NOT_FOUND') || status === 404) return 'setup'
   if (has(TRY_AGAIN)) return 'try-again'
   if (has(DECLINED)) return 'declined'
   // A card problem Square names by category only: still the card.

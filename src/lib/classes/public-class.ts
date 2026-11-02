@@ -17,6 +17,11 @@ export interface PublicSession {
   left: number
   /** Started, or past the sign-up cutoff (decided on the server). */
   closed: boolean
+  /**
+   * Stage 4: the waitlist for this date. `open` = people can join now (class
+   * open, before `closesIso`); `waiting` = people on it. Absent at the door.
+   */
+  waitlist?: { open: boolean; closesIso: string; waiting: number }
 }
 
 export interface PublicPass extends Pass {

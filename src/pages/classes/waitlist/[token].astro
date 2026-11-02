@@ -1,0 +1,82 @@
+---
+export const prerender = false
+
+import Layout from '@layouts/Layout.astro'
+import { entryForToken, leaveWaitlist, waitlistSeatsWords, waitlistWhen, WaitlistError } from '@lib/classes/waitlist'
+import { WAITLIST_MESSAGES } from '@lib/classes/waitlist-words'
+import { createLogger } from '@lib/logger'
+
+const logger = createLogger('page:waitlist-leave')
+
+// The "Leave the waitlist" link from the joined email (stage 4). Opening the
+// link only shows the spot; leaving takes a tap (a link checker or a preview
+// never takes anyone off). A wrong token and a missing spot look the same.
+const token = Astro.params.token ?? ''
+Astro.response.headers.set('Cache-Control', 'private, no-store')
+Astro.response.headers.set('Referrer-Policy', 'no-referrer')
+
+let view: 'ask' | 'left' | 'already-off' | 'added' | 'charging' | 'missing' | 'failed' = 'missing'
+let className = ''
+let line = ''
+try {
+  if (Astro.request.method === 'POST') {
+    try {
+      const r = await leaveWaitlist(token)
+      view = r.result
+      className = r.className
+    } catch (err) {
+      if (err instanceof WaitlistError && err.code === 'charging') view = 'charging'
+      else if (err instanceof WaitlistError && err.code === 'not_found') view = 'missing'
+      else throw err
+    }
+  } else {
+    const found = await entryForToken(token)
+    if (found) {
+      className = found.cls?.content.name ?? 'the class'
+      const e = found.entry
+      view = e.state === 'waiting' ? 'ask' : e.state === 'charging' ? 'charging' : e.state === 'added' ? 'added' : 'already-off'
+      line = found.cls ? `${waitlistWhen(found.cls, e.sessionIds)} · ${waitlistSeatsWords(found.cls, e)} · card ending ${e.square.last4}` : ''
+    }
+  }
+} catch (err) {
+  view = 'failed'
+  logger.error('Waitlist leave page failed', { error: err instanceof Error ? err.message : String(err) })
+}
+if (view === 'missing') Astro.response.status = 404
+if (view === 'failed') Astro.response.status = 503
+
+const heading = {
+  ask: `Leave the waitlist for ${className}?`,
+  left: 'You’re off the waitlist',
+  'already-off': 'You’re already off the waitlist',
+  added: 'You’re in the class',
+  charging: 'A spot just opened',
+  missing: 'We couldn’t find that waitlist spot',
+  failed: 'We couldn’t load this just now',
+}[view]
+const body = {
+  ask: 'Your card comes off and nothing is charged.',
+  left: `Nothing was charged, and your card is no longer saved with us. We sent you an email to say so.`,
+  'already-off': 'Nothing more to do here. Nothing was charged.',
+  added: 'A spot opened and we added you. Check your email for the details. To change plans, text or call us.',
+  charging: WAITLIST_MESSAGES.charging,
+  missing: 'It may have been removed already, or the link may be old.',
+  failed: 'Please refresh in a minute.',
+}[view]
+---
+
+<Layout title="Waitlist" description="Your spot on a Hometown Studio class waitlist." noindex>
+  <section class="max-w-xl mx-auto px-4 sm:px-6 pb-20 text-center" style="padding-top: 5.5rem;">
+    <h1 class="text-3xl sm:text-4xl font-heading font-bold" style="color: var(--color-dark);">{heading}</h1>
+    {line && <p class="mt-4 font-semibold" style="color: var(--color-dark);">{line}</p>}
+    <p class="mt-4" style="color: var(--color-text);">{body}</p>
+    {view === 'ask' ? (
+      <form method="post" class="mt-6">
+        <button type="submit" class="btn btn-primary">Leave the waitlist</button>
+        <p class="mt-4 text-sm"><a href="/workshops" class="underline" style="color: var(--color-primary);">Stay on it</a></p>
+      </form>
+    ) : (
+      <p class="mt-6"><a href="/workshops" class="btn btn-primary">See workshops</a></p>
+    )}
+  </section>
+</Layout>

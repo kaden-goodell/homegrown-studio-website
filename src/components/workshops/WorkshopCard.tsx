@@ -8,7 +8,7 @@ import { firstParagraph, notifyInterest, takeHomeLine } from '@lib/workshop-copy
 import { whenLabel } from './workshop-view-model'
 import { trackWaitlistOpened } from '@lib/analytics'
 import RequestSpot from './RequestSpot'
-import { priceLabel } from './workshop-status'
+import { JoinWaitlistButton, ownWaitlistOpen, priceLabel } from './workshop-status'
 
 export interface WorkshopCardProps {
   workshop: WorkshopData
@@ -156,7 +156,8 @@ export default function WorkshopCard({ workshop, onBook, href }: WorkshopCardPro
             />
           )}
 
-          {soldOut && !closed && !asking && (
+          {soldOut && !closed && onBook && !href && ownWaitlistOpen(workshop) && <JoinWaitlistButton workshop={workshop} onJoin={onBook} />}
+          {soldOut && !closed && !asking && !(onBook && !href && ownWaitlistOpen(workshop)) && (
             <button type="button" className="btn btn-secondary" style={{ width: '100%' }} onClick={() => { trackWaitlistOpened(workshop.id, workshop.name, 'sold_out'); setAsking(true) }}>
               Tell me if a seat opens
             </button>

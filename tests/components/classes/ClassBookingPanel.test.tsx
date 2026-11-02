@@ -625,3 +625,85 @@ describe('ClassBookingPanel — stage 4: early-bird, codes, free, the price chan
     expect(screen.getByRole('button', { name: 'Pay $43.60' })).toBeInTheDocument()
   })
 })
+
+describe('ClassBookingPanel — stage 4 waitlist', () => {
+  // One date, full (capacity 2, 2 taken), waitlist open.
+  const one = () => make({ passes: [{ id: 'all', label: 'Full series', covers: { kind: 'all' } }], prices: { all: { person: 2000 } } }, [sess('ses_a', 24, 2)])
+  function openFull(n = 2) {
+    const cls = one()
+    const workshop = toPublicClass(cls, { classId: cls.id, lines: taken(n, ['ses_a']) }, NOW, {}, {
+      classId: cls.id, entries: [{ state: 'waiting', sessionIds: ['ses_a'] } as any],
+    })
+    render(<ClassBookingPanel workshop={workshop} onClose={vi.fn()} syncUrl={false} />)
+    return workshop
+  }
+
+  it('a full class offers the waitlist: store mode card form (no wallets), consent tick, "Join the waitlist"', async () => {
+    const w = openFull()
+    expect(w.own!.sessions[0].waitlist).toMatchObject({ open: true, waiting: 1 })
+    expect(screen.getByTestId('waitlist-note')).toHaveTextContent('This class is full. Join the waitlist')
+    cont()
+    expect(screen.getByTestId('waitlist-step')).toBeInTheDocument()
+    expect(paymentFormProps.mode).toBe('store')
+    expect(paymentFormProps.wallet).toBeUndefined()
+    expect(screen.getByTestId('waitlist-consent')).toHaveTextContent('Save my card with Square. If a spot opens before Sat, Oct 24 at 11 AM, Hometown Studio adds me and charges this card up to $21.80 without asking again.')
+    expect(screen.getByRole('button', { name: 'Join the waitlist' })).toBeInTheDocument()
+  })
+
+  it('the consent tick is required before anything is sent', async () => {
+    openFull()
+    cont()
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    for (const [label, value] of Object.entries({ 'First name': 'Alice', 'Last name': 'Smith', Email: 'alice@test.com', Phone: '(256) 555-0123' })) {
+      fireEvent.change(screen.getByLabelText(label), { target: { value } })
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Join the waitlist' }))
+    expect(await screen.findByText('Tick the box to let us save your card and charge it if a spot opens.')).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('joins: sends only the card token (no price), shows "You\'re on the waitlist"', async () => {
+    openFull()
+    cont()
+    const fetchMock = vi.fn().mockResolvedValue(serverSays(200, { data: { position: 2, waiting: 2, card: { brand: 'VISA', last4: '4242' }, emailSent: true } }))
+    vi.stubGlobal('fetch', fetchMock)
+    fillContact()
+    fireEvent.click(screen.getByRole('button', { name: 'Join the waitlist' }))
+    expect(await screen.findByText('You’re on the waitlist')).toBeInTheDocument()
+    expect(screen.getByText(/You’re number 2 on the waitlist for Clay Camp\. We’ll add you and charge your card ending 4242/)).toBeInTheDocument()
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/classes/waitlist.json')
+    const sent = JSON.parse(init.body)
+    expect(sent).toMatchObject({ action: 'join', classId: 'cls_1', passId: 'all', tickets: { person: 1 }, consent: true, cardToken: 'cnon:test-token', verificationToken: null })
+    expect(JSON.stringify(sent)).not.toMatch(/Cents|price|amount/)
+  })
+
+  it('a spot opened meanwhile: "A spot just opened. Book it now." and fresh seat counts are fetched', async () => {
+    openFull()
+    cont()
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(serverSays(409, { code: 'spot_open', detail: 'A spot just opened. Book it now.' }))
+      .mockResolvedValue(serverSays(200, {}))
+    vi.stubGlobal('fetch', fetchMock)
+    fillContact()
+    fireEvent.click(screen.getByRole('button', { name: 'Join the waitlist' }))
+    expect(await screen.findByText('A spot just opened. Book it now.')).toBeInTheDocument()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/classes/cls_1.json', expect.anything()))
+  })
+
+  it('after the cutoff the full class is just sold out (no waitlist)', async () => {
+    const cls = one()
+    const late = new Date('2026-10-24T16:30:00Z') // 1.5 h before
+    vi.setSystemTime(late)
+    const workshop = toPublicClass(cls, { classId: cls.id, lines: taken(2, ['ses_a']) }, late, {}, { classId: cls.id, entries: [] })
+    expect(workshop.own!.sessions[0].waitlist!.open).toBe(false)
+  })
+
+  it('at the door there is never a waitlist step', async () => {
+    const cls = one()
+    const workshop = toPublicClass(cls, { classId: cls.id, lines: taken(2, ['ses_a']) }, NOW, { door: true })
+    render(<ClassBookingPanel workshop={workshop} onClose={vi.fn()} syncUrl={false} door />)
+    expect(screen.queryByTestId('waitlist-note')).toBeNull()
+  })
+})
