@@ -1,4 +1,5 @@
 import type { Customer, CustomerNote, CustomerProvider } from '@providers/interfaces/customer'
+import { maskEmail } from '@lib/pii-mask'
 import type { SquareConfig } from '@config/site.config'
 import { createLogger } from '@lib/logger'
 import { createSquareClient } from './client'
@@ -37,7 +38,7 @@ export class SquareCustomerProvider implements CustomerProvider {
 
     if (searchResult.customers && searchResult.customers.length > 0) {
       const existing = searchResult.customers[0]
-      logger.info('Found existing customer', { email: params.email, id: existing.id })
+      logger.info('Found existing customer', { id: existing.id })
       return { ...mapSquareCustomer(await this.fillMissing(existing, params)), matchedBy: 'email' }
     }
 
@@ -54,7 +55,7 @@ export class SquareCustomerProvider implements CustomerProvider {
       })
       if (phoneResult.customers && phoneResult.customers.length > 0) {
         const existing = phoneResult.customers[0]
-        logger.info('Found existing customer by phone', { phone: e164, id: existing.id })
+        logger.info('Found existing customer by phone', { id: existing.id })
         return { ...mapSquareCustomer(await this.fillMissing(existing, params)), matchedBy: 'phone' }
       }
     }
@@ -68,13 +69,13 @@ export class SquareCustomerProvider implements CustomerProvider {
         ...(params.phone ? { phoneNumber: params.phone } : {}),
       })
 
-      logger.info('Created new customer', { email: params.email, id: createResult.customer?.id })
+      logger.info('Created new customer', { id: createResult.customer?.id })
       return { ...mapSquareCustomer(createResult.customer!), matchedBy: 'new' }
     } catch (error: any) {
       // Step 3: Handle race condition — new profiles can take up to 30s to be searchable.
       // If create fails with a duplicate error, retry search once.
       if (isDuplicateError(error)) {
-        logger.warn('Duplicate customer detected, retrying search', { email: params.email })
+        logger.warn('Duplicate customer detected, retrying search', { email: maskEmail(params.email) })
 
         const retryResult = await this.client.customers.search({
           query: {
@@ -88,7 +89,7 @@ export class SquareCustomerProvider implements CustomerProvider {
 
         if (retryResult.customers && retryResult.customers.length > 0) {
           const found = retryResult.customers[0]
-          logger.info('Found customer on retry', { email: params.email, id: found.id })
+          logger.info('Found customer on retry', { id: found.id })
           return { ...mapSquareCustomer(found), matchedBy: 'email' }
         }
       }
@@ -139,7 +140,7 @@ export class SquareCustomerProvider implements CustomerProvider {
 
     const existing = searchResult.customers?.[0]
     if (existing) {
-      logger.info('Customer already exists for subscription', { email })
+      logger.info('Customer already exists for subscription')
       // Keep what they asked about on the record they already have.
       if (note && existing.id) await this.appendNote(existing.id, note)
       return
@@ -150,7 +151,7 @@ export class SquareCustomerProvider implements CustomerProvider {
       emailAddress: email,
       ...(note ? { note: note.slice(0, 4000) } : {}),
     })
-    logger.info('Subscribed customer', { email })
+    logger.info('Subscribed customer')
   }
 
   async listWithNotes(): Promise<CustomerNote[]> {
@@ -205,7 +206,7 @@ export class SquareCustomerProvider implements CustomerProvider {
 
   async updateEmail(customerId: string, email: string): Promise<void> {
     await this.client.customers.update({ customerId, emailAddress: email })
-    logger.info('Updated customer email', { customerId, email })
+    logger.info('Updated customer email', { customerId, email: maskEmail(email) })
   }
 }
 

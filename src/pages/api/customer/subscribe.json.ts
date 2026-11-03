@@ -2,10 +2,15 @@ import type { APIRoute } from 'astro'
 import { createLogger } from '@lib/logger'
 import { providers } from '@config/providers'
 import { reportServerEvent } from '@lib/posthog-server'
+import { rateLimited } from '@lib/rate-limit'
 
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, clientAddress }) => {
   const logger = createLogger('api:customer:subscribe')
   const startTime = Date.now()
+  // M4: each signup makes a Square contact; a script can't fill the list.
+  if (rateLimited(`subscribe:${clientAddress}`, 5, 10 * 60_000)) {
+    return new Response(JSON.stringify({ error: 'Too many tries. Wait a few minutes and try again.' }), { status: 429, headers: { 'Content-Type': 'application/json' } })
+  }
   try {
     const body = await request.json()
 
@@ -18,10 +23,8 @@ export const POST: APIRoute = async ({ request }) => {
 
     await providers.customer.subscribe(body.email)
 
-    logger.info('Customer subscribed', {
-      duration_ms: Date.now() - startTime,
-      email: body.email,
-    })
+    // M5: no email in the log.
+    logger.info('Customer subscribed', { duration_ms: Date.now() - startTime })
     await reportServerEvent({ requestUrl: request.url, event: 'newsletter_saved', distinctId: String(body.email), posthogId: body.posthogId })
     return new Response(JSON.stringify({ data: { success: true } }), {
       status: 200,

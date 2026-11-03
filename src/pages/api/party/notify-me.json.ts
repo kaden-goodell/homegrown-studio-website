@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro'
+import { maskEmail } from '@lib/pii-mask'
 import { providers } from '@config/providers'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
@@ -51,7 +52,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   let saved = true
   try {
     await providers.customer.subscribe(email, note)
-    logger.info('Notify-me sign-up saved', { email, interest: interest || undefined })
+    logger.info('Notify-me sign-up saved', { email: maskEmail(email), interest: interest || undefined })
   } catch (err) {
     saved = false
     logger.error('Notify-me sign-up could not be saved', {

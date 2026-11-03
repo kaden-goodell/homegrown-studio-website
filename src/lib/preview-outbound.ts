@@ -14,6 +14,7 @@
  */
 import { makeKvStore } from '@lib/blob-store'
 import { createLogger } from '@lib/logger'
+import { maskContact } from '@lib/pii-mask'
 import { deployContext, type DeployContext } from '@lib/deploy-context'
 
 export const PREVIEW_EMAIL_TO = 'kaden.goodell@gmail.com'
@@ -126,7 +127,7 @@ export async function recordMuted(msg: { kind: 'email' | 'text'; to: string; sub
     at: now.toISOString(),
   }
   logger.info(`Test site: ${msg.kind} not sent (messages are muted here)`, {
-    to: entry.to, ...(entry.subject !== undefined ? { subject: entry.subject } : {}), firstLine: entry.firstLine,
+    to: maskContact(entry.to), ...(entry.subject !== undefined ? { subject: entry.subject } : {}), firstLine: entry.firstLine,
   })
   try {
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -135,9 +136,9 @@ export async function recordMuted(msg: { kind: 'email' | 'text'; to: string; sub
       const next = [entry, ...list].slice(0, MUTED_KEEP)
       if (await kv.setIfMatch(KEY, JSON.stringify(next), etag, value !== null)) return entry
     }
-    logger.warn('Muted message not listed (busy); it is in the log', { to: entry.to })
+    logger.warn('Muted message not listed (busy); it is in the log', { to: maskContact(entry.to) })
   } catch (err) {
-    logger.warn('Muted message not listed; it is in the log', { to: entry.to, error: err instanceof Error ? err.message : String(err) })
+    logger.warn('Muted message not listed; it is in the log', { to: maskContact(entry.to), error: err instanceof Error ? err.message : String(err) })
   }
   return entry
 }
