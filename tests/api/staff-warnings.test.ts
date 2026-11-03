@@ -6,15 +6,13 @@ vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed }))
 const mockListWarnings = vi.fn()
 vi.mock('@lib/warnings', () => ({
   listWarnings: (...a: any[]) => mockListWarnings(...a),
-  warningLine: (w: any) => `LINE ${w.detail}`,
-  WARNING_WINDOW_DAYS: 60,
-  OWNER_ONLY_CODES: new Set(['unstaffed', 'assigned-cant', 'assigned-cancelled', 'staffing-unreadable']),
 }))
 
 import { GET } from '@pages/api/staff/warnings.json'
 
 const ctx = () => ({ request: new Request('http://localhost/api/staff/warnings.json') }) as any
-const W = { code: 'oversold', eventKind: 'workshop', eventId: 'clssch_pails', when: '2026-10-18T18:00:00.000Z', title: 'Pumpkin Pails', detail: 'Pumpkin Pails: 27 seats sold, 25 capacity.', action: 'Sort it out in Square.' }
+// today is Tue Oct 6 (studio time)
+const W = { code: 'oversold', eventKind: 'workshop', eventId: 'clssch_pails', when: '2026-10-06T23:00:00.000Z', title: 'Pumpkin Pails', detail: 'Pumpkin Pails: 27 seats sold, 25 capacity.', action: 'Sort it out in Square.' }
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -25,34 +23,42 @@ beforeEach(() => {
 })
 afterEach(() => vi.useRealTimers())
 
-describe('GET /api/staff/warnings.json', () => {
+describe('GET /api/staff/warnings.json (crew panel, crew review I5)', () => {
   it('rejects a caller without the staff cookie', async () => {
     authed = null
     expect((await GET(ctx())).status).toBe(401)
     expect(mockListWarnings).not.toHaveBeenCalled()
   })
 
-  it('scans today and the next 59 studio days', async () => {
+  it('scans today and tomorrow only, never the staffing records', async () => {
     const res = await GET(ctx())
     expect(res.status).toBe(200)
-    expect(mockListWarnings).toHaveBeenCalledWith({ from: '2026-10-06', to: '2026-12-04' }, { staffing: false })
-    expect((await res.json()).data).toEqual({ from: '2026-10-06', to: '2026-12-04', warnings: [] })
+    expect(mockListWarnings).toHaveBeenCalledWith({ from: '2026-10-06', to: '2026-10-07' }, { staffing: false })
+    expect((await res.json()).data).toEqual({ from: '2026-10-06', to: '2026-10-07', warnings: [] })
   })
 
-  it('sends each warning with its ready-made line', async () => {
+  it('a crew line says what the crew do — never "in Square" or "/admin"', async () => {
     mockListWarnings.mockResolvedValue([W])
     const { data } = await (await GET(ctx())).json()
-    expect(data.warnings).toEqual([{ ...W, line: 'LINE Pumpkin Pails: 27 seats sold, 25 capacity.' }])
+    expect(data.warnings).toEqual([{ code: 'oversold', eventKind: 'workshop', eventId: 'clssch_pails', when: W.when, title: 'Pumpkin Pails', line: 'Tue Oct 6 · Pumpkin Pails: 27 seats sold, 25 capacity. Catherine or Kaden will sort this out.' }])
   })
 
-  it('skips the staffing scan altogether (it reads every staffing record; the crew never see those lines)', async () => {
-    await GET(ctx())
-    expect(mockListWarnings.mock.calls[0][1]).toEqual({ staffing: false })
+  it('door lines: a reader sale waiting and an unpaid door seat, with what to do', async () => {
+    mockListWarnings.mockResolvedValue([
+      { ...W, code: 'reader-waiting', detail: 'A reader sale of Pumpkin Pails never came back from the Square app.', action: 'An owner decides on /admin.' },
+      { ...W, code: 'door-unpaid', detail: 'Kim Ng · Pumpkin Pails · Tue Oct 6 · not paid at the counter yet', action: 'An owner decides on /admin.' },
+    ])
+    const lines = (await (await GET(ctx())).json()).data.warnings.map((w: any) => w.line)
+    expect(lines[0]).toBe('Tue Oct 6 · A reader sale of Pumpkin Pails never came back from the Square app. Open the class and tap Check again. Catherine or Kaden will sort out the rest.')
+    expect(lines[1]).toBe('Kim Ng · Pumpkin Pails · Tue Oct 6 · not paid at the counter yet. If they’re here, take it at the register. Catherine or Kaden will sort out the rest.')
+    for (const l of lines) expect(l).not.toMatch(/\/admin|in Square\./)
   })
 
-  it('never shows the crew the owners-only staffing lines', async () => {
-    const staffing = ['unstaffed', 'assigned-cant', 'assigned-cancelled', 'staffing-unreadable'].map((code) => ({ ...W, code, detail: `staffing ${code}` }))
-    mockListWarnings.mockResolvedValue([W, ...staffing])
+  it('owner work never reaches the crew: staffing, promo, register setup, refund flags, weeks-away lines', async () => {
+    const owner = ['unstaffed', 'assigned-cant', 'promo-free-unlimited', 'register-setup-missing', 'refund-flag', 'pos-unmatched', 'below-minimum', 'capacity-unknown']
+      .map((code) => ({ ...W, code, detail: `x ${code}` }))
+    const later = { ...W, when: '2026-10-18T18:00:00.000Z' }
+    mockListWarnings.mockResolvedValue([W, ...owner, later])
     for (const role of ['crew', 'owner'] as const) {
       authed = { id: 'k', name: 'Kaden', role }
       const { data } = await (await GET(ctx())).json()

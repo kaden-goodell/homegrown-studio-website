@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react'
 import StaffHeader from '@components/staff/StaffHeader'
 import { type HouseholdMatch } from '@components/staff/DoorSearch'
 import { card, btn, Badge } from '@components/staff/ui'
+import WarningsPanel from '@components/staff/WarningsPanel'
 import { cafeOn } from '@lib/cafe-days'
 import { formatRange } from '@config/hours'
 import { addDays } from '@lib/kit-dates'
-import { formatTime, formatTimeSpan, formatCalendarDay, studioDate } from '@lib/studio-time'
+import { formatTime, formatTimeSpan, formatCalendarDay, studioDate, studioDayUtcRange } from '@lib/studio-time'
 import type { StaffMember } from '@lib/staff-auth'
 import type { EventKind } from '@lib/events'
 import type { PrepOption } from '@lib/seat-options'
@@ -33,6 +34,8 @@ export interface WeekRow {
 }
 
 const WEEK_DAYS = 7
+/** At a class start the landing page must be current: it reloads itself this often (crew review M10). */
+export const WEEK_REFRESH_MS = 60_000
 const ICON: Record<EventKind, string> = { party: '🎉', workshop: '🧵', program: '🌙' }
 
 /**
@@ -53,20 +56,46 @@ export default function ThisWeek({
   /** Craft Café hours by day, from the server (it knows the owners' hours and closed days). */
   const [cafeDays, setCafeDays] = useState<Record<string, { opens: string; closes: string }> | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /** "kind:id:day" of everything the signed-in person is on this week (the Calendar tab's ✓ You're on). */
+  const [mine, setMine] = useState<Set<string>>(new Set())
 
-  async function load() {
-    setError(null)
+  /** `quiet`: the minute refresh — a miss keeps what's on screen instead of flashing an error. */
+  async function load(quiet = false) {
+    if (!quiet) setError(null)
     try {
       const res = await fetch('/api/staff/week.json', { cache: 'no-store' })
       const json = await res.json().catch(() => null)
-      if (!res.ok) { setError(json?.error ?? 'Couldn’t load this week.'); return }
+      if (!res.ok) { if (!quiet) setError(json?.error ?? 'Couldn’t load this week.'); return }
       setRows(json.data.events as WeekRow[])
       setCafeDays(json.data.cafe && typeof json.data.cafe === 'object' ? json.data.cafe : null)
+      setError(null)
     } catch {
-      setError('Couldn’t reach the studio server — check wifi and tap Retry.')
+      if (!quiet) setError('Couldn’t reach the studio server — check wifi and tap Retry.')
     }
   }
-  useEffect(() => { load() }, [])
+  /** My shifts this week: an extra (no tags without it). Keyed per person by StaffConsole. */
+  async function loadMine() {
+    try {
+      const from = studioDayUtcRange(today).startIso
+      const to = studioDayUtcRange(addDays(today, WEEK_DAYS - 1)).endIso
+      const res = await fetch(`/api/staff/shifts.json?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, { cache: 'no-store' })
+      if (!res.ok) return
+      const json = await res.json().catch(() => null)
+      if (json?.data?.me?.id !== staff.id || !Array.isArray(json?.data?.mine)) return
+      setMine(new Set((json.data.mine as { event: { status: string; roster?: { kind: string; id: string; day: string } } }[])
+        .filter((r) => r.event.status === 'on' && r.event.roster)
+        .map((r) => `${r.event.roster!.kind}:${r.event.roster!.id}:${r.event.roster!.day}`)))
+    } catch {
+      // the tags are an extra
+    }
+  }
+  useEffect(() => {
+    load()
+    loadMine()
+    const t = setInterval(() => { load(true); loadMine() }, WEEK_REFRESH_MS)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const days = Array.from({ length: WEEK_DAYS }, (_, i) => addDays(today, i))
   // A class of ours shows each day as that day is: its own start, seats and prep.
@@ -81,10 +110,13 @@ export default function ThisWeek({
     <div>
       <StaffHeader title="This week" staff={staff} onOpenRoster={onOpenRoster} />
 
+      {/* The door's own warnings, today and tomorrow (crew review I5): the landing page shows them too. */}
+      <WarningsPanel onOpenEvent={(e) => onOpenRoster(e)} />
+
       {error && (
         <div role="alert" style={{ ...card, background: 'rgba(255,255,255,0.85)' }}>
           <p style={{ margin: '0 0 0.5rem', color: 'var(--color-error)' }}>{error}</p>
-          <button type="button" onClick={load} style={btn()}>Retry</button>
+          <button type="button" onClick={() => load()} style={btn()}>Retry</button>
         </div>
       )}
       {!rows && !error && <p style={{ color: 'var(--color-muted)', textAlign: 'center' }}>Loading…</p>}
@@ -121,6 +153,7 @@ export default function ThisWeek({
                         <span aria-hidden="true">{ICON[e.kind]}</span>
                         <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{e.title}</span>
                         {e.dropOff && <Badge tone="alert">DROP-OFF</Badge>}
+                        {mine.has(`${e.kind}:${e.id}:${d}`) && <Badge tone="muted">✓ You’re on</Badge>}
                         {e.waitingOnPayment && <Badge tone="warn">Waiting on payment</Badge>}
                       </span>
                       <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{e.kind === 'party' && e.endIso ? formatTimeSpan(e.startIso, e.endIso) : formatTime(e.startIso)}</span>

@@ -20,11 +20,13 @@ const box: CSSProperties = {
 }
 
 /**
- * "Needs attention" (spec G): red, at the top of Today, fetched on every load.
- * Nothing is dismissible and nothing here fixes anything: each line says what
- * a person does (in Square, or for our own classes, an owner on /admin). A
- * line with nothing to open (a counter sale that matched no class) has no Open. A scan that couldn't run says so, in red, rather
- * than showing nothing (which would read as all clear).
+ * "Needs attention" (spec G, narrowed by crew review I5): red, at the top of
+ * This week and Today. Only the door's own lines for today and tomorrow (a
+ * reader sale waiting, an unpaid door seat, over capacity, a class too close
+ * to a party), each saying what the crew do; owner work stays on /admin.
+ * Nothing is dismissible. A line with nothing to open has no Open. A scan
+ * that couldn't run says so, in red, rather than showing nothing (which
+ * would read as all clear). Re-checks every minute.
  */
 export default function WarningsPanel({ onOpenEvent }: { onOpenEvent: (e: { kind: EventKind; id: string; title: string }) => void }) {
   const [warnings, setWarnings] = useState<PanelWarning[] | null>(null)
@@ -53,6 +55,8 @@ export default function WarningsPanel({ onOpenEvent }: { onOpenEvent: (e: { kind
 
   useEffect(() => {
     load()
+    const t = setInterval(load, 60_000)
+    return () => clearInterval(t)
   }, [])
 
   if (failed) {
