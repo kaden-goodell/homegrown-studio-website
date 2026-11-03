@@ -44,7 +44,15 @@ function Field({ label, hint, error, field, children }: { label: string; hint?: 
 }
 
 /** A thumbnail, Choose / Change / Remove; the native file input stays hidden behind the button. Cropped to the card (4 by 3). */
-export function PhotoPicker({ url, onChange, error }: { url: string | null; onChange: (url: string | null) => void; error?: string }) {
+export function PhotoPicker({ url, onChange, error, what = 'Class photo', canRemove = true }: {
+  url: string | null
+  onChange: (url: string | null) => void
+  error?: string
+  /** What the photo is ("Craft photo"). */
+  what?: string
+  /** Offer Remove (crafts can only change their photo). */
+  canRemove?: boolean
+}) {
   const input = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState('')
@@ -61,14 +69,14 @@ export function PhotoPicker({ url, onChange, error }: { url: string | null; onCh
   return (
     <div className="adm-photo" data-field="photo">
       <div className="adm-photo-thumb" aria-hidden={!url}>
-        {url ? <img src={url} alt="Class photo" /> : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M4 8h3l2-2h6l2 2h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>}
+        {url ? <img src={url} alt={what} /> : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M4 8h3l2-2h6l2 2h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>}
       </div>
       <div className="adm-photo-side">
-        <b>{url ? 'Class photo' : 'Add a photo'}</b>
+        <b>{url ? what : 'Add a photo'}</b>
         <span className="adm-small adm-muted">{busy ? 'Uploading…' : 'Cropped to the card’s shape.'}</span>
         <div className="adm-photo-btns">
           <button type="button" className="adm-btn is-ghost is-sm" disabled={busy} onClick={() => input.current?.click()}>{url ? 'Change' : 'Choose photo'}</button>
-          {url && <button type="button" className="adm-btn is-ghost is-sm" disabled={busy} onClick={() => onChange(null)}>Remove</button>}
+          {url && canRemove && <button type="button" className="adm-btn is-ghost is-sm" disabled={busy} onClick={() => onChange(null)}>Remove</button>}
         </div>
         <input ref={input} className="sr-only" type="file" accept="image/*" aria-label="Photo" tabIndex={-1} onChange={(e) => pick(e.target.files?.[0])} />
       </div>

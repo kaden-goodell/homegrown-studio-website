@@ -1,10 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import type { MonthReport } from '@pages/api/admin/reports.json'
 import { OWNERS, type Owner } from '@lib/admin-who'
-import { formatMoney } from '@lib/money'
-import { api, PREVIEW_MESSAGES, REPORTS, SEED } from '../classes/api'
+import { api, PREVIEW_MESSAGES, SEED } from '../classes/api'
 import type { MutedMessage } from '@lib/preview-outbound'
-import { monthLabel } from '../classes/dates'
 import { Failed, Seg, Skeleton } from '../shell/items'
 import { SheetFrame, useSheet } from '../shell/Sheet'
 import { useToast } from '../shell/Toast'
@@ -20,54 +17,7 @@ export function ComingSheet({ title, stage, what }: { title: string; stage: numb
   )
 }
 
-/** This month, from our own records only. */
-export function ReportsSheet() {
-  const [r, setR] = useState<MonthReport | null>(null)
-  const [error, setError] = useState('')
-  const [tries, setTries] = useState(0)
-  useEffect(() => {
-    let live = true
-    setError('')
-    api<MonthReport>(REPORTS).then((x) => {
-      if (!live) return
-      if (x.ok && x.data) setR(x.data)
-      else setError(x.error ?? '')
-    })
-    return () => { live = false }
-  }, [tries])
-  return (
-    <SheetFrame title="Reports" subtitle={r ? `${monthLabel(`${r.month}-01`)} so far` : 'This month so far'}>
-      {error && <Failed message={error} onRetry={() => setTries((n) => n + 1)} />}
-      {!error && !r && <Skeleton rows={2} label="Loading the numbers" />}
-      {r && (
-        <>
-          <div className="adm-sum">
-            <div><b>{r.seatsSold}</b><small>class seats sold</small></div>
-            <div><b>{formatMoney(r.classSalesCents)}</b><small>class sales, before refunds</small></div>
-          </div>
-          <div className="adm-sum">
-            <div><b>{formatMoney(r.refundedCents)}</b><small>{`class refunds (${r.refunds})`}</small></div>
-            <div><b>{r.partiesBooked}</b><small>parties booked</small></div>
-          </div>
-          {typeof r.partyFeesCents === 'number' && (
-            <div className="adm-sum">
-              <div><b>{formatMoney(r.partyFeesCents)}</b><small>party fees taken, less refunds</small></div>
-            </div>
-          )}
-          {(r.discountCents ?? 0) > 0 && (
-            <div className="adm-kv">
-              <span>Money off (early-bird and codes)</span>
-              <span>{`${formatMoney(r.discountCents)}${r.codeDiscountCents ? `, ${formatMoney(r.codeDiscountCents)} from codes` : ''}`}</span>
-            </div>
-          )}
-          <p className="adm-note" style={{ marginTop: '0.75rem' }}>
-            Covers our own classes (seats booked online, at the door and at the register this month, with tax and extras; comps count as seats at $0) and parties booked this month (cancelled ones left out). Party fees are the studio fees and extras paid this month, less party refunds made this month. Refunds are this month’s, whenever the seat was sold. Craft Café, party crafts and anything else rung up in Square are in Square’s reports.
-          </p>
-        </>
-      )}
-    </SheetFrame>
-  )
-}
+export { ReportsSheet } from './ReportsSheet'
 
 /** Change who is using /admin on this device. */
 export function WhoSheet() {

@@ -9,13 +9,15 @@ import { partiesSummary } from './parties/PartiesSetupSheet'
 
 const ROWS: [MorePage, string, string][] = [
   ['booking', 'Online booking', 'Open or pause booking on the website'],
-  ['parties', 'Parties setup', 'Party times, packages, extras, crafts'],
+  ['parties', 'Parties setup', 'Party times, packages, extras'],
+  ['crafts', 'Crafts', 'Party and Craft Café crafts: photos, prices, words'],
   ['hours', 'Hours & Craft Café', 'Café hours and special days'],
   ['closed', 'Closed days', ''],
   ['staff', 'Staff', 'Who’s on, who can work, calendar links'],
   ['promos', 'Promotions', 'Codes, early-bird'],
   ['register', 'Register setup', 'The class tax and Classes category on the register'],
-  ['reports', 'Reports', 'This month: seats sold, sales, refunds'],
+  ['reports', 'Reports', 'Any month or year, and the tax split'],
+  ['records', 'Records', 'Download waivers, check-ins and who did what'],
 ]
 
 /** More: the setup pages, reports, who's using this, and sign out. */

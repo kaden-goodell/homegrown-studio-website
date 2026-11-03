@@ -29,11 +29,13 @@
  * data with no record value, `calendar-feeds` (scrambled calendar-link
  * keys only; a lost one is replaced with "Make a new link"), and
  * `staff-access` (the staff passcode's salted hash; an owner sets a new one
- * in /admin), and `site-switches` (the online booking switch, which holds
- * the test link's secret; who changed it is in the audit log). MERGE NOTE
- * (audit C): an in-app records download must skip `site-switches` too; it
- * reads ARCHIVE_STORES, or else gets its own exclusion and a test like
- * tests/lib/archive-stores.test.ts › 'never exports the test-link secret'. `staff-people` keeps its `import-failures` counter next to the
+ * in /admin), `site-switches` (the online booking switch, which holds
+ * the test link's secret; who changed it is in the audit log; the in-app
+ * Records download reads ARCHIVE_STORES, so it skips it too), `tax-reports`
+ * (Square's tax numbers for ended months, kept so /admin › Reports needn't
+ * ask again; "Ask Square again" rebuilds them), and `craft-save-keys`
+ * (which craft save already landed, so a retry says Saved; a day's worth
+ * of no record value). `staff-people` keeps its `import-failures` counter next to the
  * list; it is harmless in an export.
  */
 export interface ArchiveStoreEntry {
@@ -83,7 +85,7 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'class-confirmations' },
   // who decided what in /admin › To decide
   { name: 'to-decide' },
-  // Stage 4: each class's waitlist (who joined, consent, Square card id and last 4, every try; never card numbers)
+  // Stage 4: each class's waitlist (who joined, consent, card brand and last 4, every try; never card numbers; the saved-card id and leave-link hash are left out of every file)
   { name: 'waitlists' },
   // Stage 4: "Charge on the reader" sales (who, what, how much, how each ended) and which Square order paid which
   { name: 'reader-sales' },
@@ -103,6 +105,9 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'staffing' },
   { name: 'staff-people' },
   { name: 'staff-team' },
+  // crafts (/admin › More › Crafts): which are hidden on the website (with who and when), and which Add made which craft
+  { name: 'craft-settings' },
+  { name: 'craft-create-keys' },
 ]
 
 export const ARCHIVE_STORE_NAMES: string[] = ARCHIVE_STORES.map((s) => s.name)

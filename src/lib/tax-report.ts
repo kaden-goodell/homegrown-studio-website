@@ -4,9 +4,12 @@
  * reported as USE tax, and on take-home kits as SALES tax. Square's own
  * report lumps it together, so this sorts each line by what was sold.
  *
- * Read-only. Emailed on the 1st by netlify/functions/tax-report.ts.
+ * Read-only. Emailed on the 1st by netlify/functions/tax-report.ts; any month
+ * is shown, downloaded and emailed again from /admin › More › Reports
+ * (src/lib/tax-report-store.ts builds it for both).
  */
 import type { SquareConfig } from '@config/site.config'
+import { csvRows } from '@lib/export-safety'
 
 export type Bucket = 'classes' | 'cafe' | 'parties' | 'kits' | 'other'
 
@@ -205,13 +208,58 @@ export async function loadSourceOrders(config: SquareConfig, orders: any[]): Pro
   return found
 }
 
+/** Use tax, sales tax and the unsorted (custom amounts) tax, in cents. Pure; the browser uses it too. */
+export function taxTotals(s: TaxSummary): { useCents: number; salesCents: number; unsureCents: number } {
+  const sum = (kind: 'use' | 'sales' | 'unsure') => (Object.keys(s) as Bucket[]).filter((b) => BUCKET_TAX[b] === kind).reduce((t, b) => t + s[b].taxCents, 0)
+  return { useCents: sum('use'), salesCents: sum('sales'), unsureCents: sum('unsure') }
+}
+
+/** Every bucket, in a fixed order, summed over several months. Pure. */
+export function addTaxSummaries(list: TaxSummary[]): TaxSummary {
+  const out = {} as TaxSummary
+  for (const b of Object.keys(BUCKET_LABEL) as Bucket[]) {
+    out[b] = { salesCents: 0, taxCents: 0, lines: 0 }
+    for (const s of list) {
+      out[b].salesCents += s[b]?.salesCents ?? 0
+      out[b].taxCents += s[b]?.taxCents ?? 0
+      out[b].lines += s[b]?.lines ?? 0
+    }
+  }
+  return out
+}
+
+const REPORT_AS: Record<'use' | 'sales' | 'unsure', string> = { use: 'Use tax', sales: 'Sales tax', unsure: 'Ask the accountant' }
+const dollars = (c: number) => (c / 100).toFixed(2)
+
+/**
+ * The tax split as a spreadsheet (CSV): one row per kind of sale per month,
+ * then the month's use-tax and sales-tax totals; with several months, the
+ * totals for all of them at the end. Amounts in dollars, before tax for
+ * Sales. Pure; the browser builds a year's file with it too.
+ */
+export function taxReportCsv(months: { month: string; summary: TaxSummary; partial?: boolean }[]): string {
+  const rows: string[][] = [['Month', 'What', 'Sales (before tax)', 'Tax', 'Report as']]
+  const monthRows = (label: string, s: TaxSummary) => {
+    for (const b of Object.keys(BUCKET_LABEL) as Bucket[]) {
+      if (!s[b] || (s[b].lines === 0 && s[b].taxCents === 0 && s[b].salesCents === 0)) continue
+      rows.push([label, BUCKET_LABEL[b], dollars(s[b].salesCents), dollars(s[b].taxCents), b === 'parties' && s[b].taxCents === 0 ? 'Untaxed' : REPORT_AS[BUCKET_TAX[b]]])
+    }
+    const t = taxTotals(s)
+    rows.push([label, 'Total use tax', '', dollars(t.useCents), 'Use tax'])
+    rows.push([label, 'Total sales tax', '', dollars(t.salesCents), 'Sales tax'])
+    if (t.unsureCents) rows.push([label, 'Total not sorted (custom amounts)', '', dollars(t.unsureCents), REPORT_AS.unsure])
+  }
+  for (const m of months) monthRows(m.partial ? `${m.month} (so far)` : m.month, m.summary)
+  if (months.length > 1) monthRows('All months', addTaxSummaries(months.map((m) => m.summary)))
+  return csvRows(rows, '\r\n')
+}
+
 const money = (c: number) => `${c < 0 ? '−' : ''}$${(Math.abs(c) / 100).toFixed(2)}`
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 export function renderTaxReport(month: string, s: TaxSummary, opts: { partial?: boolean; classesCategoryMissing?: boolean } = {}): { subject: string; text: string; html: string } {
   const monthName = new Date(`${month}-15T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-  const sum = (kind: 'use' | 'sales' | 'unsure') => (Object.keys(s) as Bucket[]).filter((b) => BUCKET_TAX[b] === kind).reduce((t, b) => t + s[b].taxCents, 0)
-  const use = sum('use'), sales = sum('sales'), unsure = sum('unsure')
+  const { useCents: use, salesCents: sales, unsureCents: unsure } = taxTotals(s)
   const rows = (Object.keys(s) as Bucket[]).filter((b) => s[b].lines > 0 || s[b].taxCents !== 0)
   const caveat = opts.classesCategoryMissing ? 'Note: the Classes category isn’t picked yet (in /admin, More › Register setup), so our own classes may be under Craft Café. All are use tax, so the use-tax total is the same.' : ''
   const title = `Tax collected, ${monthName}${opts.partial ? ' (so far)' : ''}`

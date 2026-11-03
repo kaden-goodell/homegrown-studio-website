@@ -830,7 +830,8 @@ export async function editPartyDetails(
     } catch {
       throw new PartyActionError(503, 'The crafts couldn’t be loaded. Try again.')
     }
-    if (!craft) throw new PartyActionError(404, 'That craft isn’t available any more. Pick another craft.', { field: 'craftId' })
+    // A craft hidden on the website can't be picked anew; the party's own craft stays as it is.
+    if (!craft || (craft.hidden && craft.id !== r.craftId)) throw new PartyActionError(404, 'That craft isn’t available any more. Pick another craft.', { field: 'craftId' })
     if (craft.id !== r.craftId || craft.name !== r.craftName) { patch.craftId = craft.id; patch.craftName = craft.name; said.push(`craft ${craft.name}`) }
   }
   if (said.length === 0) return { party: adminPartyView(r, now), message: 'Nothing changed.' }

@@ -102,7 +102,8 @@ vi.mock('@lib/craft-catalog', async (orig) => ({
   findPartyCraft: async (id: string) => (
     id === 'craft-1' ? { id, name: 'Tote Bags', perHeadCents: 2000, perHeadMaxCents: 2000, description: '', imageUrl: null }
       : id === 'craft-2' ? { id, name: 'Clay Pots', perHeadCents: 2500, perHeadMaxCents: 2500, description: '', imageUrl: null }
-        : null),
+        : id === 'craft-hidden' ? { id, name: 'Old Craft', perHeadCents: 2500, perHeadMaxCents: 2500, description: '', imageUrl: null, hidden: true }
+          : null),
 }))
 vi.mock('@lib/classes/test-site-guard', async (orig) => {
   const real = await orig<typeof import('@lib/classes/test-site-guard')>()
@@ -551,6 +552,8 @@ describe('details, link and card', () => {
     expect(r.body.data.party).toMatchObject({ hostName: 'Stef Justice', hostPhone: '256-555-0111', hostEmail: 'stef2@example.com', guestCount: 20, craftName: 'Clay Pots', dueCents: 30000 })
     expect((await act({ id, action: 'edit-details', guests: 31 })).body.error).toBe('Parties are for 10 to 30 guests.')
     expect((await act({ id, action: 'edit-details', craftId: 'gone' })).status).toBe(404)
+    // A craft hidden on the website can't be picked anew.
+    expect((await act({ id, action: 'edit-details', craftId: 'craft-hidden' })).status).toBe(404)
   })
 
   it('send-link sends the link again and notes it; nothing due → refused', async () => {

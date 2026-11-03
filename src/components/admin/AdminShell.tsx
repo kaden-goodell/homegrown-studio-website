@@ -28,6 +28,8 @@ import { LibraryEditSheet, LibraryItemSheet } from './sheets/LibrarySheets'
 import { NewClassSheet, RunAgainSheet, ScheduleFromLibrarySheet } from './sheets/NewClassSheet'
 import { StaffSheet } from './sheets/StaffSheet'
 import { PreviewMessagesSheet, ReportsSheet, SandboxSheet, WhoContext, WhoSheet } from './sheets/MoreSheets'
+import { RecordsSheet } from './sheets/RecordsSheet'
+import { CraftsSheet } from './sheets/CraftsSheet'
 import { HelpSheet } from './sheets/HelpSheet'
 import { PromoSheet, PromosSheet } from './promos/PromosSheet'
 import { ClosedDaysSheet, HoursSheet, RegisterSetupSheet } from './sheets/SettingsSheets'
@@ -439,6 +441,8 @@ function SheetContent({ sheet: s }: { sheet: Sheet }) {
         case 'promos': return <PromosSheet />
         case 'register': return <RegisterSetupSheet />
         case 'reports': return <ReportsSheet />
+        case 'records': return <RecordsSheet />
+        case 'crafts': return <CraftsSheet />
         case 'import': return <ImportSquareSheet />
         case 'sandbox': return <SandboxSheet />
         case 'messages': return <PreviewMessagesSheet />

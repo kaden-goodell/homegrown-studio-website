@@ -669,7 +669,7 @@ describe('reconcileUntil', () => {
 })
 
 describe('stage 4 extras scenarios (49+)', () => {
-  it('are numbered 49.. with no gaps, each with a title and a plan; ALL_SCENARIOS runs 1–23, 24–40, 41–48, 49–67 in order', () => {
+  it('are numbered 49.. with no gaps, each with a title and a plan; ALL_SCENARIOS runs 1–23, 24–40, 41–48, 49–67, then crafts 68, in order', () => {
     expect(extrasScenarios[0].id).toBe(49)
     expect(extrasScenarios.map((s) => s.id)).toEqual(Array.from({ length: extrasScenarios.length }, (_, i) => i + 49))
     expect(extrasScenarios.length).toBeGreaterThanOrEqual(19)
@@ -677,7 +677,7 @@ describe('stage 4 extras scenarios (49+)', () => {
       expect(s.title.length, String(s.id)).toBeGreaterThan(5)
       expect(s.plan.length, String(s.id)).toBeGreaterThan(0)
     }
-    expect(ALL_SCENARIOS.map((s) => s.id)).toEqual(Array.from({ length: 67 }, (_, i) => i + 1))
+    expect(ALL_SCENARIOS.map((s) => s.id)).toEqual(Array.from({ length: 68 }, (_, i) => i + 1))
     expect(extrasScenarios.map((s) => s.id)).toEqual(Array.from({ length: 19 }, (_, i) => i + 49))
     expect(new Set(ALL_SCENARIOS.map((s) => s.id)).size).toBe(ALL_SCENARIOS.length)
   })
@@ -693,7 +693,8 @@ describe('stage 4 extras scenarios (49+)', () => {
   it('pick takes stage 4 ids alongside the others and refuses unknown ones', () => {
     expect(pick(ALL_SCENARIOS, [49, 65]).map((s) => s.id)).toEqual([49, 65])
     expect(pick(ALL_SCENARIOS, [30, 45, 49]).map((s) => s.id)).toEqual([30, 45, 49])
-    expect(() => pick(ALL_SCENARIOS, [68])).toThrow(/No scenario 68/)
+    expect(pick(ALL_SCENARIOS, [68]).map((s) => s.id)).toEqual([68]) // crafts in /admin (audit C)
+    expect(() => pick(ALL_SCENARIOS, [69])).toThrow(/No scenario 69/)
     expect(() => pick(ALL_SCENARIOS, [999])).toThrow(/No scenario 999/)
   })
 

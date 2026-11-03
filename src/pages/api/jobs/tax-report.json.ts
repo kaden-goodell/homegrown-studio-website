@@ -1,11 +1,10 @@
 import type { APIRoute } from 'astro'
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { siteConfig, type SquareConfig } from '@config/site.config'
+import { siteConfig } from '@config/site.config'
 import { createLogger } from '@lib/logger'
 import { sendEmail } from '@lib/email'
-import { loadCatalogIndex, loadOrders, loadSourceOrders, summarizeTax, renderTaxReport, previousMonth } from '@lib/tax-report'
-import { registerIds } from '@lib/classes/register-setup'
-import { listReaderOrderLinks } from '@lib/classes/reader-store'
+import { renderTaxReport, previousMonth } from '@lib/tax-report'
+import { buildTaxMonth, recordTaxSent, taxReportRecipients } from '@lib/tax-report-store'
 
 export const prerender = false
 const logger = createLogger('api:jobs:tax-report')
@@ -31,40 +30,49 @@ function allowed(request: Request): boolean {
   return given.length === wanted.length && timingSafeEqual(given, wanted)
 }
 
+/** "October 2026" for "2026-10". */
+export function monthName(month: string): string {
+  return new Date(`${month}-15T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+}
+
+/**
+ * The email when the report couldn't be built: where to see it in the app and
+ * how to send it again, never a script (G7).
+ */
+export function taxFailureEmail(month: string, error: string): { subject: string; text: string; html: string } {
+  const name = monthName(month)
+  const link = `${siteConfig.url.replace(/\/$/, '')}/admin#more-reports`
+  const steps = `Open the admin page (${link}) › More › Reports › pick ${name} › Tax split. It asks Square again when it opens. When it shows, tap Send it again to get this email, or Download it. If Square still doesn't answer, try again tomorrow.`
+  return {
+    subject: `Tax report for ${name} could not be made`,
+    text: `The monthly tax split for ${name} couldn't be built from Square just now (${error.slice(0, 200)}).\n\n${steps}`,
+    html: `<p>The monthly tax split for ${name} couldn’t be built from Square just now.</p><p>Open the <a href="${link}">admin page</a> › More › Reports › pick ${name} › Tax split. It asks Square again when it opens. When it shows, tap <strong>Send it again</strong> to get this email, or <strong>Download</strong> it.</p><p>If Square still doesn’t answer, try again tomorrow.</p>`,
+  }
+}
+
 /**
  * Run on the 1st by netlify/functions/tax-report.ts: last month's tax,
  * split into use tax and sales tax (src/lib/tax-report.ts), emailed to
- * siteConfig.taxReportEmails. A report that can't be built emails too, so a
- * missing email never quietly means "nothing to report". Read-only.
+ * the tax report list. Built the same way /admin › More › Reports builds it
+ * (src/lib/tax-report-store.ts). A report that can't be built emails too, so
+ * a missing email never quietly means "nothing to report". Read-only.
  */
 export const POST: APIRoute = async ({ request }) => {
   if (!allowed(request)) return json({ error: 'Not allowed' }, 403)
   const body = await request.json().catch(() => ({}))
   const month = typeof body?.month === 'string' && /^\d{4}-\d{2}$/.test(body.month) ? body.month : previousMonth()
-  const to = siteConfig.taxReportEmails.join(', ')
+  const to = taxReportRecipients().join(', ')
   try {
-    // The Classes category the owners picked in More › Register setup, else the site's value.
-    const config = { ...(siteConfig.providers.payment.config as SquareConfig), classesCategoryId: (await registerIds()).classesCategoryId }
-    const [index, orders] = await Promise.all([loadCatalogIndex(config), loadOrders(config, month)])
-    const sources = await loadSourceOrders(config, orders)
-    // OWNER-S4-8: reader charges' tax from our own records (Square saw a plain amount). Unreadable → counted as Square has them.
-    const reader = new Map((await listReaderOrderLinks().catch((e) => {
-      logger.error('Reader orders unreadable — counted as custom amounts', { error: e instanceof Error ? e.message : String(e) })
-      return []
-    })).map((l) => [l.orderId, { netCents: l.netCents, taxCents: l.taxCents }]))
-    const report = renderTaxReport(month, summarizeTax(orders, index, sources, reader), { classesCategoryMissing: !config.classesCategoryId })
+    const built = await buildTaxMonth(month, { fresh: true })
+    const report = renderTaxReport(month, built.summary, { partial: built.partial, classesCategoryMissing: built.classesCategoryMissing })
     const { sent } = await sendEmail({ to, ...report })
-    logger.info('Tax report', { month, orders: orders.length, sent })
-    return json({ data: { month, orders: orders.length, sent } }, 200)
+    if (sent) await recordTaxSent(month, { at: new Date().toISOString(), to, by: 'Monthly email' })
+    logger.info('Tax report', { month, orders: built.orders, sent })
+    return json({ data: { month, orders: built.orders, sent } }, 200)
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
     logger.error('Tax report failed', { month, error })
-    await sendEmail({
-      to,
-      subject: `Tax report for ${month} could not be made`,
-      text: `The monthly tax split couldn't be built from Square (${error.slice(0, 200)}). Run it by hand: npx tsx scripts/tax-report.ts ${month}`,
-      html: `<p>The monthly tax split couldn’t be built from Square.</p><p>Run it by hand: <code>npx tsx scripts/tax-report.ts ${month}</code></p>`,
-    }).catch(() => undefined)
+    await sendEmail({ to, ...taxFailureEmail(month, error) }).catch(() => undefined)
     return json({ error: 'Report failed' }, 502)
   }
 }

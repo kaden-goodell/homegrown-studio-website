@@ -382,13 +382,15 @@ function ExtraBox({ a, saved, error, onChange, onRemove }: { a: Keyed<PartyAddOn
 
 function PartyCrafts() {
   const { crafts, error, retry } = useCrafts()
+  const { open } = useSheet()
   return (
     <>
       <p className="adm-lbl">Party crafts</p>
-      <p className="adm-small adm-muted">These come from Square (the party crafts there). Change them in Square.</p>
+      <p className="adm-small adm-muted">The crafts on the party booking page. Add one, or change a photo, price or words, in More › Crafts.</p>
+      <button type="button" className="adm-btn is-ghost is-sm" onClick={() => open({ kind: 'more', page: 'crafts' })}>Change the crafts</button>
       {error && <Failed message={error} onRetry={retry} />}
       {!error && !crafts && <Skeleton rows={2} label="Loading the party crafts" />}
-      {crafts && crafts.length === 0 && <p className="adm-empty">No party crafts in Square yet.</p>}
+      {crafts && crafts.length === 0 && <p className="adm-empty">No party crafts yet.</p>}
       {crafts?.map((c) => (
         <div key={c.id} className="adm-kv"><span>{c.name}</span><span>{`${c.perHeadMaxCents > c.perHeadCents ? `${formatMoney(c.perHeadCents)}–${formatMoney(c.perHeadMaxCents)}` : formatMoney(c.perHeadCents)} a guest`}</span></div>
       ))}

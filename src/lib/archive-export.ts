@@ -12,8 +12,14 @@
  * comment atop `waiver-store.ts` / `checkin-store.ts` / `incident-store.ts` /
  * `rsvp-store.ts`. This module is the export half of that promise: every key
  * of every store, no filtering, so the archive is complete by construction.
+ *
+ * No keys to anything (./export-safety `redactSecrets`): party host and
+ * payment-link tokens, card tokens and pickup-code hashes are dropped from
+ * every record, in the snapshot and the email alike. CSV cells never run as
+ * spreadsheet formulas (`csvRows`).
  */
 import { zipSync, strToU8 } from 'fflate'
+import { csvRows, redactSecrets } from './export-safety'
 
 /** The subset of `KvStore` (@lib/blob-store) this module needs — kept local
  *  so nothing here imports the alias. Any real KvStore satisfies this. */
@@ -79,7 +85,7 @@ export async function exportAll(stores: ArchiveStoreSpec[]): Promise<ExportResul
         continue
       }
       try {
-        values[key] = JSON.parse(json)
+        values[key] = redactSecrets(JSON.parse(json))
       } catch {
         values[key] = json // not JSON (shouldn't happen) — keep the raw text rather than drop it
       }
@@ -89,13 +95,6 @@ export async function exportAll(stores: ArchiveStoreSpec[]): Promise<ExportResul
   }
 
   return { generatedAt, counts, files }
-}
-
-/** Quote per RFC 4180: wrap in quotes and double any embedded quote whenever
- *  the field contains a comma, quote, or newline. */
-function csvField(v: unknown): string {
-  const s = v === null || v === undefined ? '' : String(v)
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
 /** `{eventKey}__{recordId}` (checkin-store.ts's `key()`) — split on the
@@ -137,7 +136,7 @@ export function custodyCsv(checkins: Record<string, unknown>): string {
       ])
     }
   }
-  return rows.map((r) => r.map(csvField).join(',')).join('\n') + '\n'
+  return csvRows(rows)
 }
 
 /** `{generatedAt, counts}` — the zip's `manifest.json`. */

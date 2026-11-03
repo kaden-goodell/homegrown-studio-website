@@ -71,7 +71,7 @@ describe('More › Help covers everything', () => {
 
   it('every screen the brief names has a section', () => {
     const titles = HELP_SECTIONS.map((s) => s.id)
-    for (const id of ['classes-new', 'classes-change', 'parties-book', 'parties-on', 'parties-setup', 'refunds', 'warnings', 'staff', 'promotions', 'register', 'online-booking', 'hours', 'closed', 'calendar', 'inbox', 'reports', 'library']) {
+    for (const id of ['classes-new', 'classes-change', 'parties-book', 'parties-on', 'parties-setup', 'refunds', 'warnings', 'staff', 'promotions', 'register', 'online-booking', 'hours', 'closed', 'calendar', 'inbox', 'reports', 'library', 'crafts', 'records', 'repeat', 'waitlist', 'self-cancel', 'reader']) {
       expect(titles, id).toContain(id)
     }
   })
