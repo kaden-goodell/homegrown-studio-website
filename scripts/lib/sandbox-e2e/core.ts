@@ -204,6 +204,18 @@ export class PreviewClient {
   }
   get(path: string) { return this.request('GET', path) }
   post(path: string, body: unknown, extra: { gated?: boolean } = {}) { return this.request('POST', path, { body, ...extra }) }
+
+  /** A multipart POST (a photo upload), same host check, cookies and Origin as request(). */
+  async upload(path: string, form: FormData, headers: Record<string, string> = {}): Promise<Reply> {
+    const url = assertAllowed(new URL(path, PREVIEW_ORIGIN), 'preview')
+    this.opts.halt?.check()
+    const h: Record<string, string> = { Accept: 'application/json', ...headers, Origin: url.origin }
+    const cookie = this.jar.header()
+    if (cookie) h.Cookie = cookie
+    const res = await (this.opts.fetch ?? fetch)(url.toString(), { method: 'POST', headers: h, redirect: 'manual', body: form })
+    this.jar.set(setCookiesOf(res.headers))
+    return readReply(res)
+  }
 }
 
 export class SquareError extends Error {
