@@ -790,11 +790,20 @@ describe('POST /api/waiver/sign.json', () => {
   })
 
   describe('agreement copy email (HOM-216)', () => {
-    it('fresh sign: sends the agreement copy email once, fire-and-forget', async () => {
+    it('fresh sign: sends the agreement copy email once, awaited, and says it went (final review I15)', async () => {
+      let finish!: () => void
+      mockSendAgreementCopyEmail.mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve({ sent: true }) }))
       const body = makeAdultBody({ partyId: null })
       const ctx = createMockContext(body)
-      const res = await POST(ctx)
+      let answered = false
+      const pending = POST(ctx).then((r: Response) => { answered = true; return r })
+      await new Promise((r) => setTimeout(r, 20))
+      // The reply waits for the email (a frozen function never drops it).
+      expect(answered).toBe(false)
+      finish()
+      const res = await pending
       expect(res.status).toBe(200)
+      expect((await res.json()).data.copyEmailed).toBe(true)
       expect(mockSendAgreementCopyEmail).toHaveBeenCalledTimes(1)
       expect(mockSendAgreementCopyEmail).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -818,12 +827,19 @@ describe('POST /api/waiver/sign.json', () => {
       expect(mockSendAgreementCopyEmail).not.toHaveBeenCalled()
     })
 
-    it('a thrown/rejected email error still returns 200 — the signature is already saved', async () => {
+    it('a thrown/rejected email error still returns 200 — the signature is already saved — and never claims a copy', async () => {
       mockSendAgreementCopyEmail.mockRejectedValueOnce(new Error('SMTP down'))
       const body = makeAdultBody({ partyId: null })
       const ctx = createMockContext(body)
       const res = await POST(ctx)
       expect(res.status).toBe(200)
+      expect((await res.json()).data.copyEmailed).toBe(false)
+    })
+
+    it('a send that reports not sent: copyEmailed false', async () => {
+      mockSendAgreementCopyEmail.mockResolvedValueOnce({ sent: false })
+      const res = await POST(createMockContext(makeAdultBody({ partyId: null })))
+      expect((await res.json()).data.copyEmailed).toBe(false)
     })
   })
 

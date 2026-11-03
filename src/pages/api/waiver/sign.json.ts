@@ -63,11 +63,14 @@ function okSigned(
   record: WaiverRecord,
   partyId: string | null,
   context: { kind: SignableEventKind; id: string } | null,
+  copyEmailed = false,
 ): Response {
   return new Response(
     JSON.stringify({
       data: {
         recordId: record.id,
+        /** the copy of the agreement really went out (the page says so only then) */
+        copyEmailed,
         covered: coveredNames(record.adult, record.minors),
         validUntil: record.validUntil,
         partyId,
@@ -151,34 +154,32 @@ function yearsBetween(dobIso: string, now: Date): number {
 }
 
 /**
- * Fire the "here's your copy" email (HOM-216) without blocking the response
- * — a thrown or rejected send must never fail the signature/RSVP that's
- * already saved. `.catch` alone isn't enough (a synchronous throw from a
- * bad mock/impl would escape before it attaches), so this wraps the whole
- * call in an async IIFE.
+ * The "here's your copy" email (HOM-216), awaited (final customer review I15:
+ * a fire-and-forget send could be frozen with the function after the reply,
+ * while the page said "We've emailed a copy"). A thrown or failed send never
+ * fails the signature or RSVP already saved; it answers false, and the page
+ * then doesn't claim a copy was sent.
  */
-function fireAgreementCopyEmail(input: Parameters<typeof sendAgreementCopyEmail>[0], recordId: string): void {
-  void (async () => {
-    try {
-      await sendAgreementCopyEmail(input)
-    } catch (err) {
-      logger.error('Agreement copy email failed (record saved)', { id: recordId, error: String(err) })
-    }
-  })()
+async function sendAgreementCopySafely(input: Parameters<typeof sendAgreementCopyEmail>[0], recordId: string): Promise<boolean> {
+  try {
+    return (await sendAgreementCopyEmail(input)).sent === true
+  } catch (err) {
+    logger.error('Agreement copy email failed (record saved)', { id: recordId, error: String(err) })
+    return false
+  }
 }
 
 /** The drop-off details are about collecting a child — no child attending, no email. */
 const hasChild = (ids: string[]) => ids.some((id) => id.startsWith('child:'))
 
-/** Same contract as `fireAgreementCopyEmail`, for the drop-off details email. */
-function fireDropOffDetailsEmail(input: Parameters<typeof sendDropOffDetailsEmail>[0], recordId: string): void {
-  void (async () => {
-    try {
-      await sendDropOffDetailsEmail(input)
-    } catch (err) {
-      logger.error('Drop-off details email failed (RSVP saved)', { id: recordId, error: String(err) })
-    }
-  })()
+/** Same contract as `sendAgreementCopySafely`, for the drop-off details email. */
+async function sendDropOffDetailsSafely(input: Parameters<typeof sendDropOffDetailsEmail>[0], recordId: string): Promise<boolean> {
+  try {
+    return (await sendDropOffDetailsEmail(input)).sent === true
+  } catch (err) {
+    logger.error('Drop-off details email failed (RSVP saved)', { id: recordId, error: String(err) })
+    return false
+  }
 }
 
 /**
@@ -447,7 +448,7 @@ async function handleReuse(
   await indexEventRsvp(eventKind, eventId, source, rsvp.id)
 
   if (dropOff && event && hasChild(resolvedIds)) {
-    fireDropOffDetailsEmail(
+    await sendDropOffDetailsSafely(
       { record: source, event, attending: resolvedIds, ...(pickup ? { authorizedPickup: pickup.authorizedPickup } : {}) },
       source.id,
     )
@@ -584,9 +585,8 @@ async function handleFresh(
 
   await persistWaiver(record)
 
-  // Every fresh signature gets an emailed copy (HOM-216) — fire-and-forget,
-  // never blocks or fails the save.
-  fireAgreementCopyEmail({ record }, record.id)
+  // Every fresh signature gets an emailed copy (HOM-216): awaited, never fails the save; the page claims it only when sent.
+  const copyEmailed = await sendAgreementCopySafely({ record }, record.id)
 
   const eventId = partyId ?? workshopId
   let context: { kind: SignableEventKind; id: string } | null = null
@@ -608,13 +608,13 @@ async function handleFresh(
     await recordExpected(partyId, record.id, freshResolvedIds)
     await indexEventRsvp(eventKind, eventId, record, rsvp.id)
     if (dropOff && event && hasChild(freshResolvedIds)) {
-      fireDropOffDetailsEmail({ record, event, attending: freshResolvedIds }, record.id)
+      await sendDropOffDetailsSafely({ record, event, attending: freshResolvedIds }, record.id)
     }
   }
 
   await attachSquare(record)
   logger.info('Waiver signed', { recordId: record.id, minors: minors.length, partyId })
-  return okSigned(record, partyId, context)
+  return okSigned(record, partyId, context, copyEmailed)
 }
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
