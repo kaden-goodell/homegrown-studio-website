@@ -16,7 +16,8 @@ declare global {
 }
 
 const PIXEL_ID = import.meta.env.PUBLIC_META_PIXEL_ID || ''
-const PRIVATE_PATHS = /^\/(waiver|staff|party|classes\/cancel)(\/|$)/
+// Pages with customers' details or private links in them (I2: the waitlist Leave link too).
+const PRIVATE_PATHS = /^\/(waiver|staff|admin|party|classes\/cancel|classes\/waitlist)(\/|$)/
 
 export function metaPixelAllowed(hostname: string, pathname: string): boolean {
   return !!PIXEL_ID && /(^|\.)ourhometownstudio\.com$/.test(hostname) && !PRIVATE_PATHS.test(pathname)
