@@ -147,9 +147,11 @@ let craftCache: { at: number; crafts: CatalogCraft[] } | null = null
  * is not a party craft. Remembered 60 seconds per server; throws when the
  * catalog can't be read.
  */
-export async function findPartyCraft(id: string, now: number = Date.now()): Promise<CatalogCraft | null> {
+export async function findPartyCraft(id: string, now: number = Date.now(), opts: { fresh?: boolean } = {}): Promise<CatalogCraft | null> {
   if (!id) return null
-  if (!craftCache || now - craftCache.at >= CRAFT_CACHE_MS) {
+  // Concurrency minor 1: booking paths read fresh, so a craft hidden (or added) a moment ago on another server
+  // is refused (or found) at once, not up to a minute later.
+  if (opts.fresh || !craftCache || now - craftCache.at >= CRAFT_CACHE_MS) {
     craftCache = { at: now, crafts: await fetchPartyCrafts({ includeTest: true, includeHidden: true }) }
   }
   return craftCache.crafts.find((c) => c.id === id) ?? null

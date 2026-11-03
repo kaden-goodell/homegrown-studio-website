@@ -827,7 +827,7 @@ export async function editPartyDetails(
     if (typeof body.craftId !== 'string' || !body.craftId) throw new PartyActionError(400, 'Pick a craft.', { field: 'craftId' })
     let craft: Awaited<ReturnType<typeof findPartyCraft>>
     try {
-      craft = await findPartyCraft(body.craftId)
+      craft = await findPartyCraft(body.craftId, Date.now(), { fresh: true })
     } catch {
       throw new PartyActionError(503, 'The crafts couldn’t be loaded. Try again.')
     }

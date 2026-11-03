@@ -562,6 +562,11 @@ export async function recordPos(
   const onSaleDay = new Set(cls.sessions.filter((s) => studioDate(s.startIso) === saleDay).map((s) => s.id))
   return mutate(cls.id, (cur) => {
     let kept = cur.lines.filter((l) => !isExpiredHold(l, now))
+    // Concurrency minor 4: the booking was already seated from this order by our own flow (a retry confirmed it
+    // without Square's line ids): "Give them their seat" never seats them a second time.
+    if (kept.some((l) => l.bookingId === input.bookingId && l.square.orderId === input.orderId && !l.square.lineUid && (l.state === 'confirmed' || l.state === 'refunded'))) {
+      return { next: null, result: [] }
+    }
     const added: LedgerLine[] = []
     const claimed = new Set<string>()
     const sq = (pl: PosLineInput) => ({

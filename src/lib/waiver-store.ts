@@ -456,11 +456,17 @@ export async function indexWaiverByName(record: WaiverRecord): Promise<void> {
   const last = record.adult.lastName?.trim()
   if (!last) return
   const key = nameIndexKey(last)
-  const raw = await rawGet(key)
-  const entries: NameIndexEntry[] = raw ? JSON.parse(raw) : []
-  if (entries.some((e) => e.recordId === record.id)) return
-  entries.push({ recordId: record.id, firstName: record.adult.firstName })
-  await rawSet(key, JSON.stringify(entries))
+  // Concurrency minor 15: compare-and-swap (two same-surname households signing together used to overwrite
+  // each other, so one couldn't be found by last name at the door).
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
+    const { value, etag } = await rawGetWithMeta(key)
+    const entries: NameIndexEntry[] = value ? JSON.parse(value) : []
+    if (entries.some((e) => e.recordId === record.id)) return
+    entries.push({ recordId: record.id, firstName: record.adult.firstName })
+    if (await kv.setIfMatch(key, JSON.stringify(entries), etag, value !== null)) return
+  }
+  throw new Error('Concurrent update on the name index — please retry')
 }
 
 /**

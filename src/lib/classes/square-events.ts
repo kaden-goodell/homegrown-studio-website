@@ -153,10 +153,14 @@ export function splitCents(total: Cents, n: number): Cents[] {
 
 const safeKey = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, '_')
 
+/**
+ * Writes `value` only if nothing is at `key` yet; true only for the one caller that wrote it (concurrency minor
+ * 3: it was read-then-write, so two events at once both created the entry and both texted the owners, and a
+ * first write could overwrite an owner's resolve). Create-only conditional write.
+ */
 async function putOnce(kv: ReturnType<typeof makeKvStore>, key: string, value: unknown): Promise<boolean> {
   if (await kv.get(key)) return false
-  await kv.set(key, JSON.stringify(value))
-  return true
+  return kv.setIfMatch(key, JSON.stringify(value), null, false)
 }
 
 // ---------------------------------------------------------------- sales

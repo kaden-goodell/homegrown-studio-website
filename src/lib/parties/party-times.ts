@@ -240,7 +240,9 @@ export function partyStartsInRange(
   const endMs = new Date(toIso).getTime()
   const seen = new Set<string>()
   const out: string[] = []
-  for (let t = startMs; t <= endMs + DAY_MS; t += DAY_MS) {
+  // Concurrency minor 9: step half a day (each studio date seen once): a fixed 24 h step skipped a date across a
+  // clock change once the window was long enough to drift past midnight.
+  for (let t = startMs; t <= endMs + DAY_MS; t += DAY_MS / 2) {
     const ymd = localDate(new Date(Math.min(t, endMs)).toISOString())
     if (seen.has(ymd)) continue
     seen.add(ymd)

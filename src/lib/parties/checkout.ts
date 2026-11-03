@@ -620,7 +620,7 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
   // ── 3. The craft, from the catalog ─────────────────────────────────────────
   let craft: CatalogCraft | null
   try {
-    craft = await findPartyCraft(input.craftId)
+    craft = await findPartyCraft(input.craftId, Date.now(), { fresh: true })
   } catch (err) {
     logger.error('Craft catalog unreadable before booking — refusing', { partyId, error: String(err) })
     return refuse(503, 'unavailable', partyMessages.unavailable)
@@ -717,6 +717,14 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
       const saved = await createPartyRecord(draft)
       return { kind: 'booked', rec: saved.rec, charge: null, replay: saved.kind === 'exists', emailSent: false }
     } catch (err) {
+      // Concurrency minor 8: a save that threw may still have landed: read it again before freeing the time.
+      const landed = await getPartyRecord(partyId).catch(() => undefined)
+      if (landed) return { kind: 'booked', rec: landed, charge: null, replay: false, emailSent: false }
+      if (landed === undefined) {
+        // Can't tell: keep the time (the daily "party has no hold"/"hold with no party" lines catch either way).
+        logger.error('Party record (pay by link) save unclear — time kept', { partyId, error: String(err) })
+        return refuse(503, 'unavailable', partyMessages.unavailable)
+      }
       logger.error('Party record (pay by link) not saved — letting the time go', { partyId, error: String(err) })
       await letGo('record failed')
       return refuse(503, 'unavailable', partyMessages.unavailable)
