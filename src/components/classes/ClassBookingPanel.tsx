@@ -669,6 +669,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     try {
       // One order, one charge: one token pays for every seat. A free booking (D3) needs no card at all.
       let token: string
+      let verificationToken: string | undefined
       let sourceKind: 'card' | 'gift_card' | 'wallet' | 'free'
       if (free) {
         token = ''
@@ -678,9 +679,14 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
         sourceKind = 'wallet'
       } else {
         try {
-          const t = await paymentFormRef.current!.tokenize()
+          // Money M5: the bank's own check (3-D Secure) where the card asks for one, as the waitlist does.
+          const t = await paymentFormRef.current!.tokenizeAndVerify({
+            givenName: contact.firstName.trim(), familyName: contact.lastName.trim(), email: contact.email.trim(), phone: contact.phone.trim(),
+            amount: (shown.totalCents / 100).toFixed(2), currencyCode: 'USD',
+          })
           token = t.token
-          sourceKind = t.kind
+          verificationToken = t.verificationToken
+          sourceKind = t.kind ?? 'card'
         } catch {
           tr.trackBookingProblem('workshop', 'card_unreadable')
           throw new Error('We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.')
@@ -702,6 +708,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
             seats,
             attemptId: attemptId.current,
             paymentToken: token,
+            ...(verificationToken ? { verificationToken } : {}),
             ...(codeQ ? { promoCode: applied!.code } : {}),
             // Review I2: the total on the Pay button; a higher one now charges nothing.
             expectedTotalCents: shown.totalCents,

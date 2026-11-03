@@ -213,6 +213,12 @@ describe('POST /api/classes/book.json', () => {
     expect(mockAlertOwners.mock.calls.some(([t]) => /just as it was cancelled/.test(String(t)))).toBe(false)
   })
 
+  it('M5: the bank’s 3-D Secure answer from the page goes with the charge', async () => {
+    const cls = makeClass()
+    expect((await POST(ctx(body(cls, { verificationToken: 'verf:abc' })))).status).toBe(200)
+    expect(mockProcessPayment.mock.calls[0][0].verificationToken).toBe('verf:abc')
+  })
+
   it('stage 4 (I1): a running early-bird goes to Square as per-line discounts, so Square\'s total is the quote', async () => {
     const cls = makeClass({ content: { earlyBird: { untilYmd: '2026-10-12', prices: { all: { adult: 5000 } } } } })
     const { MockPaymentProvider } = await import('@providers/mock/payment')

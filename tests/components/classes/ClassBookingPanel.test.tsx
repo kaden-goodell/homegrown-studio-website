@@ -18,7 +18,8 @@ vi.mock('@components/checkout/PaymentForm', async () => {
       paymentFormProps = props
       useImperativeHandle(ref, () => ({
         tokenize: async () => ({ token: `cnon:test-token-${++tokenCalls}`, kind: 'card' }),
-        tokenizeAndVerify: async () => ({ token: 'cnon:test-token' }),
+        // Paying (money M5) verifies with an amount; the waitlist saves a card with none.
+        tokenizeAndVerify: async (d: { amount?: string }) => (d?.amount ? { token: `cnon:test-token-${++tokenCalls}`, kind: 'card', verificationToken: `verf:pay-${d.amount}` } : { token: 'cnon:test-token' }),
       }))
       useEffect(() => {
         props.onReadyChange?.(true)
@@ -226,6 +227,8 @@ describe('ClassBookingPanel — paying', () => {
     expect(body).toMatchObject({
       classId: 'cls_1', passId: 'all', sessionIds: [], tickets: { person: 2 },
       paymentToken: 'cnon:test-token-1',
+      // money M5: the bank's own check, for the amount on the button
+      verificationToken: 'verf:pay-87.20',
       customer: { givenName: 'Alice', familyName: 'Smith', email: 'alice@test.com', phone: '(256) 555-0123' },
     })
     expect(body.seats).toHaveLength(2)

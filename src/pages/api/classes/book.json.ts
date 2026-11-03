@@ -378,7 +378,8 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   const charged = order.totalCents
 
   // ── 4. Charge ───────────────────────────────────────────────────────────────
-  const result = await chargeOrder({ orderId: order.orderId, amountCents: charged, paymentToken, email, attemptId })
+  const verificationToken = typeof body.verificationToken === 'string' && body.verificationToken.length <= 4000 ? body.verificationToken : undefined
+  const result = await chargeOrder({ orderId: order.orderId, amountCents: charged, paymentToken, email, attemptId, ...(verificationToken ? { verificationToken } : {}) })
   if (result.kind === 'declined') {
     if (result.reason === 'failed') {
       logger.error('Class payment failed — releasing seats', { bookingId, paymentId: result.paymentId })

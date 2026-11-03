@@ -89,6 +89,8 @@ export async function chargeOrder(input: {
   email: string
   attemptId: string
   step?: AttemptStep
+  /** the bank's 3-D Secure answer (verifyBuyer), when the page asked for one (money M5) */
+  verificationToken?: string
 }): Promise<ChargeResult> {
   let payment: Payment | null = null
   let recovered = false
@@ -100,6 +102,7 @@ export async function chargeOrder(input: {
       currency: 'USD',
       buyerEmailAddress: input.email,
       idempotencyKey: attemptKey(input.attemptId, input.step ?? 'pay'),
+      ...(input.verificationToken ? { verificationToken: input.verificationToken } : {}),
     })
   } catch (err) {
     if (chargeOutcomeOf(err) === 'not_charged') return { kind: 'declined', reason: 'declined', codes: squareErrorCodes(err), error: err }
