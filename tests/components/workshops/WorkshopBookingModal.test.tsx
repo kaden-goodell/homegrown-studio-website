@@ -808,11 +808,11 @@ describe('WorkshopBookingModal — Adult and Kid tickets', () => {
 })
 
 describe('WorkshopBookingModal — tax to the cent', () => {
-  it('taxes each seat on its own, so the button matches the card (3 × $12.50 at 9% = $40.89)', async () => {
+  it('taxes each seat on its own, so the button matches the card (3 × $12.50 at 9%: 112.5¢ → 112¢ each, half to even as Square = $40.86)', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(booked()))
     await goToPayment(makeWorkshop({ price: 1250, taxPercent: 9 }), 3)
     fireEvent.click(screen.getByRole('checkbox'))
-    expect(await screen.findByRole('button', { name: 'Pay $40.89' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Pay $40.86' })).toBeInTheDocument()
   })
 
   it('shows the price before tax on the first step; the tax only appears on the payment step', () => {

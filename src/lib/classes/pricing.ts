@@ -1,5 +1,5 @@
 // Pricing and quotes for our own classes. Pure and browser-safe (no server imports).
-import { taxCents as taxOn } from '@lib/tax'
+import { orderLineTaxes } from '@lib/tax'
 import { promoRefusal } from '@lib/promos/rules'
 import type { PromoCode } from '@lib/promos/types'
 import { earlyBirdCents } from './early-bird'
@@ -232,7 +232,9 @@ export function quote(cls: ScheduledClass, req: BookingRequest, now: Date, taxPe
     }
   }
 
-  const lines: QuoteLine[] = drafts.map(({ net, ...d }) => ({ ...d, cents: net, taxCents: taxOn(net, pct) }))
+  // One Square order: its tax is rounded once on the order (half to even) and shared over the lines, as Square does.
+  const lineTax = orderLineTaxes(drafts.map((d) => d.net), pct)
+  const lines: QuoteLine[] = drafts.map(({ net, ...d }, i) => ({ ...d, cents: net, taxCents: lineTax[i] }))
   const subtotalCents = lines.reduce((s, l) => s + l.cents, 0)
   const tax = lines.reduce((s, l) => s + l.taxCents, 0)
   const discountCents = lines.reduce((s, l) => s + l.discounts.reduce((t, d) => t + d.cents, 0), 0)
@@ -268,9 +270,11 @@ export function atAgreedPrices(cls: ScheduledClass, q: Quote, agreed: AgreedLine
     if (off <= 0) return l
     changed = true
     const cents = l.cents - off
-    return { ...l, discounts: [...l.discounts, { kind: 'waitlist', name: 'Waitlist price', cents: off }], cents, taxCents: taxOn(cents, pct) }
+    return { ...l, discounts: [...l.discounts, { kind: 'waitlist', name: 'Waitlist price', cents: off }], cents }
   })
   if (!changed) return q
+  const lineTax = orderLineTaxes(lines.map((l) => l.cents), pct)
+  lines.forEach((l, i) => { lines[i] = { ...l, taxCents: lineTax[i] } })
   const subtotalCents = lines.reduce((s, l) => s + l.cents, 0)
   const tax = lines.reduce((s, l) => s + l.taxCents, 0)
   const discountCents = lines.reduce((s, l) => s + l.discounts.reduce((t, d) => t + d.cents, 0), 0)

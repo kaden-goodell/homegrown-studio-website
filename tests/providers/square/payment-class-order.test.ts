@@ -154,10 +154,10 @@ describe('MockPaymentProvider.createClassOrder', () => {
   it('takes line discounts off their own line before its 9%, and its line totals add up to the total', async () => {
     const m = new MockPaymentProvider()
     m.prices = { V1: 1500, V2: 1500 }
-    // 30% off $15 = $4.50 off → $10.50, tax 94.5 → 95 (half up, as quote() does).
+    // 30% off $15 = $4.50 off → $10.50. The order's 9%: 94.5 + 135 = 229.5 → 230 (half to even, once per order, as Square).
     const r = await m.createClassOrder({ ...base, lineDiscounts: [{ line: 0, name: 'Code X', cents: 450 }] })
-    expect(r.lineTotals.map((l) => [l.totalCents, l.taxCents])).toEqual([[1145, 95], [1635, 135]])
-    expect(r.totalCents).toBe(1145 + 1635)
+    expect(r.lineTotals.map((l) => [l.totalCents, l.taxCents])).toEqual([[1144, 94], [1636, 136]])
+    expect(r.totalCents).toBe(1144 + 1636)
     expect(r.lineTotals.reduce((s, l) => s + l.totalCents, 0)).toBe(r.totalCents)
   })
 })

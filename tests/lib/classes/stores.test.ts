@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import { CAS_ATTEMPTS } from '@lib/cas-retry'
 
 const hook = vi.hoisted(() => ({
   failNextCas: 0, failIndexCas: 0, gets: [] as string[],
@@ -94,11 +95,11 @@ describe('class store', () => {
     expect((await getClass(c.id))!.status).toBe('open')
     expect((await updateClass(c.id, { status: 'closed' }, by2, 'fresh', { expectedUpdatedAt: a.updatedAt })).status).toBe('closed')
   })
-  it('retries a lost CAS and gives up after three', async () => {
+  it('retries a lost CAS and gives up after every try is lost', async () => {
     const c = await createClass({ content: content(), sessions: [ses('s', '2031-01-05T18:00:00Z', '2031-01-05T19:00:00Z')], status: 'draft', by })
     hook.failNextCas = 1
     expect((await updateClass(c.id, { status: 'open' }, by, 'open')).status).toBe('open')
-    hook.failNextCas = 3
+    hook.failNextCas = CAS_ATTEMPTS
     await expect(updateClass(c.id, { status: 'closed' }, by, 'x')).rejects.toThrow('Concurrent update')
     hook.failNextCas = 0
     expect((await getClass(c.id))!.status).toBe('open')
@@ -209,7 +210,7 @@ describe('class index (range reads only the classes that can match)', () => {
 
   it('an index write that keeps losing marks the index stale, so the next read rebuilds it', async () => {
     const c = await createClass({ content: content('Lost'), sessions: [ses('a', '2042-08-03T10:00:00Z', '2042-08-03T11:00:00Z')], status: 'open', by })
-    hook.failIndexCas = 3
+    hook.failIndexCas = CAS_ATTEMPTS
     await updateClass(c.id, { sessions: [ses('a', '2042-09-03T10:00:00Z', '2042-09-03T11:00:00Z')] }, by, 'moved')
     hook.failIndexCas = 0
     expect((await readIndex()).stale).toBe(true)
