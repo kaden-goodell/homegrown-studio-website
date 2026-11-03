@@ -39,7 +39,7 @@ import { tokenOf } from './decided'
 import { getLedger, type LedgerLine } from './seat-ledger'
 import { seatFreed } from './seat-status'
 import type { Cents, ScheduledClass } from './types'
-import { listRefundRequests, isWaiting, type SavedRefundRequest } from './refund-requests'
+import { hashOf, listRefundRequests, isWaiting, type SavedRefundRequest } from './refund-requests'
 import { classRefundBook, freeSeatOnly, ALREADY_FREE, type RefundRequest } from './refunds'
 import { clearRequest, runRefund } from '@lib/booking-core/refund-runner'
 import { askAboutRequest } from '@lib/booking-core/ask-square'
@@ -74,6 +74,8 @@ export interface CancelTry {
   doneAt?: string
   /** the owners were texted about this try's outcome (once) */
   told?: boolean
+  /** money M12: the id of the refund request this press saves (known before Square is called), so it's always found */
+  requestId?: string
   /** F3: an owner's Ask Square found no refund on the payment (then: try again · release the seats) */
   noRefundSeenAt?: string
   /** F3: an owner released the held seats with no refund (Square showed none): the cancel is called off */
@@ -158,7 +160,12 @@ const sameIds = (a: string[], b: string[]) => a.length === b.length && [...a].so
  * customer's own, for exactly these seats and this amount, made since the press. Null = nothing was saved,
  * so nothing can have gone to Square.
  */
-export function requestOfTry(t: Pick<CancelTry, 'lineIds' | 'cents' | 'at'>, saved: SavedRefundRequest[]): SavedRefundRequest | null {
+export function requestOfTry(t: Pick<CancelTry, 'lineIds' | 'cents' | 'at' | 'requestId'>, saved: SavedRefundRequest[]): SavedRefundRequest | null {
+  // M12: the press knows its request's id: matched exactly, however long after the press it was saved.
+  if (t.requestId) {
+    const exact = saved.find((r) => r.id === t.requestId)
+    if (exact) return exact
+  }
   const since = Date.parse(t.at) - 60_000
   return saved
     .filter((r) => r.by.id.startsWith('customer-online') && r.totalCents === t.cents && sameIds(r.lines.map((x) => x.id), t.lineIds) && Date.parse(r.createdAt) >= since)
@@ -179,7 +186,12 @@ export function tryState(t: CancelTry, lines: LedgerLine[], now: Date, saved?: S
     if (r?.status === 'turned-down') return 'turned-down'
     if (r && (r.status === 'done' || (r.status === 'sent' && !!r.squareRefundId))) return 'done'
   }
-  if (t.state === 'cancelling' && now.getTime() - Date.parse(t.at) >= CANCEL_STALE_MS) return 'unclear'
+  if (t.state === 'cancelling' && now.getTime() - Date.parse(t.at) >= CANCEL_STALE_MS) {
+    // Concurrency minor 5: the press stopped before its refund request was saved (we know its id): nothing can
+    // have reached Square, so it's simply stopped (the customer can press again), never "unclear" for an owner.
+    if (saved && !t.free && t.requestId && !requestOfTry(t, saved)) return 'stopped'
+    return 'unclear'
+  }
   return t.state
 }
 
@@ -243,13 +255,15 @@ async function load(token: unknown, now: Date): Promise<Loaded & { classId: stri
   if (!ids) throw new CancelError(404, 'not-found', CANCEL_MESSAGES.notFound)
   const cls = await getClass(ids.classId)
   if (!cls) throw new CancelError(404, 'not-found', CANCEL_MESSAGES.notFound)
-  const [ledger, rec, saved] = await Promise.all([getLedger(cls.id), getCancelRecord(ids.bookingId), listRefundRequests(cls.id, ids.bookingId).catch(() => [])])
+  // A list that can't be read is "unknown" (never read as "nothing was saved").
+  const [ledger, rec, savedOrNull] = await Promise.all([getLedger(cls.id), getCancelRecord(ids.bookingId), listRefundRequests(cls.id, ids.bookingId).catch(() => null)])
+  const saved = savedOrNull ?? []
   const lines = bookingLinesOf(ledger, ids.bookingId)
   if (!lines.length) throw new CancelError(404, 'not-found', CANCEL_MESSAGES.notFound)
   // Held as "cancelling": a try Square hasn't answered, or any refund on these seats still waiting on Square.
   const cancelling = new Set<string>()
   for (const t of rec?.tries ?? []) {
-    const st = tryState(t, lines, now, saved)
+    const st = tryState(t, lines, now, savedOrNull ?? undefined)
     if (st === 'cancelling' || st === 'unclear') for (const id of t.lineIds) cancelling.add(id)
   }
   for (const r of saved.filter(isWaiting)) for (const x of r.lines) cancelling.add(x.id)
@@ -306,6 +320,11 @@ export async function selfCancel(input: { token: unknown; lineIds: unknown; atte
 
   let t: CancelTry
   if (mine && mine.state !== 'stopped') {
+    // M13(a): a retried press keeps its own seats; one sent with different seats is refused (nothing sent).
+    const askedIds = Array.isArray(input.lineIds) ? input.lineIds.filter((x): x is string => typeof x === 'string') : null
+    if (askedIds && askedIds.length && !sameIds(askedIds, mine.lineIds)) {
+      throw new CancelError(409, 'changed', CANCEL_MESSAGES.stillFinishing, first.view)
+    }
     t = mine
   } else {
     if (first.opts.mode !== 'self' && first.opts.mode !== 'free') {
@@ -313,8 +332,10 @@ export async function selfCancel(input: { token: unknown; lineIds: unknown; atte
     }
     const ids = pickedSeats(first.opts, input.lineIds)
     if (!ids) throw new CancelError(409, 'changed', first.opts.wholeOnly ? CANCEL_MESSAGES.whole : CANCEL_MESSAGES.pick, first.view)
-    const free = first.opts.mode === 'free'
-    const cents = free ? 0 : cancelSplit(first.lines, ids).reduce((s, x) => s + x.cents, 0)
+    const splitCents = first.opts.mode === 'free' ? 0 : cancelSplit(first.lines, ids).reduce((s, x) => s + x.cents, 0)
+    // M13(b): only $0 seats picked on a paid booking: nothing to refund, so the seats are just freed (a $0 refund is refused).
+    const free = first.opts.mode === 'free' || splitCents === 0
+    const cents = free ? 0 : splitCents
     t = { attempt, lineIds: [...ids].sort(), cents, free, at: now.toISOString(), state: 'cancelling' }
     const put = t
     // F2: two tabs (or two devices) pressing at once: a seat another press is cancelling, or has cancelled, is
@@ -344,6 +365,12 @@ export async function selfCancel(input: { token: unknown; lineIds: unknown; atte
   let refundId = ''
   try {
     const book = await classRefundBook(cls.id, bookingId, { cls, req })
+    // M12: the request this press will save, by id, written on the press before Square is called.
+    if (!t.requestId && book.inputHash) {
+      const requestId = hashOf('refund-attempt', book.inputHash, attempt)
+      await setTry(base, t.attempt, (cur) => (cur.requestId ? null : { ...cur, requestId })).catch(() => undefined)
+      t = { ...t, requestId }
+    }
     const r = await runRefund(book, { attempt, reason: req.reason }, customerActor(first.lines))
     refundId = r.refundId
   } catch (e) {
@@ -439,6 +466,9 @@ async function refundTrouble(e: RefundError, base: Omit<CancelRecord, 'tries' | 
     await setTry(base, t.attempt, (cur) => (cur.state === 'done' ? null : { ...cur, state: 'turned-down' })).catch(() => undefined)
     throw new CancelError(502, 'square', CANCEL_MESSAGES.turnedDown, await cancelView(cancelToken(base.classId, base.bookingId), now))
   }
+  // M11: the runner answered 500 (e.g. Square made the refund but it couldn't be saved here): that's "no answer"
+  // for the customer and the owners (seats held, Ask Square finishes it once), never "your booking just changed".
+  if (e.status >= 500) return refundTrouble(new RefundError(502, SQUARE_NO_ANSWER), base, t, first, now)
   // Another refund on the booking is waiting on Square, or was just made (two tabs): nothing was sent for this press.
   await setTry(base, t.attempt, (cur) => (cur.state === 'cancelling' ? { ...cur, state: 'stopped' } : null)).catch(() => undefined)
   const view = await cancelView(cancelToken(base.classId, base.bookingId), now)

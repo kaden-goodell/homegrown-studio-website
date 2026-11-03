@@ -281,7 +281,7 @@ describe('Square says a party order is paid (webhook / nightly reconcile)', () =
     expect(await bookParty(inp, NOW)).toMatchObject({ kind: 'booked' })
     const rec = (await getPartyRecord(partyId))!
     const { recordPaidParty } = await import('@lib/parties/checkout')
-    const c = { partyId, startIso: rec.startIso, endIso: rec.endIso, draft: rec, quotedCents: 30000, via: 'online' as const, host: { firstName: 'A', lastName: 'S', email: 'a@x.co', phone: '1' } }
+    const c = { partyId, startIso: rec.startIso, endIso: rec.endIso!, draft: rec, quotedCents: 30000, via: 'online' as const, host: { firstName: 'A', lastName: 'S', email: 'a@x.co', phone: '1' } }
     m.alert.mockClear()
     const out = await recordPaidParty(c, { orderId: 'ord-second', paymentId: 'pay-second', cents: 30000, receiptUrl: null }, NOW)
     expect(out.created).toBe(false)
