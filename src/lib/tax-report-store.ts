@@ -10,6 +10,7 @@
  * Also remembers when each month's report was last emailed, and to whom, so
  * Reports can say "Emailed Nov 1 to kaden@…" next to Send it again.
  */
+import { recipientsFor } from '@lib/notify-settings'
 import { siteConfig, type SquareConfig } from '@config/site.config'
 import { makeKvStore } from '@lib/blob-store'
 import { loadCatalogIndex, loadOrders, loadSourceOrders, monthRange, summarizeTax, taxTotals, type TaxSummary } from '@lib/tax-report'
@@ -98,9 +99,13 @@ export async function buildTaxMonth(month: string, opts: { fresh?: boolean; now?
   return out
 }
 
-/** Who gets the monthly tax split. */
-export function taxReportRecipients(): string[] {
-  return [...siteConfig.taxReportEmails]
+/**
+ * Who gets the monthly tax split: the owners picked in More › Notifications
+ * (the site setup's tax list until an owner saves that screen). The monthly
+ * email and /admin › Reports › "Send it again" both use this.
+ */
+export async function taxReportRecipients(): Promise<string[]> {
+  return recipientsFor('tax-report', 'email')
 }
 
 export async function recordTaxSent(month: string, sent: TaxSent): Promise<void> {

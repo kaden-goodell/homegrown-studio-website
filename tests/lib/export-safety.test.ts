@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest'
 import { csvCell, csvRows, NEVER_EXPORTED_STORES, redactSecrets } from '@lib/export-safety'
 import { custodyCsv, exportAll } from '@lib/archive-export'
 import { taxReportCsv } from '@lib/tax-report'
+import { ARCHIVE_STORES } from '@lib/archive-stores'
 
 describe('redactSecrets', () => {
   it('drops tokens, hashes, secrets and passcodes at any depth; keeps inputHash and everything else', () => {
@@ -15,6 +16,20 @@ describe('redactSecrets', () => {
   })
   it('the booking switch and the staff passcode stores are never exported', () => {
     expect(NEVER_EXPORTED_STORES).toEqual(expect.arrayContaining(['site-switches', 'staff-access']))
+  })
+  it('audit B: the /admin passcode, pasted keys and service health stores are never exported, and the weekly archive lists none of them', () => {
+    expect(NEVER_EXPORTED_STORES).toEqual(expect.arrayContaining(['admin-access', 'outbound-keys', 'outbound-health']))
+    const archived = ARCHIVE_STORES.map((s) => s.name)
+    for (const name of NEVER_EXPORTED_STORES) expect(archived).not.toContain(name)
+  })
+  it('audit B: salts, fingerprints and encrypted key parts are dropped wherever they turn up', () => {
+    const out = redactSecrets({
+      record: { salt: 's', hash: 'h', gen: 3, updatedAt: 'x' },
+      marker: { envSalt: 's', envFp: 'f', envSeen: [{ salt: 's', fp: 'f' }], at: 'x' },
+      key: { v: 2, iv: 'i', ct: 'c', tag: 't', updatedAt: 'x', history: [{ at: 'x', by: { name: 'Cat' } }] },
+      tested: { fp: 'f', at: 1 },
+    })
+    expect(out).toEqual({ record: { gen: 3, updatedAt: 'x' }, marker: { at: 'x' }, key: { v: 2, updatedAt: 'x', history: [{ at: 'x', by: { name: 'Cat' } }] }, tested: { at: 1 } })
   })
 })
 

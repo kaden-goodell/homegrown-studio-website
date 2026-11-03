@@ -4,13 +4,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const m = vi.hoisted(() => ({
   index: vi.fn(), orders: vi.fn(), sources: vi.fn(), email: vi.fn(), audit: [] as any[],
-  parties: vi.fn(), classes: vi.fn(),
+  parties: vi.fn(), classes: vi.fn(), picked: null as string[] | null,
 }))
 vi.mock('@lib/tax-report', async (orig) => ({
   ...(await orig<typeof import('@lib/tax-report')>()),
   loadCatalogIndex: m.index, loadOrders: m.orders, loadSourceOrders: m.sources,
 }))
 vi.mock('@lib/email', () => ({ sendEmail: m.email }))
+// Who gets the tax split: More › Notifications (m.picked = what an owner saved there; null = nobody saved yet).
+vi.mock('@lib/notify-settings', async (orig) => {
+  const real = await orig<typeof import('@lib/notify-settings')>()
+  return { ...real, recipientsFor: vi.fn(async (row: any, channel: any) => (row === 'tax-report' && m.picked ? m.picked : real.recipientsFor(row, channel))) }
+})
 vi.mock('@lib/audit', () => ({ recordAudit: vi.fn(async (e: any) => { m.audit.push(e) }) }))
 vi.mock('@lib/party-store', async (orig) => ({ ...(await orig<typeof import('@lib/party-store')>()), listParties: m.parties }))
 vi.mock('@lib/classes/class-store', async (orig) => ({ ...(await orig<typeof import('@lib/classes/class-store')>()), listClasses: m.classes }))
@@ -139,6 +144,17 @@ describe('tax-report.json: the tax split for any month', () => {
     expect(m.email.mock.calls[0][0]).toMatchObject({ to, subject: expect.stringMatching(/^Tax collected, /) })
     expect(m.audit[0]).toMatchObject({ action: 'tax-report-send', by: { name: 'Catherine', role: 'owner' }, target: { kind: 'tax-report', id: mo } })
     expect((await get(tax, `/api/admin/tax-report.json?month=${mo}`)).body.data.lastSent).toMatchObject({ to })
+  })
+
+  it('audit B merge: Send it again and the monthly email both go to the owners picked in More › Notifications', async () => {
+    m.picked = ['cat@example.com', 'dana@example.com']
+    try {
+      const r = await post({ action: 'send', month: nextMonth() })
+      expect(r.body.data).toMatchObject({ sent: true, to: 'cat@example.com, dana@example.com' })
+      expect(m.email.mock.calls[0][0]).toMatchObject({ to: 'cat@example.com, dana@example.com' })
+      const { taxReportRecipients } = await import('@lib/tax-report-store')
+      expect(await taxReportRecipients()).toEqual(['cat@example.com', 'dana@example.com'])
+    } finally { m.picked = null }
   })
 
   it('an email that doesn’t go says so (and offers Download)', async () => {

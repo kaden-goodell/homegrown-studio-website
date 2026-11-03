@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { adminActor, adminAuthorized } from '@lib/admin-auth'
+import { adminActor, adminAuthorized, checkAdminPasscode } from '@lib/admin-auth'
 import { recordAudit } from '@lib/audit'
 import { cleanPasscode, passcodeStatus, PasscodeError, PASSCODE_MESSAGES, setStaffPasscode } from '@lib/staff-passcode'
 import { classWritesRefusal } from '@lib/classes/test-site-guard'
@@ -11,12 +11,15 @@ export const prerender = false
 
 const logger = createLogger('api:staff-passcode')
 
+export const SAME_AS_ADMIN = 'That’s the /admin passcode. The crew will know this one, so pick a different staff passcode.'
+
 /**
  * Owners only: the staff passcode, /admin › More › Staff › People › Staff passcode.
  * GET  → { setInAdmin, updatedAt, by, damaged, readOnly, failedToday, manyFailed } (never the passcode).
  *   damaged: the saved one can't be used (nobody can sign in to /staff); saving a new one repairs it.
  *   manyFailed: lots of wrong staff passcodes today (Home shows a line with a button).
  * POST { passcode, again, expectedUpdatedAt } → { updatedAt }
+ *   The /admin passcode is refused (400): the crew would know it.
  *   Saves a salted hash; the old passcode stops working and everyone is signed
  *   out of /staff. Someone else changed it first → 409. Audited (never the passcode).
  */
@@ -38,6 +41,8 @@ export const POST: APIRoute = async ({ request }) => {
   const by = await adminActor(request)
   try {
     const passcode = cleanPasscode(body.passcode, body.again)
+    // The crew know the staff passcode, so it can never be the /admin one (admin-access refuses the reverse).
+    if (await checkAdminPasscode(passcode).catch(() => false)) return json(400, { error: SAME_AS_ADMIN })
     const expected = typeof body.expectedUpdatedAt === 'string' ? body.expectedUpdatedAt : null
     const saved = await setStaffPasscode(passcode, by, expected)
     await recordAudit({ by: { ...by, role: 'owner' }, action: 'staff.passcode-changed', target: { kind: 'staff', id: 'passcode', label: 'Staff passcode' } })

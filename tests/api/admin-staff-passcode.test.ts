@@ -63,6 +63,15 @@ describe('/admin › Staff passcode', () => {
     expect((await call('POST', { passcode: 'door-4821', again: 'door-4821' }, null)).status).toBe(401)
   })
 
+  it('audit B merge: the /admin passcode can never become the staff passcode (the crew would know it); nothing saved, nothing audited', async () => {
+    const r = await call('POST', { passcode: 'owner-secret', again: 'owner-secret' })
+    expect(r.status).toBe(400)
+    expect(r.body.error).toBe(route.SAME_AS_ADMIN)
+    expect(audit).toHaveLength(0)
+    expect((await signIn('crew-secret', 'TM2')).status).toBe(200)
+    expect((await signIn('owner-secret', 'TM2')).status).not.toBe(200)
+  })
+
   it('rotate: the old passcode is refused, old /staff sign-ins stop counting, the new one works; audited without the passcode', async () => {
     const before = await signIn('crew-secret', 'TM2')
     expect(before.status).toBe(200)
