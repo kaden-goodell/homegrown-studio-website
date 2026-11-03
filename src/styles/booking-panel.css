@@ -69,3 +69,26 @@
     animation: none !important;
   }
 }
+
+/* UI review (3 Nov): on phones what's been chosen so far stays on ONE line,
+   so the step itself gets most of the screen. Long names are cut with "…". */
+.booking-panel-summary-compact > * {
+  flex-wrap: nowrap !important;
+  overflow: hidden;
+}
+.booking-panel-summary-compact > * > span {
+  min-width: 0;
+  flex-shrink: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.8125rem;
+}
+.booking-panel-summary-compact > * > span img {
+  flex-shrink: 0;
+}
+.booking-panel-summary-compact > p {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -117,8 +117,8 @@ describe('waitlist join', () => {
     expect(JSON.stringify(e)).not.toMatch(/cnon:|card_number|cvv/i)
     expect(e.consent.text).toBe(consentText({ className: 'Potholder Looms', startIso: '2026-10-17T15:00:00.000Z', closesIso: '2026-10-15T15:00:00.000Z', maxCents: 2180 }))
     expect(e.consent.text).toBe(body.consentShown!.text) // I2: stored exactly as shown
-    expect(e.consent.text).toContain('If a spot opens in Potholder Looms (Sat, Oct 17 at 10 AM) before the waitlist closes on Thu, Oct 15 at 10 AM')
-    expect(e.consent.text).toContain('never more than $21.80')
+    expect(e.consent.text).toContain('If a spot opens in Potholder Looms (Sat, Oct 17 at 10 AM) before the waitlist closes Thu, Oct 15 at 10 AM')
+    expect(e.consent.text).toContain('charge up to $21.80')
 
     const m = mail.joined.mock.calls[0][0]
     expect(m).toMatchObject({ to: 'jane@example.com', className: 'Potholder Looms', maxCents: 2180, last4: '4242' })
@@ -254,8 +254,8 @@ describe('waitlist join', () => {
     const fresh = shownFor(cls)!
     const ok = await call(joinBody(cls, { consentShown: fresh }))
     expect(ok.status).toBe(200)
-    expect((await getWaitlist(cls.id)).entries[0].consent).toMatchObject({ text: fresh.text, textVersion: 'wl-consent-5' })
-    expect(fresh.text).toContain('It’s never more than $25.07, even if the price goes up later, and they won’t ask again first.')
+    expect((await getWaitlist(cls.id)).entries[0].consent).toMatchObject({ text: fresh.text, textVersion: 'wl-consent-6' })
+    expect(fresh.text).toContain('charge up to $25.07 without asking again.')
   })
 
   it('I2: a changed close time, changed words, or a page too old to send the consent are refused too', async () => {
@@ -290,14 +290,14 @@ describe('waitlist join', () => {
     const shown = shownFor(cls)!
     const res = await call(joinBody(cls, { consentShown: { ...shown, text: shown.text.replace(/ AM/g, '\u202fAM') } }))
     expect(res.status).toBe(200)
-    expect((await getWaitlist(cls.id)).entries[0].consent).toMatchObject({ text: shown.text, textVersion: 'wl-consent-5' })
+    expect((await getWaitlist(cls.id)).entries[0].consent).toMatchObject({ text: shown.text, textVersion: 'wl-consent-6' })
   })
 
   it('wl-consent-3: an older page’s wl-consent-2 words (same amount and close time) still join, kept as shown', async () => {
     const cls = makeClass()
     await fill(cls)
     const shown = shownFor(cls)!
-    const v2 = shown.text.replace(', even if the price goes up later,', '')
+    const v2 = shown.text.replace(' without asking again', '')
     const res = await call(joinBody(cls, { consentShown: { ...shown, text: v2 } }))
     expect(res.status).toBe(200)
     expect((await getWaitlist(cls.id)).entries[0].consent).toMatchObject({ text: v2, textVersion: 'as-shown' })

@@ -24,8 +24,8 @@ describe('waitlist closes 48 hours before the class (D7)', () => {
     expect(waitlistOpen(cls(2), ['s1'], new Date('2026-11-12T15:59:00.000Z'))).toBe(true)
     expect(waitlistOpen(cls(2), ['s1'], new Date('2026-11-12T16:00:00.000Z'))).toBe(false)
   })
-  it('the consent sentence says why it closes then', () => {
+  it('the consent sentence names when the waitlist closes', () => {
     expect(consentText({ className: 'Looms', startIso: '2026-11-14T16:00:00.000Z', closesIso: '2026-11-12T16:00:00.000Z', maxCents: 2180 }))
-      .toMatch(/never charged inside the 48-hour no-refund window/)
+      .toMatch(/before the waitlist closes Thu, Nov 12 at 10 AM/)
   })
 })

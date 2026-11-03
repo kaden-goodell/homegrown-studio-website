@@ -6,16 +6,17 @@
  * DRAFT copy for Kaden (tasks-9-10-report.md, COPY FOR KADEN).
  */
 import { formatMoney } from '@lib/money'
-import { policyWindows } from '@config/policy-content'
 
 /**
  * Bumped whenever the consent sentence changes; stored with each entry. 2: the class and its date are named (I2).
  * 3: "even if the price goes up later" (D6). 4 (final customer review): "never more than", and the text and email
  * come "when it happens" (charges and texts wait for 8 AM–8 PM, I12), no longer "right away". 5 (merge of the final
  * fixes): 4's words plus "(so I'm never charged inside the 48-hour no-refund window)" after the close date (D7, the
- * waitlist closes 48 hours before class). Entries joined under an older version keep their stored text and are honoured as they are (the runner never reads the version).
+ * waitlist closes 48 hours before class). 6 (UI review, 3 Nov): cut from ~90 words to three short sentences; still names
+ * the class, its date, the close time and the most they're charged. Entries joined under an older version keep their stored
+ * text and are honoured as they are (the runner never reads the version).
  */
-export const CONSENT_VERSION = 'wl-consent-5'
+export const CONSENT_VERSION = 'wl-consent-6'
 
 export const MAX_WAITING_PER_CLASS = 40
 
@@ -40,7 +41,15 @@ export function closesLabel(iso: string): string {
  */
 export function consentText(input: { className: string; startIso: string; more?: boolean; closesIso: string; maxCents: number }): string {
   const when = `${input.more ? 'starts ' : ''}${closesLabel(input.startIso)}`
-  return `Save my card with Square. If a spot opens in ${input.className} (${when}) before the waitlist closes on ${closesLabel(input.closesIso)} (so I’m never charged inside the ${policyWindows.workshopRefundHours}-hour no-refund window), Hometown Studio adds me and charges this card. It’s never more than ${formatMoney(input.maxCents)}, even if the price goes up later, and they won’t ask again first. I’ll get a text and an email when it happens. I can leave the waitlist any time and my card comes off.`
+  return `Save my card with Square. If a spot opens in ${input.className} (${when}) before the waitlist closes ${closesLabel(input.closesIso)}, add me and charge up to ${formatMoney(input.maxCents)} without asking again. I can leave the waitlist any time.`
+}
+
+/** Under the step-1 waitlist notice: nothing is taken today. */
+export const WAITLIST_NOTHING_NOW = 'Nothing is charged now.'
+
+/** The waitlist step's price, said calmly: the most they'd pay, only if a spot opens (D6: never more than agreed). */
+export function waitlistPriceLine(maxCents: number): string {
+  return `${formatMoney(maxCents)} if a spot opens, never more. Nothing is charged now. We’ll text and email you if it happens.`
 }
 
 /** M-a: consent words compared without caring about spacing (browser and server may space "8 AM" differently). */

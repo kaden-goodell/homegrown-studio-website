@@ -43,7 +43,7 @@ import {
   trackWaiverLinkClick,
 } from '@lib/analytics'
 import { readAttribution } from '@lib/attribution'
-import { consentText, joinedLine, WAITLIST_MESSAGES, waitlistReason } from '@lib/classes/waitlist-words'
+import { consentText, joinedLine, WAITLIST_MESSAGES, WAITLIST_NOTHING_NOW, waitlistPriceLine, waitlistReason } from '@lib/classes/waitlist-words'
 
 export interface ClassBookingPanelProps {
   /** A list row for one of our own classes (`own` set). */
@@ -985,15 +985,15 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     const left = seatsLeftLabel(roomLeft)
     return (
       <div>
-        {workshop.imageUrl && (
-          <img src={workshop.imageUrl} alt={workshop.name} style={{ display: 'block', width: '100%', maxHeight: '16rem', objectFit: 'cover', borderRadius: '0.75rem', background: 'var(--color-sand)', marginBottom: '1rem' }} />
+        {/* UI review (3 Nov): a full class says "waitlist" first, before anything else on the sheet. */}
+        {waitlistMode && (
+          <div role="status" data-testid="waitlist-note" style={{ margin: '0 0 1rem', padding: '0.75rem 1rem', borderRadius: '0.75rem', border: '1.5px solid var(--color-primary)', background: 'rgba(var(--color-primary-rgb), 0.08)' }}>
+            <p style={{ margin: 0, fontSize: '0.9375rem', lineHeight: 1.5, fontWeight: 600, color: 'var(--color-dark)' }}>{waitlistReason(roomLeft, total)}</p>
+            <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', lineHeight: 1.5, color: 'var(--color-text)' }}>{WAITLIST_NOTHING_NOW}</p>
+          </div>
         )}
-        {meta && <p style={{ margin: '0 0 0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-muted)' }}>{meta}</p>}
-        {paragraphs.map((p, i) => (
-          <p key={i} style={{ margin: '0 0 0.75rem', fontSize: '0.9375rem', lineHeight: 1.6, color: 'var(--color-text)' }}>{p}</p>
-        ))}
-
-        <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--color-line)', display: 'grid', gap: '1.25rem' }}>
+        {/* The choices come first (UI review: the seat counter was below the fold on a phone); the picture and words follow. */}
+        <div style={{ display: 'grid', gap: '1.25rem' }}>
           {shownPasses.length > 1 && (
             <div role="group" aria-label="Choose an option" style={{ display: 'grid', gap: '0.5rem' }}>
               {shownPasses.map((p) => {
@@ -1093,11 +1093,6 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
                 Add over capacity
               </label>
             )}
-            {waitlistMode && (
-              <p role="status" data-testid="waitlist-note" style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>
-                {waitlistReason(roomLeft, total)}
-              </p>
-            )}
             {total >= maxSeats && maxSeats > 0 && !waitlistMode && (
               <p role="status" style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-text)' }}>
                 {maxSeats >= own.rules.maxPerBooking && roomLeft > maxSeats
@@ -1108,6 +1103,18 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           </div>
         </div>
         {problem && <p role="alert" className="field-error" style={{ marginTop: '0.75rem' }}>{problem}</p>}
+
+        {(workshop.imageUrl || meta || paragraphs.length > 0) && (
+          <div data-testid="class-about" style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--color-line)' }}>
+            {workshop.imageUrl && (
+              <img src={workshop.imageUrl} alt={workshop.name} style={{ display: 'block', width: '100%', maxHeight: '16rem', objectFit: 'cover', borderRadius: '0.75rem', background: 'var(--color-sand)', marginBottom: '1rem' }} />
+            )}
+            {meta && <p style={{ margin: '0 0 0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-muted)' }}>{meta}</p>}
+            {paragraphs.map((p, i) => (
+              <p key={i} style={{ margin: '0 0 0.75rem', fontSize: '0.9375rem', lineHeight: 1.6, color: 'var(--color-text)' }}>{p}</p>
+            ))}
+          </div>
+        )}
         {/* "Not ready to book? Email me this class." One quiet line, never at the door (the studio iPad). */}
         {!door && (
           <div style={{ marginTop: '1.5rem' }}>
@@ -1341,8 +1348,8 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           <p style={{ margin: 0, fontSize: '0.9375rem', color: 'var(--color-dark)' }}>
             {workshop.name}{own.passes.length > 1 && pass ? `, ${pass.label}` : ''} · {ticketsLabel}
           </p>
-          <p style={{ margin: '0.125rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>
-            {`Never more than ${formatMoney(most, workshop.currency)}, charged only if a spot opens.`}
+          <p data-testid="waitlist-price" style={{ margin: '0.125rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>
+            {waitlistPriceLine(most)}
           </p>
         </div>
 
@@ -1395,10 +1402,11 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   } else if (step !== 'pay') {
     // The first step shows the seats' price before tax, once, on its button; tax only on the payment step
     // (Kaden, 1 Nov 2026: never "incl. tax" here). Later steps say just Continue; the Pay button carries the total.
-    const beforeTax = step === steps[0] && total > 0 && seatsOnly.ok ? seatsOnly.value.subtotalCents : null
+    // A full class: nothing is paid on the way to the waitlist, so no price on the button (UI review, 3 Nov).
+    const beforeTax = !waitlistMode && step === steps[0] && total > 0 && seatsOnly.ok ? seatsOnly.value.subtotalCents : null
     footer = (
       <button type="button" className="btn btn-primary" onClick={next}>
-        {beforeTax !== null ? `Continue · ${formatMoney(beforeTax, workshop.currency)}` : 'Continue'}
+        {waitlistMode ? 'Continue to the waitlist' : beforeTax !== null ? `Continue · ${formatMoney(beforeTax, workshop.currency)}` : 'Continue'}
       </button>
     )
   } else if (waitlistMode) {
@@ -1409,12 +1417,10 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     )
   } else {
     footer = (
-      <>
-        <button ref={payButtonRef} type="submit" form={formId} className="btn btn-primary" disabled={processing || applying || (!free && !paymentReady) || !shown}>
-          {processing ? 'Processing…' : free ? 'Book it' : !paymentReady ? 'Loading payment form…' : `Pay ${formatMoney(shown?.totalCents ?? 0, workshop.currency)}`}
-        </button>
-        <p style={{ margin: '0.5rem 0 0', textAlign: 'center', fontSize: '0.8125rem', lineHeight: 1.4, color: 'var(--color-text)' }}>{workshopRefundLine()}</p>
-      </>
+      // The refund terms are in the tick box just above; the footer stays one button (UI review, 3 Nov).
+      <button ref={payButtonRef} type="submit" form={formId} className="btn btn-primary" disabled={processing || applying || (!free && !paymentReady) || !shown}>
+        {processing ? 'Processing…' : free ? 'Book it' : !paymentReady ? 'Loading payment form…' : `Pay ${formatMoney(shown?.totalCents ?? 0, workshop.currency)}`}
+      </button>
     )
   }
 
@@ -1422,7 +1428,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   const whenShort = choose && !picked.length ? '' : firstSession ? formatDayAndSpan(firstSession.startIso, firstSession.endIso) : ''
   return (
     <BookingPanel
-      title={workshop.name}
+      title={waitlistMode && !booked && !joined ? 'Join the waitlist' : workshop.name}
       onRequestClose={booked ? finish : stuck || joined ? onClose : requestClose}
       busy={processing ? (step === 'pay' && waitlistMode ? SAVING_CARD : PAYMENT_GOING_THROUGH) : null}
       stepKey={booked ? 'confirmed' : joined ? 'joined' : step === 'pay' && waitlistMode ? 'waitlist' : step}
@@ -1432,7 +1438,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
       summary={
         booked || joined ? undefined : (
           <p style={{ margin: 0, fontSize: '0.9375rem', color: 'var(--color-dark)' }}>
-            {[whenShort, (q?.sessionIds.length ?? 0) > 1 ? plural(q!.sessionIds.length, 'session') : '', ticketsLabel].filter(Boolean).join(' · ')}
+            {[waitlistMode ? workshop.name : '', whenShort, (q?.sessionIds.length ?? 0) > 1 ? plural(q!.sessionIds.length, 'session') : '', ticketsLabel].filter(Boolean).join(' · ')}
           </p>
         )
       }

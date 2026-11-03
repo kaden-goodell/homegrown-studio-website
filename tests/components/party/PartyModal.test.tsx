@@ -216,6 +216,22 @@ describe('PartyModal — dates and times', () => {
     expect(requestsTo('availability')).toHaveLength(0)
   })
 
+  it('UI review: tapping a date slides its start times into view (they sit under the date list)', async () => {
+    const scrolled: Element[] = []
+    const proto = Element.prototype as any
+    const before = proto.scrollIntoView
+    proto.scrollIntoView = function (this: Element) { scrolled.push(this) }
+    try {
+      open()
+      await toWhen()
+      fireEvent.click(screen.getByRole('button', { name: 'Sat, Nov 7' }))
+      await waitFor(() => expect(scrolled).toContain(screen.getByTestId('party-start-times')))
+      expect(screen.getByTestId('party-start-times')).toHaveTextContent('Start time · Sat, Nov 7')
+    } finally {
+      proto.scrollIntoView = before
+    }
+  })
+
   it('shows a fully booked date as "Booked", not as missing', async () => {
     // Saturday's one time (1:30 PM) is taken, so the whole date is booked.
     answers['available-dates'] = { body: { data: { dates: [SUN], bookedDates: [SAT], times: { [SUN]: [SUN_1] }, windowDays: 90 } } }

@@ -7,11 +7,10 @@ import '../../styles/booking-panel.css'
  * and behave the same:
  *
  *   ┌ title ─────────────────────── × ┐   fixed
- *   │ STEP NAME             Step 1 of 3│
- *   │ summary chips                    │
+ *   │ ← Back  STEP NAME     Step 1 of 3│
+ *   │ summary (one line on phones)     │
  *   ├──────────────────────────────────┤
- *   │ ← Back                           │   scrolls
- *   │ step content                     │
+ *   │ step content                     │   scrolls
  *   ├──────────────────────────────────┤
  *   │ [ primary button ]               │   fixed
  *   └──────────────────────────────────┘
@@ -259,6 +258,16 @@ export default function BookingPanel({
     color: 'var(--color-text)',
     cursor: 'pointer',
   } as const
+  const backButton = {
+    ...iconButton,
+    justifyContent: 'flex-start',
+    gap: '0.25rem',
+    padding: '0 0.375rem 0 0',
+    marginLeft: '-0.125rem',
+    fontSize: '0.9375rem',
+    fontFamily: 'inherit',
+    flexShrink: 0,
+  } as const
 
   return createPortal(
     <div
@@ -305,7 +314,7 @@ export default function BookingPanel({
               id={titleId}
               style={{
                 margin: 0,
-                fontSize: '1.25rem',
+                fontSize: sheet ? '1.125rem' : '1.25rem',
                 lineHeight: 1.25,
                 fontFamily: 'var(--font-heading)',
                 fontWeight: 600,
@@ -314,7 +323,7 @@ export default function BookingPanel({
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 display: '-webkit-box',
-                WebkitLineClamp: 2,
+                WebkitLineClamp: sheet ? 1 : 2,
                 WebkitBoxOrient: 'vertical',
               }}
             >
@@ -325,16 +334,31 @@ export default function BookingPanel({
             </button>
           </div>
 
+          {/* UI review: Back lives up here, next to the step name, so the step itself gets the screen. */}
+          {onBack && !showProgress && (
+            <button type="button" onClick={onBack} style={backButton}>
+              <span aria-hidden="true">&larr;</span>
+              Back
+            </button>
+          )}
           {showProgress && (
-            <div style={{ marginTop: '0.5rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.5rem', gap: '1rem' }}>
+            <div style={{ marginTop: sheet ? '0.25rem' : '0.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: sheet ? '0.375rem' : '0.5rem', gap: '0.75rem' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                {onBack && (
+                  <button type="button" onClick={onBack} style={backButton}>
+                    <span aria-hidden="true">&larr;</span>
+                    Back
+                  </button>
+                )}
                 <p
                   ref={stepHeadingRef}
                   tabIndex={-1}
-                  style={{ margin: 0, fontSize: '0.8125rem', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-dark)', outline: 'none' }}
+                  style={{ margin: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.8125rem', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-dark)', outline: 'none' }}
                 >
                   {stepName}
                 </p>
+                </span>
                 <span style={{ fontSize: '0.8125rem', color: 'var(--color-text)', whiteSpace: 'nowrap' }}>
                   Step {stepNumber} of {stepCount}
                 </span>
@@ -357,8 +381,8 @@ export default function BookingPanel({
             </div>
           )}
 
-          {summary && <div style={{ marginTop: '0.75rem' }}>{summary}</div>}
-          <div style={{ height: '0.75rem' }} />
+          {summary && <div className={sheet ? 'booking-panel-summary-compact' : undefined} style={{ marginTop: sheet ? '0.5rem' : '0.75rem' }}>{summary}</div>}
+          <div style={{ height: sheet ? '0.5rem' : '0.75rem' }} />
         </div>
 
         {/* Scrolls */}
@@ -367,16 +391,6 @@ export default function BookingPanel({
           className="booking-panel-scroll"
           style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', padding: `0.25rem ${pad} 1.25rem` }}
         >
-          {onBack && (
-            <button
-              type="button"
-              onClick={onBack}
-              style={{ ...iconButton, justifyContent: 'flex-start', gap: '0.375rem', padding: '0 0.5rem 0 0', marginLeft: '-0.125rem', marginBottom: '0.5rem', fontSize: '0.9375rem', fontFamily: 'inherit' }}
-            >
-              <span aria-hidden="true">&larr;</span>
-              Back
-            </button>
-          )}
           {children}
         </div>
 
@@ -386,7 +400,7 @@ export default function BookingPanel({
             className="booking-panel-footer"
             style={{
               flexShrink: 0,
-              padding: `0.875rem ${pad} calc(0.875rem + env(safe-area-inset-bottom, 0px))`,
+              padding: sheet ? `0.625rem ${pad} calc(0.625rem + env(safe-area-inset-bottom, 0px))` : `0.875rem ${pad} calc(0.875rem + env(safe-area-inset-bottom, 0px))`,
               borderTop: '1px solid var(--color-line)',
               background: 'var(--color-surface)',
             }}

@@ -130,6 +130,14 @@ describe('ClassBookingPanel — passes and days', () => {
 })
 
 describe('ClassBookingPanel — small rules', () => {
+  it('UI review: the seat counter comes before the picture and the description (visible without scrolling on a phone)', () => {
+    open(make({ passes: [{ id: 'all', label: 'Full series', covers: { kind: 'all' } }], prices: { all: { person: 4000 } } }))
+    const about = screen.queryByTestId('class-about')
+    const more = screen.getByRole('button', { name: /^More/ })
+    expect(about).toHaveTextContent('Make a pot.')
+    expect(more.compareDocumentPosition(about!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('the first step shows the seats’ price before tax, once, on Continue; tax only on the payment step (Kaden, 1 Nov 2026)', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
@@ -651,12 +659,22 @@ describe('ClassBookingPanel — stage 4 waitlist', () => {
     const w = openFull()
     expect(w.own!.sessions[0].waitlist).toMatchObject({ open: true, waiting: 1 })
     expect(screen.getByTestId('waitlist-note')).toHaveTextContent('This class is full. Join the waitlist')
+    // UI review: obviously a waitlist from the top, and the button doesn't ask for money.
+    expect(screen.getByRole('heading', { name: 'Join the waitlist' })).toBeInTheDocument()
+    expect(screen.getByTestId('waitlist-note')).toHaveTextContent('Nothing is charged now.')
+    expect(screen.getByRole('button', { name: 'Continue to the waitlist' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /\$/ })).toBeNull()
+    // The notice comes before the seat counter and the class description.
+    const note = screen.getByTestId('waitlist-note')
+    expect(note.compareDocumentPosition(screen.getByRole('button', { name: /more/i })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     cont()
     expect(screen.getByTestId('waitlist-step')).toBeInTheDocument()
     expect(paymentFormProps.mode).toBe('store')
     expect(paymentFormProps.wallet).toBeUndefined()
     // I2: the class and its date are named; the amount and close time are the ones sent with the join.
-    expect(screen.getByTestId('waitlist-consent')).toHaveTextContent('Save my card with Square. If a spot opens in Clay Camp (Sat, Oct 24 at 1 PM) before the waitlist closes on Thu, Oct 22 at 1 PM (so I’m never charged inside the 48-hour no-refund window), Hometown Studio adds me and charges this card. It’s never more than $21.80, even if the price goes up later, and they won’t ask again first. I’ll get a text and an email when it happens.')
+    expect(screen.getByTestId('waitlist-consent')).toHaveTextContent('Save my card with Square. If a spot opens in Clay Camp (Sat, Oct 24 at 1 PM) before the waitlist closes Thu, Oct 22 at 1 PM, add me and charge up to $21.80 without asking again. I can leave the waitlist any time.')
+    expect(screen.getByTestId('waitlist-consent').textContent!.split(/\s+/).length).toBeLessThanOrEqual(50)
+    expect(screen.getByTestId('waitlist-price')).toHaveTextContent('$21.80 if a spot opens, never more. Nothing is charged now.')
     expect(screen.getByRole('button', { name: 'Join the waitlist' })).toBeInTheDocument()
   })
 
@@ -687,7 +705,7 @@ describe('ClassBookingPanel — stage 4 waitlist', () => {
     const sent = JSON.parse(init.body)
     expect(sent).toMatchObject({ action: 'join', classId: 'cls_1', passId: 'all', tickets: { person: 1 }, consent: true, cardToken: 'cnon:test-token', verificationToken: null })
     // The server prices it itself; the consent shown is sent only so a changed one is refused (I2).
-    expect(sent.consentShown).toEqual({ maxCents: 2180, closesIso: '2026-10-22T18:00:00.000Z', firstStartIso: expect.any(String), text: screen.queryByTestId('waitlist-consent')?.textContent ?? expect.stringContaining('never more than $21.80') })
+    expect(sent.consentShown).toEqual({ maxCents: 2180, closesIso: '2026-10-22T18:00:00.000Z', firstStartIso: expect.any(String), text: screen.queryByTestId('waitlist-consent')?.textContent ?? expect.stringContaining('charge up to $21.80') })
     const { consentShown: _shown, ...rest } = sent
     expect(JSON.stringify(rest)).not.toMatch(/Cents|price|amount/)
   })
@@ -702,8 +720,8 @@ describe('ClassBookingPanel — stage 4 waitlist', () => {
     fillContact()
     fireEvent.click(screen.getByRole('button', { name: 'Join the waitlist' }))
     expect(await screen.findByText('The price changed to $25.07. Check it and tick the box again. Nothing was charged.')).toBeInTheDocument()
-    expect(screen.getByTestId('waitlist-consent')).toHaveTextContent('It’s never more than $25.07, even if the price goes up later')
-    expect(screen.getByText(/Never more than \$25\.07, charged only if a spot opens\./)).toBeInTheDocument()
+    expect(screen.getByTestId('waitlist-consent')).toHaveTextContent('charge up to $25.07 without asking again')
+    expect(screen.getByTestId('waitlist-price')).toHaveTextContent('$25.07 if a spot opens, never more.')
     expect(screen.getByRole('checkbox', { name: /Save my card with Square/ })).not.toBeChecked()
     expect(screen.queryByText('You’re on the waitlist')).toBeNull()
   })

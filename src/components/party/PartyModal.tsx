@@ -264,6 +264,9 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const paymentFormRef = useRef<PaymentFormRef>(null)
   const contactRef = useRef<ContactFieldsHandle>(null)
   const policyRef = useRef<HTMLInputElement>(null)
+  // UI review (3 Nov): picking a date brings its start times into view (they sit under the date list).
+  const timesRef = useRef<HTMLDivElement>(null)
+  const scrollToTimes = useRef(false)
   const formId = useId()
   const policyErrorId = useId()
   const partyTitleId = useId()
@@ -705,6 +708,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     if (options.byCustomer) {
       setTouched(true)
       if (date) trackBookingChoice('party', 'date', date)
+      scrollToTimes.current = !!date
     }
     setSelectedDate(date)
     setSelectedSlot(null)
@@ -730,6 +734,14 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       setLoadingSlots(false)
     }
   }
+
+  // Once the times for a date the customer just tapped are on screen (or say why not), slide them into view.
+  useEffect(() => {
+    if (!scrollToTimes.current || !selectedDate || loadingSlots) return
+    scrollToTimes.current = false
+    const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    timesRef.current?.scrollIntoView?.({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' })
+  }, [selectedDate, loadingSlots, availableSlots])
 
   function chooseSlot(slot: Slot) {
     setTouched(true)
@@ -1378,9 +1390,9 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         )}
 
         {selectedDate && (
-          <div style={{ marginTop: '1.5rem' }}>
+          <div ref={timesRef} data-testid="party-start-times" style={{ marginTop: '1.5rem', scrollMarginBottom: '1rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '1rem', flexWrap: 'wrap' }}>
-              <p style={sectionLabel}>Start time</p>
+              <p style={sectionLabel}>Start time · {formatDateLabel(selectedDate)}</p>
               {someBooked && (
                 <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>
                   {availableSlots.length} of {offered} times still open
@@ -1876,7 +1888,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                 {selectedCraft.imageUrl && (
                   <img src={selectedCraft.imageUrl} alt="" style={{ width: '1.5rem', height: '1.5rem', borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
                 )}
-                {selectedCraft.name}
+                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedCraft.name}</span>
               </span>
             )}
             {packageChoice && stepIdx > stepIndex('package', steps) && <span style={chipStyle}>{pkg.name}</span>}
