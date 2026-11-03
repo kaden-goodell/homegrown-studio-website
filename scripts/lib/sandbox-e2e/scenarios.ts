@@ -306,11 +306,22 @@ async function counterSale(ctx: Ctx, scope: Scope, lines: { variationId: string;
   return { orderId: order.id, totalCents: total }
 }
 
-export async function reconcile(ctx: Pick<Ctx, 'admin'>): Promise<any> {
-  const r = await ctx.admin.post('/api/jobs/reconcile-classes.json?force=1', {})
-  checkStatus(r, 200, 'Run the reconcile')
-  check(!r.body?.data?.skipped, `Reconcile skipped: ${r.body?.data?.skipped}`)
-  return r.body.data
+/**
+ * Run the reconcile to the end of its pass. Each call does about 6 seconds of
+ * work and answers `more: true` while some is left (a big sandbox, many runs'
+ * orders); the next call carries on. Returns the counts summed over the calls.
+ */
+export async function reconcile(ctx: Pick<Ctx, 'admin'>, opts: { maxCalls?: number } = {}): Promise<any> {
+  const sum: Record<string, number> = {}
+  for (let i = 0; i < (opts.maxCalls ?? 40); i++) {
+    const r = await ctx.admin.post('/api/jobs/reconcile-classes.json?force=1', {})
+    checkStatus(r, 200, 'Run the reconcile')
+    check(!r.body?.data?.skipped, `Reconcile skipped: ${r.body?.data?.skipped}`)
+    const data = r.body.data
+    for (const [k, v] of Object.entries(data)) if (typeof v === 'number') sum[k] = (sum[k] ?? 0) + v
+    if (!data.more) return { ...data, ...sum, calls: i + 1 }
+  }
+  check(false, `The reconcile still had more to do after ${opts.maxCalls ?? 40} calls`)
 }
 
 /**
@@ -756,10 +767,11 @@ export const scenarios: Scenario<Ctx>[] = [
         passId: 'single', tickets: { person: 1 }, ...extra,
       })
       const attempt = `e2e-${randomUUID()}`
-      const comp = await seat({ attempt })
+      // A comp needs a short reason (server-checked); the counter sale below doesn't.
+      const comp = await seat({ attempt, reason: 'E2E sandbox test comp' })
       checkStatus(comp, 200, 'Comp a seat')
       checkEqual(comp.body.data.own, true, 'Comp went to our ledger')
-      const again = await seat({ attempt })
+      const again = await seat({ attempt, reason: 'E2E sandbox test comp' })
       checkStatus(again, 200, 'Comp retried')
       checkEqual(again.body.data.replayed, true, 'Retry recognised')
       const door = await seat({ attempt: `e2e-${randomUUID()}`, payAtRegister: true })

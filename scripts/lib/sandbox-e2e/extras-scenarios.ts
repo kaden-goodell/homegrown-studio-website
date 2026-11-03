@@ -898,7 +898,7 @@ export const extrasScenarios: Scenario<Ctx>[] = [
       const cls = await makeClass(ctx, scope, { content: testContent({ name: nameOf(ctx, 'Cancel request') }), sessions: ctx.slots.sessions(1) })
       const comp = await ctx.staff.post('/api/staff/comp-seat.json', {
         scheduleId: cls.id, givenName: 'E2E', familyName: 'Comp', email: ctx.person.email, phone: ctx.person.phone,
-        passId: 'single', tickets: { person: 1 }, attempt: `e2e-${randomUUID()}`,
+        passId: 'single', tickets: { person: 1 }, attempt: `e2e-${randomUUID()}`, reason: 'E2E sandbox test comp',
       })
       checkStatus(comp, 200, 'Comp a seat')
       const bookingId = comp.body.data.bookingId
