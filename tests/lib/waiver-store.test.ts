@@ -577,3 +577,31 @@ describe('upsertWaiverInEventIndex — CAS retry on setIfMatch false', () => {
     expect(stored[0].recordId).toBe('wvr_cas_new')
   })
 })
+
+// ─── I-8: a household whose roster write keeps losing is never missing ───────
+
+describe('pending roster entries (I-8)', () => {
+  it('a queued household shows on the roster, replaces its older entry, and is folded into the roster on read', async () => {
+    const mod = await import('@lib/waiver-store')
+    const partyId = `party-pending-${Date.now()}`
+    const a = makeRecord({ id: 'wvr_pa', partyId, email: 'a@example.com' })
+    const bOld = makeRecord({ id: 'wvr_pb_old', partyId, email: 'b@example.com' })
+    const bNew = makeRecord({ id: 'wvr_pb_new', partyId, email: 'b@example.com' })
+    const c = makeRecord({ id: 'wvr_pc', partyId, email: 'c@example.com' })
+    for (const r of [a, bOld, bNew, c]) await mod.saveWaiverRecord(r)
+    await mod.upsertWaiverInEventIndex('party', partyId, a)
+    await mod.upsertWaiverInEventIndex('party', partyId, bOld)
+    // Their roster writes lost every try: queued on their own keys.
+    await mod.queuePendingRsvp('party', partyId, bNew, 'rsv_b')
+    await mod.queuePendingRsvp('party', partyId, c, null)
+    const ids = (await mod.listWaiversByEvent('party', partyId)).map((r) => r.id).sort()
+    expect(ids).toEqual(['wvr_pa', 'wvr_pb_new', 'wvr_pc'])
+    // Folded into the roster document on that read: the queue is empty, the roster has them.
+    const { makeKvStore } = await import('@lib/blob-store')
+    const kv = makeKvStore('waivers', 'waivers')
+    const roster = JSON.parse((await kv.get(`party-index-${partyId}`))!).map((e: any) => e.waiverId).sort()
+    expect(roster).toEqual(['wvr_pa', 'wvr_pb_new', 'wvr_pc'])
+    const left = (await kv.list(`event-pending-party:${partyId}:`))
+    expect(await Promise.all(left.map((k) => kv.get(k)))).toEqual(left.map(() => ''))
+  })
+})
