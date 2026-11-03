@@ -62,7 +62,9 @@ function show(items: any[], o: Parameters<typeof server>[1] = {}, id = 'td_1') {
   return { f, ...r }
 }
 const footer = () => document.querySelector('.adm-sheet-foot') as HTMLElement
-const decisions = (f: any) => posts(f, TO_DECIDE).map((p: { body: any }) => p.body)
+/** What each decision sent, without the item's kind (I-10: every decision also sends its kind, checked once below). */
+const decisions = (f: any) => posts(f, TO_DECIDE).map((p: { body: any }) => { const { kind: _kind, ...rest } = p.body; return rest })
+const kindsSent = (f: any) => posts(f, TO_DECIDE).map((p: { body: any }) => p.body.kind)
 
 describe('To decide sheets', () => {
   it('a counter sale: when, amount and item; the guessed class; a pick-a-day class asks for its date; Match, then names', async () => {
@@ -124,6 +126,7 @@ describe('To decide sheets', () => {
     expect(await screen.findByText('Done · did dismiss')).toBeInTheDocument()
     expect(screen.getByText('Catherine, Mon Oct 19 · 10 AM')).toBeInTheDocument()
     expect(decisions(f)).toEqual([{ id: 'td_1', action: 'dismiss' }])
+    expect(kindsSent(f)).toEqual(['pos-unmatched']) // I-10: the server builds only this kind's source
   })
 
   it('a refund done in Square: Free a seat asks which when several are held; Keep their seat', async () => {

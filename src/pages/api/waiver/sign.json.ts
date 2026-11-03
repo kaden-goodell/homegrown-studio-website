@@ -12,7 +12,9 @@ import {
   type HouseholdOnFile,
   type WaiverRecord,
   type AuthorizedPickup,
+  queuePendingRsvp,
 } from '@lib/waiver-store'
+import { alertOwners } from '@lib/owner-alert'
 import { upsertRsvp, getRsvp, type RsvpRecord } from '@lib/rsvp-store'
 import { setExpected } from '@lib/checkin-store'
 import { effectivePickup, storablePickup, sameHousehold } from '@lib/pickup'
@@ -223,7 +225,14 @@ async function indexEventRsvp(kind: SignableEventKind, id: string, record: Waive
     const { replacedRecordId } = await upsertWaiverInEventIndex(kind, id, record, rsvpId)
     await migrateCheckinOnReplace(kind, id, replacedRecordId, record.id)
   } catch (err) {
-    logger.error('Event index failed (signature saved)', { id: record.id, error: String(err) })
+    logger.error('Event index failed (signature saved) — queued on its own key', { id: record.id, error: String(err) })
+    // I-8: never missing from the door roster: queued per household, merged into every roster read.
+    try {
+      await queuePendingRsvp(kind, id, record, rsvpId)
+    } catch (e) {
+      logger.error('SIGNED HOUSEHOLD NOT ON THE ROSTER (queue failed too)', { id: record.id, kind, event: id, error: String(e) })
+      await alertOwners(`A family signed the waiver for an event but couldn't be added to its door list (the site's storage didn't answer). Their signature is saved: find them by name at the door. Waiver ${record.id}.`).catch(() => undefined)
+    }
   }
 }
 

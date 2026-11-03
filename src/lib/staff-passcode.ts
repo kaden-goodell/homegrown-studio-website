@@ -30,6 +30,7 @@ import { classWritesRefusal, TestSiteStoreError } from '@lib/classes/test-site-g
 import { createLogger } from '@lib/logger'
 import type { By } from '@lib/staff-auth'
 import { clearFailedSignIns } from '@lib/staff-signin-failures'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('staff-passcode')
 const kv = makeKvStore('staff-access', 'staff-access')
@@ -40,7 +41,6 @@ const KEY = 'passcode'
  * set", so STAFF_PASSCODE (maybe an old passcode) never quietly comes back (S3).
  */
 const MARKER = 'passcode-was-set'
-const ATTEMPTS = 3
 const CACHE_MS = 5_000
 const HISTORY_CAP = 20
 /** Six or more: a shared passcode is guessed online, so short ones fall in days (S1). */
@@ -204,7 +204,8 @@ export function cleanPasscode(raw: unknown, again: unknown): string {
  */
 export async function setStaffPasscode(passcode: string, by: By, expectedUpdatedAt: string | null, now = new Date()): Promise<{ updatedAt: string; gen: number }> {
   if (classWritesRefusal()) throw new TestSiteStoreError() // R41: never the live passcode from a test site
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(KEY)
     // A damaged record reads as "none" here, so the screen's null matches and saving repairs it (the etag still guards the write).
     const parsed = parse(value)

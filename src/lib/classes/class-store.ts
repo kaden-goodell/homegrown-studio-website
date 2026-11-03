@@ -3,6 +3,7 @@ import type { By } from '@lib/staff-auth'
 import type { ClassContent, ClassStatus, ScheduledClass, Session } from './types'
 import { newId, validateContent, validateSessions } from './validate'
 import { assertClassWritesAllowed } from './test-site-guard'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const kv = makeKvStore('classes', 'classes')
 const key = (id: string) => `class-${id}`
@@ -74,7 +75,8 @@ function parseIndex(json: string | null): ClassIndex | null {
 /** Upsert one class's entry; an older save never replaces a newer one's entry. */
 async function indexClass(c: ScheduledClass): Promise<void> {
   try {
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+      await casPause(attempt)
       const { value, etag } = await kv.getWithMeta(CLASS_INDEX_KEY)
       // No usable index (missing, unreadable or stale): start a partial one with this
       // class, so a reader rebuilding from older reads loses its CAS.
@@ -105,7 +107,7 @@ const byFirstSession = (a: ScheduledClass, b: ScheduledClass) =>
 /** Classes with any session overlapping [fromIso, toIso); all when no range. Sorted by first session. */
 export async function listClasses(range?: { fromIso: string; toIso: string }): Promise<ScheduledClass[]> {
   const [keys, meta] = await Promise.all([
-    kv.list().then((ks) => ks.filter((k) => k.startsWith('class-'))),
+    kv.list('class-').then((ks) => ks.filter((k) => k.startsWith('class-'))),
     range ? kv.getWithMeta(CLASS_INDEX_KEY) : Promise.resolve(null),
   ])
   const readAll = async (ks: string[]) =>
@@ -194,7 +196,8 @@ export async function updateClass(
   const content = patch.content !== undefined ? okContent(patch.content) : undefined
   const sessions = patch.sessions !== undefined ? okSessions(patch.sessions) : undefined
   const k = key(id)
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(k)
     if (!value) throw new Error('That class does not exist.')
     const cur = JSON.parse(value) as ScheduledClass

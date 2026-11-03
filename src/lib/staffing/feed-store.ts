@@ -21,10 +21,10 @@ import { ownerNameOf, type Owner } from '@lib/admin-who'
 import type { By } from '@lib/staff-auth'
 import { BUSY_SAVING, StaffingError } from './errors'
 import { storableStaffId } from './ids'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('calendar-feeds')
 const kv = makeKvStore('calendar-feeds', 'calendar-feeds')
-const ATTEMPTS = 3
 const TOUCH_EVERY_MS = 60 * 60_000
 export const FEED_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/
 
@@ -63,7 +63,8 @@ const whoKeyOfRecord = (r: FeedRecord): string | null => {
 
 /** Points the person's current link at `hash` (or null); returns the hash it replaced. */
 async function setCurrent(k: string, hash: string | null): Promise<string | null> {
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(k)
     const prev = value ? ((JSON.parse(value) as { hash: string | null } | null)?.hash ?? null) : null
     if (await kv.setIfMatch(k, JSON.stringify({ hash, at: new Date().toISOString() }), etag, value !== null)) return prev

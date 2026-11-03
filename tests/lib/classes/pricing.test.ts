@@ -66,10 +66,12 @@ describe('quote', () => {
     const c = make({ addOns: [{ id: 'add1', label: 'Extra glaze', priceCents: 250, maxPerSeat: 2 }] })
     const ok = quote(c, req({ seats: [{ addOns: { add1: 2 } }] }), NOW, 9)
     expect(ok.ok && ok.value.lines.slice(1)).toHaveLength(2)
-    for (const i of [1, 2]) expect(ok.ok && ok.value.lines[i]).toMatchObject({ kind: 'addon', label: 'Extra glaze', cents: 250, taxCents: 23, variationKey: 'addon:add1' })
-    expect(ok.ok && ok.value.totalCents).toBe(1500 + 135 + 2 * (250 + 23))
+    for (const i of [1, 2]) expect(ok.ok && ok.value.lines[i]).toMatchObject({ kind: 'addon', label: 'Extra glaze', cents: 250, variationKey: 'addon:add1' })
+    // Square rounds the order's tax once, half to even (tax-square-rounding fixtures): 135 + 22.5 + 22.5 = 180, shared 135/22/23.
+    expect(ok.ok && ok.value.lines.map((l) => l.taxCents)).toEqual([135, 22, 23])
+    expect(ok.ok && ok.value.totalCents).toBe(1500 + 500 + 180)
     const three = quote(make({ addOns: [{ id: 'add1', label: 'Extra glaze', priceCents: 250, maxPerSeat: 3 }] }), req({ seats: [{ addOns: { add1: 3 } }] }), NOW, 9)
-    expect(three.ok && three.value.lines.slice(1).reduce((n, l) => n + l.taxCents, 0)).toBe(69) // not 68
+    expect(three.ok && three.value.lines.slice(1).reduce((n, l) => n + l.taxCents, 0)).toBe(67) // 135 + 67.5 = 202.5 → 202 on the order (half to even), as Square
     expect(quote(c, req({ seats: [{ addOns: { add1: 3 } }] }), NOW, 9).ok).toBe(false)
     expect(quote(c, req(), NOW, 9).ok).toBe(false) // seats array required when add-ons exist
   })
@@ -274,11 +276,11 @@ describe('quote — discounts per line (stage 4)', () => {
     })
     expect(q.discountCents).toBe(900)
   })
-  it('a percent that makes a half-cent tax rounds as taxCents does (half up)', () => {
-    // 30% off $15 = $10.50; 9% of 1050 = 94.5 → 95
+  it('a percent that makes a half-cent tax rounds as Square does (half to even)', () => {
+    // 30% off $15 = $10.50; 9% of 1050 = 94.5 → 94 (sandbox E2E scenario 49: Square charged $11.44)
     const q = ok(quote(one(), req(), NOW, 9, { promo: promo({ off: { kind: 'percent', percent: 30 } }) }))
-    expect(q.lines[0]).toMatchObject({ cents: 1050, taxCents: 95 })
-    expect(q.totalCents).toBe(1145)
+    expect(q.lines[0]).toMatchObject({ cents: 1050, taxCents: 94 })
+    expect(q.totalCents).toBe(1144)
   })
   it('a code that is off, ended or not for this class is not applied by quote()', () => {
     expect(ok(quote(one(), req(), NOW, 9, { promo: promo({ active: false }) })).promo).toBeNull()

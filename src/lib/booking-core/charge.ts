@@ -44,10 +44,12 @@ export type DriftVerdict =
  * the owners. Lower is never refused. `tellBelowCents` lets a caller stay
  * quiet about a small shortfall (classes: 1 cent of rounding).
  */
-export function judgeDrift(quoteCents: number, squareCents: number, opts?: { tellBelowCents?: number }): DriftVerdict {
+export function judgeDrift(quoteCents: number, squareCents: number, opts?: { tellBelowCents?: number; tellAboveCents?: number }): DriftVerdict {
   const driftCents = squareCents - quoteCents
   if (driftCents > PRICE_DRIFT_TOLERANCE_CENTS) return { kind: 'refuse', driftCents }
-  if (driftCents > 0) return { kind: 'charge-and-tell', driftCents }
+  // Money M3: a cent per line of rounding is charged quietly (no owners' email), up or down.
+  if (driftCents > (opts?.tellAboveCents ?? 0)) return { kind: 'charge-and-tell', driftCents }
+  if (driftCents > 0) return { kind: 'same' }
   if (driftCents < -(opts?.tellBelowCents ?? 0)) return { kind: 'charge-and-tell', driftCents }
   return { kind: 'same' }
 }
@@ -87,6 +89,8 @@ export async function chargeOrder(input: {
   email: string
   attemptId: string
   step?: AttemptStep
+  /** the bank's 3-D Secure answer (verifyBuyer), when the page asked for one (money M5) */
+  verificationToken?: string
 }): Promise<ChargeResult> {
   let payment: Payment | null = null
   let recovered = false
@@ -98,6 +102,7 @@ export async function chargeOrder(input: {
       currency: 'USD',
       buyerEmailAddress: input.email,
       idempotencyKey: attemptKey(input.attemptId, input.step ?? 'pay'),
+      ...(input.verificationToken ? { verificationToken: input.verificationToken } : {}),
     })
   } catch (err) {
     if (chargeOutcomeOf(err) === 'not_charged') return { kind: 'declined', reason: 'declined', codes: squareErrorCodes(err), error: err }

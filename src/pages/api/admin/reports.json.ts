@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro'
 import { adminAuthorized } from '@lib/admin-auth'
 import { json } from '@lib/classes/admin-actions'
 import { listClasses } from '@lib/classes/class-store'
-import { getLedger, type Ledger } from '@lib/classes/seat-ledger'
+import { getLedger, unpaidDoorSeat, type Ledger } from '@lib/classes/seat-ledger'
 import { paidOn } from '@lib/classes/seat-status'
 import { isOurs, listParties, type PartyRecord } from '@lib/party-store'
 import { localDate } from '@lib/party-slots'
@@ -29,6 +29,9 @@ export interface MonthReport {
   codeDiscountCents: number
 }
 
+/** A seat paid on the Square register (a counter sale matched to it): its add-ons were never on the seat. */
+const paidAtTheRegister = (l: Ledger['lines'][number]) => l.source === 'pos' || (l.source === 'door-counter' && !!l.square.orderId)
+
 /** True when `iso` falls in `period` ("2026-10" a month, "2026" a year), studio time. */
 const inMonth = (iso: string, period: string) => typeof iso === 'string' && localDate(iso).startsWith(period)
 
@@ -46,11 +49,26 @@ export function monthReport(ledgers: Ledger[], parties: PartyRecord[], now: Date
   const month = period ?? monthOf(now)
   let seatsSold = 0, classSalesCents = 0, refunds = 0, refundedCents = 0, discountCents = 0, codeDiscountCents = 0
   for (const ledger of ledgers) {
+    // Money M15: a reader sale is counted at what Square took for the booking (a payment kept short is less than the quote).
+    const readerCharged = new Map<string, number>()
+    for (const l of ledger.lines) {
+      if (l.source === 'door-reader' && (l.state === 'confirmed' || l.state === 'refunded') && typeof l.square.chargedCents === 'number') readerCharged.set(l.bookingId, l.square.chargedCents)
+    }
+    const readerCounted = new Set<string>()
     for (const l of ledger.lines) {
       if ((l.state === 'confirmed' || l.state === 'refunded') && inMonth(l.at, month)) {
+        // Money M15: a door seat never rung up isn't money collected (its sale shows once it's rung up).
+        if (unpaidDoorSeat(l)) continue
         seatsSold += 1
-        // M4: Square's own per-seat numbers when kept (a discounted seat can be a cent off ours).
-        classSalesCents += paidOn(l)
+        if (readerCharged.has(l.bookingId)) {
+          if (!readerCounted.has(l.bookingId)) { readerCounted.add(l.bookingId); classSalesCents += readerCharged.get(l.bookingId)! }
+        } else if (paidAtTheRegister(l)) {
+          // Money M15: rung up on the register: the seat's own price and tax (the register's add-on lines aren't on this seat).
+          classSalesCents += typeof l.square.lineNetCents === 'number' && typeof l.square.lineTaxCents === 'number' ? l.square.lineNetCents + l.square.lineTaxCents : l.priceCents + l.taxCents
+        } else {
+          // M4: Square's own per-seat numbers when kept (a discounted seat can be a cent off ours).
+          classSalesCents += paidOn(l)
+        }
         for (const d of l.discounts ?? []) {
           discountCents += d.cents
           if (d.kind === 'promo') codeDiscountCents += d.cents

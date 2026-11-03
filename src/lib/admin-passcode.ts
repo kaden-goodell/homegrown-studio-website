@@ -39,13 +39,13 @@ import { makeKvStore } from '@lib/blob-store'
 import { classWritesRefusal, TestSiteStoreError } from '@lib/classes/test-site-guard'
 import { createLogger } from '@lib/logger'
 import type { By } from '@lib/staff-auth'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('admin-passcode')
 const kv = makeKvStore('admin-access', 'admin-access')
 const KEY = 'passcode'
 /** Written every time an owner sets a passcode, never removed (S3 for /admin). */
 const MARKER = 'passcode-was-set'
-const ATTEMPTS = 3
 const CACHE_MS = 5_000
 const HISTORY_CAP = 20
 /** Eight or more: this one opens refunds and the whole studio's records. */
@@ -267,7 +267,8 @@ export function cleanAdminPasscode(raw: unknown, again: unknown): string {
  */
 export async function setAdminPasscode(passcode: string, by: By, expectedUpdatedAt: string | null | 'any', envNow: string, now = new Date()): Promise<{ rec: AdminPasscodeRecord }> {
   if (classWritesRefusal()) throw new TestSiteStoreError() // R41: never the live passcode from a test site
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(KEY)
     // A damaged record reads as "none" here, so the screen's null matches and saving repairs it (the etag still guards the write).
     const parsed = parse(value)
@@ -331,7 +332,8 @@ export async function noticeEnvTakeover(env: string, now = new Date()): Promise<
   if (classWritesRefusal()) return
   try {
     let tell = false
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+      await casPause(attempt)
       const { value, etag } = await kv.getWithMeta(TAKEOVER_KEY)
       let cur: { salt?: string; fp?: string } | null = null
       try { cur = value ? JSON.parse(value) : null } catch { cur = null }

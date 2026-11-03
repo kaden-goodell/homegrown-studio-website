@@ -25,6 +25,7 @@
 import { makeKvStore, type KvStore } from '@lib/blob-store'
 import { classWritesRefusal } from '@lib/classes/test-site-guard'
 import { createLogger } from '@lib/logger'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('outbound-health')
 
@@ -142,7 +143,8 @@ export async function noteFailure(service: Service, kind: FailureKind, now = new
   let becameFailing = false
   let rec: HealthRecord | null = null
   try {
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+      await casPause(attempt)
       const { value, etag } = await kv().getWithMeta(service)
       const cur = parse(value) ?? EMPTY
       const next: HealthRecord = {
@@ -181,7 +183,8 @@ export async function noteOk(service: Service, now = new Date()): Promise<void> 
   const k = known.get(service)
   if (k && !k.failing && Date.now() - k.at < KNOWN_MS) return
   try {
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+      await casPause(attempt)
       const { value, etag } = await kv().getWithMeta(service)
       const cur = parse(value)
       if (!cur || !cur.failingSince) {

@@ -3,13 +3,22 @@
  * (reads checkout.ts), no network.
  */
 import { classCutoffHours } from './checkout'
+import { policyWindows } from '@config/policy-content'
 import { seatsTaken, type Ledger } from './seat-ledger'
 import type { ScheduledClass } from './types'
 import { isOnList, type Waitlist, type WaitlistEntry } from './waitlist-store'
 
-/** Hours before the start that the waitlist closes: its own cutoff, never later than sign-ups close. */
+/**
+ * D7 (Kaden 2 Nov): the waitlist closes 48 hours before the class starts by
+ * default, and never later than the no-refund window opens: a saved card is
+ * never charged automatically when the customer could no longer cancel for a
+ * refund. After it closes a freed seat is open to anyone.
+ */
+export const WAITLIST_CLOSE_HOURS = policyWindows.workshopRefundHours
+
+/** Hours before the start that the waitlist closes: its own cutoff, never inside the no-refund window, never later than sign-ups close. */
 export function waitlistCutoffHours(cls: ScheduledClass): number {
-  return Math.max(cls.content.rules.waitlistCutoffHours ?? 2, classCutoffHours(cls))
+  return Math.max(cls.content.rules.waitlistCutoffHours ?? WAITLIST_CLOSE_HOURS, WAITLIST_CLOSE_HOURS, classCutoffHours(cls))
 }
 
 /**

@@ -18,7 +18,8 @@ vi.mock('@components/checkout/PaymentForm', async () => {
       paymentFormProps = props
       useImperativeHandle(ref, () => ({
         tokenize: async () => ({ token: `cnon:test-token-${++tokenCalls}`, kind: 'card' }),
-        tokenizeAndVerify: async () => ({ token: 'cnon:test-token' }),
+        // Paying (money M5) verifies with an amount; the waitlist saves a card with none.
+        tokenizeAndVerify: async (d: { amount?: string }) => (d?.amount ? { token: `cnon:test-token-${++tokenCalls}`, kind: 'card', verificationToken: `verf:pay-${d.amount}` } : { token: 'cnon:test-token' }),
       }))
       useEffect(() => {
         props.onReadyChange?.(true)
@@ -226,6 +227,8 @@ describe('ClassBookingPanel — paying', () => {
     expect(body).toMatchObject({
       classId: 'cls_1', passId: 'all', sessionIds: [], tickets: { person: 2 },
       paymentToken: 'cnon:test-token-1',
+      // money M5: the bank's own check, for the amount on the button
+      verificationToken: 'verf:pay-87.20',
       customer: { givenName: 'Alice', familyName: 'Smith', email: 'alice@test.com', phone: '(256) 555-0123' },
     })
     expect(body.seats).toHaveLength(2)
@@ -647,7 +650,7 @@ describe('ClassBookingPanel — stage 4 waitlist', () => {
     expect(paymentFormProps.mode).toBe('store')
     expect(paymentFormProps.wallet).toBeUndefined()
     // I2: the class and its date are named; the amount and close time are the ones sent with the join.
-    expect(screen.getByTestId('waitlist-consent')).toHaveTextContent('Save my card with Square. If a spot opens in Clay Camp (Sat, Oct 24 at 1 PM) before the waitlist closes on Sat, Oct 24 at 11 AM, Hometown Studio adds me and charges this card up to $21.80, even if the price goes up later, without asking again.')
+    expect(screen.getByTestId('waitlist-consent')).toHaveTextContent('Save my card with Square. If a spot opens in Clay Camp (Sat, Oct 24 at 1 PM) before the waitlist closes on Thu, Oct 22 at 1 PM (so I’m never charged inside the 48-hour no-refund window), Hometown Studio adds me and charges this card up to $21.80, even if the price goes up later, without asking again.')
     expect(screen.getByRole('button', { name: 'Join the waitlist' })).toBeInTheDocument()
   })
 
@@ -678,7 +681,7 @@ describe('ClassBookingPanel — stage 4 waitlist', () => {
     const sent = JSON.parse(init.body)
     expect(sent).toMatchObject({ action: 'join', classId: 'cls_1', passId: 'all', tickets: { person: 1 }, consent: true, cardToken: 'cnon:test-token', verificationToken: null })
     // The server prices it itself; the consent shown is sent only so a changed one is refused (I2).
-    expect(sent.consentShown).toEqual({ maxCents: 2180, closesIso: '2026-10-24T16:00:00.000Z', firstStartIso: expect.any(String), text: screen.queryByTestId('waitlist-consent')?.textContent ?? expect.stringContaining('up to $21.80') })
+    expect(sent.consentShown).toEqual({ maxCents: 2180, closesIso: '2026-10-22T18:00:00.000Z', firstStartIso: expect.any(String), text: screen.queryByTestId('waitlist-consent')?.textContent ?? expect.stringContaining('up to $21.80') })
     const { consentShown: _shown, ...rest } = sent
     expect(JSON.stringify(rest)).not.toMatch(/Cents|price|amount/)
   })

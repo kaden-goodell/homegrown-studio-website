@@ -22,7 +22,9 @@ import { tokenOf } from './decided'
 import { getClass } from './class-store'
 import { checkReaderOrder, paidForSeat, paymentIdsOf, MONEY_REFUSALS } from './reader'
 import { markReaderPaid, readerHoldEnds, readerNeedsDeciding, settleReaderOrder } from './reader-flow'
-import { refundReaderPayments } from './reader-refund'
+import { readerRefundRef, refundReaderPayments } from './reader-refund'
+import { listRefundRequests } from './refund-requests'
+import { READER_SCOPE } from '@lib/booking-core/refund-runner'
 import { getReaderOrderLink, getReaderSale, linkReaderOrder, listReaderSales, updateReaderSale, type ReaderSale } from './reader-store'
 import { refundClassBooking } from './refunds'
 import { release } from './seat-ledger'
@@ -94,6 +96,11 @@ export async function keepReaderPayment(bookingId: string, by: By, opts: { confi
     throw new ReaderDecideError(409, 'That payment was split between a gift card and a card, so it can’t be kept: a refund later couldn’t go back on one payment. Refund it, then charge them again with Pay on the iPad.')
   }
   if ((sale.refunds ?? []).some((r) => paymentIds.includes(r.paymentId))) throw new ReaderDecideError(409, 'A refund of this payment was already sent, so it can’t be kept. Tap Refund it to finish it.')
+  // I-4: a refund saved but not answered by Square yet isn't on the sale: its saved request is.
+  for (const pid of paymentIds) {
+    const saved = await listRefundRequests(READER_SCOPE, readerRefundRef(sale.bookingId, pid))
+    if (saved.some((r) => r.status !== 'turned-down' && !r.retired)) throw new ReaderDecideError(409, 'A refund of this payment was already started, so it can’t be kept. Tap Refund it to finish it.')
+  }
   const { paidCents, tipCents } = paidForSeat(order)
   if (paidCents <= 0) throw new ReaderDecideError(409, 'Square shows nothing paid on that payment, so there’s nothing to keep. Let the seat go instead.')
   const shortCents = Math.max(0, sale.amountCents - paidCents)
@@ -102,9 +109,13 @@ export async function keepReaderPayment(bookingId: string, by: By, opts: { confi
   }
   const cls = await getClass(sale.classId)
   if (!cls) throw new ReaderDecideError(404, 'That class isn’t on file any more. Nothing changed.')
+  // Money M15: the tax report reads net/tax off this link: what was actually paid, split at the quote's tax share.
+  const qNet = sale.quote.lines.reduce((s, l) => s + l.cents, 0)
+  const qTax = sale.quote.lines.reduce((s, l) => s + l.taxCents, 0)
+  const keptTax = paidCents === qNet + qTax || qNet + qTax <= 0 ? qTax : Math.round((paidCents * qTax) / (qNet + qTax))
   const link = await linkReaderOrder({
     orderId: String(order.id), bookingId: sale.bookingId, classId: sale.classId,
-    netCents: sale.quote.lines.reduce((s, l) => s + l.cents, 0), taxCents: sale.quote.lines.reduce((s, l) => s + l.taxCents, 0), at: now.toISOString(),
+    netCents: paidCents === qNet + qTax ? qNet : paidCents - keptTax, taxCents: keptTax, at: now.toISOString(),
   })
   if (link === 'other') throw new ReaderDecideError(409, 'That payment already pays for another seat, so it can’t be kept here.')
   const r = await markReaderPaid(sale, cls, {

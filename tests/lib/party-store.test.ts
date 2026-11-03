@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { CAS_ATTEMPTS } from '@lib/cas-retry'
 
 let previewOrDev = true
 vi.mock('@lib/deploy-context', () => ({ isPreviewOrDev: () => previewOrDev }))
@@ -122,13 +123,13 @@ describe('party records v2', () => {
     expect(await getPartyRecord('pty_c')).toEqual(saved)
   })
 
-  it('update gives up after three lost races', async () => {
+  it('update gives up after every try is lost (CAS_ATTEMPTS)', async () => {
     await createPartyRecord(party('pty_d'))
     fake.state.writes = 0
     const lose = (key: string) => { const v = fake.data.get(key)!.value; fake.put(key, v); fake.state.beforeWrite = lose }
     fake.state.beforeWrite = lose
     await expect(updatePartyRecord('pty_d', (r) => ({ ...r, guestCount: 9 }), 'x', null)).rejects.toThrow()
-    expect(fake.state.writes).toBe(3)
+    expect(fake.state.writes).toBe(CAS_ATTEMPTS)
     fake.state.beforeWrite = null
   })
 

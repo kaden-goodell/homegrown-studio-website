@@ -51,7 +51,7 @@ describe('GiftCards', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Make card' }))
     await waitFor(() => expect(screen.getByTestId('gift-card-number').textContent).toBe('7783 3252 3965 2851'))
     const post = spy.mock.calls.find(([, i]) => (i as any)?.method === 'POST')!
-    expect(JSON.parse((post[1] as any).body)).toEqual({ amountDollars: 25, forWhom: 'Megan', note: '' })
+    expect(JSON.parse((post[1] as any).body)).toEqual({ amountDollars: 25, forWhom: 'Megan', note: '', pressId: expect.stringMatching(/^[A-Za-z0-9_-]{8,80}$/) }) // M9: one id per press
     expect(screen.getByText(/Hand this number to them/)).toBeTruthy()
   })
 

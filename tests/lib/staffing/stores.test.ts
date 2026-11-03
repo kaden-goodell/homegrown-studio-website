@@ -48,6 +48,7 @@ import { StaleError, StaffingError } from '@lib/staffing/errors'
 import { TestSiteStoreError } from '@lib/classes/test-site-guard'
 import { withAssigned, withoutAssigned, withAsk, withoutAsk, withSeen } from '@lib/staffing/rules'
 import type { Assignment, DayMark } from '@lib/staffing/types'
+import { CAS_ATTEMPTS } from '@lib/cas-retry'
 
 const kaden = { id: 'TM1', name: 'Kaden' }
 const can = (from: string, to: string): DayMark => ({ kind: 'can', range: { from, to }, note: '' })
@@ -195,11 +196,11 @@ describe('staffing store', () => {
     expect(e.key).toBe(key)
   })
 
-  it('refuses a malformed key and gives up after 3 lost races', async () => {
+  it('refuses a malformed key and gives up after CAS_ATTEMPTS lost races', async () => {
     await expect(updateEntry('cafe:x' as any, (x) => x, 'x', kaden)).rejects.toBeInstanceOf(StaffingError)
     const key = `ses:${uid('ses_')}` as const
     let losses = 0
-    const lose = async () => { losses++; if (losses < 3) { hook.loseNext = true; hook.beforeLose = lose } }
+    const lose = async () => { losses++; if (losses < CAS_ATTEMPTS) { hook.loseNext = true; hook.beforeLose = lose } }
     hook.loseNext = true
     hook.beforeLose = lose
     await expect(updateEntry(key, (x) => ({ ...x, needed: 2 }), 'x', kaden)).rejects.toMatchObject({ status: 503 })

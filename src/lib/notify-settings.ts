@@ -31,6 +31,7 @@ import {
   ARCHIVE_FALLBACK, HELD_ROWS, NOTIFY_ROWS, ROW_CHANNELS, heldUntil, parseNotifyDoc, pickedOwners, savedRecipients,
   type NotifyChannel, type NotifyDoc, type NotifyOwner, type NotifyRow,
 } from '@lib/notify-recipients'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 export { NOTIFY_ROWS, ROW_CHANNELS, type NotifyRow, type NotifyChannel } from '@lib/notify-recipients'
 
@@ -206,7 +207,8 @@ export async function saveNotify(raw: unknown, by: By, expectedUpdatedAt: string
   if (!staff || staff.length === 0) throw new NotifyError(409, NOTIFY_MESSAGES.noList)
   const owners = staff.map(toOwner)
   const picks = cleanPicks(raw, owners)
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(KEY)
     const cur = parseNotifyDoc(value)
     if ((cur?.updatedAt ?? null) !== (expectedUpdatedAt ?? null)) throw new NotifyError(409, NOTIFY_MESSAGES.stale)

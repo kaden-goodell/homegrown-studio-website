@@ -51,6 +51,11 @@ describe('constants', () => {
 
 describe('judgeDrift', () => {
   it('0 → same', () => expect(judgeDrift(1000, 1000)).toEqual({ kind: 'same' }))
+  it('M3: a cent per line of rounding is quiet both ways', () => {
+    expect(judgeDrift(1000, 1002, { tellAboveCents: 2, tellBelowCents: 2 })).toEqual({ kind: 'same' })
+    expect(judgeDrift(1000, 998, { tellAboveCents: 2, tellBelowCents: 2 })).toEqual({ kind: 'same' })
+    expect(judgeDrift(1000, 1003, { tellAboveCents: 2 })).toEqual({ kind: 'charge-and-tell', driftCents: 3 })
+  })
   it('+50 → charge-and-tell', () => expect(judgeDrift(1000, 1050)).toEqual({ kind: 'charge-and-tell', driftCents: 50 }))
   it('+100 → charge-and-tell', () => expect(judgeDrift(1000, 1100)).toEqual({ kind: 'charge-and-tell', driftCents: 100 }))
   it('+101 → refuse', () => expect(judgeDrift(1000, 1101)).toEqual({ kind: 'refuse', driftCents: 101 }))

@@ -59,7 +59,9 @@ export async function kindOpenNow(kind?: BookingKind): Promise<boolean> {
  * the runner does NOT charge anyone; it picks up again once they're reopened.
  */
 export async function waitlistChargesAllowedNow(): Promise<boolean> {
-  return kindOpenNow('workshops')
+  // Concurrency minor 2: read fresh (not this server's 30-second memory), so a pause saved a moment ago on
+  // another server stops saved-card charges at once.
+  return openIn(await getSwitchState({ fresh: true }), 'workshops')
 }
 
 /** The test link's secret in force, or '' when there is none. */

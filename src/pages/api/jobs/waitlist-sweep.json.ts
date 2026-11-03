@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { createLogger } from '@lib/logger'
 import { adminAuthorized } from '@lib/admin-auth'
 import { sweepWaitlists } from '@lib/classes/waitlist-runner'
+import { settleStuckPartyCheckouts } from '@lib/parties/square-orders'
 
 export const prerender = false
 const logger = createLogger('api:jobs:waitlist-sweep')
@@ -38,9 +39,13 @@ function allowed(request: Request): boolean {
 export const POST: APIRoute = async ({ request }) => {
   if (!allowed(request) && !(await adminAuthorized(request))) return json({ error: 'Not allowed' }, 403)
   try {
-    const data = await sweepWaitlists(new Date())
+    const now = new Date()
+    // I-1: party checkouts left mid-charge are finished first (a paid party must never lose its time).
+    const parties = await settleStuckPartyCheckouts(now)
+    if (parties.checked) logger.info('Party checkouts left mid-charge', parties)
+    const data = await sweepWaitlists(now)
     if (data.classes) logger.info('Waitlist sweep', data)
-    return json({ data }, 200)
+    return json({ data: { ...data, parties } }, 200)
   } catch (err) {
     logger.error('Waitlist sweep failed', { error: err instanceof Error ? err.message : String(err) })
     return json({ error: 'failed' }, 500)

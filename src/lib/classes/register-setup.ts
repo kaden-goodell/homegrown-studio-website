@@ -28,11 +28,11 @@ import { squareFetch, squareSettings } from './square-api'
 import { assertClassWritesAllowed, assertSquareCatalogWriteAllowed } from './test-site-guard'
 import { REGISTER_TAX_PERCENT } from './register-words'
 import type { RegisterInForce } from './pos-plan'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('classes:register-setup')
 const kv = makeKvStore('studio-settings', 'studio-settings')
 const KEY = 'register'
-const ATTEMPTS = 3
 export const REGISTER_CACHE_MS = 60_000
 export const REGISTER_HISTORY_CAP = 50
 export const TAX_NAME = 'Sales tax'
@@ -299,7 +299,8 @@ export async function saveRegisterSetup(
   const cat = choices.categories.find((c) => c.id === classesCategoryId)
   if (!cat) throw new RegisterSetupError(400, 'That category isn’t on the register any more. Pick another.', 'category')
 
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(KEY)
     const cur = value ? parse(value) : null
     if ((cur?.updatedAt ?? null) !== (opts.expectedUpdatedAt ?? null)) {

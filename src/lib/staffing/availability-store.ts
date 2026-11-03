@@ -15,9 +15,9 @@ import { BUSY_SAVING, StaffingError, STALE_AVAILABILITY, StaleError } from './er
 import { storableStaffId } from './ids'
 import { dayLabel } from './rules'
 import type { Availability, DayMark } from './types'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const kv = makeKvStore('staff-availability', 'staff-availability')
-const ATTEMPTS = 3
 const PARALLEL = 8
 export const AVAILABILITY_HISTORY_CAP = 50
 
@@ -76,7 +76,8 @@ export async function saveAvailability(
   if (!storableStaffId(staffId)) throw new StaffingError(403, "You're not on the staff list any more. Ask an owner.")
   assertClassWritesAllowed() // R41
   const key = keyOf(staffId)
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(key)
     const cur = parse(value)
     if ((cur?.updatedAt ?? null) !== (expectedUpdatedAt ?? null)) {

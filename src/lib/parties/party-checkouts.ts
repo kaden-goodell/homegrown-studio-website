@@ -27,6 +27,7 @@ import { makeKvStore } from '@lib/blob-store'
 import type { PartyRecord } from '@lib/party-store'
 import type { LineItem } from '@providers/interfaces/payment'
 import type { Cents } from './types'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const kv = makeKvStore('party-checkouts', 'party-checkouts')
 
@@ -82,7 +83,6 @@ export interface PaidElsewhereSettled {
 export const isOrderEntry = (c: PartyCheckout) => c.state === 'paid-elsewhere' || c.state === 'settled'
 
 const KEY = 'open'
-const ATTEMPTS = 3
 const RETIRED_KEEP_MS = 7 * 86_400_000
 export const SETTLED_KEEP_DAYS = 120
 interface Doc { checkouts: PartyCheckout[] }
@@ -99,7 +99,8 @@ async function read(): Promise<Doc> {
 
 /** Read-modify-write with CAS. `fn` returns the next list, or null to write nothing. */
 async function mutate<T>(fn: (list: PartyCheckout[]) => { next: PartyCheckout[] | null; result: T }): Promise<T> {
-  for (let i = 0; i < ATTEMPTS; i++) {
+  for (let i = 0; i < CAS_ATTEMPTS; i++) {
+    await casPause(i)
     const { value, etag } = await kv.getWithMeta(KEY)
     const doc: Doc = value ? JSON.parse(value) : { checkouts: [] }
     // Retired attempts are kept a week (long enough for any page still retrying them), then dropped.

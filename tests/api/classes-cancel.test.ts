@@ -10,7 +10,7 @@ const m = vi.hoisted(() => ({
   runWaitlist: vi.fn(),
   keys: new Map<string, any>(),
   /** F4: a crash in the refund step, before its request is saved or after */
-  boom: null as null | 'before' | 'after',
+  boom: null as null | 'before' | 'after' | 'r500',
 }))
 vi.mock('@lib/booking-core/refund-runner', async (orig) => {
   const real = await orig<typeof import('@lib/booking-core/refund-runner')>()
@@ -18,6 +18,11 @@ vi.mock('@lib/booking-core/refund-runner', async (orig) => {
     ...real,
     runRefund: async (...args: Parameters<typeof real.runRefund>) => {
       if (m.boom === 'before') throw new Error('blob blip')
+      if (m.boom === 'r500') {
+        await real.runRefund(...args) // Square made it…
+        const { RefundError } = await import('@lib/booking-core/refund-words')
+        throw new RefundError(500, "The refund went through in Square but didn't save here. Do the same refund again to save it.") // …and saving it failed
+      }
       if (m.boom === 'after') {
         try { return await real.runRefund(...args) } catch { throw new Error('crash after the request was saved') }
       }
@@ -25,7 +30,18 @@ vi.mock('@lib/booking-core/refund-runner', async (orig) => {
     },
   }
 })
-vi.mock('@config/providers', () => ({ providers: { payment: { refundPayment: m.refundPayment } } }))
+// Money I2: Ask Square reads Square's own list of refunds on the payment (PENDING counts as still going through).
+vi.mock('@config/providers', () => ({
+  providers: {
+    payment: {
+      refundPayment: m.refundPayment,
+      readPayment: async (id: string) => ({
+        id, orderId: null, status: 'COMPLETED', amountCents: 6540, refundedCents: 0, createdAt: null,
+        refunds: [...m.keys.values()].filter((r) => r.paymentId === id).map((r) => ({ id: r.id, paymentId: id, amountCents: r.amountCents, status: r.status, createdAt: null })),
+      }),
+    },
+  },
+}))
 vi.mock('@lib/audit', () => ({ recordAudit: m.audit }))
 vi.mock('@lib/email', () => ({ sendRefundEmail: m.email }))
 vi.mock('@lib/owner-alert', () => ({ alertOwners: m.alert }))
@@ -335,8 +351,52 @@ describe('F3: a refund Square never answers never leaves Catherine stuck', () =>
     expect((await byId(classId))[lines[0].id].refunds).toHaveLength(1)
   })
 
+  it('money I2: Square shows the refund still PENDING → Ask Square says wait (nothing decided); Keep their booking is refused; once COMPLETED it finishes, once', async () => {
+    const { classId, lines, item } = await unanswered()
+    const sent = m.refundPayment.mock.calls[0][0]
+    m.keys.set('square-made-it', { id: 'rf_pending', paymentId: sent.paymentId, amountCents: sent.amountCents, status: 'PENDING' })
+    await expect(decide(item.id, 'ask', {}, cat)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/still going through/) })
+    await expect(decide(item.id, 'release', {}, cat)).rejects.toThrow(/Ask Square first|still going through/)
+    expect(m.refundPayment).toHaveBeenCalledTimes(1)
+    m.keys.get('square-made-it').status = 'COMPLETED'
+    m.refundPayment.mockImplementationOnce(async () => m.keys.get('square-made-it'))
+    const done = await decide(item.id, 'ask', {}, cat)
+    expect(done.decided.what).toMatch(/They’re cancelled and got \$32\.70 back/)
+    expect((await byId(classId))[lines[0].id].refunds).toHaveLength(1)
+  })
+
+  it('money M13(a): a retried press sent with different seats is refused; nothing more is sent', async () => {
+    const { t, lines, a } = await unanswered()
+    const r = await post({ t, action: 'cancel', lineIds: [lines[1].id], attempt: a })
+    expect(r.status).toBe(409)
+    expect(m.refundPayment).toHaveBeenCalledTimes(1)
+  })
+
+  it('money M13(b): picking only a $0 seat on a paid booking frees it (no $0 refund that loops on "booking changed")', async () => {
+    const env = await setup((bookingId) => [line({ bookingId, seat: 1 }), line({ bookingId, seat: 2, priceCents: 0, taxCents: 0 })])
+    const r = await post({ t: env.t, action: 'cancel', lineIds: [env.lines[1].id], attempt: attempt() })
+    expect(r.status).toBe(200)
+    expect(r.body.data).toMatchObject({ result: 'cancelled', cents: 0 })
+    expect(m.refundPayment).not.toHaveBeenCalled()
+  })
+
+  it('money M12: the press records its refund request id before Square is called', async () => {
+    const { bookingId, a } = await unanswered()
+    const rec = await getCancelRecord(bookingId)
+    expect(rec!.tries.find((x) => x.attempt === a)!.requestId).toMatch(/^[0-9a-f]{32}$/)
+  })
+
+  it('money M11: Square refunded but saving it failed (500): the customer sees "still finishing" (seats held, owners texted), never "your booking changed"', async () => {
+    const env = await setup(two)
+    m.boom = 'r500'
+    const r = await post({ t: env.t, action: 'cancel', lineIds: [env.lines[0].id], attempt: attempt() })
+    expect(r.status).toBe(200)
+    expect(r.body.data.result).toBe('cancelling')
+    expect(m.alert.mock.calls.some(([x]: any[]) => /Square didn’t answer/.test(String(x)))).toBe(true)
+  })
+
   it('Keep their booking (no refund): only after Square showed none; the request is cleared (audited), the seats stop being held, nothing refunded', async () => {
-    const { t, lines, item } = await unanswered()
+    const { t, lines, item, bookingId } = await unanswered()
     await expect(decide(item.id, 'release', {}, cat)).rejects.toThrow(/Ask Square first/)
     await expect(decide(item.id, 'ask', {}, cat)).rejects.toMatchObject({ extra: { noRefund: true } })
     const done = await decide(item.id, 'release', {}, cat)
@@ -346,7 +406,7 @@ describe('F3: a refund Square never answers never leaves Catherine stuck', () =>
     expect(m.audit.mock.calls.some(([e]: any[]) => e.action === 'class-refund-checked' || /checked/.test(e.action))).toBe(true)
     const v = (await get(t)).body.data
     expect(v.seats[0]).toMatchObject({ state: 'booked', canPick: true })
-    expect((await listToDecide()).items.filter((i) => i.kind === 'cancel-unclear' && !i.done)).toHaveLength(0)
+    expect((await listToDecide()).items.filter((i) => i.kind === 'cancel-unclear' && !i.done && i.detail.bookingId === bookingId)).toHaveLength(0)
     expect(lines).toHaveLength(2)
   })
 

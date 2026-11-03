@@ -81,8 +81,8 @@ async function scheduleAround(fromIso: string, toIso: string, days: StudioDays, 
   )
 }
 
-async function load(): Promise<{ settings: PartySettings; days: StudioDays }> {
-  const [settings, days] = await Promise.all([getPartySettings({ strict: true }), getStudioDays({ strict: true })])
+async function load(fresh = false): Promise<{ settings: PartySettings; days: StudioDays }> {
+  const [settings, days] = await Promise.all([getPartySettings({ strict: true, fresh }), getStudioDays({ strict: true, fresh })])
   return { settings, days }
 }
 
@@ -233,7 +233,9 @@ export async function checkStart(
   const iso = new Date(start).toISOString()
   if (start <= now.getTime()) return { ok: false, message: PAST }
   if (!endsByMidnight(iso, minutes)) return { ok: false, message: MIDNIGHT }
-  const { settings, days } = await load()
+  // Concurrency minor 2: deciding a booking (or an owner's Move) reads Parties setup and studio days fresh,
+  // never this server's 60-second memory; the pickers above may use it.
+  const { settings, days } = await load(true)
   // Owners too: nothing before the first party day (a dated party day before it is fine).
   if (opts.admin && bookableOn(settings.times, localDate(iso), now, days) === 'before_opening') {
     return { ok: false, message: beforeOpening(settings.times.opensDate) }

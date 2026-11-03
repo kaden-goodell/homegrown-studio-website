@@ -19,10 +19,10 @@ import type { LedgerLine } from './seat-ledger'
 import type { Cents } from './types'
 import { assertClassWritesAllowed } from './test-site-guard'
 import type { OrderRefusal } from './reader'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const salesKv = makeKvStore('reader-sales', 'reader-sales')
 const ordersKv = makeKvStore('reader-orders', 'reader-orders')
-const ATTEMPTS = 3
 const safeKey = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, '_')
 const saleKey = (bookingId: string) => `rdr-${safeKey(bookingId)}`
 const orderKey = (orderId: string) => `ord-${safeKey(orderId)}`
@@ -114,7 +114,8 @@ export async function updateReaderSale(bookingId: string, fn: (cur: ReaderSale) 
   // One server instance changes a sale one at a time (a double return lands on the same one); across
   // instances the conditional write is what keeps it right.
   return withLock(k, async () => {
-    for (let i = 0; i < ATTEMPTS; i++) {
+    for (let i = 0; i < CAS_ATTEMPTS; i++) {
+      await casPause(i)
       const { value, etag } = await salesKv.getWithMeta(k)
       if (!value) return null
       const cur = JSON.parse(value) as ReaderSale
@@ -138,7 +139,7 @@ function withLock<T>(k: string, fn: () => Promise<T>): Promise<T> {
 
 /** Every sale on file (To decide also looks at paid ones: a second payment, a late payment). */
 export async function listReaderSales(): Promise<ReaderSale[]> {
-  const keys = (await salesKv.list()).filter((k) => k.startsWith('rdr-'))
+  const keys = (await salesKv.list('rdr-')).filter((k) => k.startsWith('rdr-'))
   const all = await Promise.all(keys.map((k) => salesKv.get(k)))
   return all.filter((j): j is string => !!j).map((j) => JSON.parse(j) as ReaderSale)
 }
@@ -166,7 +167,8 @@ export interface ReaderOrderLink {
 export async function linkReaderOrder(link: ReaderOrderLink): Promise<'linked' | 'same' | 'other'> {
   assertClassWritesAllowed()
   const k = orderKey(link.orderId)
-  for (let i = 0; i < ATTEMPTS; i++) {
+  for (let i = 0; i < CAS_ATTEMPTS; i++) {
+    await casPause(i)
     const { value, etag } = await ordersKv.getWithMeta(k)
     if (value) return (JSON.parse(value) as ReaderOrderLink).bookingId === link.bookingId ? 'same' : 'other'
     if (await ordersKv.setIfMatch(k, JSON.stringify(link), etag, false)) return 'linked'
@@ -181,7 +183,7 @@ export async function getReaderOrderLink(orderId: string): Promise<ReaderOrderLi
 
 /** Every reader order we seated (the tax report takes their tax from here, OWNER-S4-8). */
 export async function listReaderOrderLinks(): Promise<ReaderOrderLink[]> {
-  const keys = (await ordersKv.list()).filter((k) => k.startsWith('ord-'))
+  const keys = (await ordersKv.list('ord-')).filter((k) => k.startsWith('ord-'))
   const all = await Promise.all(keys.map((k) => ordersKv.get(k)))
   return all.filter((j): j is string => !!j).map((j) => JSON.parse(j) as ReaderOrderLink)
 }

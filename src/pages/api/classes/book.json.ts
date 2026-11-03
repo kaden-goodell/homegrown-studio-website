@@ -47,6 +47,11 @@ import { normalizeCode, promoRefusal, PROMO_REFUSALS, usesLeft } from '@lib/prom
 import { getWaitlist } from '@lib/classes/waitlist-store'
 import { waitlistGoesFirst } from '@lib/classes/waitlist-rules'
 import type { PromoCode } from '@lib/promos/types'
+import { notePaidOnCancelled } from '@lib/classes/paid-on-cancelled'
+import { giftCardRefusal } from '@lib/parties/checkout'
+
+/** Square's smallest card charge. */
+const MIN_CARD_CENTS = 100
 
 const logger = createLogger('api:classes:book')
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -196,7 +201,11 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     // The first try is still running, or ended with no answer. If Square shows
     // it paid, answer booked; otherwise ask them to wait. Never a second charge.
     if (simulated) return fail(409, 'in_progress')
-    const priced = quoteFor(cls, req, now, CLASS_TAX_PERCENT, sale)
+    // Money M2: priced as of the first try (when its seats were held), so a retry after the early-bird or a
+    // code ended rebuilds the very same order body: Square then hands back that order (and says if it's paid)
+    // instead of refusing the reused key and leaving the customer on "still finishing" for a day.
+    const heldAt = mine.filter((l) => l.state === 'held').map((l) => Date.parse(l.at)).filter(Number.isFinite).sort((a, b) => a - b)[0]
+    const priced = quoteFor(cls, req, heldAt !== undefined ? new Date(heldAt) : now, CLASS_TAX_PERCENT, sale)
     const lines = priced.ok ? orderLinesFor(cls, priced.value, req.seats) : null
     if (!priced.ok || !lines?.ok) return fail(409, 'in_progress')
     // M3: a free booking (D3) never has a Square order; asking Square would make a stray $0 one.
@@ -237,7 +246,20 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   }
 
   const free = q!.totalCents === 0
+  // Money M4: a code can leave a few cents to pay, below what a card can be charged: say so (never "declined").
+  if (!free && q!.totalCents < MIN_CARD_CENTS) {
+    return fail(409, 'promo', `That leaves ${dollars(q!.totalCents)} to pay, and a card can’t be charged less than $1. Nothing was charged. Call or text us and we’ll book you in.`)
+  }
   if (!free && !simulated && !paymentToken) return fail(400, 'invalid')
+  // Money M6: a gift card must cover the whole total (Square refuses a short one with a generic decline).
+  if (!free && !simulated && body.sourceKind === 'gift_card') {
+    const refusal = await giftCardRefusal(paymentToken, q!.totalCents)
+    if (refusal && refusal.kind === 'refused') {
+      return new Response(JSON.stringify({ error: 'Unable to book class', code: refusal.code, detail: refusal.message, ...(refusal.extra ?? {}) }), {
+        status: refusal.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+      })
+    }
+  }
   // D3: free bookings get the booking routes' guards plus one of their own (a code can't be farmed for seats).
   if (free && !door && rateLimited(`class-free:${email.toLowerCase()}`, 3, 60 * 60_000)) {
     return fail(429, 'unavailable', 'That’s a lot of free bookings in a row. Give it a little while, or call us and we’ll book you in.')
@@ -316,9 +338,18 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   // M2: we round a half-cent of tax up, per line; Square may round it down. So Square up to 1 cent per line
   // lower is expected rounding (always in the customer's favour): charged, logged, no owners' email.
   const roundingCents = q!.lines.length
-  const verdict = judgeDrift(q!.totalCents, order.totalCents, { tellBelowCents: roundingCents })
+  const verdict = judgeDrift(q!.totalCents, order.totalCents, { tellBelowCents: roundingCents, tellAboveCents: roundingCents })
   if (verdict.kind === 'same' && order.totalCents < q!.totalCents) {
     logger.info('Class order a few cents under the quote (half-cent tax rounding) — charging Square’s total', { bookingId, quote: q!.totalCents, square: order.totalCents, lines: roundingCents })
+  }
+  // Money M1: never more than the Pay button said. Square's total above the shown total → nothing charged.
+  if (verdict.kind !== 'refuse' && expectedTotalCents !== null && order.totalCents > expectedTotalCents) {
+    logger.error('Square total above what the customer was shown — refusing', { bookingId, orderId: order.orderId, shown: expectedTotalCents, square: order.totalCents })
+    await letGo('above the shown total')
+    await alertOwners(
+      `Class booking refused: Square's total ${dollars(order.totalCents)} was more than the ${dollars(expectedTotalCents)} ${givenName} was shown for ${cls.content.name}. Nothing was charged. Open the class in /admin and tap Update the register.`,
+    ).catch(() => undefined)
+    return fail(502, 'unavailable', PRICE_MISMATCH_MESSAGE)
   }
   if (verdict.kind === 'refuse') {
     logger.error('Class order total far above the quote — refusing', { bookingId, orderId: order.orderId, quote: q!.totalCents, square: order.totalCents })
@@ -347,7 +378,8 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   const charged = order.totalCents
 
   // ── 4. Charge ───────────────────────────────────────────────────────────────
-  const result = await chargeOrder({ orderId: order.orderId, amountCents: charged, paymentToken, email, attemptId })
+  const verificationToken = typeof body.verificationToken === 'string' && body.verificationToken.length <= 4000 ? body.verificationToken : undefined
+  const result = await chargeOrder({ orderId: order.orderId, amountCents: charged, paymentToken, email, attemptId, ...(verificationToken ? { verificationToken } : {}) })
   if (result.kind === 'declined') {
     if (result.reason === 'failed') {
       logger.error('Class payment failed — releasing seats', { bookingId, paymentId: result.paymentId })
@@ -367,6 +399,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
 
   // ── Paid. Nothing below may turn this into a failure. ───────────────────────
   const lines = await confirmPaid(cls, { orderId: order.orderId, paymentId: payment.id, chargedCents: charged, lineTotals: order.lineTotals })
+  await cancelledMeanwhile(cls, { orderId: order.orderId, paymentId: payment.id, chargedCents: charged })
   return finish({ cls, q: q!, lines, charged, receiptUrl: payment.receiptUrl ?? null, simulated: false, onFile })
 
   // ── helpers (closures over this request) ────────────────────────────────────
@@ -439,7 +472,37 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     logger.warn('An earlier try of this attempt was paid — recording the seats', { bookingId, orderId: order.orderId })
     const charged = found.amount || order.totalCents
     const confirmed = await confirmPaid(c, { orderId: order.orderId, paymentId: found.id, chargedCents: charged, lineTotals: order.lineTotals })
+    await cancelledMeanwhile(c, { orderId: order.orderId, paymentId: found.id, chargedCents: charged })
     return finish({ cls: c, q: q!, lines: confirmed, charged, receiptUrl: found.receiptUrl ?? null, simulated: false, onFile })
+  }
+
+  /**
+   * I-5: paid and confirmed, but an owner may have cancelled the class between this booking's hold and its
+   * charge (the cancel listed who was booked before this seat landed). Read the class again; cancelled →
+   * one To decide item (Refund them / It's already sorted) and one owners' text. Never refunds by itself.
+   */
+  async function cancelledMeanwhile(c: ScheduledClass, square: { orderId: string | null; paymentId: string | null; chargedCents: number }): Promise<void> {
+    let fresh: ScheduledClass | null
+    try {
+      fresh = await getClass(c.id)
+    } catch (err) {
+      logger.error('Class unreadable after a paid booking (cancel check skipped)', { bookingId, error: String(err) })
+      return
+    }
+    if (fresh && fresh.status !== 'cancelled') return
+    logger.error('PAID ONTO A CLASS CANCELLED MEANWHILE', { classId: c.id, bookingId, orderId: square.orderId })
+    try {
+      const first = await notePaidOnCancelled({
+        classId: c.id, className: c.content.name, bookingId, orderId: square.orderId, paymentId: square.paymentId,
+        chargedCents: square.chargedCents, customer: person, last4: '', at: new Date().toISOString(),
+      })
+      if (!first) return
+    } catch (err) {
+      logger.error('Paid-on-cancelled item not saved — texting the owners anyway', { bookingId, error: String(err) })
+    }
+    await alertOwners(
+      `${who} paid ${dollars(square.chargedCents)} for ${seatsLabel}, ${c.content.name}, just as it was cancelled. Nothing was refunded. Open /admin › To decide › Paid just as the class was cancelled to refund them.`,
+    ).catch(() => undefined)
   }
 
   /** The charge may have gone through: keep the seats a day, tell a person, say we're not sure. */

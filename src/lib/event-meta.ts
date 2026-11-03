@@ -13,6 +13,7 @@ import { hasSeatChoices } from '@lib/seat-choices'
 import { optionsChangeRefusal, validateCapacity, validateCutoffHours, validateOptions, SeatSettingsError, type SeatOption } from '@lib/seat-options'
 import type { By } from '@lib/staff-auth'
 import { validateTicketTypes, type TicketType } from '@lib/ticket-types'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('event-meta')
 const kv = makeKvStore('event-meta', 'event-meta')
@@ -154,7 +155,8 @@ export function mergeEventMeta(current: EventMeta, patch: EventMetaPatch, by: By
  */
 export async function setEventMeta(kind: string, id: string, patch: EventMetaPatch, by: By): Promise<EventMeta> {
   const k = key(kind, id)
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(k)
     // Only a change to the questions needs to know whether anyone has picked.
     // Checked after reading the etag and on every attempt, so a pick landing

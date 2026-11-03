@@ -45,6 +45,7 @@ import { makeKvStore } from '@lib/blob-store'
 import { classWritesRefusal, TestSiteStoreError } from '@lib/classes/test-site-guard'
 import { createLogger } from '@lib/logger'
 import { readAdminPasscode } from '@lib/admin-passcode'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('admin-recovery')
 const kv = makeKvStore('admin-access', 'admin-access')
@@ -130,7 +131,8 @@ export async function recoveryRecipients(now = Date.now()): Promise<string[]> {
 
 /** Counts this request against the site's hourly limit; false when over. */
 async function underSiteLimit(now: number): Promise<boolean> {
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(REQUESTS)
     let times: number[] = []
     try { const j = value ? JSON.parse(value) : null; if (Array.isArray(j?.times)) times = j.times.filter((t: unknown) => typeof t === 'number') } catch { times = [] }
@@ -226,7 +228,8 @@ export async function checkRecovery(token: unknown, now = Date.now()): Promise<R
  */
 export async function consumeRecovery(token: unknown, now = Date.now()): Promise<void> {
   if (classWritesRefusal()) throw new TestSiteStoreError()
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const r = await readRecord(token)
     if (!r) throw new RecoveryError(400, RECOVERY_MESSAGES.unknown, 'unknown')
     const gen = await currentGen()

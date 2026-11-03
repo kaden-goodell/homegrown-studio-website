@@ -61,7 +61,7 @@ export async function saveSeatChoices(record: SeatChoiceRecord): Promise<void> {
 }
 
 export async function listSeatChoicesByEvent(_kind: 'workshop', eventId: string): Promise<SeatChoiceRecord[]> {
-  const keys = (await kv.list()).filter((k) => k.startsWith(prefix(eventId)))
+  const keys = (await kv.list(prefix(eventId))).filter((k) => k.startsWith(prefix(eventId)))
   const records = await Promise.all(keys.map(async (k) => {
     const json = await kv.get(k)
     return json ? (JSON.parse(json) as SeatChoiceRecord) : null

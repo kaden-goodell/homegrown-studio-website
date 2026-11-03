@@ -190,3 +190,31 @@ describe('who gets the archive (G5)', () => {
     expect((sendMailImpl as any).mock.calls[0][0].to).toBe('kaden@example.com, cat@example.com')
   })
 })
+
+describe('I-9: the archive never stops silently', () => {
+  it('a run that would outlast the function limit: the watchdog sends the FAILED email in time', async () => {
+    mockList.mockImplementation(() => new Promise(() => undefined)) // a store that never answers
+    const sent: any[] = []
+    sendMailImpl = vi.fn(async (o: any) => { sent.push(o) })
+    vi.resetModules()
+    const mod = await import('../../netlify/functions/archive-records')
+    const res = await (mod.default as any)({ watchdogMs: 30 })
+    expect(res.status).toBe(500)
+    expect(sent.some((o) => /^Archive FAILED — the archive didn't finish within/.test(o.subject))).toBe(true)
+  })
+
+  it('writes progress, and the next run emails about a run that started and never finished', async () => {
+    const progress = new Map<string, string>()
+    mockGet.mockImplementation(async (k: string) => progress.get(k) ?? null)
+    mockSet.mockImplementation(async (k: string, v: string) => { progress.set(k, v); return { modified: true } })
+    progress.set('progress/last.json', JSON.stringify({ startedAt: '2026-10-25T08:00:00.000Z', storesDone: ['waivers'], finishedAt: null }))
+    const sent: any[] = []
+    sendMailImpl = vi.fn(async (o: any) => { sent.push(o) })
+    const run = await loadFn()
+    expect((await run()).status).toBe(200)
+    expect(sent[0].subject).toBe('Archive FAILED — the run of 2026-10-25 never finished')
+    const last = JSON.parse(progress.get('progress/last.json')!)
+    expect(last.finishedAt).toBeTruthy()
+    expect(last.storesDone.length).toBeGreaterThan(10)
+  })
+})

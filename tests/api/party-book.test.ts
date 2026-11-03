@@ -172,6 +172,20 @@ describe('POST /api/party/book.json: one order, one charge, no Square booking', 
     expect(m.announce).toHaveBeenCalledTimes(1)
   })
 
+  it('I-2: the shown total is held to: a different price now → 409 price_changed before anything is held or charged; the same total books', async () => {
+    const start = at('2027-03-14', '15:30')
+    const stale = body(start, { expectedTotalCents: 25000 })
+    const r = await post(stale)
+    expect(r.status).toBe(409)
+    expect(r.json).toMatchObject({ why: 'price_changed', newCents: 30000, oldCents: 25000, field: 'price' })
+    expect(m.createOrder).not.toHaveBeenCalled()
+    expect(m.processPayment).not.toHaveBeenCalled()
+    expect(await heldBy(start, partyIdFor(stale.attemptId))).toBeUndefined()
+    const ok = await post(body(start, { expectedTotalCents: 30000 }))
+    expect(ok.status).toBe(200)
+    expect(m.processPayment.mock.calls[0][0].amount).toBe(30000)
+  })
+
   it('prices from settings and the craft from the catalog: an old cached page’s body (variation id, people, craft price) books the default package', async () => {
     const start = at('2027-02-14', '15:30')
     const { status, json } = await post({

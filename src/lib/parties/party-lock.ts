@@ -42,6 +42,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 import { makeKvStore } from '@lib/blob-store'
 import { createLogger } from '@lib/logger'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('parties:lock')
 const kv = makeKvStore('party-locks', 'party-locks')
@@ -137,7 +138,8 @@ function renewHeld(h: Held): Promise<'ok' | 'lost'> {
     try {
       if (h.lost) return 'lost'
       const k = keyOf(h.partyId)
-      for (let attempt = 0; attempt < 3; attempt++) {
+      for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+        await casPause(attempt)
         const started = performance.now()
         const { value, etag } = await kv.getWithMeta(k)
         if (parse(value)?.token !== h.token) { h.lost = true; return 'lost' }

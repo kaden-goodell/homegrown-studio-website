@@ -504,3 +504,15 @@ describe('party times follow the studio hours the owners set (G3)', () => {
     expect(partyTimesOutsideHours(dated, withHours([{ weekday: 'Friday', opens: '16:00', closes: '21:30' }]), TODAY)).toMatch(/4 PM on Thu, Nov 12/)
   })
 })
+
+describe('partyStartsInRange across clock changes (concurrency minor 9)', () => {
+  it('a 270-day window over both clock changes agrees with the day helper (no date skipped)', () => {
+    const now = new Date('2026-10-19T17:00:00Z')
+    const s = settingsWith((x) => { x.times.bookingWindowDays = 365 })
+    const range = partyStartsInRange(s, '2026-10-19T05:00:00Z', '2027-07-16T05:00:00Z', now, CONFIG_STUDIO_DAYS)
+    const byDay: string[] = []
+    for (let i = 0; i <= 270; i++) byDay.push(...partyStartsForDate(s, plusDays('2026-10-19', i), now, CONFIG_STUDIO_DAYS))
+    expect(range).toEqual(byDay.filter((iso) => iso <= '2027-07-16T05:00:00Z').sort())
+    expect(range.length).toBeGreaterThan(100)
+  })
+})

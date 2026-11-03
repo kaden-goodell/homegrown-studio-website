@@ -23,6 +23,8 @@ export interface VerifyBuyerDetails {
 export interface TokenizeResult {
   token: string
   verificationToken?: string
+  /** card or gift card (tokenizeAndVerify passes it through) */
+  kind?: 'card' | 'gift_card'
 }
 
 export interface PaymentFormRef {
@@ -429,7 +431,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
 
       // A gift card has no 3-D Secure step.
       if (isMockMode || !paymentsRef.current || kind === 'gift_card') {
-        return { token }
+        return { token, kind }
       }
 
       if (store) {
@@ -439,7 +441,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           billingContact: { givenName: buyerDetails.givenName, familyName: buyerDetails.familyName, email: buyerDetails.email, phone: buyerDetails.phone },
         })
         if (!verified?.token) throw new Error('Card verification failed. Please try again.')
-        return { token, verificationToken: verified.token }
+        return { token, verificationToken: verified.token, kind }
       }
 
       const verifyDetails: any = {
@@ -460,7 +462,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           throw new Error('Card verification failed. Please try again.')
         }
 
-        return { token, verificationToken: verificationResult.token }
+        return { token, verificationToken: verificationResult.token, kind }
       } catch (err) {
         throw err
       }

@@ -26,6 +26,7 @@ import { isPreviewOrDev } from '@lib/deploy-context'
 import { makeKvStore } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
 import type { Cents } from '@lib/parties/types'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('party-store')
 const kv = makeKvStore('parties', 'parties')
@@ -190,7 +191,6 @@ export interface PartyRefund {
 }
 
 export const PARTY_HISTORY_CAP = 100
-const ATTEMPTS = 3
 
 function needId(id: string): void {
   if (typeof id !== 'string' || id.trim() === '') throw new Error('A party needs an id.')
@@ -262,7 +262,8 @@ export async function updatePartyRecord(
   by: By | null,
 ): Promise<PartyRecord> {
   needId(id)
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(id)
     if (!value) throw new PartyNotFoundError(id)
     const cur = JSON.parse(value) as PartyRecord

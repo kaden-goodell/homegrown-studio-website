@@ -183,7 +183,7 @@ describe('checkin-events (mutateCheckin via mocked kv)', () => {
     vi.resetModules()
   })
 
-  it('mutateCheckin throws after 3 failed setIfMatch attempts', async () => {
+  it('mutateCheckin throws after every setIfMatch attempt fails', async () => {
     const fakeKv = {
       async get(_k: string) { return null },
       async set(_k: string, _v: string) {},

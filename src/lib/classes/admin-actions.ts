@@ -42,6 +42,7 @@ import { PARTY_CLEANUP_MINUTES } from '@lib/parties/party-times'
 import type { ClassContent, ClassStatus, LibraryClass, ScheduledClass, Session } from './types'
 import { newId, toIso, validateContent, validateSessions } from './validate'
 import { LiveSquareFromTestSiteError, TestSiteStoreError } from './test-site-guard'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 /**
  * The owner when the request doesn't say which one (see adminActor in
@@ -399,7 +400,8 @@ async function reserveCreate(createKey: unknown, child?: string): Promise<Reserv
   if (typeof createKey !== 'string' || !CREATE_KEY_RE.test(createKey)) throw new ActionError(400, 'Reload the page and try again.')
   // Repeat (stage 4): each date has its own child key `${createKey}:${ymd}`, so a retry replays every date it made.
   const k = `ck-${digest(child ? `${createKey}:${child}` : createKey).slice(0, 40)}`
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await createKeys.getWithMeta(k)
     if (value) return JSON.parse(value) as Reserved
     const fresh: Reserved = { classId: newId('cls'), libraryId: newId('lib') }

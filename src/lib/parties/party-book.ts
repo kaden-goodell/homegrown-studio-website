@@ -37,6 +37,7 @@ import { makeKvStore } from '@lib/blob-store'
 import { assertClassWritesAllowed } from '@lib/classes/test-site-guard'
 import { clashes, clashMessage, type Busy } from '@lib/classes/studio-schedule'
 import { localDate, PARTY_CLEANUP_MINUTES } from './party-times'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 export interface PartyHold {
   partyId: string
@@ -50,7 +51,7 @@ export interface PartyHold {
 interface MonthDoc { month: string; holds: PartyHold[] }
 
 const kv = makeKvStore('party-book', 'party-book')
-const ATTEMPTS = 3
+const ATTEMPTS = CAS_ATTEMPTS
 const RETRY = 'Concurrent update — please retry'
 const TAKEN = 'That party time was just taken. Please pick another time.'
 const MIDNIGHT = 'A party and its hour of cleanup have to finish by midnight.'
@@ -97,28 +98,39 @@ function withLock<T>(k: string, fn: () => Promise<T>): Promise<T> {
 let storeTimeoutMs = 10_000
 /** Test-only: shorten the store timeout. */
 export function _setStoreTimeoutMs(ms: number): void { storeTimeoutMs = ms }
-function timed<T>(p: Promise<T>): Promise<T> {
+function timed<T>(p: Promise<T>, ms = storeTimeoutMs): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   const late = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error('The party book did not answer in time.')), storeTimeoutMs)
+    timer = setTimeout(() => reject(new Error('The party book did not answer in time.')), Math.max(1, ms))
   })
   return Promise.race([p, late]).finally(() => clearTimeout(timer))
 }
 
 /** Read-modify-write with CAS. `fn` sees fresh data each attempt and returns the next doc (or null to write nothing). */
-async function mutate<T>(month: string, fn: (cur: MonthDoc) => { next: MonthDoc | null; result: T }, attempts = ATTEMPTS): Promise<T> {
+async function mutate<T>(
+  month: string, fn: (cur: MonthDoc) => { next: MonthDoc | null; result: T }, attempts = ATTEMPTS, budgetMs?: number,
+): Promise<T> {
   assertClassWritesAllowed() // R41: never a live party time held or let go from a test site with no store of its own
   const k = keyOf(month)
   return withLock(k, async () => {
+    // With a budget, the whole loop (every try and its store calls) ends within it: a paid party's
+    // request must finish inside the function's time limit, or nothing records it (I-1).
+    const deadline = budgetMs === undefined ? Infinity : Date.now() + budgetMs
+    const left = () => Math.min(storeTimeoutMs, deadline - Date.now())
     for (let i = 0; i < attempts; i++) {
-      const { value, etag } = await timed(kv.getWithMeta(k))
+      await casPause(i)
+      if (left() <= 0) break
+      const { value, etag } = await timed(kv.getWithMeta(k), left())
       const { next, result } = fn(parse(month, value))
       if (!next) return result
-      if (await timed(kv.setIfMatch(k, JSON.stringify(next), etag, value !== null))) return result
+      if (await timed(kv.setIfMatch(k, JSON.stringify(next), etag, value !== null), left())) return result
     }
     throw new Error(RETRY)
   })
 }
+
+/** confirmTime runs after a party is paid: at most this long, so its request ends well inside the 60 s function limit (I-1). */
+export const CONFIRM_BUDGET_MS = 20_000
 
 /** Studio-local months touched by [fromIso, toIso). */
 function monthsBetween(fromIso: string, toIso: string): string[] {
@@ -236,7 +248,7 @@ export async function confirmTime(partyId: string, startIso: string, endIso: str
       at: mine?.at ?? now.toISOString(),
     }
     return { next: { month: cur.month, holds: [...rest, booked] }, result: { overlap } }
-  }, ATTEMPTS * 3)
+  }, ATTEMPTS * 2, CONFIRM_BUDGET_MS)
 }
 
 /**

@@ -23,6 +23,7 @@ import { createHash } from 'node:crypto'
 import { makeKvStore } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
 import type { Cents } from './types'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 export type RefundRequestStatus = 'pending' | 'sent' | 'done' | 'turned-down'
 
@@ -64,7 +65,6 @@ export interface SavedRefundRequest {
 }
 
 const kv = makeKvStore('refund-requests', 'refund-requests')
-const ATTEMPTS = 3
 const safe = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, '_')
 const docKey = (classId: string, bookingId: string) => `reqs-${safe(classId)}-${safe(bookingId)}`
 
@@ -78,7 +78,8 @@ export async function listRefundRequests(classId: string, bookingId: string): Pr
 /** Read-modify-write of one booking's requests (CAS, 3 attempts). */
 async function update<T>(classId: string, bookingId: string, fn: (list: SavedRefundRequest[]) => { next: SavedRefundRequest[] | null; result: T }): Promise<T> {
   const k = docKey(classId, bookingId)
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(k)
     const { next, result } = fn(value ? (JSON.parse(value) as SavedRefundRequest[]) : [])
     if (!next) return result
@@ -194,6 +195,8 @@ export function markRequestSent(classId: string, bookingId: string, id: string, 
 export async function markRequestDone(classId: string, bookingId: string, id: string, squareRefundId: string | null, opts: { answered?: boolean } = {}): Promise<boolean> {
   let flipped = false
   await changeRefundRequest(classId, bookingId, id, (r) => {
+    // Reset on every CAS try: only the write that actually lands counts (a lost try must not leave it true).
+    flipped = false
     if (r.status === 'done') return opts.answered && !r.answered ? { ...r, answered: true } : null
     flipped = true
     return { ...r, status: 'done', squareRefundId: r.squareRefundId || squareRefundId || null, answered: !!opts.answered, doneAt: new Date().toISOString() }
@@ -203,7 +206,7 @@ export async function markRequestDone(classId: string, bookingId: string, id: st
 
 /** Every saved request (for the nightly check of ones Square never confirmed). */
 export async function allRefundRequests(): Promise<SavedRefundRequest[]> {
-  const keys = (await kv.list()).filter((k) => k.startsWith('reqs-'))
+  const keys = (await kv.list('reqs-')).filter((k) => k.startsWith('reqs-'))
   const docs = await Promise.all(keys.map((k) => kv.get(k)))
   return docs.flatMap((d) => (d ? (JSON.parse(d) as SavedRefundRequest[]) : []))
 }
@@ -215,6 +218,7 @@ export const UNCONFIRMED_AFTER_MS = 24 * 3_600_000
 export async function claimRequestEmail(classId: string, bookingId: string, id: string): Promise<boolean> {
   let mine = false
   await changeRefundRequest(classId, bookingId, id, (r) => {
+    mine = false // reset on every CAS try
     if (r.emailedAt) return null
     mine = true
     return { ...r, emailedAt: new Date().toISOString() }

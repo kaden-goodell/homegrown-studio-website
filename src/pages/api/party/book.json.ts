@@ -78,6 +78,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       ? { kind: 'simulated', paymentToken: body.paymentToken }
       : { kind: 'card', paymentToken: body.paymentToken, sourceKind },
     audience: 'public',
+    // I-2 (money I1): the total the host was shown and approved. A fresh attempt priced differently now is
+    // refused (409 price_changed) before anything is held or charged. Old pages that send none are charged
+    // as now (a warning is logged), the same as classes (DV10).
+    ...(Number.isInteger(body.expectedTotalCents) && body.expectedTotalCents >= 0 ? { expectedCents: body.expectedTotalCents as number } : {}),
     ...(typeof body.linkPackageId === 'string' && body.linkPackageId ? { linkPackageId: body.linkPackageId } : {}),
     by: null,
     ...(body.theme && typeof body.theme === 'object' ? { theme: { themeId: String(body.theme.themeId ?? ''), serves: Number(body.theme.serves) } } : {}),
@@ -87,6 +91,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     requestUrl: request.url,
   }
 
+  if (input.expectedCents === undefined) console.warn('[api:party:book] Party booking sent no shown total — charging the server total')
   let out: Awaited<ReturnType<typeof bookParty>>
   try {
     out = await bookParty(input)

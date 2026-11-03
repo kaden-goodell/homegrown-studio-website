@@ -359,11 +359,11 @@ describe('runWaitlist', () => {
   })
 
   it('after the cutoff: nobody charged, entries closed (cards off), the seat stays open to the public', async () => {
-    const cls = makeClass({ startIso: '2026-10-10T20:00:00.000Z' })
+    const cls = makeClass({ startIso: '2026-10-12T18:00:00.000Z' })
     const other = await fill(cls)
     await join(cls, 'Jane')
     await release(cls.id, other)
-    const late = new Date('2026-10-10T18:30:00.000Z') // 1.5 h before
+    const late = new Date('2026-10-10T18:30:00.000Z') // past the close (48 h before the class, D7)
     const r = await runWaitlist(cls.id, { reason: 'seat-freed' }, late)
     expect(r).toMatchObject({ added: 0, closed: 1 })
     expect(h.square.chargeSavedCardCalls).toHaveLength(0)
@@ -594,7 +594,7 @@ describe('money rules: never charge after close or leave, reuse keys until a fin
 
   it('C1 repro: an unclear try is never resent after the cutoff, even when Square never got it; Square shows no payment → closed, card off, seat let go', async () => {
     // Class at 20:00Z, waitlist closes 18:00Z. The try at 17:00Z gets no answer and Square never got it.
-    const cls = makeClass({ startIso: '2026-10-10T20:00:00.000Z' })
+    const cls = makeClass({ startIso: '2026-10-12T18:00:00.000Z' })
     const other = await fill(cls)
     await join(cls, 'Jane', 'TIMEOUT_LATER')
     await release(cls.id, other)
@@ -603,7 +603,7 @@ describe('money rules: never charge after close or leave, reuse keys until a fin
     expect(jane.state).toBe('charging')
     // The bank would answer now, so a resend WOULD make a first charge.
     h.square.savedCards.get(jane.square.cardId).behaviour = 'ok'
-    // The sweep at start − 1 h (past the 2 h cutoff): read only.
+    // The sweep at start − 1 h (past the close, 48 h before the class): read only.
     await sweepWaitlists(new Date('2026-10-10T19:00:00.000Z'), { ids: [cls.id] })
     jane = (await entries(cls))[0]
     expect(janeCalls(jane.square.cardId)).toHaveLength(1)
@@ -617,7 +617,7 @@ describe('money rules: never charge after close or leave, reuse keys until a fin
   })
 
   it('C1: past the cutoff but the charge is fresh (under 30 minutes) → nothing sent, seat stays held, asked again later', async () => {
-    const cls = makeClass({ startIso: '2026-10-10T19:10:00.000Z' }) // closes 17:10Z
+    const cls = makeClass({ startIso: '2026-10-12T17:10:00.000Z' }) // closes 48 h before (D7): 2026-10-10 17:10Z
     const other = await fill(cls)
     await join(cls, 'Jane', 'TIMEOUT_LATER')
     await release(cls.id, other)
@@ -631,7 +631,7 @@ describe('money rules: never charge after close or leave, reuse keys until a fin
   })
 
   it('C1: an unclear try that turns out paid after the cutoff still adds them (and tells them)', async () => {
-    const cls = makeClass({ startIso: '2026-10-10T20:00:00.000Z' })
+    const cls = makeClass({ startIso: '2026-10-12T18:00:00.000Z' })
     const other = await fill(cls)
     await join(cls, 'Jane', 'TIMEOUT_LATER')
     await release(cls.id, other)
@@ -714,14 +714,14 @@ describe('money rules: never charge after close or leave, reuse keys until a fin
   })
 
   it('C1: an unclear hold never runs past the class start', async () => {
-    const cls = makeClass({ startIso: '2026-10-10T20:00:00.000Z' })
+    const cls = makeClass({ startIso: '2026-10-12T18:00:00.000Z' })
     const other = await fill(cls)
     await join(cls, 'Jane', 'TIMEOUT_LATER')
     await release(cls.id, other)
     await runWaitlist(cls.id, { reason: 'seat-freed' }, NOW)
     const jane = (await entries(cls))[0]
     const held = (await getLedger(cls.id)).lines.find((l) => l.bookingId === jane.attempts[0].bookingId)!
-    expect(held.holdExpiresAt).toBe('2026-10-10T20:00:00.000Z')
+    expect(Date.parse(held.holdExpiresAt!)).toBeLessThanOrEqual(Date.parse('2026-10-12T18:00:00.000Z'))
   })
 
   it('I1 repro: after a possibly-sent :1:pay, a lost seat keeps the SAME try; a later seat resends :1:pay, never :2:pay', async () => {
@@ -997,5 +997,28 @@ describe('money rules: never charge after close or leave, reuse keys until a fin
     expect(item.head).toContain('They got an email (no text went out).')
     expect(item.head).not.toContain('They got a text and an email')
     expect((await entries(cls))[0].attempts[0].told).toEqual({ text: false, email: true })
+  })
+})
+
+describe('I-6: the sweep is fair and stops reading finished waitlists', () => {
+  it('a waitlist whose class is over with no work left goes on the finished list and is never read again', async () => {
+    const { mutateWaitlist, inactiveWaitlists } = await import('@lib/classes/waitlist-store')
+    const old = makeClass({ startIso: '2026-10-01T15:00:00.000Z' })
+    await mutateWaitlist(old.id, (cur) => ({ next: { ...cur, entries: [] }, result: null }))
+    const live = makeClass()
+    await mutateWaitlist(live.id, (cur) => ({ next: { ...cur, entries: [] }, result: null }))
+    await sweepWaitlists(NOW)
+    const done = await inactiveWaitlists()
+    expect(done.has(old.id)).toBe(true)
+    expect(done.has(live.id)).toBe(false) // its dates haven't passed: people may still join
+  })
+
+  it('starts at a different class each run, so a slow run never starves the same tail', async () => {
+    const { sweepOrder } = await import('@lib/classes/waitlist-runner')
+    const ids = ['a', 'b', 'c']
+    const firsts = new Set([0, 1, 2].map((n) => sweepOrder(ids, new Date(NOW.getTime() + n * 600_000))[0]))
+    expect(firsts).toEqual(new Set(ids)) // over three runs each class goes first once
+    expect(sweepOrder(ids, NOW).sort()).toEqual(ids) // nobody dropped
+    expect(sweepOrder([], NOW)).toEqual([])
   })
 })

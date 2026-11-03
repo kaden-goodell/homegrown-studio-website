@@ -14,6 +14,7 @@ import { studioDate } from '@lib/studio-time'
 import { assertClassWritesAllowed } from './test-site-guard'
 import { createLogger } from '@lib/logger'
 import { isExpiredHold, isPaidLine, paidOn, refundedOn, seatFreed, takesSeat } from './seat-status'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 export { isComing, isPaidLine, takesSeat } from './seat-status'
 
 const logger = createLogger('classes:seat-ledger')
@@ -104,7 +105,6 @@ export type HoldResult = { ok: true; lines: LedgerLine[] } | { ok: false; reason
 
 const kv = makeKvStore('seat-ledger', 'seat-ledger')
 const key = (classId: string) => `ledger-${classId}`
-const ATTEMPTS = 3
 const RETRY = 'Concurrent update — please retry'
 
 /** Seats taken on a session: unexpired holds + confirmed + refunds that kept the seat (seat-status.takesSeat). */
@@ -139,7 +139,8 @@ async function mutate<T>(classId: string, fn: (cur: Ledger) => { next: Ledger | 
   assertClassWritesAllowed() // R41: never a seat in the live ledger from a test site with no store of its own
   const k = key(classId)
   return withLock(k, async () => {
-    for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+      await casPause(attempt)
       const { value, etag } = await kv.getWithMeta(k)
       const { next, result } = fn(parse(classId, value))
       if (!next) return result
@@ -296,7 +297,18 @@ export async function confirmBooking(
     const hasHeld = cur.lines.some((l) => l.bookingId === bookingId && l.state === 'held')
     const paid = cur.lines.filter(isPaid)
     const none = { next: null, result: { lines: [] as LedgerLine[], changed: false } }
-    if (!hasHeld && paid.length) return { next: null, result: { lines: paid, changed: false } }
+    if (!hasHeld && paid.length) {
+      // Concurrency minor 7: confirmed first by Square's notice (no per-seat totals): a later confirm that has
+      // Square's per-seat numbers fills them in (refunds then use Square's numbers, not our quote's). Nothing else changes.
+      const bySeat = paid.every((l) => typeof l.square.lineNetCents !== 'number') && paid.every((l) => l.square.orderId === square.orderId)
+        ? squareTotalsBySeat(square, fallback.quote, bookingId) : null
+      if (!bySeat) return { next: null, result: { lines: paid, changed: false } }
+      const lines = cur.lines.map((l) => {
+        const mine = isPaid(l) ? bySeat.get(l.seat - 1) : undefined
+        return mine ? { ...l, square: { ...l.square, lineNetCents: mine.net, lineTaxCents: mine.tax } } : l
+      })
+      return { next: { ...cur, lines }, result: { lines: lines.filter(isPaid), changed: false } }
+    }
     if (opts.requireLiveHold && !cur.lines.some((l) => l.bookingId === bookingId && l.state === 'held' && !isExpiredHold(l, now))) {
       return none
     }
@@ -561,6 +573,11 @@ export async function recordPos(
   const onSaleDay = new Set(cls.sessions.filter((s) => studioDate(s.startIso) === saleDay).map((s) => s.id))
   return mutate(cls.id, (cur) => {
     let kept = cur.lines.filter((l) => !isExpiredHold(l, now))
+    // Concurrency minor 4: the booking was already seated from this order by our own flow (a retry confirmed it
+    // without Square's line ids): "Give them their seat" never seats them a second time.
+    if (kept.some((l) => l.bookingId === input.bookingId && l.square.orderId === input.orderId && !l.square.lineUid && (l.state === 'confirmed' || l.state === 'refunded'))) {
+      return { next: null, result: [] }
+    }
     const added: LedgerLine[] = []
     const claimed = new Set<string>()
     const sq = (pl: PosLineInput) => ({

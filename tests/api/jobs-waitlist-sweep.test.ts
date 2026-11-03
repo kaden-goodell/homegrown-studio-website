@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const sweep = vi.hoisted(() => vi.fn(async (_now: Date) => ({ classes: 1, added: 1, declined: 0, closed: 0, unknown: 0, left: 0 })))
 vi.mock('@lib/classes/waitlist-runner', () => ({ sweepWaitlists: sweep }))
+const partySweep = vi.hoisted(() => vi.fn(async (_now: Date) => ({ checked: 0, recorded: 0 })))
+vi.mock('@lib/parties/square-orders', () => ({ settleStuckPartyCheckouts: partySweep }))
 const owner = vi.hoisted(() => ({ signedIn: false }))
 vi.mock('@lib/admin-auth', () => ({ adminAuthorized: () => owner.signedIn }))
 
@@ -24,6 +26,8 @@ describe('/api/jobs/waitlist-sweep.json', () => {
     expect(res.status).toBe(200)
     expect((await res.json()).data).toMatchObject({ classes: 1, added: 1 })
     expect(sweep).toHaveBeenCalledTimes(1)
+    // I-1: party checkouts left mid-charge are finished on the same 10-minute run
+    expect(partySweep).toHaveBeenCalledTimes(1)
   })
 
   it('a wrong key, no key, or a key from another secret → 403 and nothing runs', async () => {

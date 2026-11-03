@@ -30,8 +30,8 @@ import { formatSlotLabel } from '@lib/studio-time'
 import { getPartyRecord } from '@lib/party-store'
 import type { Payment } from '@providers/interfaces/payment'
 import { partyForPayment } from './party-payments'
-import { deleteCheckout, getCheckout, savePaidElsewhere, type PartyCheckout } from './party-checkouts'
-import { releaseTime } from './party-book'
+import { deleteCheckout, getCheckout, listCheckouts, savePaidElsewhere, type PartyCheckout } from './party-checkouts'
+import { extendHold, releaseTime } from './party-book'
 import { confirmationDone, recordPaidParty, reportRecoveredBooking, sendPartyBookedEmail } from './checkout'
 import { linkOrderPaid } from './pay-balance'
 
@@ -92,7 +92,17 @@ async function handle(order: any, now: Date, opts: { paymentId?: string }): Prom
     if (paid.created) await tellBooked(c, paid.rec, paid.charge.cents, paid.charge.receiptUrl)
     return { action: 'recorded', partyId }
   }
-  if (!rec && c && c.state === 'charging') return { action: 'ignored', why: 'in-flight' }
+  if (!rec && c && c.state === 'charging') {
+    // I-1: Square already shows this order paid while its own request is (or was) still charging. Keep the
+    // time whatever happens to that request (it may have died after the charge): the 10-minute hold must
+    // never run out under a paid party. The request records it, or the sweep (settleStuckPartyCheckouts)
+    // does once it has been charging IN_FLIGHT_MS.
+    if (c.draft && (!c.orderId || c.orderId === orderId)) {
+      await extendHold(partyId, c.startIso, null, c.endIso, now)
+        .catch((err) => logger.error('Could not keep the time of a paid party still charging', { partyId, error: String(err) }))
+    }
+    return { action: 'ignored', why: 'in-flight' }
+  }
 
   const why = rec ? 'other-payment' : c?.state === 'retired' ? 'retired' : 'no-checkout'
   const entry: PartyCheckout & { orderId: string } = {
@@ -111,6 +121,44 @@ async function handle(order: any, now: Date, opts: { paymentId?: string }): Prom
     ).catch(() => undefined)
   }
   return { action: 'flagged', why }
+}
+
+/**
+ * I-1: party checkouts left "charging" for IN_FLIGHT_MS or longer (the request
+ * stopped after the charge, and Square's payment event came while it still
+ * looked in flight, or never came). Run by the 10-minute sweep. Asks Square
+ * about each one's order (read only; never creates an order or charges); a
+ * paid one is recorded exactly as the webhook would (time booked, host told
+ * once). Unpaid or unreadable ones are left: To decide shows a stale charging
+ * checkout. Never throws.
+ */
+export async function settleStuckPartyCheckouts(now: Date = new Date()): Promise<{ checked: number; recorded: number }> {
+  const out = { checked: 0, recorded: 0 }
+  let list: PartyCheckout[]
+  try {
+    list = await listCheckouts()
+  } catch (err) {
+    logger.error('Party checkouts unreadable for the sweep', { error: String(err) })
+    return out
+  }
+  const stuck = list.filter((c) => c.state === 'charging' && !!c.draft && now.getTime() - Date.parse(c.updatedAt) >= IN_FLIGHT_MS)
+  for (const c of stuck.slice(0, 10)) {
+    out.checked++
+    try {
+      const orderId = c.orderId || (await orderByReference(c))
+      if (!orderId) continue
+      const payment = await providers.payment.findOrderPayment(orderId)
+      if (!payment || payment.status !== 'completed') continue
+      const r = await handlePartyOrder({ id: orderId, reference_id: c.partyId, state: 'COMPLETED' }, now, { paymentId: payment.id })
+      if (r.action === 'recorded') {
+        out.recorded++
+        logger.warn('Sweep recorded a paid party left mid-charge', { partyId: c.partyId, orderId })
+      }
+    } catch (err) {
+      logger.error('Sweep could not check a party left mid-charge', { partyId: c.partyId, error: String(err) })
+    }
+  }
+  return out
 }
 
 /** Why a paid party order can't be recorded, in owners' words (owner text and To decide). */

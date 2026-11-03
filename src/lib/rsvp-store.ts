@@ -86,7 +86,7 @@ export async function getRsvp(kind: EventKind, eventId: string, waiverId: string
  *  to join "who signed" with "who's actually coming". */
 export async function listRsvpsByEvent(kind: EventKind, eventId: string): Promise<RsvpRecord[]> {
   const prefix = rsvpKey(kind, eventId, '')
-  const keys = (await kv.list()).filter((k) => k.startsWith(prefix))
+  const keys = (await kv.list(prefix)).filter((k) => k.startsWith(prefix))
   const records = await Promise.all(
     keys.map(async (k) => {
       const json = await kv.get(k)
@@ -104,7 +104,7 @@ export async function listRsvpsByEvent(kind: EventKind, eventId: string): Promis
  */
 export async function getLatestPickupForWaiver(waiverId: string): Promise<(NonNullable<RsvpRecord['pickup']> & { at: string }) | null> {
   const suffix = `-${waiverId}`
-  const keys = (await kv.list()).filter((k) => k.startsWith('rsvp-') && k.endsWith(suffix))
+  const keys = (await kv.list('rsvp-')).filter((k) => k.startsWith('rsvp-') && k.endsWith(suffix))
   const records = await Promise.all(
     keys.map(async (k) => {
       const json = await kv.get(k)

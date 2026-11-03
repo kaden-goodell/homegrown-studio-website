@@ -44,6 +44,7 @@ import { makeKvStore } from '@lib/blob-store'
 import { classWritesRefusal, TestSiteStoreError } from '@lib/classes/test-site-guard'
 import { isEmail, isPhone } from '@lib/contact-rules'
 import { StaffingError } from '@lib/staffing/errors'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('staff-directory')
 
@@ -514,7 +515,8 @@ async function change<T>(fn: (doc: StaffDoc, now: string) => { doc: StaffDoc; re
   if (classWritesRefusal()) throw new TestSiteStoreError()
   // Make sure the list exists (the first import) before changing it.
   await loadDoc()
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { doc, etag, exists } = await readSaved()
     if (!doc) throw new StaffListUnavailable(IMPORT_FAILED)
     const now = new Date().toISOString()

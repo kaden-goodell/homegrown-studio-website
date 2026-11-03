@@ -832,16 +832,51 @@ async function unknownOutcome(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt
 
 // ── The sweep ────────────────────────────────────────────────────────────────
 
+/** I-6: start at a different class each 10-minute run, so a slow run never leaves the same tail out every time. */
+export function sweepOrder(ids: string[], now: Date): string[] {
+  const offset = ids.length ? Math.floor(now.getTime() / 600_000) % ids.length : 0
+  return [...ids.slice(offset), ...ids.slice(0, offset)]
+}
+
+/** fn over every item, at most `limit` at a time; results in `items` order. */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length)
+  let next = 0
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
+}
+
 /** Every class with someone on its list (or a card still to take off): settle, close passed cutoffs, add who fits. Stops starting classes after `budgetMs`. */
 export async function sweepWaitlists(now = new Date(), opts: { budgetMs?: number; ids?: string[] } = {}): Promise<{ classes: number; added: number; declined: number; closed: number; unknown: number; left: number }> {
-  const { waitlistClassIds } = await import('./waitlist-store')
-  const ids = opts.ids ?? (await waitlistClassIds())
+  const { waitlistClassIds, inactiveWaitlists, markWaitlistsInactive } = await import('./waitlist-store')
   const started = Date.now()
   const out = { classes: 0, added: 0, declined: 0, closed: 0, unknown: 0, left: 0 }
-  for (const id of ids) {
+  // I-6: finished waitlists are skipped for good; the rest are read in parallel (a few at a time).
+  let ids = opts.ids ?? (await waitlistClassIds())
+  if (!opts.ids) {
+    const done = await inactiveWaitlists().catch(() => new Set<string>())
+    ids = ids.filter((id) => !done.has(id))
+  }
+  const lists = await mapLimit(ids, 8, (id) => getWaitlist(id).catch(() => null))
+  const working = ids.filter((_, i) => lists[i] && hasWork(lists[i]!.entries))
+  // Lists with no work whose class is over (every date passed) never have work again: off the sweep.
+  if (!opts.ids) {
+    const idle = ids.filter((_, i) => lists[i] && !hasWork(lists[i]!.entries))
+    const over = await mapLimit(idle, 8, async (id) => {
+      const c = await getClass(id).catch(() => undefined)
+      if (c === undefined) return false
+      return c === null || c.sessions.every((s) => Date.parse(s.startIso) < now.getTime())
+    })
+    await markWaitlistsInactive(idle.filter((_, i) => over[i])).catch(() => undefined)
+  }
+  for (const id of sweepOrder(working, now)) {
     if (Date.now() - started > (opts.budgetMs ?? 6_000)) { out.left++; continue }
-    const list = await getWaitlist(id).catch(() => null)
-    if (!list || !hasWork(list.entries)) continue
     const r = await runWaitlist(id, { reason: 'sweep' }, now)
     out.classes++
     out.added += r.added

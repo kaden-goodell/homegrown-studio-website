@@ -5,6 +5,7 @@
  * with its history, in kv `craft-settings`.
  */
 import { makeKvStore } from '@lib/blob-store'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const kv = makeKvStore('craft-settings', 'craft-settings')
 const KEY = 'hidden'
@@ -28,7 +29,8 @@ export async function getHiddenCraftIds(): Promise<Set<string>> {
 
 /** Hide or show one craft; safe against two saves at once. */
 export async function setCraftHidden(id: string, hidden: boolean, by: string, now: Date = new Date()): Promise<void> {
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < CAS_ATTEMPTS; i++) {
+    await casPause(i)
     const { doc, etag, exists } = await read()
     const ids = new Set(doc.ids)
     if (ids.has(id) === hidden) return

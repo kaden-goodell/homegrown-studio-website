@@ -203,6 +203,45 @@ describe('R1: a reader payment that didn’t match', () => {
     expect(mocks.refundPayment.mock.calls[1][0].idempotencyKey).toBe(mocks.refundPayment.mock.calls[0][0].idempotencyKey)
   })
 
+  it('I-4: Refund it got no answer → Keep it is refused (a refund was started), never a "paid" seat whose money went back', async () => {
+    const { cls, bookingId, state } = await begun()
+    const order = orderFor(bookingId, 3500)
+    await post({ action: 'return', data: paidReturn(state, order.id) })
+    const item = (await itemFor('reader-waiting', bookingId))!
+    mocks.refundPayment.mockRejectedValueOnce(new Error('timeout'))
+    await expect(decide(item.id, 'refund', {}, by, NOW)).rejects.toMatchObject({ status: 502 })
+    await expect(decide(item.id, 'keep', {}, by, NOW)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/refund of this payment was already started/) })
+    expect((await getLedger(cls.id)).lines[0].state).not.toBe('confirmed')
+  })
+
+  it('I-4: Keep it and Refund it pressed together on one sale: exactly one goes through', async () => {
+    const { bookingId, state } = await begun()
+    const order = orderFor(bookingId, 3500)
+    await post({ action: 'return', data: paidReturn(state, order.id) })
+    const item = (await itemFor('reader-waiting', bookingId))!
+    const rs = await Promise.allSettled([decide(item.id, 'refund', {}, by, NOW), decide(item.id, 'keep', {}, by, NOW)])
+    expect(rs.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+    const sale = (await getReaderSale(bookingId))!
+    // whichever won, the other never happened: refunded and let go with no "paid", or kept with no refund
+    if (sale.state === 'let-go') expect(sale.paid).toBeFalsy()
+    else expect(sale).toMatchObject({ state: 'paid', paid: { how: 'kept' } })
+    if (sale.state === 'paid') expect(mocks.refundPayment).not.toHaveBeenCalled()
+    else expect(mocks.refundPayment).toHaveBeenCalledTimes(1)
+  })
+
+  it('M15: a kept short payment files what was actually paid (net + tax) for the tax report', async () => {
+    const { bookingId, state } = await begun()
+    const order = orderFor(bookingId, 3000)
+    await post({ action: 'return', data: paidReturn(state, order.id) })
+    const item = (await itemFor('reader-waiting', bookingId))!
+    await decide(item.id, 'keep', { confirmPaidCents: 3000 }, by, NOW)
+    const { getReaderOrderLink } = await import('@lib/classes/reader-store')
+    const link = (await getReaderOrderLink(order.id))!
+    // $30.00 paid at the quote's 9% share ($32.70 = $30 + $2.70): tax 248, net 2752
+    expect(link.netCents + link.taxCents).toBe(3000)
+    expect(link.taxCents).toBe(Math.round((3000 * 270) / 3270))
+  })
+
   it('M-d: a split payment (gift card + card) is refused at the door; To decide offers only Refund it, which refunds both payments', async () => {
     const { bookingId, state } = await begun()
     const order = orderFor(bookingId, 3270, {

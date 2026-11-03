@@ -74,6 +74,7 @@ import { partyForPayment, type PartyPaymentEntry } from '@lib/parties/party-paym
 import { partyLabel, recordSquarePartyRefund } from '@lib/parties/refunds'
 import { getPartyRecord } from '@lib/party-store'
 import type { Cents, ScheduledClass, Session } from './types'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('classes:square-events')
 
@@ -98,7 +99,6 @@ export interface PendingReplacement {
 }
 /** A pending replacement matches a Square refund made this long after it was written down at most (the nightly refund list covers 48 h). */
 const PENDING_MATCH_MS = 2 * 86_400_000
-const ATTEMPTS = 3
 
 export interface UnmatchedPos {
   orderId: string; lineUid: string; name: string; qty: number; at: string
@@ -153,10 +153,14 @@ export function splitCents(total: Cents, n: number): Cents[] {
 
 const safeKey = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, '_')
 
+/**
+ * Writes `value` only if nothing is at `key` yet; true only for the one caller that wrote it (concurrency minor
+ * 3: it was read-then-write, so two events at once both created the entry and both texted the owners, and a
+ * first write could overwrite an owner's resolve). Create-only conditional write.
+ */
 async function putOnce(kv: ReturnType<typeof makeKvStore>, key: string, value: unknown): Promise<boolean> {
   if (await kv.get(key)) return false
-  await kv.set(key, JSON.stringify(value))
-  return true
+  return kv.setIfMatch(key, JSON.stringify(value), null, false)
 }
 
 // ---------------------------------------------------------------- sales
@@ -325,6 +329,12 @@ export interface RunContext {
   /** reconcile only: send a confirmation that failed from Square's notice once more (N2) */
   retryConfirmations?: boolean
 }
+/** The classes a counter sale on `saleIso` can be for: a session from two days before the sale on (I-10). */
+export function saleWindow(saleIso: string): { fromIso: string; toIso: string } {
+  const t = Number.isFinite(Date.parse(saleIso)) ? Date.parse(saleIso) : Date.now()
+  return { fromIso: new Date(t - 2 * 86_400_000).toISOString(), toIso: new Date(t + 800 * 86_400_000).toISOString() }
+}
+
 function contextFor(classes: ScheduledClass[], catalog: CatalogCache = sharedCache()): RunContext {
   return { classes, index: indexVariations(classes), catalog }
 }
@@ -374,8 +384,10 @@ export async function handleOrder(
     }
     return { ...out, skipped: 'no-class-lines' }
   }
-  const ctx = opts.ctx ?? contextFor(opts.classes ?? (await listClasses()))
   const saleIso = order.closed_at ?? order.updated_at ?? order.created_at ?? now.toISOString()
+  // I-10: only classes that can still match a sale this day (any session from two days before it on), not
+  // every class ever: every Craft Café sale comes through here several times.
+  const ctx = opts.ctx ?? contextFor(opts.classes ?? (await listClasses(saleWindow(saleIso))))
   const paymentIds = tenderPaymentIds(order)
   if (opts.paymentId && !paymentIds.includes(opts.paymentId)) paymentIds.unshift(opts.paymentId)
   const paymentId: string | null = opts.paymentId ?? paymentIds[0] ?? null
@@ -528,7 +540,8 @@ async function handleOwnOrder(
   const bookingId = String(order.reference_id)
   const lineItems: any[] = (order.line_items ?? []).filter((li: any) => li?.catalog_object_id && li?.uid)
   if (!lineItems.length) return { ...out, skipped: 'not-ours' }
-  const ctx = opts.ctx ?? contextFor(opts.classes ?? (await listClasses()))
+  // I-10: our own booking's order is for a class with a session after (or just before) the order was made.
+  const ctx = opts.ctx ?? contextFor(opts.classes ?? (await listClasses(saleWindow(order.created_at ?? order.updated_at ?? now.toISOString()))))
   const hits = lineItems.map((li) => ({ li, m: ctx.index.get(li.catalog_object_id) })).filter((x) => !!x.m)
   // Not one of our classes (a party, a kit, a Square class): nothing for the seat ledger.
   if (!hits.length) return { ...out, skipped: 'not-ours' }
@@ -632,7 +645,8 @@ export async function paidNotSeatedForPayment(paymentId: string): Promise<PaidNo
 
 /** Changes one entry (CAS). `fn` returns the next entry or null for no change. */
 async function changePaidNotSeated(id: string, fn: (p: PaidNotSeated) => PaidNotSeated | null): Promise<PaidNotSeated | null> {
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await paidNotSeatedKv.getWithMeta(id)
     if (!value) return null
     const next = fn(JSON.parse(value) as PaidNotSeated)
@@ -651,6 +665,7 @@ export async function notePaidNotSeated(id: string, squareRefunded: PaidNotSeate
 export async function reopenPaidNotSeated(id: string, refundFailed: NonNullable<PaidNotSeated['refundFailed']>): Promise<boolean> {
   let reopened = false
   await changePaidNotSeated(id, (p) => {
+    reopened = false // reset on every CAS try
     if (p.resolved?.how !== 'refunded') return null
     reopened = true
     return { ...p, resolved: null, refundFailed }
@@ -660,7 +675,8 @@ export async function reopenPaidNotSeated(id: string, refundFailed: NonNullable<
 
 /** An owner seated them, refunded them, or said it’s already sorted: it leaves the list. */
 export async function resolvePaidNotSeated(id: string, by: By, how: 'seated' | 'sorted' | 'refunded'): Promise<void> {
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await paidNotSeatedKv.getWithMeta(id)
     if (!value) return
     const cur = JSON.parse(value) as PaidNotSeated
@@ -742,6 +758,9 @@ export type RefundOutcome =
   | { action: 'noted'; cents: Cents }
 
 interface PaidLine { classId: string; line: LedgerLine }
+
+/** The nightly refund check reads classes whose sessions were in this many days back (a refund long after its class). */
+export const REFUND_LOOKBACK_DAYS = 400
 
 /** How many ledgers are read at once (M2): fast, without a burst on the store. */
 const LEDGER_READS_AT_ONCE = 8
@@ -860,7 +879,8 @@ export async function handleRefund(refund: any, now: Date, opts: { order?: any; 
   // A payment waiting in To decide on no booking (Party payment to check, Paid no seat): its own item.
   const loose = await handleLooseRefund(refund, now)
   if (loose) return loose
-  const ctx = opts.ctx ?? contextFor(await listClasses())
+  // I-10: classes from the last REFUND_LOOKBACK_DAYS on, not every class ever (each one's ledger is read below).
+  const ctx = opts.ctx ?? contextFor(await listClasses({ fromIso: new Date(now.getTime() - REFUND_LOOKBACK_DAYS * 86_400_000).toISOString(), toIso: new Date(now.getTime() + 800 * 86_400_000).toISOString() }))
   // In a reconcile run the payment index says which classes to read; otherwise read them all.
   const classIds = ctx.payments ? [...(ctx.payments.get(paymentId) ?? [])] : ctx.classes.map((c) => c.id)
   if (!classIds.length) return { action: 'ignored', why: 'not-ours' }
@@ -1146,9 +1166,10 @@ const MAX_PAGES = 50
 export async function reconcileClasses(now = new Date()): Promise<ReconcileResult> {
   const loc = squareSettings().locationId || ''
   if (!loc) throw new Error('The Square location is not set up.')
-  const ctx: RunContext = { ...contextFor(await listClasses(), new CatalogCache({ rememberFailures: true })), retryConfirmations: true }
-  const result: ReconcileResult = { orders: 0, recorded: 0, unmatched: 0, refunds: 0, refundsHandled: 0, staleRequests: 0, errors: 0 }
   const since = new Date(now.getTime() - 48 * 3_600_000).toISOString()
+  // I-10: the orders step needs only classes a sale in the last 48 hours can be for, not every class ever.
+  const ctx: RunContext = { ...contextFor(await listClasses(saleWindow(since)), new CatalogCache({ rememberFailures: true })), retryConfirmations: true }
+  const result: ReconcileResult = { orders: 0, recorded: 0, unmatched: 0, refunds: 0, refundsHandled: 0, staleRequests: 0, errors: 0 }
 
   // 1. Every order first, so the catalog is asked once about every item that isn't ours.
   const orders: any[] = []
@@ -1201,16 +1222,18 @@ export async function reconcileClasses(now = new Date()): Promise<ReconcileResul
   }
   if (refunds.length) {
     const payments = new Map<string, Set<string>>()
-    const ledgers = await mapLimit(ctx.classes, LEDGER_READS_AT_ONCE, (c) => getLedger(c.id))
+    // A refund can come long after its class: classes from the last REFUND_LOOKBACK_DAYS (I-10: not every class ever).
+    const refundClasses = await listClasses({ fromIso: new Date(now.getTime() - REFUND_LOOKBACK_DAYS * 86_400_000).toISOString(), toIso: new Date(now.getTime() + 800 * 86_400_000).toISOString() })
+    const ledgers = await mapLimit(refundClasses, LEDGER_READS_AT_ONCE, (c) => getLedger(c.id))
     ledgers.forEach((ledger, i) => {
       for (const l of ledger.lines) {
         for (const id of [l.square.paymentId, ...(l.square.paymentIds ?? [])]) {
           if (!id) continue
-          payments.set(id, (payments.get(id) ?? new Set()).add(ctx.classes[i].id))
+          payments.set(id, (payments.get(id) ?? new Set()).add(refundClasses[i].id))
         }
       }
     })
-    const refundCtx: RunContext = { ...ctx, payments }
+    const refundCtx: RunContext = { ...contextFor(refundClasses, ctx.catalog), retryConfirmations: true, payments }
     for (const refund of refunds) {
       result.refunds++
       try {
@@ -1279,7 +1302,7 @@ export async function flagUnconfirmedRequests(now: Date): Promise<number> {
 // ---------------------------------------------------------------- readers (Task 14 shows these)
 
 async function readAll<T>(kv: ReturnType<typeof makeKvStore>, prefix: string): Promise<T[]> {
-  const keys = (await kv.list()).filter((k) => k.startsWith(prefix))
+  const keys = (await kv.list(prefix)).filter((k) => k.startsWith(prefix))
   const jsons = await Promise.all(keys.map((k) => kv.get(k)))
   return jsons.filter((j): j is string => !!j).map((j) => JSON.parse(j) as T)
 }
@@ -1292,7 +1315,8 @@ export async function listUnmatchedPos(): Promise<UnmatchedPos[]> {
 /** An owner matched a counter sale to a class, or said it wasn't for one: it leaves every list. */
 export async function resolveUnmatchedPos(orderId: string, lineUid: string, by: By, how: 'matched' | 'not-a-class'): Promise<void> {
   const k = `unmatched-${safeKey(orderId)}-${safeKey(lineUid)}`
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await unmatchedKv.getWithMeta(k)
     if (!value) return
     const cur = JSON.parse(value) as UnmatchedPos
@@ -1304,7 +1328,8 @@ export async function resolveUnmatchedPos(orderId: string, lineUid: string, by: 
 
 /** Undo of "Free a seat" from To decide: the refund flag waits for a decision again. */
 export async function reopenRefundFlag(id: string): Promise<void> {
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await flagsKv.getWithMeta(id)
     if (!value) return
     const cur = JSON.parse(value) as RefundFlag
@@ -1358,7 +1383,8 @@ export async function getRefundFlag(id: string): Promise<RefundFlag | null> {
 
 /** "Try the refund again" was turned down by Square: the next try uses a new key. */
 export async function bumpFlagRetries(id: string): Promise<void> {
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await flagsKv.getWithMeta(id)
     if (!value) return
     const cur = JSON.parse(value) as RefundFlag
@@ -1384,7 +1410,8 @@ export async function savePendingReplacement(p: PendingReplacement): Promise<voi
  */
 export async function fillPendingReplacement(flagId: string, retries: number, refundId: string, failed: boolean): Promise<void> {
   const k = pendingKey(flagId, retries)
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await replacementsKv.getWithMeta(k)
     if (!value) break
     const cur = JSON.parse(value) as PendingReplacement
@@ -1412,7 +1439,7 @@ async function onRecords(classId: string, bookingId: string, refundId: string): 
  */
 async function claimPendingReplacement(refund: any, now: Date): Promise<string | 'failed-try' | null> {
   const refundId = String(refund.id)
-  const keys = (await replacementsKv.list()).filter((k) => k.startsWith('pend-'))
+  const keys = (await replacementsKv.list('pend-')).filter((k) => k.startsWith('pend-'))
   if (!keys.length) return null
   const all = (await Promise.all(keys.map((k) => replacementsKv.get(k)))).filter((j): j is string => !!j).map((j) => JSON.parse(j) as PendingReplacement)
   const known = all.find((p) => p.refundId === refundId)
@@ -1449,7 +1476,8 @@ export async function failedRefundOnBooks(flag: RefundFlag): Promise<boolean> {
  */
 export async function resolveRefundFlag(id: string, by: By, action: RefundFlagAction): Promise<RefundFlag> {
   if (!['freed-seat', 'kept-seat', 'dismissed'].includes(action)) throw new Error('Pick what was done about this refund.')
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await flagsKv.getWithMeta(id)
     if (!value) throw new Error('That refund note is no longer there.')
     const cur = JSON.parse(value) as RefundFlag
@@ -1479,7 +1507,8 @@ export async function setPosDays(id: string, sessionIds: string[], actor: { by: 
   if (ids.length !== count) throw new Error(count === 1 ? 'Pick 1 day.' : `Pick ${count} days.`)
   await moveLines(cls, entry.lineIds, ids, now)
   const next: PosNeedsDays = { ...entry, resolved: { at: now.toISOString(), by, sessionIds: ids } }
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await needsDaysKv.getWithMeta(id)
     if (!value) break
     if ((JSON.parse(value) as PosNeedsDays).resolved) return JSON.parse(value)

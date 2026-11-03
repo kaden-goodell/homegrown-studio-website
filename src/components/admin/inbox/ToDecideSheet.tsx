@@ -42,7 +42,8 @@ function useDecide(item: ToDecideItem) {
   async function send(c: Choice, opts: { reload?: boolean } = {}): Promise<{ ok: boolean; data?: any; extra?: Record<string, any> }> {
     setBusy(c.action)
     setError('')
-    const r = await api<any>(TO_DECIDE, { id: item.id, action: c.action, ...(c.body ?? {}) })
+    // The kind lets the server build only this item's source (I-10).
+    const r = await api<any>(TO_DECIDE, { id: item.id, kind: item.kind, action: c.action, ...(c.body ?? {}) })
     setBusy(null)
     if (r.ok && r.data) {
       // Undo only when the server says this decision wrote something to take back (a seat already free has none).
@@ -126,6 +127,7 @@ export function ToDecideSheet({ id }: { id: string }) {
     case 'waitlist-unknown': return <WaitlistUnclear item={t} />
     case 'waitlist-declined': return <WaitlistDeclined item={t} />
     case 'waitlist-refund': return <WaitlistRefund item={t} />
+    case 'paid-on-cancelled': return <WaitlistRefund item={t} />
     case 'reader-waiting': return <ReaderWaiting item={t} />
     case 'reader-extra': return <ReaderExtra item={t} />
     case 'reader-late': return <ReaderLate item={t} />
@@ -1034,7 +1036,7 @@ function WaitlistRefund({ item }: { item: ToDecideItem }) {
       <div className="adm-panel is-warn" role="group" aria-label={sure === 'refund' ? `Refund ${d.name}?` : 'Already sorted?'}>
         <b>{sure === 'refund' ? `Refund ${d.name} ${amount}?` : 'Already sorted?'}</b>
         <span className="adm-small">{sure === 'refund'
-          ? `It goes back to their card ending ${d.last4}${d.email ? ' and they get a refund email' : ''}. Square never refunds it twice.`
+          ? `It goes back to ${d.last4 ? `their card ending ${d.last4}` : 'the card they paid with'}${d.email ? ' and they get a refund email' : ''}. Square never refunds it twice.`
           : 'Only if you already refunded them from the class sheet or settled it another way. Nothing is refunded here.'}</span>
         <div className="adm-two">
           <button type="button" className="adm-btn is-ghost" onClick={() => setSure(null)}>Not yet</button>
@@ -1054,7 +1056,9 @@ function WaitlistRefund({ item }: { item: ToDecideItem }) {
     <SheetFrame title={item.title} subtitle={item.className} footer={footer}>
       <Head item={item} />
       {d.cents ? kv('Charge', formatMoney(d.cents)) : null}
-      <p className="adm-note adm-gap-top">They weren’t told they’re in. Refund them, then call or text them if you like.</p>
+      <p className="adm-note adm-gap-top">{item.kind === 'paid-on-cancelled'
+        ? 'They paid in the same moment you cancelled the class. Refund them, then call or text them if you like.'
+        : 'They weren’t told they’re in. Refund them, then call or text them if you like.'}</p>
       <Contact d={d} />
       {item.classId && <OpenClass id={item.classId} />}
       <ErrorLine text={error} />

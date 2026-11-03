@@ -6,6 +6,9 @@ import type { StaffMember } from '@lib/staff-auth'
 import { trackGiftCardCreated } from '@lib/analytics'
 import { posthogOperationalLogger } from '@lib/posthog-logger'
 
+/** One id per card being made (M9): a double tap or a retry sends the same one. */
+const newPressId = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`)
+
 interface CardRow {
   id: string
   gan: string
@@ -28,6 +31,7 @@ const group = (gan: string) => gan.replace(/\s+/g, '').replace(/(.{4})(?=.)/g, '
  *  number, and see what's left on every card made so far. */
 export default function GiftCards({ staff }: { staff: StaffMember }) {
   const [cards, setCards] = useState<CardRow[]>([])
+  const pressId = useRef(newPressId())
   const [amount, setAmount] = useState('')
   const [forWhom, setForWhom] = useState('')
   const [note, setNote] = useState('')
@@ -66,7 +70,8 @@ export default function GiftCards({ staff }: { staff: StaffMember }) {
       const res = await fetch('/api/staff/gift-cards.json', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amountDollars, forWhom: forWhom.trim(), note: note.trim() }),
+        // M9: one id per press (kept until this card is made), so a double tap or a retry never makes two cards.
+        body: JSON.stringify({ amountDollars, forWhom: forWhom.trim(), note: note.trim(), pressId: pressId.current }),
       })
       const body = await res.json().catch(() => ({}))
       if (res.ok) {
@@ -76,6 +81,7 @@ export default function GiftCards({ staff }: { staff: StaffMember }) {
           amount_dollars: amountDollars,
         })
         setMade({ gan: body.data.card.gan, recorded: true })
+        pressId.current = newPressId()
         setForWhom('')
         setNote('')
         setAmount('')

@@ -161,7 +161,20 @@ export async function migrateCheckinOnReplace(kind: EventKind, id: string, oldId
     const old = await getCheckin(id, oldId)
     const hadAnyPresence = Object.values(old.days).some((d) => Object.keys(d.presence).length > 0)
     if (hadAnyPresence || old.pickupCodeHash) {
-      await mutateCheckin(id, newId, (s) => { Object.assign(s, old) })
+      // Concurrency minor 19: merged, never overwritten: check-ins already saved under the new id (in between)
+      // win; the earlier state fills in what the new id doesn't have yet; both custody logs are kept.
+      await mutateCheckin(id, newId, (s) => {
+        const newHasAny = Object.values(s.days).some((d) => Object.keys(d.presence).length > 0) || !!s.pickupCodeHash || s.events.length > 0
+        if (!newHasAny) { Object.assign(s, old); return }
+        for (const [day, d] of Object.entries(old.days)) {
+          s.days[day] = { presence: { ...d.presence, ...(s.days[day]?.presence ?? {}) } }
+        }
+        s.pickupCodeHash = s.pickupCodeHash ?? old.pickupCodeHash
+        s.releasedTo = { ...old.releasedTo, ...s.releasedTo }
+        if (!s.pickupSeeded && old.pickupSeeded) { s.confirmedPickup = old.confirmedPickup; s.notAuthorized = old.notAuthorized; s.pickupSeeded = true }
+        const seen = new Set(s.events.map((e) => JSON.stringify(e)))
+        s.events = [...old.events.filter((e) => !seen.has(JSON.stringify(e))), ...s.events].sort((a, b) => a.at.localeCompare(b.at))
+      })
     }
   } catch (err) {
     logger.error('Checkin migration failed on re-RSVP', { error: err instanceof Error ? err.message : String(err) })

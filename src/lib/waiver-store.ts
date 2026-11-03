@@ -13,6 +13,7 @@
  */
 import { createLogger } from '@lib/logger'
 import { makeKvStore } from '@lib/blob-store'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('waiver-store')
 const kv = makeKvStore('waivers', 'waivers')
@@ -229,10 +230,10 @@ function contactKeyOf(r: WaiverRecord): string {
  * Returns the replaced record id (null if this is the first RSVP for this contact).
  * For kind==='party' this reads/writes the exact legacy `party-index-{id}` key.
  *
- * Uses a CAS retry loop (3 attempts) to avoid TOCTOU races when two households
- * RSVP to the same party simultaneously. A lost race is retried; after 3 failed
- * CAS attempts the error propagates — persistWaiver's caller catches index failures
- * as best-effort so the signature is already safely stored.
+ * Uses the shared CAS retry (cas-retry.ts) to avoid TOCTOU races when two
+ * households RSVP to the same party simultaneously. After every try is lost the
+ * error propagates; the sign route then queues the household on its own key
+ * (queuePendingRsvp), which every roster read merges in (I-8).
  */
 export async function upsertWaiverInEventIndex(
   kind: EventKind,
@@ -243,13 +244,16 @@ export async function upsertWaiverInEventIndex(
   const key = indexKeyFor(kind, id)
   const ck = contactKeyOf(record)
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await rawGetWithMeta(key)
     const entries: StoredIndexEntry[] = value ? parseIndexEntries(value) : []
     const prev = entries.find((e) => e.contactKey === ck && e.waiverId !== record.id)
     const next = entries.filter((e) => e.contactKey !== ck && e.waiverId !== record.id)
     next.push({ waiverId: record.id, contactKey: ck, rsvpId })
     if (await kv.setIfMatch(key, JSON.stringify(next), etag, value !== null)) {
+      // A household that was waiting in the pending queue is on the roster now.
+      await clearPending(kind, id, ck).catch(() => undefined)
       return { replacedRecordId: prev?.waiverId ?? null }
     }
     // Lost the CAS race — retry
@@ -257,10 +261,57 @@ export async function upsertWaiverInEventIndex(
   throw new Error('Concurrent update on event index — please retry')
 }
 
+// ---- Pending roster entries (final concurrency review I-8) ----
+//
+// When many parents sign within seconds, every try at the event's one roster
+// document can lose. The signature is already saved; it must never be missing
+// from the door roster. So a household whose roster write keeps losing gets
+// its own key (one per household per event: nothing shared to race on), the
+// roster read merges those in, and each read tries to fold them into the
+// roster document. A folded entry's key is blanked (the store has no delete).
+
+interface PendingEntry { waiverId: string; contactKey: string; rsvpId: string | null; at: string }
+const pendingPrefix = (kind: EventKind, id: string) => `event-pending-${kind}:${id}:`
+const pendingKey = (kind: EventKind, id: string, contactKey: string) =>
+  `${pendingPrefix(kind, id)}${contactKey.replace(/[^A-Za-z0-9_.@-]/g, '_')}`
+
+async function clearPending(kind: EventKind, id: string, contactKey: string): Promise<void> {
+  const k = pendingKey(kind, id, contactKey)
+  if (await kv.get(k)) await kv.set(k, '')
+}
+
+/** The roster write lost every try: queue this household on its own key (the next roster read merges it in). */
+export async function queuePendingRsvp(kind: EventKind, id: string, record: WaiverRecord, rsvpId: string | null): Promise<void> {
+  const entry: PendingEntry = { waiverId: record.id, contactKey: contactKeyOf(record), rsvpId, at: new Date().toISOString() }
+  await kv.set(pendingKey(kind, id, entry.contactKey), JSON.stringify(entry))
+}
+
+async function readPending(kind: EventKind, id: string): Promise<PendingEntry[]> {
+  const prefix = pendingPrefix(kind, id)
+  const keys = (await kv.list(prefix)).filter((k) => k.startsWith(prefix))
+  if (!keys.length) return []
+  const raw = await Promise.all(keys.map((k) => kv.get(k)))
+  return raw.flatMap((r) => (r ? [JSON.parse(r) as PendingEntry] : []))
+}
+
 export async function listWaiversByEvent(kind: EventKind, id: string): Promise<WaiverRecord[]> {
-  const entries = await readIndexEntries(indexKeyFor(kind, id))
-  const records = await Promise.all(entries.map((e) => getWaiverRecord(e.waiverId)))
-  return records.filter((r): r is WaiverRecord => r !== null)
+  let entries = await readIndexEntries(indexKeyFor(kind, id))
+  const pending = await readPending(kind, id).catch((err) => {
+    logger.error('Pending roster entries unreadable', { kind, id, error: String(err) })
+    return [] as PendingEntry[]
+  })
+  if (pending.length) {
+    // A queued household is newer than its roster entry: it replaces it (same as a re-sign).
+    const keys = new Set(pending.map((p) => p.contactKey))
+    entries = [...entries.filter((e) => !keys.has(e.contactKey) && !pending.some((p) => p.waiverId === e.waiverId)), ...pending]
+  }
+  const records = (await Promise.all(entries.map((e) => getWaiverRecord(e.waiverId)))).filter((r): r is WaiverRecord => r !== null)
+  // Repair: fold the queued ones into the roster document (best effort; they stay merged until it lands).
+  for (const p of pending) {
+    const rec = records.find((r) => r.id === p.waiverId)
+    if (rec) await upsertWaiverInEventIndex(kind, id, rec, p.rsvpId).catch(() => undefined)
+  }
+  return records
 }
 
 /** Thin party wrapper — existing callers untouched. */
@@ -405,11 +456,17 @@ export async function indexWaiverByName(record: WaiverRecord): Promise<void> {
   const last = record.adult.lastName?.trim()
   if (!last) return
   const key = nameIndexKey(last)
-  const raw = await rawGet(key)
-  const entries: NameIndexEntry[] = raw ? JSON.parse(raw) : []
-  if (entries.some((e) => e.recordId === record.id)) return
-  entries.push({ recordId: record.id, firstName: record.adult.firstName })
-  await rawSet(key, JSON.stringify(entries))
+  // Concurrency minor 15: compare-and-swap (two same-surname households signing together used to overwrite
+  // each other, so one couldn't be found by last name at the door).
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
+    const { value, etag } = await rawGetWithMeta(key)
+    const entries: NameIndexEntry[] = value ? JSON.parse(value) : []
+    if (entries.some((e) => e.recordId === record.id)) return
+    entries.push({ recordId: record.id, firstName: record.adult.firstName })
+    if (await kv.setIfMatch(key, JSON.stringify(entries), etag, value !== null)) return
+  }
+  throw new Error('Concurrent update on the name index — please retry')
 }
 
 /**

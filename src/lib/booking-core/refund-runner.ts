@@ -455,6 +455,7 @@ export async function clearRequest<W>(
     // Claim it first, so two people checking at once can't both save it.
     let claimed = false
     next = await changeRefundRequest(classId, bookingId, rec.id, (r) => {
+      claimed = false // reset on every CAS try
       if (!isWaiting(r)) return null
       claimed = true
       return outcome === 'went-through' ? { ...r, status: 'sent', cleared } : { ...r, status: 'turned-down', cleared }

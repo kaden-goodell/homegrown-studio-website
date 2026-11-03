@@ -62,6 +62,21 @@ describe('Square webhook handler', () => {
     expect(json.error).toBe('Invalid signature')
   })
 
+  it('M14: signed for the address it came to (not the configured one) → taken, and owners get a Home line', async () => {
+    const other = 'https://www.example.com/api/webhooks/square.json'
+    const body = JSON.stringify({ type: 'booking.created', data: { id: 'BK2' } })
+    const sig = createHmac('sha256', TEST_SIGNATURE_KEY).update(other + body).digest('base64')
+    apiContext.request = new Request(other, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-square-hmacsha256-signature': sig }, body })
+    expect((await POST(apiContext)).status).toBe(200)
+    const { systemWarnings } = await import('../../src/lib/system-checks')
+    const lines = await systemWarnings()
+    expect(lines.find((w) => w.code === 'webhook-url-mismatch')).toMatchObject({ detail: expect.stringContaining(other) })
+    // A wrong key is still refused wherever it came to.
+    const bad = createHmac('sha256', 'not-the-key').update(other + body).digest('base64')
+    apiContext.request = new Request(other, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-square-hmacsha256-signature': bad }, body })
+    expect((await POST(apiContext)).status).toBe(403)
+  })
+
   it('accepts requests with valid HMAC signature', async () => {
     const body = JSON.stringify({ type: 'booking.created', data: { id: 'BK1' } })
     apiContext.request = makeRequest(body, makeSignature(body))

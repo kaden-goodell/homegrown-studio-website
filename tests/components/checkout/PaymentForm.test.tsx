@@ -208,7 +208,7 @@ describe('PaymentForm store mode (stage 4: save a card for the waitlist)', () =>
     render(<PaymentForm ref={ref} mode="store" onReadyChange={onReadyChange} environmentOverride="sandbox" />)
     await waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true))
     const out = await ref.current!.tokenizeAndVerify({ givenName: 'Jane', familyName: 'Doe', email: 'jane@example.com', phone: '4029802907', amount: '21.80' })
-    expect(out).toEqual({ token: 'cnon:card-nonce-ok', verificationToken: 'verf:store-1' })
+    expect(out).toEqual({ token: 'cnon:card-nonce-ok', verificationToken: 'verf:store-1', kind: 'card' })
     expect(sdk.verifyBuyer).toHaveBeenCalledWith('cnon:card-nonce-ok', {
       intent: 'STORE',
       billingContact: { givenName: 'Jane', familyName: 'Doe', email: 'jane@example.com', phone: '4029802907' },
