@@ -148,7 +148,8 @@ describe('48+ hours ahead: cancel and refund', () => {
     expect(after[lines[0].id].refunds[0]).toMatchObject({ cents: 3270, freedSeat: true, by: { id: 'customer-online', name: 'Ada Lovelace (online)' } })
     expect(after[lines[1].id].state).toBe('confirmed')
     expect(m.runWaitlist).toHaveBeenCalledWith(classId, { reason: 'seat-freed' })
-    expect(m.email).toHaveBeenCalledWith(expect.objectContaining({ to: 'ada@example.com', cents: 3270, keptSeat: false }))
+    // Final review I10: 1 of 2 seats cancelled, the other still booked, and the email says so.
+    expect(m.email).toHaveBeenCalledWith(expect.objectContaining({ to: 'ada@example.com', cents: 3270, keptSeat: true, seats: { cancelled: 1, stillBooked: 1 } }))
     expect(m.alert).toHaveBeenCalledTimes(1)
     expect(m.alert.mock.calls[0][0]).toMatch(/^Ada Lovelace cancelled 1 seat of Candles \(.+\) online and got \$32\.70 back\. The seat is back on sale\.$/)
     expect(m.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-self-cancel', details: expect.objectContaining({ bookingId, cents: 3270 }) }))

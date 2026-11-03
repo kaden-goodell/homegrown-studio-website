@@ -778,6 +778,11 @@ export async function sendIncidentEmail(input: {
  * Tells a customer we refunded (all or part of) a class booking. Plain and
  * friendly, no colons, no promises about when the bank shows it.
  */
+/** "Your 1 seat is" / "Your other 2 seats are". */
+function seatCount(n: number, lead: string): string {
+  return `${lead} ${n === 1 ? '1 seat is' : `${n} seats are`}`
+}
+
 export async function sendRefundEmail(input: {
   to: string
   givenName: string
@@ -787,6 +792,8 @@ export async function sendRefundEmail(input: {
   last4?: string
   /** true when the refund left them booked */
   keptSeat: boolean
+  /** A class cancel (final review I10): how many seats this cancelled, and how many of the booking are still booked. */
+  seats?: { cancelled: number; stillBooked: number }
   /**
    * A party refund: the host's own wording ("for your party on Saturday,
    * November 14"), never the surname label used on /admin. `className` is
@@ -827,7 +834,11 @@ export async function sendRefundEmail(input: {
     ]
     : [
       `We refunded ${amount} to ${card} for ${input.className}.`,
-      input.keptSeat ? 'You are still booked, so we will see you there.' : 'We hope to see you at another class soon.',
+      ...(input.seats && input.seats.cancelled > 0
+        ? [input.seats.stillBooked > 0
+          ? `${seatCount(input.seats.cancelled, 'Your')} cancelled. ${seatCount(input.seats.stillBooked, 'Your other')} still booked, so we’ll see you there.`
+          : `${seatCount(input.seats.cancelled, 'Your')} cancelled. We hope to see you at another class soon.`]
+        : [input.keptSeat ? 'You’re still booked, so we’ll see you there.' : 'We hope to see you at another class soon.']),
       ...(phone ? [`Questions? Text us at ${phone}.`] : []),
     ]
   const text = [hi, ``, ...lines.flatMap((l) => [l, ``]), `Hometown Studio · ${address}`].join('\n')
