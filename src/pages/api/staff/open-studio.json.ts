@@ -6,7 +6,9 @@ import {
   checkInOpenStudio, dayTotals, entryCounts, getCafeWaiting, getOpenStudioDay, removeCafeWaiting, undoOpenStudio, waitingMatches,
   DATE_RE, type CafeWaiting, type OpenStudioDay,
 } from '@lib/open-studio-store'
-import { getWaiverRecord, lookupHouseholdEntry, lookupHouseholdsByName, type HouseholdOnFile, type WaiverRecord } from '@lib/waiver-store'
+import { getWaiverRecord, householdFrom, lookupHouseholdEntry, lookupHouseholdsByName, type HouseholdOnFile, type WaiverRecord } from '@lib/waiver-store'
+import { classWritesRefusal } from '@lib/classes/test-site-guard'
+import { addDays } from '@lib/kit-dates'
 import { isCurrent } from '@lib/waiver-coverage'
 import { householdMatchOf } from '@lib/door-household'
 import { studioDate } from '@lib/studio-time'
@@ -25,6 +27,13 @@ const json = (body: unknown, status: number) =>
 function today(): string {
   return studioDate(new Date().toISOString())
 }
+
+/** Walk-ins are only checked in on a day Craft Café runs (Reports and the Calendar count the same days). */
+export const NOT_A_CAFE_DAY = 'Only on Craft Café days — ask Catherine or Kaden to add a special day.'
+/** The waiver on file has expired or is on older terms. */
+export const SIGN_AGAIN = 'Their waiver needs signing again before they craft. Tap Get them signed again.'
+/** How far back crew can open a day's Craft Café list (owners: any day). */
+export const CREW_DAYS_BACK = 7
 
 /** "Jane Doe" and who came by name, in personIds order. */
 function snapshotOf(w: WaiverRecord, personIds: string[]): { name: string; people: string[] } {
@@ -46,23 +55,30 @@ const personIdsOf = (w: WaiverRecord) => ['adult', ...w.minors.map((_, i) => `ch
 export const POST: APIRoute = async ({ request }) => {
   const staff = await staffAuthorized(request)
   if (!staff) return json({ error: 'Unauthorized' }, 401)
+  const refusal = classWritesRefusal(request)
+  if (refusal) return json({ error: refusal, code: 'NO_TEST_STORE' }, 503)
 
   const body = await request.json().catch(() => null)
   const recordId = typeof body?.recordId === 'string' ? body.recordId : ''
   const asked: string[] = Array.isArray(body?.personIds) ? body.personIds.map((s: unknown) => String(s).trim()).filter(Boolean) : []
   const waitingId = typeof body?.waitingId === 'string' ? body.waitingId : ''
+  const anyway = body?.anyway === true
   if (!recordId || asked.length === 0) return json({ error: 'Missing recordId or personIds' }, 400)
 
   const date = today()
   let waiver: WaiverRecord | null
   try {
+    // Only on a day Craft Café runs: a check-in on any other day couldn't be seen or undone on /staff.
+    if (!cafeOn(date, await getStudioDays())) return json({ error: NOT_A_CAFE_DAY, code: 'NOT_A_CAFE_DAY' }, 409)
     waiver = await getWaiverRecord(recordId)
   } catch (err) {
     logger.error('Craft Café check-in: waiver read failed', { recordId, error: err instanceof Error ? err.message : String(err) })
     return json({ error: STORAGE }, 503)
   }
   if (!waiver) return json({ error: 'We couldn’t find that family’s waiver. Search for them again.' }, 404)
-  if (!isCurrent(waiver, new Date())) return json({ error: 'Their waiver needs signing again before they craft. Tap Sign on this iPad.' }, 409)
+  // Like classes: sign again first; "Mark here anyway" stays possible, and the log says so.
+  const needsSigning = !isCurrent(waiver, new Date())
+  if (needsSigning && !anyway) return json({ error: SIGN_AGAIN, needsSigning: true }, 409)
   const valid = new Set(personIdsOf(waiver))
   const personIds = [...new Set(asked)].filter((id) => valid.has(id))
   if (personIds.length === 0) return json({ error: 'Pick who’s here.' }, 400)
@@ -78,7 +94,8 @@ export const POST: APIRoute = async ({ request }) => {
   try {
     const signed = { firstName: waiver.adult.firstName, lastName: waiver.adult.lastName, phone: waiver.adult.phone, signedAt: waiver.signedAt }
     const waiting = await getCafeWaiting(date)
-    const done = waiting.filter((w) => w.id === waitingId || waitingMatches(w, signed)).map((w) => w.id)
+    // By the entry the kiosk carried, the waiver it signed, the phone or the full name: a last name alone could be another family.
+    const done = waiting.filter((w) => w.id === waitingId || w.recordId === recordId || waitingMatches(w, signed, { lastNameOnly: false })).map((w) => w.id)
     await removeCafeWaiting(date, done)
   } catch (err) {
     logger.error('Craft Café waiting list not cleared', { recordId, error: err instanceof Error ? err.message : String(err) })
@@ -88,7 +105,7 @@ export const POST: APIRoute = async ({ request }) => {
     by: staff,
     action: 'checkin.here',
     target: { kind: 'household', id: recordId, label: `${waiver.adult.firstName} ${waiver.adult.lastName}`.trim() },
-    details: { people: personIds.length, where: 'craft-cafe', date },
+    details: { people: personIds.length, where: 'craft-cafe', date, ...(needsSigning ? { anyway: true } : {}) },
     ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
   })
   return json({ data: { ok: true } }, 200)
@@ -101,6 +118,8 @@ export const POST: APIRoute = async ({ request }) => {
 export const DELETE: APIRoute = async ({ request, url }) => {
   const staff = await staffAuthorized(request)
   if (!staff) return json({ error: 'Unauthorized' }, 401)
+  const refusal = classWritesRefusal(request)
+  if (refusal) return json({ error: refusal, code: 'NO_TEST_STORE' }, 503)
   const recordId = (url ?? new URL(request.url)).searchParams.get('recordId') ?? ''
   if (!recordId) return json({ error: 'Missing recordId' }, 400)
   const date = today()
@@ -141,8 +160,18 @@ async function entriesOf(day: OpenStudioDay) {
 /** Lookups per sheet load stay bounded. */
 const WAITING_LOOKUPS = 20
 
-/** A waiting family's waiver, once they've signed one that's good for today. */
-async function signedFor(w: CafeWaiting, now: Date): Promise<HouseholdOnFile | null> {
+/**
+ * A waiting family's waiver, once they've signed one that's good for today.
+ * Found by the waiver signed on this iPad, the texted phone, or the typed
+ * name. A name two signed families share is never guessed: `many` says how
+ * many, and the crew search and pick.
+ */
+async function signedFor(w: CafeWaiting, now: Date): Promise<{ match: HouseholdOnFile | null; many: number }> {
+  if (w.recordId) {
+    const r = await getWaiverRecord(w.recordId)
+    const h = r ? householdFrom(r) : null
+    if (h && isCurrent(h, now)) return { match: h, many: 0 }
+  }
   let found: HouseholdOnFile[] = []
   if (w.phone) {
     const h = await lookupHouseholdEntry(w.phone)
@@ -151,7 +180,9 @@ async function signedFor(w: CafeWaiting, now: Date): Promise<HouseholdOnFile | n
     const last = w.name.trim().split(/\s+/).pop() ?? ''
     if (last.length >= 2 && w.name.trim().toLowerCase() !== 'new family') found = await lookupHouseholdsByName(last)
   }
-  return found.find((h) => isCurrent(h, now) && waitingMatches(w, h)) ?? null
+  const matches = found.filter((h) => isCurrent(h, now) && waitingMatches(w, h))
+  if (matches.length > 1) return { match: null, many: matches.length }
+  return { match: matches[0] ?? null, many: 0 }
 }
 
 /**
@@ -162,11 +193,16 @@ async function signedFor(w: CafeWaiting, now: Date): Promise<HouseholdOnFile | n
  * family's waiver once they've signed, so the crew can check them in).
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!(await staffAuthorized(request))) return json({ error: 'Unauthorized' }, 401)
+  const staff = await staffAuthorized(request)
+  if (!staff) return json({ error: 'Unauthorized' }, 401)
   const u = url ?? new URL(request.url)
   const asked = u.searchParams.get('date')
   const date = asked && DATE_RE.test(asked) ? asked : today()
   const detail = u.searchParams.get('detail') === '1'
+  // Who came, by name: crew see today and the last week (what the door needs); owners see any day.
+  if (detail && staff.role !== 'owner' && date < addDays(today(), -CREW_DAYS_BACK)) {
+    return json({ error: 'You can open the last week’s Craft Café lists. Catherine and Kaden can see older ones in /admin.' }, 403)
+  }
   try {
     const [day, days] = await Promise.all([getOpenStudioDay(date), getStudioDays()])
     const totals = dayTotals(day)
@@ -178,10 +214,15 @@ export const GET: APIRoute = async ({ request, url }) => {
     const now = new Date()
     const waitingRaw = date === today() ? await getCafeWaiting(date).catch((): CafeWaiting[] => []) : []
     const waiting = (await Promise.all(waitingRaw.slice(-WAITING_LOOKUPS).map(async (w) => {
-      const h = await signedFor(w, now).catch(() => null)
+      const { match: h, many } = await signedFor(w, now).catch(() => ({ match: null, many: 0 }))
       // Already checked in another way: they're not waiting any more.
       if (h && day[h.recordId]) return null
-      return { id: w.id, name: w.name, how: w.how, at: w.at, by: w.by?.name ?? '', signed: h ? householdMatchOf(h, day, now) : null }
+      return {
+        id: w.id, name: w.name, how: w.how, at: w.at, by: w.by?.name ?? '',
+        signed: h ? householdMatchOf(h, day, now) : null,
+        ...(many > 1 ? { signedMany: many } : {}),
+        ...(w.how === 'text' && w.sent === false ? { textFailed: true } : {}),
+      }
     }))).filter((w) => w !== null)
     return json({ data: { ...base, entries: await entriesOf(day), waiting } }, 200)
   } catch (err) {

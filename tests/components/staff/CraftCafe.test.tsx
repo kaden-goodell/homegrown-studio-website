@@ -110,7 +110,20 @@ describe('CraftCafeSheet', () => {
     fireEvent.click(await screen.findByRole('button', { name: '✓ Here for Craft Café' }))
     await waitFor(() => expect(calls('/api/staff/open-studio.json').some((c) => c[1]?.method === 'POST')).toBe(true))
     const post = calls('/api/staff/open-studio.json').find((c) => c[1]?.method === 'POST')!
-    expect(JSON.parse(post[1].body)).toEqual({ recordId: 'wvr_kim', personIds: ['adult'] })
+    expect(JSON.parse(post[1].body)).toEqual({ recordId: 'wvr_kim', personIds: ['adult'], waitingId: 'cw_1' })
+  })
+
+  it('a name two signed families share: neither is guessed, the crew are told to search and pick', async () => {
+    fetchMock.mockResolvedValue(ok(dayDetail({ waiting: [{ id: 'cw_3', name: 'Smith', how: 'qr', at: '2026-11-07T15:00:00.000Z', by: 'Sam', signed: null, signedMany: 2 }] })))
+    render(<CraftCafeSheet date={TODAY} onClose={() => {}} />)
+    expect(await screen.findByTestId('cafe-signed-many')).toHaveTextContent('2 families named Smith have signed. Tap + Add someone and search to pick the right one.')
+    expect(screen.queryByRole('button', { name: 'Check them in' })).toBeNull()
+  })
+
+  it('a texted family whose text didn’t send says so on their row', async () => {
+    fetchMock.mockResolvedValue(ok(dayDetail({ waiting: [{ id: 'cw_4', name: 'Kim', how: 'text', at: '2026-11-07T15:00:00.000Z', by: 'Sam', signed: null, textFailed: true }] })))
+    render(<CraftCafeSheet date={TODAY} onClose={() => {}} />)
+    expect(await screen.findByText('The text didn’t send. Text them again, or show them the QR.')).toBeInTheDocument()
   })
 
   it('Remove takes a family off Waiting on a waiver after asking', async () => {
@@ -190,6 +203,38 @@ describe('Add someone (new family)', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Texted the link. Kim Lee is under Waiting on a waiver')
     expect(calls('/api/staff/cafe-waiting.json')).toHaveLength(1)
     expect(JSON.parse(calls('/api/staff/cafe-waiting.json')[0][1].body)).toEqual({ how: 'text', name: 'Kim Lee', phone: '2565550199' })
+  })
+
+  it('a retry after a failed text: “Already texted” only when it went', async () => {
+    await openNewFamily()
+    let n = 0
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).startsWith('/api/staff/cafe-waiting.json')) return ok(++n === 1 ? { id: 'cw_new', existing: false, sent: false } : n === 2 ? { id: 'cw_new', existing: true, sent: true } : { id: 'cw_new', existing: true, alreadySent: true })
+      return ok(dayDetail({ waiting: [] }))
+    })
+    fireEvent.click(screen.getByRole('button', { name: '✍️ New family? Get them signed' }))
+    fireEvent.change(screen.getByLabelText('Their name'), { target: { value: 'Kim Lee' } })
+    fireEvent.change(screen.getByLabelText(/Mobile number/), { target: { value: '2565550199' } })
+    const text = screen.getByRole('button', { name: 'Text them the waiver link' })
+    fireEvent.click(text)
+    expect(await screen.findByRole('alert')).toHaveTextContent('The text didn’t send. Tap Text them the waiver link to try again')
+    await waitFor(() => expect(text).not.toBeDisabled())
+    fireEvent.click(text)
+    expect(await screen.findByRole('status')).toHaveTextContent('✓ Texted the link.')
+    fireEvent.click(text)
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Already texted.'))
+  })
+
+  it('a first name only (no mobile) is warned at the time', async () => {
+    await openNewFamily()
+    fireEvent.click(screen.getByRole('button', { name: '✍️ New family? Get them signed' }))
+    fireEvent.change(screen.getByLabelText('Their name'), { target: { value: 'Kim' } })
+    expect(screen.getByTestId('cafe-name-hint')).toHaveTextContent('Add a last name or mobile so we can find their waiver.')
+    fireEvent.change(screen.getByLabelText('Their name'), { target: { value: 'Kim Lee' } })
+    expect(screen.queryByTestId('cafe-name-hint')).toBeNull()
+    fireEvent.change(screen.getByLabelText('Their name'), { target: { value: 'Kim' } })
+    fireEvent.change(screen.getByLabelText(/Mobile number/), { target: { value: '2565550199' } })
+    expect(screen.queryByTestId('cafe-name-hint')).toBeNull()
   })
 
   it('Show QR: needs a name, then shows the code', async () => {

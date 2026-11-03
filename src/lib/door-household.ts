@@ -8,14 +8,15 @@ import { hasAllergy } from '@lib/allergy'
 import type { HouseholdOnFile } from '@lib/waiver-store'
 import type { OpenStudioDay } from '@lib/open-studio-store'
 import { agreementState, isCurrent } from '@lib/waiver-coverage'
+import { maskEmail } from '@lib/pii-mask'
 
-/** "••• 0142" (phone last-4) or the email if there's no phone — a
+/** "••• 0142" (phone last-4) or the masked email ("j•••@gmail.com") if there's no phone — a
  *  disambiguator for the multi-match picker when a last-name search returns
  *  two different households that happen to share a full name. */
 export function contactHint(h: Pick<HouseholdOnFile, 'phone' | 'email'>): string {
   const digits = h.phone.replace(/\D/g, '')
   if (digits.length >= 4) return `••• ${digits.slice(-4)}`
-  return h.email || ''
+  return maskEmail(h.email)
 }
 
 export function householdMatchOf(h: HouseholdOnFile, cafeToday: OpenStudioDay, now: Date) {

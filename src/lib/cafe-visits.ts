@@ -6,6 +6,9 @@
  */
 import { dayTotals, entryCounts, getOpenStudioDay, type CafeTotals } from '@lib/open-studio-store'
 import { addDays } from '@lib/kit-dates'
+import { cafeOn } from '@lib/cafe-days'
+import { getStudioDays } from '@lib/studio-settings'
+import type { StudioDays } from '@config/studio-days'
 
 export interface CafeVisitDay extends CafeTotals {
   date: string
@@ -20,10 +23,16 @@ export interface CafeMonth {
 
 const zero = (): CafeTotals => ({ households: 0, people: 0, adults: 0, kids: 0 })
 
-/** One month ("2026-11") of Craft Café visits, days after `today` left out. */
-export async function cafeMonth(month: string, today: string): Promise<CafeMonth> {
+/**
+ * One month ("2026-11") of Craft Café visits, days after `today` left out.
+ * Only days Craft Café runs (the owners' hours, special days and closed
+ * days), the same days the Calendar shows "N at Craft Café" on, so the two
+ * always agree. /staff only checks walk-ins in on those days.
+ */
+export async function cafeMonth(month: string, today: string, studioDays?: StudioDays): Promise<CafeMonth> {
+  const days0 = studioDays ?? (await getStudioDays())
   const dates: string[] = []
-  for (let d = `${month}-01`; d.startsWith(month) && d <= today; d = addDays(d, 1)) dates.push(d)
+  for (let d = `${month}-01`; d.startsWith(month) && d <= today; d = addDays(d, 1)) if (cafeOn(d, days0)) dates.push(d)
   const read = await Promise.all(dates.map(async (date) => ({ date, ...dayTotals(await getOpenStudioDay(date)) })))
   const days = read.filter((d) => d.households > 0)
   const totals = days.reduce((t, d) => ({ households: t.households + d.households, people: t.people + d.people, adults: t.adults + d.adults, kids: t.kids + d.kids }), zero())

@@ -29,7 +29,7 @@ const rawId = Astro.url.searchParams.get('id') ?? ''
 const kind = KIND_RE.test(rawKind) ? (rawKind as RosterKind) : null
 const id = rawId.trim()
 
-const found = kind && id ? await getEvent(kind, id) : null
+const found = kind && id ? await getEvent(kind, id, { squareParties: true }) : null
 const day = found ? resolveEventDay(found, Astro.url.searchParams.get('day')) : null
 // The printed day's own session: its time and seats, not the class's next session.
 const event = found && day ? eventOnDay(found, day) : found

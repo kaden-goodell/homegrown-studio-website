@@ -56,6 +56,43 @@ describe('DoorSearch — walk-in mode (Today)', () => {
     expect(screen.getByText(/✓ Here today · \d{1,2}:\d{2}\s?[AP]M/)).toBeInTheDocument()
   })
 
+  it('kids only ticked: a reminder (not a block) that an adult stays at Craft Café', async () => {
+    serve([sam()])
+    const onCheckedIn = vi.fn()
+    render(<DoorSearch onCheckedIn={onCheckedIn} />)
+    search('lee')
+    await screen.findByText(/GOOD TO GO — Sam Lee/)
+    expect(screen.queryByTestId('cafe-adult-stays')).toBeNull()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Sam (adult)' }))
+    expect(screen.getByTestId('cafe-adult-stays')).toHaveTextContent('Craft Café isn’t drop-off — an adult stays with them.')
+    fireEvent.click(screen.getByRole('button', { name: '✓ Here for Craft Café' }))
+    await waitFor(() => expect(onCheckedIn).toHaveBeenCalled())
+    expect(JSON.parse((posts()[0] as any)[1].body)).toEqual({ recordId: 'wvr_9', personIds: ['child:0', 'child:1'] })
+  })
+
+  it('expired at Craft Café: “Mark here anyway” counts them in (everyone on the waiver, flagged anyway)', async () => {
+    serve([sam({ covered: false, validUntil: '2026-01-01T00:00:00.000Z' })])
+    const onCheckedIn = vi.fn()
+    render(<DoorSearch onCheckedIn={onCheckedIn} onNewFamily={() => {}} />)
+    search('lee')
+    await screen.findByText(/EXPIRED — Sam Lee/)
+    expect(screen.getByRole('button', { name: 'Get them signed again' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Mark here anyway' }))
+    await waitFor(() => expect(onCheckedIn).toHaveBeenCalled())
+    const [url, init] = posts()[0] as [string, RequestInit]
+    expect(url).toBe('/api/staff/open-studio.json')
+    expect(JSON.parse(init.body as string)).toEqual({ recordId: 'wvr_9', personIds: ['adult', 'child:0', 'child:1'], anyway: true })
+    expect(await screen.findByText(/waiver still needs signing/)).toBeInTheDocument()
+  })
+
+  it('a roster (event mode) never shows the café’s “Mark here anyway”', async () => {
+    serve([sam({ covered: false, validUntil: '2026-01-01T00:00:00.000Z' })])
+    render(<DoorSearch mode="event" event={camp} />)
+    search('lee')
+    await screen.findByText(/EXPIRED — Sam Lee/)
+    expect(screen.queryByRole('button', { name: 'Mark here anyway' })).toBeNull()
+  })
+
   it('a household already logged today shows ✓ Here today · <time> on arrival', async () => {
     serve([sam({ openStudioToday: true, openStudioAt: '2026-09-29T21:12:00.000Z' })])
     render(<DoorSearch onCheckedIn={vi.fn()} />)

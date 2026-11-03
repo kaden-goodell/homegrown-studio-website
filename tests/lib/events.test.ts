@@ -11,14 +11,18 @@ vi.mock('@lib/party-store', async (orig) => ({
 }))
 
 // Parties booked in Square (no record of ours): what the read-only Square reader answers.
-const legacy = vi.hoisted(() => ({ list: [] as any[], fail: false, byId: new Map<string, any>(), asked: [] as string[][] }))
+const legacy = vi.hoisted(() => ({ list: [] as any[], fail: false, byId: new Map<string, any>(), asked: [] as string[][], byIdAsked: 0, byIdFail: false }))
 vi.mock('@lib/parties/legacy-square', () => ({
   legacyStaffParties: async (fromIso: string, toIso: string) => {
     legacy.asked.push([fromIso, toIso])
     if (legacy.fail) throw new Error('Square down')
     return legacy.list
   },
-  legacyStaffParty: async (id: string) => legacy.byId.get(id) ?? null,
+  legacyStaffParty: async (id: string) => {
+    legacy.byIdAsked += 1
+    if (legacy.byIdFail) throw new Error('Square down')
+    return legacy.byId.get(id) ?? null
+  },
 }))
 
 // A fixed clock (Thu Oct 15 2026, noon in the studio): nothing here depends on
@@ -93,7 +97,7 @@ beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
   own.classes = []; own.ledgers.clear(); own.fail = false
-  legacy.list = []; legacy.fail = false; legacy.byId.clear(); legacy.asked = []
+  legacy.list = []; legacy.fail = false; legacy.byId.clear(); legacy.asked = []; legacy.byIdAsked = 0; legacy.byIdFail = false
   // The module caches the workshop list for a minute — reset it between tests
   // so one test's list doesn't leak into the next.
   vi.resetModules()
@@ -371,9 +375,37 @@ describe('booked parties on the staff lists (2 Nov 2026)', () => {
     expect(legacy.asked).toHaveLength(2)
   })
 
-  it('a Square-booked party’s roster opens by its Square id; anything else unknown is null', async () => {
+  it('a Square-booked party’s roster opens by its Square id on staff routes; anything else unknown is null', async () => {
     legacy.byId.set('sq_bk1', sq('sq_bk1', '2026-10-20T19:00:00.000Z', 'Jamie Rivera'))
-    expect(await getEvent('party', 'sq_bk1')).toMatchObject({ kind: 'party', id: 'sq_bk1', title: 'Rivera Party', squareBooked: true, days: ['2026-10-20'] })
-    expect(await getEvent('party', 'sq_nope')).toBeNull()
+    expect(await getEvent('party', 'sq_bk1', { squareParties: true })).toMatchObject({ kind: 'party', id: 'sq_bk1', title: 'Rivera Party', squareBooked: true, days: ['2026-10-20'] })
+    expect(await getEvent('party', 'sq_nope', { squareParties: true })).toBeNull()
+  })
+
+  it('without squareParties (the public waiver page, sign.json) Square is never asked: unknown', async () => {
+    legacy.byId.set('sq_bk1', sq('sq_bk1', '2026-10-20T19:00:00.000Z', 'Jamie Rivera'))
+    expect(await getEvent('party', 'sq_bk1')).toBeNull()
+    legacy.byIdFail = true
+    expect(await getEvent('party', 'sq_bk1')).toBeNull()
+    expect(legacy.byIdAsked).toBe(0)
+  })
+
+  it('a staff route asks Square once a minute per party, and Square down is “not found”, never a crash', async () => {
+    legacy.byId.set('sq_bk1', sq('sq_bk1', '2026-10-20T19:00:00.000Z'))
+    await getEvent('party', 'sq_bk1', { squareParties: true })
+    await getEvent('party', 'sq_bk1', { squareParties: true })
+    expect(legacy.byIdAsked).toBe(1)
+    // A minute on, Square is down: the last answer stands.
+    vi.setSystemTime(new Date(NOW.getTime() + 61_000))
+    legacy.byIdFail = true
+    expect(await getEvent('party', 'sq_bk1', { squareParties: true })).toMatchObject({ id: 'sq_bk1' })
+    // Never seen before and Square down: null, no throw.
+    expect(await getEvent('party', 'sq_other', { squareParties: true })).toBeNull()
+  })
+
+  it('a party This week already loaded answers from that list (no extra Square call)', async () => {
+    legacy.list = [sq('sq_bk1', '2026-10-20T19:00:00.000Z', 'Jamie Rivera')]
+    await listEvents({ from: '2026-10-20', to: '2026-10-20' })
+    expect(await getEvent('party', 'sq_bk1', { squareParties: true })).toMatchObject({ id: 'sq_bk1', title: 'Rivera Party' })
+    expect(legacy.byIdAsked).toBe(0)
   })
 })

@@ -85,10 +85,12 @@ export function signOnIpadForCafe(waitingId: string, date: string) {
  *  from HOM-208 §3. Words, not colors — a first-shift crew member reads the
  *  headline and knows the answer without interpreting anything. */
 function ResultCard({
-  h, event, todayEvents, onCheckedIn, onAdded, onAddToEvent, onShowQr, onNewFamily,
+  h, event, todayEvents, onCheckedIn, onAdded, onAddToEvent, onShowQr, onNewFamily, cafeWaitingId,
 }: {
   h: HouseholdMatch
   onNewFamily?: (typed: string) => void
+  /** Craft Café: the "Waiting on a waiver" row this check-in clears. */
+  cafeWaitingId?: string
   event?: DoorEvent
   todayEvents?: TodayEvent[]
   onCheckedIn?: () => void
@@ -109,8 +111,9 @@ function ResultCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [h.recordId])
 
-  async function markHere() {
-    const ids = personIdsFor(h).filter((id) => sel[id] !== false)
+  async function markHere(anyway = false) {
+    // "Mark here anyway" (waiver needs signing again) counts everyone on it, like classes; it's logged.
+    const ids = anyway ? personIdsFor(h) : personIdsFor(h).filter((id) => sel[id] !== false)
     if (ids.length === 0) return
     setBusy(true)
     setError(null)
@@ -126,7 +129,7 @@ function ResultCard({
         : await fetch('/api/staff/open-studio.json', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ recordId: h.recordId, personIds: ids }),
+            body: JSON.stringify({ recordId: h.recordId, personIds: ids, ...(cafeWaitingId ? { waitingId: cafeWaitingId } : {}), ...(anyway ? { anyway: true } : {}) }),
           })
       const json = await res.json().catch(() => null)
       if (!res.ok) { setError(json?.error ?? 'Something went wrong.'); return }
@@ -186,11 +189,16 @@ function ResultCard({
               </label>
             )
           })}
+          {!event && sel.adult === false && personIdsFor(h).some((id) => id !== 'adult' && sel[id] !== false) && (
+            <p role="note" data-testid="cafe-adult-stays" style={{ margin: '0.4rem 0 0', fontSize: '0.875rem', color: 'rgb(180,83,9)', fontWeight: 600 }}>
+              Craft Café isn’t drop-off — an adult stays with them.
+            </p>
+          )}
           {error && <p style={{ color: '#b91c1c', fontSize: '0.875rem', margin: '0.4rem 0 0', fontWeight: 600 }}>{error}</p>}
           <button
             type="button"
             disabled={busy || personIdsFor(h).every((id) => sel[id] === false)}
-            onClick={markHere}
+            onClick={() => markHere()}
             style={{ ...btn(true), width: '100%', padding: '0.75rem', marginTop: '0.6rem', minHeight: '2.75rem', opacity: busy ? 0.7 : 1 }}
           >
             {event ? '✓ Add & mark here' : '✓ Here for Craft Café'}
@@ -235,6 +243,23 @@ function ResultCard({
           <button type="button" onClick={() => signOnIpad(event)} style={{ ...btn(true), minHeight: '2.75rem', flex: '1 1 8rem' }}>Sign on this iPad</button>
         </div>
       )}
+      {!event && (
+        <>
+          {error && <p style={{ color: '#b91c1c', fontSize: '0.875rem', margin: '0.5rem 0 0', fontWeight: 600 }}>{error}</p>}
+          {hereAt ? (
+            <p role="status" style={{ margin: '0.6rem 0 0', fontSize: '0.875rem', color: 'rgb(21,128,61)', fontWeight: 700 }}>✓ Here today · {formatTime(hereAt)} (waiver still needs signing)</p>
+          ) : (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => markHere(true)}
+              style={{ ...btn(), width: '100%', marginTop: '0.5rem', color: 'var(--color-muted)', opacity: busy ? 0.5 : 1 }}
+            >
+              {busy ? 'Saving…' : 'Mark here anyway'}
+            </button>
+          )}
+        </>
+      )}
     </div>
   )
 }
@@ -260,8 +285,10 @@ export default function DoorSearch(props: {
   onAddToEvent?: (e: TodayEvent, h: HouseholdMatch) => void
   /** Craft Café: "not on file" and "sign again" go to the café's new-family steps (so they show as Waiting on a waiver). */
   onNewFamily?: (typed: string) => void
+  /** Craft Café: checking in a "Waiting on a waiver" family clears that row. */
+  cafeWaitingId?: string
 } & ({ mode?: 'walk-in'; event?: undefined } | { mode: 'event'; event: DoorEvent })) {
-  const { mode = 'walk-in', todayEvents, initialHousehold, onCheckedIn, onAdded, onAddToEvent, onNewFamily } = props
+  const { mode = 'walk-in', todayEvents, initialHousehold, onCheckedIn, onAdded, onAddToEvent, onNewFamily, cafeWaitingId } = props
   const doorEvent = props.mode === 'event' ? props.event : undefined
   const [query, setQuery] = useState(props.initialQuery ?? '')
   const [results, setResults] = useState<HouseholdMatch[] | null>(initialHousehold ? [initialHousehold] : null)
@@ -385,7 +412,7 @@ export default function DoorSearch(props: {
           {results && results.length > 1 && (
             <button type="button" onClick={() => setSelectedId(null)} style={{ ...btn(), marginBottom: '0.6rem' }}>← Back to matches</button>
           )}
-          <ResultCard h={selected} event={doorEvent} todayEvents={todayEvents} onCheckedIn={onCheckedIn} onAdded={onAdded} onAddToEvent={onAddToEvent} onShowQr={() => setQrOpen(true)} onNewFamily={onNewFamily} />
+          <ResultCard h={selected} event={doorEvent} todayEvents={todayEvents} onCheckedIn={onCheckedIn} onAdded={onAdded} onAddToEvent={onAddToEvent} onShowQr={() => setQrOpen(true)} onNewFamily={onNewFamily} cafeWaitingId={cafeWaitingId} />
         </div>
       )}
 

@@ -14,3 +14,18 @@ describe('Activity lines for Craft Café', () => {
     expect(activityWhat({ action: 'checkin.here', target: { kind: 'household', id: 'w1', label: 'Jane Doe' }, details: {} })).toBe('Checkin here: Jane Doe')
   })
 })
+
+describe('Activity lines for Craft Café texts and overrides', () => {
+  it('a text that went, one that didn’t, and a retry', () => {
+    const t = (details: Record<string, unknown>) => activityWhat({ action: 'waiver-link.sent', target: { kind: 'craft-cafe-waiting', id: 'cw_1', label: 'Kim' }, details: { where: 'craft-cafe', how: 'text', ...details } })
+    expect(t({ sent: true })).toBe('Texted Kim the waiver link for Craft Café')
+    expect(t({ sent: false })).toBe('Tried to text Kim the waiver link for Craft Café (it didn’t send)')
+    expect(t({ sent: true, retry: true })).toBe('Texted Kim the waiver link for Craft Café (again, the first text didn’t send)')
+    expect(activityWhat({ action: 'waiver-link.sent', target: { kind: 'household', id: 'w1', label: 'Jane' }, details: {} })).toBe('Waiver link sent: Jane')
+  })
+
+  it('“Mark here anyway” at Craft Café says so', () => {
+    expect(activityWhat({ action: 'checkin.here', target: { kind: 'household', id: 'w1', label: 'Jane Doe' }, details: { where: 'craft-cafe', people: 1, anyway: true } }))
+      .toBe('Checked Jane Doe in at Craft Café (1 person), anyway: their waiver needs signing again')
+  })
+})

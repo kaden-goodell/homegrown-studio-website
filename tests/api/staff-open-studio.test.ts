@@ -16,7 +16,16 @@ vi.mock('@lib/staff-auth', () => ({
 const waivers = new Map<string, any>()
 const byPhone = new Map<string, any>()
 const byName = new Map<string, any[]>()
+// Whether Craft Café runs today (the owners' hours), and whether this is a test site with no store of its own (R41).
+let cafeRuns = true
+let testSite = false
+vi.mock('@lib/cafe-days', () => ({ cafeOn: () => (cafeRuns ? { opens: '09:00', closes: '13:00' } : null) }))
+vi.mock('@lib/classes/test-site-guard', async (orig) => {
+  const real = await orig<any>()
+  return { ...real, classWritesRefusal: () => (testSite ? real.NO_TEST_STORE : null) }
+})
 vi.mock('@lib/waiver-store', () => ({
+  householdFrom: (w: any) => household(w),
   getWaiverRecord: async (id: string) => waivers.get(id) ?? null,
   lookupHouseholdEntry: async (c: string) => byPhone.get(c.replace(/\D/g, '')) ?? null,
   lookupHouseholdsByName: async (n: string) => byName.get(n.toLowerCase()) ?? [],
@@ -52,6 +61,8 @@ let TODAY = ''
 beforeEach(() => {
   vi.clearAllMocks()
   authed = { id: 't', name: 'Test', role: 'crew' }
+  cafeRuns = true
+  testSite = false
   waivers.clear(); byPhone.clear(); byName.clear()
   // A fresh studio day every test (the store is the real one, on disk): noon, a random far-off date.
   const year = 2100 + Math.floor(Math.random() * 800)
@@ -85,7 +96,38 @@ describe('POST — check a family in at Craft Café', () => {
     waivers.set('w_old', waiver('w_old', { validUntil: '2000-01-01T00:00:00.000Z' }))
     const res = await post({ recordId: 'w_old', personIds: ['adult'] })
     expect(res.status).toBe(409)
-    expect((await res.json()).error).toMatch(/signing again/)
+    expect((await res.json()).error).toBe('Their waiver needs signing again before they craft. Tap Get them signed again.')
+    expect(await getOpenStudioDay(TODAY)).toEqual({})
+  })
+
+  it('“Mark here anyway” counts an expired waiver in, and the log says so', async () => {
+    waivers.set('w_old', waiver('w_old', { validUntil: '2000-01-01T00:00:00.000Z' }))
+    const res = await post({ recordId: 'w_old', personIds: ['adult', 'child:0'], anyway: true })
+    expect(res.status).toBe(200)
+    expect(Object.keys(await getOpenStudioDay(TODAY))).toEqual(['w_old'])
+    expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'checkin.here', details: expect.objectContaining({ anyway: true, where: 'craft-cafe' }) }))
+  })
+
+  it('“anyway” never counts in a family with no waiver at all', async () => {
+    expect((await post({ recordId: 'w_missing', personIds: ['adult'], anyway: true })).status).toBe(404)
+  })
+
+  it('refuses on a day Craft Café doesn’t run (nothing saved, nothing logged)', async () => {
+    cafeRuns = false
+    waivers.set('w1', waiver('w1'))
+    const res = await post({ recordId: 'w1', personIds: ['adult'] })
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toBe('Only on Craft Café days — ask Catherine or Kaden to add a special day.')
+    expect(await getOpenStudioDay(TODAY)).toEqual({})
+    expect(mockAudit).not.toHaveBeenCalled()
+  })
+
+  it('a test site with no store of its own writes nothing (R41)', async () => {
+    testSite = true
+    waivers.set('w1', waiver('w1'))
+    expect((await post({ recordId: 'w1', personIds: ['adult'] })).status).toBe(503)
+    expect((await del('?recordId=w1')).status).toBe(503)
+    expect(await getOpenStudioDay(TODAY)).toEqual({})
   })
 
   it('keeps the family’s name and who came, stamps who checked them in, and audits it', async () => {
@@ -116,6 +158,19 @@ describe('POST — check a family in at Craft Café', () => {
     await post({ recordId: 'w1', personIds: ['adult'], waitingId: ipad.entry.id })
     expect((await getCafeWaiting(TODAY)).map((w) => w.id)).toEqual([other.entry.id])
     expect(texted.existing).toBe(false)
+  })
+
+  it('a last name alone never clears another family’s waiting row; the row’s own id or signed waiver does', async () => {
+    waivers.set('w1', waiver('w1'))
+    const before = new Date(Date.now() - 60_000)
+    const doe = await addCafeWaiting(TODAY, { name: 'Doe', how: 'qr', by: BY }, before)
+    const kiosk = await addCafeWaiting(TODAY, { name: 'New family', how: 'ipad', by: BY }, before)
+    const { setCafeWaitingSigned } = await import('@lib/open-studio-store')
+    await setCafeWaitingSigned(TODAY, kiosk.entry.id, { recordId: 'w1', name: 'Jane Doe' })
+    await post({ recordId: 'w1', personIds: ['adult'] })
+    expect((await getCafeWaiting(TODAY)).map((w) => w.id)).toEqual([doe.entry.id])
+    await post({ recordId: 'w1', personIds: ['adult'], waitingId: doe.entry.id })
+    expect(await getCafeWaiting(TODAY)).toEqual([])
   })
 })
 
@@ -177,5 +232,49 @@ describe('GET — the Craft Café row and sheet', () => {
     ])
     // The phone never goes back to the browser.
     expect(JSON.stringify(json)).not.toContain('2565550199')
+  })
+
+  it('two signed families share the typed last name: neither is guessed, the crew pick', async () => {
+    const at = new Date(Date.now() - 60_000)
+    const a = waiver('w_a', { adult: { firstName: 'Ann', lastName: 'Smith', email: 'a@x.com', phone: '2565550001', dob: '', allergies: '' } })
+    const b = waiver('w_b', { adult: { firstName: 'Bea', lastName: 'Smith', email: 'b@x.com', phone: '2565550002', dob: '', allergies: '' } })
+    byName.set('smith', [household(a), household(b)])
+    await addCafeWaiting(TODAY, { name: 'Smith', how: 'qr', by: BY }, at)
+    const json = await (await get(`?date=${TODAY}&detail=1`)).json()
+    expect(json.data.waiting).toEqual([expect.objectContaining({ name: 'Smith', signed: null, signedMany: 2 })])
+    // One Smith only: that one.
+    byName.set('smith', [household(a)])
+    const one = await (await get(`?date=${TODAY}&detail=1`)).json()
+    expect(one.data.waiting[0].signed).toEqual(expect.objectContaining({ recordId: 'w_a' }))
+  })
+
+  it('a family who signed on the iPad shows ✓ Signed under their own name, even when the check-in didn’t go through', async () => {
+    const kim = waiver('w_kim', { adult: { firstName: 'Kim', lastName: 'Lee', email: 'k@x.com', phone: '2565550199', dob: '', allergies: '' }, minors: [] })
+    waivers.set('w_kim', kim)
+    const w = await addCafeWaiting(TODAY, { name: 'New family', how: 'ipad', by: BY }, new Date(Date.now() - 60_000))
+    const { setCafeWaitingSigned } = await import('@lib/open-studio-store')
+    await setCafeWaitingSigned(TODAY, w.entry.id, { recordId: 'w_kim', name: 'Kim Lee' })
+    const json = await (await get(`?date=${TODAY}&detail=1`)).json()
+    expect(json.data.waiting).toEqual([expect.objectContaining({ name: 'Kim Lee', signed: expect.objectContaining({ recordId: 'w_kim', covered: true }) })])
+  })
+
+  it('a texted family whose text didn’t send says so', async () => {
+    const w = await addCafeWaiting(TODAY, { name: 'Kim', how: 'text', by: BY, phone: '2565550199' })
+    const { markCafeWaitingSent } = await import('@lib/open-studio-store')
+    await markCafeWaitingSent(TODAY, w.entry.id, false)
+    const json = await (await get(`?date=${TODAY}&detail=1`)).json()
+    expect(json.data.waiting).toEqual([expect.objectContaining({ name: 'Kim', textFailed: true })])
+  })
+
+  it('crew open today’s and the last 7 days’ lists; older ones are owners only', async () => {
+    const { addDays } = await import('@lib/kit-dates')
+    expect((await get(`?date=${addDays(TODAY, -7)}&detail=1`)).status).toBe(200)
+    const old = await get(`?date=${addDays(TODAY, -8)}&detail=1`)
+    expect(old.status).toBe(403)
+    expect((await old.json()).error).toMatch(/last week/)
+    // The row's count (no names) is fine for any day.
+    expect((await get(`?date=${addDays(TODAY, -30)}`)).status).toBe(200)
+    authed = { id: 'o', name: 'Catherine', role: 'owner' }
+    expect((await get(`?date=${addDays(TODAY, -30)}&detail=1`)).status).toBe(200)
   })
 })

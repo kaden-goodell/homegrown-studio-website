@@ -117,11 +117,11 @@ describe('GET /api/staff/coverage.json', () => {
     expect(json.data.households[1].contactHint).toBe('••• 9911')
   })
 
-  it('falls back to email for contactHint when there is no phone', async () => {
+  it('falls back to the masked email for contactHint when there is no phone (as in customer search)', async () => {
     mockLookupHouseholdEntry.mockResolvedValue(household({ phone: '', email: 'sam@example.com' }))
     const res = await GET(ctx('?q=sam@example.com'))
     const json = await res.json()
-    expect(json.data.households[0].contactHint).toBe('sam@example.com')
+    expect(json.data.households[0].contactHint).toBe('s•••@example.com')
   })
 
   it('EXPIRED: covered is false for a lapsed agreement', async () => {

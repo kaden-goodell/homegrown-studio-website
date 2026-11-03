@@ -27,6 +27,7 @@ import { createSquareClient } from '@providers/square/client'
 import { partyName, partySpanOf } from '@lib/conflicts'
 import { getPartyRecord } from '@lib/party-store'
 import type { Busy } from '@lib/classes/studio-schedule'
+import type { Booking } from '@providers/interfaces/booking'
 import { getPartySettings } from './settings-store'
 
 /** A Square "no such object" answer (404 / NOT_FOUND). */
@@ -77,12 +78,45 @@ async function partyVariationId(): Promise<string> {
 /** Forget the remembered variation id (tests). */
 export function resetLegacySquareMemory(): void {
   variation = null
+  customerNames.clear()
 }
 
 // Square lists bookings by START; a party that began before `from` can still be running.
 const LOOK_BACK_MS = 12 * 60 * 60_000
 
-async function squareParties(fromIso: string, toIso: string, labels = true): Promise<Busy[]> {
+/** Square words for a booking that isn't coming through the door: declined requests and no-shows. */
+const NOT_COMING = new Set(['DECLINED', 'NO_SHOW'])
+
+// Hosts' names from Square's customer list, remembered for 10 minutes (one lookup per host, not per screen load).
+const CUSTOMER_NAME_MS = 10 * 60_000
+const customerNames = new Map<string, { until: number; name: string }>()
+
+/** "Jane Smith" from Square's customer record, or '' (no customer, not found, or Square didn't answer). */
+async function squareCustomerName(customerId: string): Promise<string> {
+  if (!customerId) return ''
+  const hit = customerNames.get(customerId)
+  if (hit && hit.until > Date.now()) return hit.name
+  let name = ''
+  try {
+    const c = await providers.customer.getById(customerId)
+    name = c ? `${c.givenName ?? ''} ${c.familyName ?? ''}`.trim() : ''
+  } catch {
+    return '' // only the label is lost; try again next time
+  }
+  if (customerNames.size > 500) customerNames.clear()
+  customerNames.set(customerId, { until: Date.now() + CUSTOMER_NAME_MS, name })
+  return name
+}
+
+/** The host's name for a Square booking: our record's, else (crew screens) Square's customer. */
+async function hostNameOf(b: Booking, labels: boolean, fromSquare: boolean): Promise<string | undefined> {
+  if (!labels) return undefined
+  const ours = (await getPartyRecord(b.id).catch(() => null))?.hostName
+  if (ours) return ours
+  return fromSquare ? (await squareCustomerName(b.customerId)) || undefined : undefined
+}
+
+async function squareParties(fromIso: string, toIso: string, labels = true, staff = false): Promise<Busy[]> {
   if (!providers.booking.listBookings) throw new Error('This booking provider cannot list bookings.')
   const from = Date.parse(fromIso), to = Date.parse(toIso)
   const bookings = await providers.booking.listBookings({
@@ -90,13 +124,14 @@ async function squareParties(fromIso: string, toIso: string, labels = true): Pro
     endDate: toIso,
     locationId: siteConfig.providers.booking.config.locationId || '',
   })
-  const live = bookings.filter((b) => b.status !== 'cancelled')
+  // Crew screens also leave out declined requests and no-shows (nobody is coming).
+  const live = bookings.filter((b) => b.status !== 'cancelled' && !(staff && NOT_COMING.has(b.squareStatus ?? '')))
   if (live.length === 0) return [] // nothing to sort: no catalog question
   const variationId = await partyVariationId()
   const parties = live.filter((b) => b.slot?.serviceVariationId === variationId)
   const spans = await Promise.all(
     // A missing record only costs the host's name on the label.
-    parties.map(async (b) => partySpanOf(b, labels ? (await getPartyRecord(b.id).catch(() => null))?.hostName : undefined)),
+    parties.map(async (b) => partySpanOf(b, await hostNameOf(b, labels, staff))),
   )
   return spans
     .filter((p) => Date.parse(p.endIso) > from && Date.parse(p.startIso) < to)
@@ -136,12 +171,15 @@ export async function legacyRemaining(now: Date = new Date()): Promise<Busy[]> {
  */
 export async function legacyStaffParties(fromIso: string, toIso: string): Promise<Busy[]> {
   if (onSandbox() || onMockProviders()) return []
-  return squareParties(fromIso, toIso)
+  return squareParties(fromIso, toIso, true, true)
 }
 
 /**
  * One Square-booked party by its Square booking id (its roster on /staff), or
- * null: not a party, cancelled, not found, or no Square here. Read only.
+ * null: not a party, cancelled, declined, a no-show, not found, or no Square
+ * here. Read only. The host's name comes from Square's customer when we hold
+ * no record. Staff routes only (events.ts caches it): the public waiver page
+ * never asks Square.
  */
 export async function legacyStaffParty(id: string): Promise<Busy | null> {
   if (onSandbox() || onMockProviders() || id.startsWith('pty_')) return null
@@ -152,8 +190,8 @@ export async function legacyStaffParty(id: string): Promise<Busy | null> {
     if (isNotFound(err)) return null
     throw err
   }
-  if (!b || b.status === 'cancelled') return null
+  if (!b || b.status === 'cancelled' || NOT_COMING.has(b.squareStatus ?? '')) return null
   if (b.slot?.serviceVariationId !== (await partyVariationId())) return null
-  const p = partySpanOf(b)
-  return { kind: 'party', id: p.id, label: partyName(p), startIso: p.startIso, endIso: p.endIso }
+  const p = partySpanOf(b, await hostNameOf(b, true, true))
+  return { kind: 'party', id: p.id, label: partyName(p), startIso: p.startIso, endIso: p.endIso, ...(p.hostName ? { hostName: p.hostName } : {}) }
 }

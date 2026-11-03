@@ -284,6 +284,12 @@ describe('WaiverFlow — kiosk mode (HOM-209)', () => {
       await screen.findByTestId('kiosk-arrived')
       const call = f.mock.calls.find((c) => String(c[0]) === '/api/staff/open-studio.json')!
       expect(JSON.parse((call[1] as RequestInit).body as string)).toEqual({ recordId: 'wvr_new', personIds: ['adult'], waitingId: 'cw_1234abcd' })
+      // First, that row learns their waiver (and name), so it turns ✓ Signed even if the check-in doesn't go through.
+      const urls = f.mock.calls.map((c) => String(c[0]))
+      const patchAt = f.mock.calls.findIndex((c) => String(c[0]) === '/api/staff/cafe-waiting.json' && (c[1] as RequestInit)?.method === 'PATCH')
+      expect(patchAt).toBeGreaterThanOrEqual(0)
+      expect(patchAt).toBeLessThan(urls.indexOf('/api/staff/open-studio.json'))
+      expect(JSON.parse((f.mock.calls[patchAt][1] as RequestInit).body as string)).toEqual({ id: 'cw_1234abcd', recordId: 'wvr_new' })
     })
 
     it('shows the pickup code a drop-off check-in issues', async () => {

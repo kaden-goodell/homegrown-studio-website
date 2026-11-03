@@ -54,7 +54,7 @@ describe('hereNowCount', () => {
   })
 })
 
-import { addCafeWaiting, dayTotals, getCafeWaiting, removeCafeWaiting, undoOpenStudio, waitingMatches, entryCounts } from '@lib/open-studio-store'
+import { addCafeWaiting, dayTotals, getCafeWaiting, removeCafeWaiting, undoOpenStudio, waitingMatches, entryCounts, markCafeWaitingSent, setCafeWaitingSigned, CafeWaitingFullError, WAITING_CAP } from '@lib/open-studio-store'
 
 const freshDay = () => `${2100 + Math.floor(Math.random() * 800)}-0${1 + Math.floor(Math.random() * 9)}-1${Math.floor(Math.random() * 9)}`
 
@@ -99,5 +99,41 @@ describe('Craft Café: Waiting on a waiver', () => {
     expect(waitingMatches({ name: 'Kim', at }, signed)).toBe(false) // a first name alone is too loose
     expect(waitingMatches({ name: 'New family', at }, signed)).toBe(false)
     expect(waitingMatches({ name: 'Kim Lee', at }, { ...signed, signedAt: '2026-10-01T00:00:00.000Z' })).toBe(false) // an old waiver
+    // Clearing the list on a check-in: a last name alone could be another family.
+    expect(waitingMatches({ name: 'Lee', at }, signed, { lastNameOnly: false })).toBe(false)
+    expect(waitingMatches({ name: 'Kim Lee', at }, signed, { lastNameOnly: false })).toBe(true)
+  })
+
+  it('at the cap, a new family is refused, never trimmed; a texted family already there still comes back', async () => {
+    const date = freshDay()
+    const first = await addCafeWaiting(date, { name: 'Kim', how: 'text', by: BY, phone: '2565550199' })
+    for (let i = 1; i < WAITING_CAP; i++) await addCafeWaiting(date, { name: `Fam ${i}`, how: 'qr', by: BY })
+    await expect(addCafeWaiting(date, { name: 'One more', how: 'qr', by: BY })).rejects.toBeInstanceOf(CafeWaitingFullError)
+    expect((await addCafeWaiting(date, { name: 'Kim', how: 'text', by: BY, phone: '2565550199' })).entry.id).toBe(first.entry.id)
+    const list = await getCafeWaiting(date)
+    expect(list).toHaveLength(WAITING_CAP)
+    expect(list[0].id).toBe(first.entry.id)
+  })
+
+  it('“existing” answers from the same read: an entry removed in between never crashes it', async () => {
+    const date = freshDay()
+    const a = await addCafeWaiting(date, { name: 'Kim', how: 'text', by: BY, phone: '2565550199' })
+    const [again] = await Promise.all([
+      addCafeWaiting(date, { name: 'Kim', how: 'text', by: BY, phone: '2565550199' }),
+      removeCafeWaiting(date, [a.entry.id]),
+    ])
+    // Either it saw Kim (existing) or Kim was already gone (added afresh): never a throw.
+    expect(again.entry.phone).toBe('2565550199')
+  })
+
+  it('remembers whether a text went, and an iPad family’s waiver and name', async () => {
+    const date = freshDay()
+    const t = await addCafeWaiting(date, { name: 'Kim', how: 'text', by: BY, phone: '2565550199' })
+    await markCafeWaitingSent(date, t.entry.id, false)
+    expect((await addCafeWaiting(date, { name: 'Kim', how: 'text', by: BY, phone: '2565550199' })).entry.sent).toBe(false)
+    const i = await addCafeWaiting(date, { name: 'New family', how: 'ipad', by: BY })
+    expect(await setCafeWaitingSigned(date, i.entry.id, { recordId: 'w1', name: 'Jo Park' })).toBe(true)
+    expect((await getCafeWaiting(date)).find((w) => w.id === i.entry.id)).toMatchObject({ name: 'Jo Park', recordId: 'w1' })
+    expect(await setCafeWaitingSigned(date, 'cw_gone', { recordId: 'w1', name: 'Jo Park' })).toBe(false)
   })
 })

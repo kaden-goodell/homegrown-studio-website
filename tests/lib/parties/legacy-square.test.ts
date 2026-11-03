@@ -4,9 +4,13 @@ const m = vi.hoisted(() => ({
   listBookings: vi.fn(),
   getBooking: vi.fn(),
   catalogGet: vi.fn(),
+  customerGet: vi.fn(),
   env: { environment: 'production' as 'production' | 'sandbox' },
 }))
-vi.mock('@config/providers', () => ({ providers: { booking: { listBookings: (...a: any[]) => m.listBookings(...a), getBooking: (...a: any[]) => m.getBooking(...a) } } }))
+vi.mock('@config/providers', () => ({ providers: {
+  booking: { listBookings: (...a: any[]) => m.listBookings(...a), getBooking: (...a: any[]) => m.getBooking(...a) },
+  customer: { getById: (...a: any[]) => m.customerGet(...a) },
+} }))
 vi.mock('@config/site.config', () => ({
   siteConfig: { providers: { booking: { config: { locationId: 'LOC' } }, catalog: { type: 'square', config: m.env } } },
 }))
@@ -31,6 +35,7 @@ async function setRead(on: boolean): Promise<void> {
 beforeEach(() => {
   m.listBookings.mockReset().mockResolvedValue([])
   m.catalogGet.mockReset().mockResolvedValue({ object: { itemData: { variations: [{ id: 'var-party' }] } } })
+  m.customerGet.mockReset().mockResolvedValue(null)
   m.env.environment = 'production'
   resetLegacySquareMemory()
   resetPartySettingsCache()
@@ -167,5 +172,43 @@ describe('the crew’s screens: Square-booked parties (read only)', () => {
     m.getBooking.mockClear()
     expect(await legacyStaffParty('pty_ours')).toBeNull()
     expect(m.getBooking).not.toHaveBeenCalled()
+  })
+
+  it('declined requests and no-shows aren’t booked parties on the crew’s screens', async () => {
+    m.listBookings.mockResolvedValue([
+      booking('bk_ok', '2027-02-07T19:00:00.000Z', { squareStatus: 'ACCEPTED' }),
+      booking('bk_pending', '2027-02-07T19:00:00.000Z', { status: 'pending', squareStatus: 'PENDING' }),
+      booking('bk_declined', '2027-02-07T19:00:00.000Z', { status: 'pending', squareStatus: 'DECLINED' }),
+      booking('bk_noshow', '2027-02-07T19:00:00.000Z', { status: 'pending', squareStatus: 'NO_SHOW' }),
+    ])
+    expect((await legacyStaffParties(FROM, TO)).map((b) => b.id)).toEqual(['bk_ok', 'bk_pending'])
+    m.getBooking.mockResolvedValueOnce(booking('bk_declined', '2027-02-07T19:00:00.000Z', { status: 'pending', squareStatus: 'DECLINED' }))
+    expect(await legacyStaffParty('bk_declined')).toBeNull()
+  })
+
+  it('the host’s name comes from Square’s customer when we hold no record (asked once per host)', async () => {
+    m.customerGet.mockResolvedValue({ id: 'c1', email: '', givenName: 'Pat', familyName: 'Smith' })
+    m.listBookings.mockResolvedValue([
+      booking('bk_sq', '2027-02-07T19:00:00.000Z', { customerId: 'c1' }),
+      booking('bk_rivera', '2027-02-07T22:00:00.000Z', { customerId: 'c2' }),
+    ])
+    const list = await legacyStaffParties(FROM, TO)
+    expect(list.map((b) => [b.id, b.hostName])).toEqual([['bk_sq', 'Pat Smith'], ['bk_rivera', 'Jamie Rivera']])
+    m.getBooking.mockResolvedValueOnce(booking('bk_sq', '2027-02-07T19:00:00.000Z', { customerId: 'c1' }))
+    expect(await legacyStaffParty('bk_sq')).toMatchObject({ hostName: 'Pat Smith' })
+    expect(m.customerGet).toHaveBeenCalledTimes(1) // our record answered Rivera; Smith remembered
+  })
+
+  it('no name when Square’s customer can’t be read: the party still lists', async () => {
+    m.customerGet.mockRejectedValue(new Error('Square 500'))
+    m.listBookings.mockResolvedValue([booking('bk_sq', '2027-02-07T19:00:00.000Z', { customerId: 'c1' })])
+    expect(await legacyStaffParties(FROM, TO)).toEqual([expect.objectContaining({ id: 'bk_sq' })])
+    expect((await legacyStaffParties(FROM, TO))[0].hostName).toBeUndefined()
+  })
+
+  it('the owners’ busy check never asks Square’s customer list', async () => {
+    m.listBookings.mockResolvedValue([booking('bk_sq', '2027-02-07T19:00:00.000Z', { customerId: 'c1' })])
+    await legacyPartyBusy(FROM, TO)
+    expect(m.customerGet).not.toHaveBeenCalled()
   })
 })

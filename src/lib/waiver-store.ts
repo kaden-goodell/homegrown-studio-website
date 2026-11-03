@@ -398,7 +398,7 @@ export function normalizeAuthorizedPickup(value: unknown): AuthorizedPickup[] {
   return []
 }
 
-function householdFrom(r: WaiverRecord): HouseholdOnFile {
+export function householdFrom(r: WaiverRecord): HouseholdOnFile {
   return {
     recordId: r.id,
     validUntil: r.validUntil,

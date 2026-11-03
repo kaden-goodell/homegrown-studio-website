@@ -22,7 +22,13 @@ import { formatCalendarDay, formatTime, studioDate } from '@lib/studio-time'
 
 export interface CafeTotals { households: number; people: number; adults: number; kids: number }
 export interface CafeEntry { recordId: string; name: string; people: string[]; at: string; by: string; adults: number; kids: number }
-export interface CafeWaitingRow { id: string; name: string; how: 'ipad' | 'text' | 'qr'; at: string; by: string; signed: HouseholdMatch | null }
+export interface CafeWaitingRow {
+  id: string; name: string; how: 'ipad' | 'text' | 'qr'; at: string; by: string; signed: HouseholdMatch | null
+  /** More than one signed family has this name: the crew search and pick. */
+  signedMany?: number
+  /** Their waiver text didn't send. */
+  textFailed?: true
+}
 export interface CafeDay {
   date: string
   count: number
@@ -81,6 +87,8 @@ function NewCafeFamily({ date, initialName, onBack, onStarted }: { date: string;
   const inFlight = useRef(false)
   const digits = phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')
   const who = name.trim() || 'They'
+  // One word and no mobile: the list can't spot their waiver once signed (Kim could be anyone).
+  const firstNameOnly = name.trim().length >= 2 && name.trim().split(/\s+/).length === 1 && digits.length !== 10
 
   async function start(how: 'ipad' | 'text' | 'qr') {
     if (inFlight.current) return // a double tap never starts (or texts) twice
@@ -99,8 +107,9 @@ function NewCafeFamily({ date, initialName, onBack, onStarted }: { date: string;
     onStarted()
     if (how === 'ipad') { signOnIpadForCafe(r.data.id, date); return }
     if (how === 'qr') { setQr(true); setStatus(`${who} ${name.trim() ? 'is' : 'are'} under Waiting on a waiver. Check them in once they’ve signed.`); return }
-    if (r.data.existing) setStatus(`Already texted. ${who} ${name.trim() ? 'is' : 'are'} under Waiting on a waiver.`)
-    else if (r.data.sent === false) setError('The text didn’t send. Tap Show QR and let them scan it instead.')
+    // "Already texted" only when the earlier text actually went; a failed one is sent again.
+    if (r.data.alreadySent) setStatus(`Already texted. ${who} ${name.trim() ? 'is' : 'are'} under Waiting on a waiver.`)
+    else if (r.data.sent === false) setError('The text didn’t send. Tap Text them the waiver link to try again, or Show QR and let them scan it.')
     else setStatus(`✓ Texted the link. ${who} ${name.trim() ? 'is' : 'are'} under Waiting on a waiver — check them in once they’ve signed.`)
   }
 
@@ -112,6 +121,11 @@ function NewCafeFamily({ date, initialName, onBack, onStarted }: { date: string;
         Their name
         <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" placeholder="So you can find them once they’ve signed" style={{ ...field, width: '100%', boxSizing: 'border-box', marginTop: '0.25rem' }} />
       </label>
+      {firstNameOnly && (
+        <p role="note" data-testid="cafe-name-hint" style={{ margin: '-0.3rem 0 0.6rem', fontSize: '0.8125rem', color: 'rgb(180,83,9)', fontWeight: 600 }}>
+          Add a last name or mobile so we can find their waiver.
+        </p>
+      )}
       <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '0.8rem' }}>
         Mobile number (only to text the link)
         <input value={phone} onChange={(e) => setPhone(e.target.value)} type="tel" inputMode="tel" autoComplete="off" style={{ ...field, width: '100%', boxSizing: 'border-box', marginTop: '0.25rem' }} />
@@ -260,9 +274,18 @@ export function CraftCafeSheet({ date, onClose }: { date: string; onClose: () =>
                       {w.signed ? <Badge tone="muted">✓ Signed</Badge> : <Badge tone="warn">Not signed yet</Badge>}
                     </div>
                     <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{`${HOW_LABEL[w.how]} · ${formatTime(w.at)}${w.by ? ` · ${w.by}` : ''}`}</p>
+                    {w.textFailed && !w.signed && <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: '#b91c1c', fontWeight: 600 }}>The text didn’t send. Text them again, or show them the QR.</p>}
+                    {!w.signed && (w.signedMany ?? 0) > 1 && (
+                      <p data-testid="cafe-signed-many" style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--color-dark)', fontWeight: 600 }}>
+                        {`${w.signedMany} families named ${w.name} have signed. Tap + Add someone and search to pick the right one.`}
+                      </p>
+                    )}
+                    {!w.signed && !w.signedMany && w.how === 'ipad' && Date.now() - Date.parse(w.at) > 10 * 60_000 && (
+                      <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Finished signing? Find them with + Add someone.</p>
+                    )}
                     {checkingIn?.id === w.id && w.signed ? (
                       <div style={{ marginTop: '0.6rem' }}>
-                        <DoorSearch initialHousehold={w.signed} onCheckedIn={() => { setCheckingIn(null); load(true) }} />
+                        <DoorSearch initialHousehold={w.signed} cafeWaitingId={w.id} onCheckedIn={() => { setCheckingIn(null); load(true) }} />
                         <button type="button" onClick={() => setCheckingIn(null)} style={btn()}>Not now</button>
                       </div>
                     ) : asking === `remove:${w.id}` ? (

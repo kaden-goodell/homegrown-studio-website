@@ -158,9 +158,36 @@ async function cachedLegacyParties(fromIso: string, toIso: string): Promise<Busy
   return list
 }
 
+/**
+ * One Square-booked party for a staff route, remembered for a minute (a busy
+ * door taps the same party's roster again and again). A window This week
+ * already loaded answers first. When Square can't be asked, the last answer
+ * we had is used; with none, null (the crew see "not found", never a crash).
+ */
+const legacyPartyById = new Map<string, { at: number; party: Busy | null }>()
+async function cachedLegacyParty(id: string): Promise<Busy | null> {
+  const hit = legacyPartyById.get(id)
+  if (hit && Date.now() - hit.at < WORKSHOP_CACHE_MS) return hit.party
+  for (const w of legacyPartyCache.values()) {
+    if (Date.now() - w.at >= WORKSHOP_CACHE_MS) continue
+    const inList = w.list.find((b) => b.id === id)
+    if (inList) return inList
+  }
+  try {
+    const party = await legacyStaffParty(id)
+    if (legacyPartyById.size > 200) legacyPartyById.clear()
+    legacyPartyById.set(id, { at: Date.now(), party })
+    return party
+  } catch (err) {
+    logger.error('Square-booked party lookup failed', { id, error: String(err) })
+    return hit?.party ?? null
+  }
+}
+
 /** Forget remembered Square lists (tests). */
 export function resetEventCaches(): void {
   legacyPartyCache.clear()
+  legacyPartyById.clear()
   workshopCache = null
 }
 
@@ -227,14 +254,21 @@ async function getOwnEvent(id: string, now: Date): Promise<StudioEvent | null> {
   return ownClassEvent(cls, await getLedger(cls.id), now)
 }
 
-export async function getEvent(kind: EventKind, id: string, opts: { now?: Date } = {}): Promise<StudioEvent | null> {
+/**
+ * One event by kind and id. `squareParties: true` (staff routes only) also
+ * finds a party booked in Square that we hold no record of; without it (the
+ * public waiver page and sign.json) such a link is simply unknown, so a
+ * family can always sign the general agreement and Square is never asked.
+ */
+export async function getEvent(kind: EventKind, id: string, opts: { now?: Date; squareParties?: boolean } = {}): Promise<StudioEvent | null> {
   // Our own classes (cls_ ids) never reach Square; legacy Square ids never start with cls_.
   if (kind === 'workshop' && isOwnClassId(id)) return getOwnEvent(id, opts.now ?? new Date())
   if (kind === 'party') {
     const p = await getPartyRecord(id)
     if (p) return partyEvent(id, p, await getEventMeta('party', id))
-    // No record of ours: a party booked in Square (its roster still opens; read only).
-    const legacy = await legacyStaffParty(id)
+    // No record of ours: on staff routes, a party booked in Square (its roster still opens; read only).
+    if (!opts.squareParties) return null
+    const legacy = await cachedLegacyParty(id)
     return legacy ? legacyPartyEvent(legacy, await getEventMeta('party', id)) : null
   }
   if (kind === 'workshop') {

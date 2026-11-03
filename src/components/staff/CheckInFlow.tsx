@@ -82,8 +82,7 @@ export default function CheckInFlow({
         )}
         {todayEvents !== null && events.length === 0 && !cafeOpen && (
           <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', margin: '0 0 0.5rem' }}>
-            Nothing on today.{' '}
-            <button type="button" onClick={() => setChoice({ type: 'cafe' })} style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.875rem' }}>Log a walk-in visit anyway</button>
+            Nothing on today. Walk-ins are checked in on Craft Café days only — ask Catherine or Kaden to add a special day.
           </p>
         )}
       </div>

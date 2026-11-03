@@ -46,7 +46,7 @@ export const POST: APIRoute = async ({ request }) => {
   let event
   let waiver
   try {
-    event = await getEvent(kind as DoorKind, id)
+    event = await getEvent(kind as DoorKind, id, { squareParties: true })
     waiver = await getWaiverRecord(recordId)
   } catch (err) {
     logger.error('Event/waiver lookup failed', { error: String(err) })

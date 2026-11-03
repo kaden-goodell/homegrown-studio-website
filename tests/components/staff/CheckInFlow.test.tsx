@@ -19,11 +19,10 @@ describe('CheckInFlow', () => {
     expect(screen.getByRole('button', { name: /Craft Café \(walk-in\)/ })).toBeTruthy()
   })
 
-  it('an empty day still allows logging a walk-in', () => {
+  it('a day with nothing on and no Craft Café: no walk-in check-in, and how to get one', () => {
     render(<CheckInFlow todayEvents={[]} cafeOpen={false} />)
-    expect(screen.getByText(/Nothing on today/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Log a walk-in visit anyway' }))
-    expect(screen.getByRole('button', { name: '← Craft Café' })).toBeTruthy()
+    expect(screen.getByText(/Nothing on today/)).toHaveTextContent('Walk-ins are checked in on Craft Café days only — ask Catherine or Kaden to add a special day.')
+    expect(screen.queryByRole('button', { name: /walk-in/i })).toBeNull()
   })
 
   it('a chosen class adds the found family to that class, then points at Sell a seat', async () => {

@@ -216,6 +216,7 @@ export class SquareBookingProvider implements BookingProvider {
     return {
       id: bookingId,
       status: mapStatus(sqBooking.status ?? 'PENDING'),
+      ...(sqBooking.status ? { squareStatus: String(sqBooking.status) } : {}),
       slot: {
         id: details.slotId,
         startAt,
@@ -273,6 +274,7 @@ export class SquareBookingProvider implements BookingProvider {
     return {
       id: sqBooking.id!,
       status: mapStatus(sqBooking.status ?? 'PENDING'),
+      ...(sqBooking.status ? { squareStatus: String(sqBooking.status) } : {}),
       slot: {
         id: generateSlotId(startAt, sqBooking.locationId ?? ''),
         startAt,
@@ -359,6 +361,7 @@ export class SquareBookingProvider implements BookingProvider {
       results.push({
         id: bookingId,
         status: mapStatus(sqBooking.status ?? 'PENDING'),
+      ...(sqBooking.status ? { squareStatus: String(sqBooking.status) } : {}),
         slot: {
           id: generateSlotId(startAt, sqBooking.locationId ?? params.locationId),
           startAt,

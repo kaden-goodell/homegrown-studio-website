@@ -39,6 +39,8 @@ export interface Booking {
   version?: number
   /** The note saved with the booking (the party flow keeps its craft and attempt ID here). */
   customerNote?: string
+  /** Square's own status word (ACCEPTED, PENDING, DECLINED, NO_SHOW, CANCELLED_BY_…), when the booking came from Square. */
+  squareStatus?: string
 }
 
 export interface BookingWithMetadata extends Booking {

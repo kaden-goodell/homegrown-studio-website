@@ -46,6 +46,18 @@ export interface CafeWaiting {
   by: By
   /** Digits only, texted families: finds their waiver once signed. Never sent to the browser. */
   phone?: string
+  /** Texted families: whether the last text went (false: it didn't, so a retry sends again). */
+  sent?: boolean
+  /** Signed on this iPad: their waiver, so the list finds them even when the check-in didn't go through. */
+  recordId?: string
+}
+
+/** "Waiting on a waiver" already holds WAITING_CAP families today: nobody new is added (or texted). */
+export class CafeWaitingFullError extends Error {
+  constructor() {
+    super('Craft Café waiting list is full')
+    this.name = 'CafeWaitingFullError'
+  }
 }
 
 export interface CafeTotals {
@@ -71,14 +83,20 @@ export async function getOpenStudioDay(date: string): Promise<OpenStudioDay> {
   return json ? JSON.parse(json) : {}
 }
 
-/** One CAS read-modify-write of a day's document; `change` returns null to write nothing. */
-async function changeDoc<T, R>(k: string, empty: T, change: (cur: T) => { next: T; result: R } | null): Promise<R | null> {
+/**
+ * One CAS read-modify-write of a day's document. `change` returns null to
+ * write nothing (and get null), or a `result` with no `next` to write nothing
+ * but still answer (read from the same document it looked at: no second read
+ * another iPad could change in between).
+ */
+async function changeDoc<T, R>(k: string, empty: T, change: (cur: T) => { next?: T; result: R } | null): Promise<R | null> {
   for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
     await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(k)
     const cur: T = value ? JSON.parse(value) : empty
     const out = change(cur)
     if (!out) return null
+    if (out.next === undefined) return out.result
     if (await kv.setIfMatch(k, JSON.stringify(out.next), etag, value !== null)) return out.result
     // Lost the CAS race — retry
   }
@@ -154,7 +172,9 @@ export async function getCafeWaiting(date: string): Promise<CafeWaiting[]> {
 /**
  * Add a family to "Waiting on a waiver". A texted family already waiting
  * (same phone) isn't added twice: the existing entry comes back with
- * `existing: true`, so a double tap never texts twice.
+ * `existing: true` (its `sent` says whether their text went, so a failed one
+ * can be sent again). Throws CafeWaitingFullError once WAITING_CAP families
+ * wait: nobody is dropped to make room.
  */
 export async function addCafeWaiting(
   date: string,
@@ -163,13 +183,40 @@ export async function addCafeWaiting(
 ): Promise<{ entry: CafeWaiting; existing: boolean }> {
   const out = await changeDoc<CafeWaiting[], { entry: CafeWaiting; existing: boolean }>(waitingKey(date), [], (cur) => {
     const same = w.phone ? cur.find((x) => x.phone === w.phone) : undefined
-    if (same) return null
+    if (same) return { result: { entry: same, existing: true } }
+    if (cur.length >= WAITING_CAP) throw new CafeWaitingFullError()
     const entry: CafeWaiting = { id: `cw_${randomUUID().slice(0, 8)}`, at: now.toISOString(), ...w }
-    return { next: [...cur, entry].slice(-WAITING_CAP), result: { entry, existing: false } }
+    return { next: [...cur, entry], result: { entry, existing: false } }
   })
-  if (out) return out
-  const same = (await getCafeWaiting(date)).find((x) => x.phone === w.phone)!
-  return { entry: same, existing: true }
+  return out!
+}
+
+/** Save whether a waiting family's text went. Nothing when they're gone from the list. */
+export async function markCafeWaitingSent(date: string, id: string, sent: boolean): Promise<void> {
+  await changeDoc<CafeWaiting[], true>(waitingKey(date), [], (cur) => {
+    const i = cur.findIndex((x) => x.id === id)
+    if (i < 0 || cur[i].sent === sent) return null
+    const next = cur.slice()
+    next[i] = { ...cur[i], sent }
+    return { next, result: true }
+  })
+}
+
+/**
+ * A family signed on this iPad: remember their waiver on their waiting entry,
+ * and their name when the crew typed none ("New family" → "Jane Doe"), so the
+ * row turns "✓ Signed" even when the iPad's check-in didn't go through.
+ */
+export async function setCafeWaitingSigned(date: string, id: string, signed: { recordId: string; name: string }): Promise<boolean> {
+  const out = await changeDoc<CafeWaiting[], true>(waitingKey(date), [], (cur) => {
+    const i = cur.findIndex((x) => x.id === id)
+    if (i < 0) return null
+    const unnamed = !cur[i].name.trim() || cur[i].name.trim().toLowerCase() === 'new family'
+    const next = cur.slice()
+    next[i] = { ...cur[i], recordId: signed.recordId, ...(unnamed && signed.name.trim() ? { name: signed.name.trim() } : {}) }
+    return { next, result: true }
+  })
+  return out === true
 }
 
 /** Take families off "Waiting on a waiver" (checked in, or the crew tapped Remove). The ones removed. */
@@ -187,11 +234,13 @@ export async function removeCafeWaiting(date: string, ids: string[]): Promise<Ca
  * Does a signed waiver belong to a waiting family? Signed after they were
  * started (a few minutes' slack for clocks), and the same phone, or the same
  * name typed by the crew (full name, or just the last name when that's all
- * they typed). An entry with no name typed only matches by its id.
+ * they typed; `lastNameOnly: false` leaves that out, for clearing the list on
+ * a check-in). An entry with no name typed only matches by its id.
  */
 export function waitingMatches(
   w: Pick<CafeWaiting, 'name' | 'phone' | 'at'>,
   signed: { firstName: string; lastName: string; phone: string; signedAt: string },
+  opts: { lastNameOnly?: boolean } = {},
 ): boolean {
   if (Date.parse(signed.signedAt) < Date.parse(w.at) - 10 * 60_000) return false
   const digits = signed.phone.replace(/\D/g, '').slice(-10)
@@ -200,5 +249,5 @@ export function waitingMatches(
   const typed = norm(w.name)
   if (!typed || typed === 'new family') return false
   const full = norm(`${signed.firstName} ${signed.lastName}`)
-  return typed === full || typed === norm(signed.lastName)
+  return typed === full || (opts.lastNameOnly !== false && typed === norm(signed.lastName))
 }

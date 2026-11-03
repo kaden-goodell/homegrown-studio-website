@@ -58,12 +58,19 @@ export function activityWhat(e: Pick<AuditEntry, 'action' | 'target' | 'details'
       if (d.dropOff === true) return `Turned drop-off on for ${label || 'an event'}`
       return `Changed the settings of ${label || 'an event'}`
     case 'checkin.here':
-      if (d.where === 'craft-cafe') return `Checked ${label || 'a family'} in at Craft Café${typeof d.people === 'number' ? ` (${d.people} ${d.people === 1 ? 'person' : 'people'})` : ''}`
+      if (d.where === 'craft-cafe') return `Checked ${label || 'a family'} in at Craft Café${typeof d.people === 'number' ? ` (${d.people} ${d.people === 1 ? 'person' : 'people'})` : ''}${d.anyway ? ', anyway: their waiver needs signing again' : ''}`
       return label ? `Checkin here: ${label}` : 'Checkin here'
     case 'checkin.undone':
       if (d.where === 'craft-cafe') return `Took ${label || 'a family'} off the Craft Café list (Undo)`
       return label ? `Checkin undone: ${label}` : 'Checkin undone'
     case 'waiver.started': return `Started ${label || 'a new family'} on a waiver at Craft Café (${d.how === 'qr' ? 'QR code' : 'on the iPad'})`
+    case 'waiver-link.sent':
+      if (d.where === 'craft-cafe') {
+        return d.sent === false
+          ? `Tried to text ${label || 'a family'} the waiver link for Craft Café (it didn’t send)`
+          : `Texted ${label || 'a family'} the waiver link for Craft Café${d.retry ? ' (again, the first text didn’t send)' : ''}`
+      }
+      return label ? `Waiver link sent: ${label}` : 'Waiver link sent'
     case 'waiver.waiting-removed': return `Took ${label || 'a family'} off “Waiting on a waiver”`
     case 'staff.switched': return `Switched person (${label})`
     case 'staff.signed-in': return 'Signed in to /staff'

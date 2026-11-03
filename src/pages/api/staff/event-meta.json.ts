@@ -101,14 +101,14 @@ export const POST: APIRoute = async ({ request }) => {
     // Confirm the event resolves BEFORE writing — a typo'd/stale id used to
     // leave an orphan meta overlay behind (written, then 404'd on the read
     // back) that nothing would ever surface or clean up.
-    const before = await getEvent(kind, id)
+    const before = await getEvent(kind, id, { squareParties: true })
     if (!before) return bad("We couldn't find that event.", 404)
     // Our own classes keep their settings on the class itself.
     if (before.own) return bad('Change this class on /admin.', 409)
     // Mid-event, only an owner can take the pickup-code rule away.
     if (patch.dropOff === false && staff.role !== 'owner' && dropOffLocked(before)) return bad(DROP_OFF_LOCKED_MSG, 409)
     await setEventMeta(kind, id, patch, byOf(staff))
-    const event = await getEvent(kind, id)
+    const event = await getEvent(kind, id, { squareParties: true })
     if (!event) return bad("We couldn't find that event.", 404)
     // N3: drop-off is logged (and a crew "off" heads-up sent) only when it actually changed.
     const dropOffChanged = patch.dropOff !== undefined && before.dropOff !== patch.dropOff
@@ -143,7 +143,7 @@ export const GET: APIRoute = async ({ request, url }) => {
   if (!parsed) return bad('Missing or invalid kind/id')
 
   try {
-    const event = await getEvent(parsed.kind, parsed.id)
+    const event = await getEvent(parsed.kind, parsed.id, { squareParties: true })
     if (!event) return bad("We couldn't find that event.", 404)
     return new Response(JSON.stringify({ data: event }), { status: 200, headers: { 'Content-Type': 'application/json' } })
   } catch {

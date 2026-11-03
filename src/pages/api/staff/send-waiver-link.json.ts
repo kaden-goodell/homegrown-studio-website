@@ -58,7 +58,7 @@ export const POST: APIRoute = async ({ request }) => {
   if ((!recordId && !email) || !KIND_RE.test(kind) || !id) return json({ error: 'Missing recordId/kind/id' }, 400)
 
   try {
-    const [waiver, event] = await Promise.all([recordId ? getWaiverRecord(recordId) : Promise.resolve(null), getEvent(kind as EventKind, id)])
+    const [waiver, event] = await Promise.all([recordId ? getWaiverRecord(recordId) : Promise.resolve(null), getEvent(kind as EventKind, id, { squareParties: true })])
     if (recordId && !waiver) return json({ error: 'Household not found' }, 404)
     if (!event) return json({ error: 'Event not found' }, 404)
     const booked = !recordId && kind === 'workshop' ? await bookedContact(event, email) : null

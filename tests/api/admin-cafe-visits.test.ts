@@ -4,6 +4,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const busy = vi.hoisted(() => ({ items: [] as any[] }))
 vi.mock('@lib/classes/studio-schedule', async (orig) => ({ ...(await orig<any>()), busyBetween: async () => busy.items }))
+// Which days Craft Café runs (the owners' hours): every day, unless a test says otherwise.
+const cafe = vi.hoisted(() => ({ off: new Set<string>() }))
+vi.mock('@lib/cafe-days', async (orig) => ({ ...(await orig<any>()), cafeOn: (d: string) => (cafe.off.has(d) ? null : { opens: '09:00', closes: '13:00' }) }))
 vi.mock('@lib/classes/class-store', async (orig) => ({ ...(await orig<any>()), listClasses: async () => [] }))
 
 import * as visitsRoute from '@pages/api/admin/cafe-visits.json'
@@ -23,7 +26,7 @@ const BY = { id: 's', name: 'Sam' }
 /** A month nobody else's test touches (the store is the real one, on disk), long past. */
 const freshMonth = () => `${1200 + Math.floor(Math.random() * 600)}-0${1 + Math.floor(Math.random() * 9)}`
 
-beforeEach(() => { vi.stubEnv('ADMIN_PASSCODE', 'owner-secret'); busy.items = [] })
+beforeEach(() => { vi.stubEnv('ADMIN_PASSCODE', 'owner-secret'); busy.items = []; cafe.off.clear() })
 afterEach(() => vi.unstubAllEnvs())
 
 describe('Craft Café visits for a month', () => {
@@ -42,6 +45,16 @@ describe('Craft Café visits for a month', () => {
       ],
       totals: { households: 3, people: 5, adults: 2, kids: 3 },
     })
+  })
+
+  it('counts Craft Café days only, the same days the Calendar shows', async () => {
+    const m = freshMonth()
+    await checkInOpenStudio(`${m}-03`, 'w1', ['adult'], BY)
+    await checkInOpenStudio(`${m}-04`, 'w2', ['adult', 'child:0'], BY)
+    cafe.off.add(`${m}-04`)
+    const r = await call(visitsRoute, `/x?month=${m}`)
+    expect(r.body.data.days.map((d: any) => d.date)).toEqual([`${m}-03`])
+    expect(r.body.data.totals).toEqual({ households: 1, people: 1, adults: 1, kids: 0 })
   })
 
   it('a day still to come is never read', async () => {

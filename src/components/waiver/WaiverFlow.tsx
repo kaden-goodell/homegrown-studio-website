@@ -141,6 +141,15 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   async function markArrived(recordId: string, people: string[]) {
     if (!kiosk || !recordId || people.length === 0) return
     const event = partyId ? { kind: 'party', id: partyId } : workshopId ? { kind: 'workshop', id: workshopId } : null
+    // A café family started from "Waiting on a waiver": that row learns their waiver (and name) first,
+    // so it turns "✓ Signed" even if the check-in below doesn't go through.
+    if (!event && cafeWaitingId) {
+      await fetch('/api/staff/cafe-waiting.json', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: cafeWaitingId, recordId }),
+      }).catch(() => null)
+    }
     try {
       const res = await fetch(event ? '/api/staff/rsvp.json' : '/api/staff/open-studio.json', {
         method: 'POST',

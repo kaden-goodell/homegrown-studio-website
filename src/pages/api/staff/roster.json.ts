@@ -44,7 +44,7 @@ export const GET: APIRoute = async ({ request, url }) => {
   // Storage throws (transient Blobs outage) become a 503 the client can retry;
   // the 404 is a plain return and never reaches the catch.
   try {
-    const event = await getEvent(kind as RosterKind, id)
+    const event = await getEvent(kind as RosterKind, id, { squareParties: true })
     if (!event) return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 })
 
     const day = resolveEventDay(event, dayParam)
