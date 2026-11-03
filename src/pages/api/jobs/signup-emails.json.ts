@@ -4,7 +4,7 @@ import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
 import { SITE_URL } from '@config/site-url'
-import { kindOpen } from '@lib/bookings-gate'
+import { kindOpenNow } from '@lib/bookings-gate'
 import { createLogger } from '@lib/logger'
 import { alertOwners } from '@lib/owner-alert'
 import { emailReady, sendSignupNewsEmail } from '@lib/email'
@@ -109,7 +109,10 @@ async function squareFact(w: Awaited<ReturnType<typeof providers.workshop.listWo
 }
 
 async function gatherFacts(now: Date): Promise<StudioFacts> {
-  const [bookingOpen, partiesOpen, workshopsOpen, kitsOpen] = await Promise.all([kindOpen(), kindOpen('parties'), kindOpen('workshops'), kindOpen('kits')])
+  const bookingOpen = await kindOpenNow()
+  const partiesOpen = await kindOpenNow('parties')
+  const workshopsOpen = await kindOpenNow('workshops')
+  const kitsOpen = await kindOpenNow('kits')
   const [workshops, openPartyStarts, ours, windowDays] = await Promise.all([
     providers.workshop.listWorkshops().catch((err) => {
       logger.error('Workshop list failed: no workshop email this time', { error: String(err) })
@@ -168,7 +171,7 @@ export const POST: APIRoute = async ({ request }) => {
   const today = now.toLocaleDateString('en-CA', { timeZone: partyConfig.timezone })
 
   // Nothing can be due while booking is closed and kits are off: ask nobody anything.
-  if (!(await kindOpen())) return json({ data: { bookingOpen: false, sent: 0, failed: 0, left: 0, waiting: null, dry } }, 200)
+  if (!(await kindOpenNow())) return json({ data: { bookingOpen: false, sent: 0, failed: 0, left: 0, waiting: null, dry } }, 200)
   if (!dry && !emailReady()) return json({ error: 'Email is not set up' }, 503)
 
   let facts: StudioFacts

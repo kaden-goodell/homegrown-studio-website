@@ -350,7 +350,7 @@ describe('More › Hours & Craft Café › Studio hours (G3)', () => {
     fireEvent.change(within(group('Sunday')).getByLabelText('Opens'), { target: { value: '10:00' } })
     expect(dirty()).toBe(true)
     fireEvent.click(button('Save studio hours'))
-    expect(await screen.findByText('Studio hours saved. The website shows them now.')).toBeInTheDocument()
+    expect(await screen.findByText('Studio hours saved. The website shows them within a minute or two.')).toBeInTheDocument()
     const body = posts(f, SETTINGS)[0].body
     expect(body.studioWeekly).toEqual([
       { weekday: 'Wednesday', opens: '16:00', closes: '21:00' },

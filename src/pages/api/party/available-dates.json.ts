@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
+import { bookingsOpenNow, bookingsClosedResponse } from '@lib/bookings-gate'
 import { localDate } from '@lib/party-slots'
 import { partyStartsInWindow, PARTY_TIMES_UNREADABLE } from '@lib/parties/open-times'
 import { createLogger } from '@lib/logger'
@@ -17,7 +17,7 @@ const json = (body: unknown, status = 200) =>
  * be read the answer is 503 and no date is shown (never "every date").
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!await bookingsOpen(request, 'parties')) return await bookingsClosedResponse()
+  if (!await bookingsOpenNow(request, 'parties')) return await bookingsClosedResponse()
   const startTime = Date.now()
   let body: any = {}
   try {

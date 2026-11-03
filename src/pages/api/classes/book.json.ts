@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
+import { bookingsOpenNow, bookingsClosedResponse } from '@lib/bookings-gate'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { providers } from '@config/providers'
@@ -68,7 +68,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   // R41: a test site with no store of its own never books (or simulates paying for) a live seat.
   const testSite = classWritesRefusal(request)
   if (testSite) return fail(503, 'unavailable', testSite)
-  if (!door && !await bookingsOpen(request, 'workshops')) return await bookingsClosedResponse()
+  if (!door && !await bookingsOpenNow(request, 'workshops')) return await bookingsClosedResponse()
   if (!door && rateLimited(`class-book:${clientAddress}`, 5, 60_000)) {
     return fail(429, 'unavailable', 'That’s a lot of attempts in a row. Give it a minute, then try again.')
   }

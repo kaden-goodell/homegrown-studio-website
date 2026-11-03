@@ -7,10 +7,9 @@ import WhatsOnCalendar from '@components/calendar/WhatsOnCalendar'
 import { bookingPageGate } from '@lib/bookings-gate'
 
 // Only promise "tap to book" when tapping can actually book.
-const [partyGate, workshopGate] = await Promise.all([
-  bookingPageGate({ url: Astro.url, request: Astro.request }, 'parties'),
-  bookingPageGate({ url: Astro.url, request: Astro.request }, 'workshops'),
-])
+const partyGate = await bookingPageGate({ url: Astro.url, request: Astro.request, setCookie: (n, v, o) => Astro.cookies.set(n, v, o) }, 'parties')
+if (partyGate.redirect) return Astro.redirect(partyGate.redirect, 302) // the test link: cookie set, secret out of the address
+const workshopGate = await bookingPageGate({ url: Astro.url, request: Astro.request }, 'workshops')
 const partiesOpen = partyGate.open
 const workshopsOpen = workshopGate.open
 

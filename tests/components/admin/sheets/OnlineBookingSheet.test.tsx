@@ -113,6 +113,14 @@ describe('More › Online booking', () => {
   })
 })
 
+describe('Online booking › a switch that couldn’t be read', () => {
+  it('says the website treats everything as paused and how to set it again', async () => {
+    vi.stubGlobal('fetch', server(base({ open: { parties: false, workshops: false, kits: false }, source: 'unreadable', updatedAt: null, previewToken: '' })))
+    renderSheet(<OnlineBookingSheet />)
+    expect(await screen.findByText(/couldn’t be read, so the website is treating everything as paused/)).toBeInTheDocument()
+  })
+})
+
 describe('Home › paused online', () => {
   it('says what is paused, since when and by whom, with the button', async () => {
     const onOpen = vi.fn()
@@ -121,7 +129,7 @@ describe('Home › paused online', () => {
       history: [{ at: '2026-11-03T21:10:00.000Z', by: { id: 'owner-catherine', name: 'Catherine' }, changed: ['Paused parties'] }],
     })))
     render(<HomeBookingPaused onOpen={onOpen} />)
-    expect(await screen.findByText('Parties are paused online since Tue 3:10 PM (Catherine).')).toBeInTheDocument()
+    expect(await screen.findByText('Parties are paused online since Tue Nov 3, 3:10 PM (Catherine).')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Open online booking' }))
     expect(onOpen).toHaveBeenCalledWith({ kind: 'more', page: 'booking' })
   })

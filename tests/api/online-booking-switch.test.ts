@@ -128,7 +128,7 @@ describe('every public booking path respects the switch', () => {
 
   it('the public calendar offers no party times while parties are paused', async () => {
     await setSwitch({ parties: false })
-    const { bookingsOpen } = await import('@lib/bookings-gate')
-    expect(await bookingsOpen(new Request('https://x.test/api/calendar.json'), 'parties')).toBe(false)
+    const { bookingsOpenNow } = await import('@lib/bookings-gate')
+    expect(await bookingsOpenNow(new Request('https://x.test/api/calendar.json'), 'parties')).toBe(false)
   })
 })

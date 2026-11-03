@@ -22,7 +22,7 @@ export interface OnlineBookingView {
   pauseNote: string
   pauseNoteWritten: string
   previewToken: string
-  source: 'saved' | 'setup'
+  source: 'saved' | 'setup' | 'unreadable'
   updatedAt: string | null
   by: By | null
   history: { at: string; by: By; changed: string[] }[]
@@ -40,9 +40,12 @@ const OPEN_LABEL: Record<Kind, string> = { parties: 'Open parties', workshops: '
 const PAGE: Record<Kind, string> = { parties: '/book', workshops: '/workshops', kits: '/kits' }
 const STALE = 'Someone else changed online booking. Check it and save again.'
 
-/** "Tue 3:10 PM" by the studio's clock. */
+/** "Tue Nov 3, 3:10 PM" by the studio's clock (the date too, so last week's pause isn't mistaken for today's). */
 export function whenLabel(iso: string): string {
-  return new Date(iso).toLocaleString('en-US', { timeZone: 'America/Chicago', weekday: 'short', hour: 'numeric', minute: '2-digit' })
+  const d = new Date(iso)
+  const day = d.toLocaleString('en-US', { timeZone: 'America/Chicago', weekday: 'short', month: 'short', day: 'numeric' }).replace(',', '')
+  const time = d.toLocaleString('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit' })
+  return `${day}, ${time}`
 }
 
 /** The kinds paused right now (kits only while kits exist). */
@@ -159,7 +162,9 @@ function OnlineBookingForm({ v, setV }: { v: OnlineBookingView; setV: (v: Online
       <p className="adm-small adm-muted adm-gap-bottom">
         {v.source === 'setup'
           ? 'From the site setup. The first change you make here takes over.'
-          : `Set on this screen${v.by && v.updatedAt ? ` · last change by ${v.by.name}, ${whenLabel(v.updatedAt)}` : ''}.`}
+          : v.source === 'unreadable'
+            ? 'The saved setting couldn’t be read, so the website is treating everything as paused. Choose Open or Paused below to set it again.'
+            : `Set on this screen${v.by && v.updatedAt ? ` · last change by ${v.by.name}, ${whenLabel(v.updatedAt)}` : ''}.`}
       </p>
 
       {kinds.map((k) => {

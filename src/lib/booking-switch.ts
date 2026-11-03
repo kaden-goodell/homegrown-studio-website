@@ -9,7 +9,8 @@
  *
  * Until an owner first saves, there is no document and the BOOKINGS_OPEN and
  * PREVIEW_TOKEN settings apply exactly as before. Once saved, the document
- * wins over both. Every booking path asks through bookings-gate.ts, which
+ * wins over both. If the store can't be read on a server with no earlier
+ * answer, every kind reads as paused (fails closed), never the env. Every booking path asks through bookings-gate.ts, which
  * reads this at request time (remembered for 30 seconds per server instance;
  * a save replaces it at once on the instance that saved), so no redeploy.
  *
@@ -68,8 +69,12 @@ export interface SwitchState {
   /** The note as written ('' = the default is showing). */
   pauseNoteWritten: string
   previewToken: string
-  /** 'saved' once an owner saved here; 'setup' = still the site's hosting settings. */
-  source: 'saved' | 'setup'
+  /**
+   * 'saved' once an owner saved here; 'setup' = still the site's hosting
+   * settings; 'unreadable' = the saved switch couldn't be read and this server
+   * had no earlier answer, so every kind is treated as paused (fails closed).
+   */
+  source: 'saved' | 'setup' | 'unreadable'
   updatedAt: string | null
   by: By | null
   history: SwitchChange[]
@@ -135,12 +140,53 @@ export function stateOf(doc: SwitchDoc | null): SwitchState {
   }
 }
 
+/** What customers read while the switch can't be read (fail closed). */
+export function hiccupPauseNote(): string {
+  return `Online booking is having a hiccup. Try again in a minute, or call or text us at ${siteConfig.contactPhone}.`
+}
+
+/**
+ * The state when the saved switch can't be read and nothing is remembered:
+ * every switched kind paused, no test link. Never the hosting settings, because
+ * a save may well have happened (the stored value being there at all is the
+ * marker that one did).
+ */
+export function unreadableState(): SwitchState {
+  const note = hiccupPauseNote()
+  return {
+    open: { parties: false, workshops: false, kits: false },
+    pauseNote: note,
+    pauseNoteWritten: '',
+    previewToken: '',
+    source: 'unreadable',
+    updatedAt: null,
+    by: null,
+    history: [],
+  }
+}
+
 // ---------------------------------------------------------------- reading
 
+/** A stored value that is there but isn't a switch document (a save happened; it was damaged). */
+export class CorruptSwitchError extends Error {
+  constructor() { super('The saved online booking switch is damaged') }
+}
+
+/**
+ * null only when nothing was ever saved (no value, or the blank tests reset
+ * to). Anything else that isn't a switch document throws: a damaged document
+ * must never read as "never saved" (that would hand control back to
+ * BOOKINGS_OPEN after Catherine paused).
+ */
 function parse(json: string | null): SwitchDoc | null {
-  if (!json) return null
-  const d = JSON.parse(json)
-  if (!d || typeof d !== 'object' || !d.open || typeof d.updatedAt !== 'string') return null
+  if (json == null || json === '') return null
+  let d: any
+  try {
+    d = JSON.parse(json)
+  } catch {
+    throw new CorruptSwitchError()
+  }
+  if (!d || typeof d !== 'object' || !d.open || typeof d.open !== 'object' || typeof d.updatedAt !== 'string') throw new CorruptSwitchError()
   return {
     v: 1,
     open: { parties: d.open.parties === true, workshops: d.open.workshops === true, kits: d.open.kits === true },
@@ -155,33 +201,40 @@ function parse(json: string | null): SwitchDoc | null {
 let cached: { at: number; doc: SwitchDoc | null } | null = null
 
 /**
- * The saved switch document (null = never saved: the env applies). Remembered
- * for 30 seconds. When the store can't be read: the last answer this server
- * had, or, with none, null (the env, as before this existed), logged.
+ * What's in force now. The saved document is remembered for 30 seconds (null =
+ * never saved: the hosting settings apply). When the store can't be read, or
+ * holds a damaged document: the last answer this server had; with none (a
+ * fresh server), every kind is PAUSED with the hiccup note. It fails closed,
+ * never back to BOOKINGS_OPEN. Logged.
  */
-export async function readSwitchDoc(opts: { fresh?: boolean } = {}): Promise<SwitchDoc | null> {
+export async function getSwitchState(opts: { fresh?: boolean } = {}): Promise<SwitchState> {
   const now = Date.now()
-  if (cached && !opts.fresh && now - cached.at < SWITCH_CACHE_MS) return cached.doc
+  if (cached && !opts.fresh && now - cached.at < SWITCH_CACHE_MS) return stateOf(cached.doc)
   try {
     const doc = parse(await kv.get(KEY))
     cached = { at: now, doc }
-    return doc
+    return stateOf(doc)
   } catch (e) {
     logger.error('Online booking switch could not be read', { error: e instanceof Error ? e.message : String(e) })
-    return cached ? cached.doc : null
+    return cached ? stateOf(cached.doc) : unreadableState()
   }
 }
 
-/** What's in force now. */
-export async function getSwitchState(opts: { fresh?: boolean } = {}): Promise<SwitchState> {
-  return stateOf(await readSwitchDoc(opts))
-}
-
-/** For /admin: read straight from the store, throwing when it can't be read. */
+/**
+ * For /admin: read straight from the store, throwing when it can't be read. A
+ * damaged document shows as everything paused (source 'unreadable'), so an
+ * owner can save over it.
+ */
 export async function getSwitchStateStrict(): Promise<SwitchState> {
-  const doc = parse(await kv.get(KEY))
-  cached = { at: Date.now(), doc }
-  return stateOf(doc)
+  const raw = await kv.get(KEY)
+  try {
+    const doc = parse(raw)
+    cached = { at: Date.now(), doc }
+    return stateOf(doc)
+  } catch (e) {
+    if (e instanceof CorruptSwitchError) return unreadableState()
+    throw e
+  }
 }
 
 /** Forget the remembered answer (tests). */
@@ -240,8 +293,8 @@ export class StaleSwitchError extends SettingsError {
  * Saves the switch. `expectedUpdatedAt` is what the owner loaded (null while
  * the hosting settings were in force); anything newer is refused as stale.
  * The first save starts from what was in force, so nothing changes that the
- * owner didn't change. The switch's own test link is made on the first save,
- * and from then on links made with PREVIEW_TOKEN no longer unlock anything.
+ * owner didn't change, the test link included: the PREVIEW_TOKEN secret is
+ * carried over (a new secret is made only when there was none, or on request).
  */
 export async function saveSwitches(
   input: SwitchInput,
@@ -250,11 +303,22 @@ export async function saveSwitches(
   assertClassWritesAllowed() // R41: a test site never writes the live switch
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     const { value, etag } = await kv.getWithMeta(KEY)
-    const cur = parse(value)
-    const before = stateOf(cur)
+    let cur: SwitchDoc | null
+    let damaged = false
+    try {
+      cur = parse(value)
+    } catch (e) {
+      if (!(e instanceof CorruptSwitchError)) throw e
+      cur = null // a damaged document: the owner's save replaces it (she saw it as everything paused)
+      damaged = true
+    }
+    const before = damaged ? unreadableState() : stateOf(cur)
     if ((cur?.updatedAt ?? null) !== (opts.expectedUpdatedAt ?? null)) throw new StaleSwitchError(before)
-    // The switch's own test link: made on the first save (PREVIEW_TOKEN links stop then), or on request.
-    const token = input.newTestLink || !cur?.previewToken ? newToken() : cur.previewToken
+    // The test link: the first save keeps the PREVIEW_TOKEN link that was in
+    // force (so a link Catherine already copied keeps working); a new one only
+    // on request, or when there was none.
+    const carried = cur ? cur.previewToken : damaged ? '' : envPreviewToken()
+    const token = input.newTestLink || !carried ? newToken() : carried
     const changed = describeSwitchChanges(before, { open: input.open, pauseNoteWritten: input.pauseNote, newTestLink: !!input.newTestLink })
     const now = opts.now ?? new Date()
     const stamp = cur && now.toISOString() <= cur.updatedAt ? new Date(Date.parse(cur.updatedAt) + 1).toISOString() : now.toISOString()

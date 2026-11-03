@@ -25,6 +25,7 @@ const kitsLive = siteConfig.features.kits.enabled
 // parties are paused the live booking flow is hidden and the pause note shows;
 // the owners' test link (?preview=…) unlocks this browser.
 const gate = await bookingPageGate({ url: Astro.url, request: Astro.request, setCookie: (n, v, o) => Astro.cookies.set(n, v, o) }, 'parties')
+if (gate.redirect) return Astro.redirect(gate.redirect, 302) // the test link: cookie set, secret out of the address
 const bookingsOpen = gate.open
 
 // While booking is closed the page offers a "tell me when it opens" sign-up.

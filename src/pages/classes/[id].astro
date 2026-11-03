@@ -33,6 +33,7 @@ if (!workshop) Astro.response.status = failed ? 503 : 404
 
 // The owners' online booking switch; their test link unlocks this browser.
 const gate = await bookingPageGate({ url: Astro.url, request: Astro.request, setCookie: (n, v, o) => Astro.cookies.set(n, v, o) }, 'workshops')
+if (gate.redirect) return Astro.redirect(gate.redirect, 302) // the test link: cookie set, secret out of the address
 const bookingsOpen = gate.open
 Astro.response.headers.set('Cache-Control', 'private, no-store')
 

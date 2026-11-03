@@ -461,7 +461,7 @@ function StudioHoursForm({ view, save, toast, cafeWeekly, onDirty }: {
     if (!r.ok) return setError(r.error)
     setRows([...r.data.settings.studioWeekly].sort(byWeek))
     setSavedNote(true)
-    toast('Studio hours saved. The website shows them now.')
+    toast('Studio hours saved. The website shows them within a minute or two.')
   }
 
   return (

@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { randomUUID } from 'node:crypto'
-import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
+import { bookingsOpenNow, bookingsClosedResponse } from '@lib/bookings-gate'
 import { rateLimited } from '@lib/rate-limit'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 import { isAttemptId, type CheckoutErrorCode } from '@lib/checkout-attempt'
@@ -21,7 +21,7 @@ import { getPartyRecord, type PartyCharge, type PartyRecord } from '@lib/party-s
  * no `packageId`) books the default package.
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
-  const open = await bookingsOpen(request, 'parties')
+  const open = await bookingsOpenNow(request, 'parties')
   if (open && rateLimited(`party-book:${clientAddress}`, 5, 60_000)) {
     return errorResponse('Too many booking attempts — give it a minute.', 429)
   }

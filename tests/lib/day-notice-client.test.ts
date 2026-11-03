@@ -102,3 +102,26 @@ describe('a day announced on /admin after the page was built (G9)', () => {
     expect(document.querySelector('[data-day-notice="bar"][data-date="2026-11-07"] [data-day-notice-headline]')!.textContent).toBe('Grand Opening!')
   })
 })
+
+describe('two announced days with overlapping windows (I5)', () => {
+  const DEC5 = { date: '2026-12-05', headline: 'Ornament Day', weekday: 'SAT', monthDay: 'DEC 5', shortDate: 'Sat Dec 5', hours: '9 AM – 4 PM', regularHours: '', showFromIso: '2026-11-21T06:00:00.000Z', showUntilIso: '2026-12-05T22:00:00.000Z' }
+  const DEC12 = { date: '2026-12-12', headline: 'Holiday Market Day', weekday: 'SAT', monthDay: 'DEC 12', shortDate: 'Sat Dec 12', hours: '10 AM – 4 PM', regularHours: '', showFromIso: '2026-11-28T06:00:00.000Z', showUntilIso: '2026-12-12T22:00:00.000Z' }
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <template data-day-notice-template="bar"><a data-day-notice="bar" hidden><strong data-day-notice-headline></strong></a></template>
+      <template data-day-notice-template="card"><section data-day-notice="card" hidden><span data-day-notice-headline></span></section></template>`
+  })
+  const shown = (kind: string) => [...document.querySelectorAll<HTMLElement>(`[data-day-notice="${kind}"]`)].filter((el) => !el.hidden).map((el) => el.dataset.date)
+
+  it('shows only the sooner day’s bar and card while both windows are open (given in either order)', () => {
+    applyLiveDayNotices([DEC12, DEC5], Date.parse('2026-12-01T18:00:00Z'), '/')
+    expect(shown('bar')).toEqual(['2026-12-05'])
+    expect(shown('card')).toEqual(['2026-12-05'])
+  })
+
+  it('once the sooner day is over, the later one takes its place', () => {
+    applyLiveDayNotices([DEC5, DEC12], Date.parse('2026-12-06T18:00:00Z'), '/')
+    expect(shown('bar')).toEqual(['2026-12-12'])
+    expect(shown('card')).toEqual(['2026-12-12'])
+  })
+})

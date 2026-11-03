@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
+import { bookingsOpenNow, bookingsClosedResponse } from '@lib/bookings-gate'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { siteConfig } from '@config/site.config'
@@ -114,7 +114,7 @@ async function agreementLineFor(email: string): Promise<string | undefined> {
 }
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
-  if (!await bookingsOpen(request, 'kits')) return await bookingsClosedResponse()
+  if (!await bookingsOpenNow(request, 'kits')) return await bookingsClosedResponse()
   // Not seeded yet → no catalog ids to build line items from.
   if (!kitConfig.square.packageItemId) {
     return errorResponse('Kits are not available yet', 503)

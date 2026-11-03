@@ -8,7 +8,9 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   upsert: vi.fn(),
   sandbox: false,
+  purge: vi.fn(async () => true),
 }))
+vi.mock('@lib/booking-cache', async (orig) => ({ ...(await orig<typeof import('@lib/booking-cache')>()), purgeBookingPages: mocks.purge }))
 vi.mock('@config/providers', () => ({
   providers: {
     booking: { listBookings: mocks.listBookings },
@@ -124,7 +126,9 @@ describe('POST: save', () => {
 
   it('studio hours that would leave a party time out are refused, saying which and what to do', async () => {
     const hours = (await loaded()).studioWeekly.map((w: any) => (w.weekday === 'Sunday' ? { ...w, opens: '14:00' } : w))
+    mocks.purge.mockClear()
     const r = await save({ studioWeekly: hours })
+    expect(mocks.purge).not.toHaveBeenCalled() // refused: nothing to clear
     expect(r).toEqual({ status: 409, body: { error: 'There’s a party time at 1 PM on Sundays, before the studio would open at 2 PM. Move it in Parties setup first, or keep the studio hours as they are.', field: 'studioWeekly' } })
     expect((await loaded()).updatedAt).toBeNull()
   })

@@ -79,4 +79,8 @@ describe('archive store list', () => {
     expect(out.files['class-photos']['photo-big']).toEqual({ notIncluded: 'too large for the archive email', bytes: big.length })
     expect(out.counts['class-photos']).toBe(2)
   })
+
+  it('never exports the test-link secret (site-switches stays out of every export)', () => {
+    expect(ARCHIVE_STORE_NAMES).not.toContain('site-switches')
+  })
 })

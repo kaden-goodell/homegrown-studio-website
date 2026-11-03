@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { bookingsOpen } from '@lib/bookings-gate'
+import { bookingsOpenNow } from '@lib/bookings-gate'
 import { OPENING_DATE, GRAND_OPENING_DATE } from '@config/opening'
 import { closureOn, daysOf, reopensOn } from '@config/closures'
 import { getStudioDays } from '@lib/studio-settings'
@@ -167,7 +167,7 @@ export const GET: APIRoute = async ({ url, request }) => {
   //    would then refuse. Real created content (workshops, open studio, booked
   //    parties) still shows as "what's coming". A Grand Opening marker anchors
   //    the opening month.
-  const includePartySlots = await bookingsOpen(request, 'parties')
+  const includePartySlots = await bookingsOpenNow(request, 'parties')
   const built = buildCalendarEvents(
     workshops,
     openStudioWindows,

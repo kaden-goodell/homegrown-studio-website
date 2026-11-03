@@ -7,6 +7,7 @@ import { createLogger } from '@lib/logger'
 import { cafeSquareDeps, cafeWritesAllowed, settingsBooked } from '@lib/settings-effects'
 import { rewriteCafeWindows, TEST_SITE_SKIP, windowsFor, type CafeSquareResult } from '@lib/cafe-windows'
 import { forget } from '@lib/short-memory'
+import { purgeBookingPages } from '@lib/booking-cache'
 import { getPartySettings } from '@lib/parties/settings-store'
 import { partyTimesOutsideHours } from '@lib/parties/party-times'
 import { studioDate } from '@lib/studio-time'
@@ -107,6 +108,10 @@ export const POST: APIRoute = async ({ request }) => {
     const today = studioDate(new Date().toISOString())
     const cafeChanged = windowsFor(toStudioDays(before), today) !== windowsFor(toStudioDays(saved), today)
     const square = cafeChanged ? await squareFrom(toStudioDays(saved), request) : null
+    // The kept copies of /api/cafe-hours.json (footer hours, Google's business
+    // details, the special-day bar and cards) and the calendar clear at once
+    // (best effort; other servers' one-minute memory of the hours still applies).
+    await purgeBookingPages()
     return json(200, { data: { settings: saved, changed, booked: booked.list, ...(booked.failed ? { bookedUnknown: true } : {}), square } })
   } catch (e) {
     if (e instanceof StaleSettingsError) return json(409, { error: e.message, stale: true, current: e.current })

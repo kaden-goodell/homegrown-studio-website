@@ -9,6 +9,7 @@ import SeoHead from '@components/shared/SeoHead.astro'
 import Shimmer from '@components/shared/Shimmer'
 import RenameNotice from '@components/shared/RenameNotice'
 import DayNoticeBar from '@components/shared/DayNoticeBar.astro'
+import { PAGE_KEY_SCRIPT } from '@lib/page-key'
 import '@styles/global.css'
 import '@styles/textures.css'
 import '@styles/animations.css'
@@ -40,6 +41,8 @@ const bodyFont = fonts.body.replace(/ /g, '+')
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {/* First, before any analytics: keeps keys and the booking test link out of the address bar (src/lib/page-key.ts). */}
+    <script is:inline set:html={PAGE_KEY_SCRIPT} />
     <SeoHead {...Astro.props} />
     <PostHog />
     <ViewTransitions />

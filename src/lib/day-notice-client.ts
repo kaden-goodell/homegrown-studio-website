@@ -29,14 +29,33 @@ export interface LiveDayNotice {
   shortDate?: string
 }
 
+/**
+ * Shows the notices whose window holds `now`, but only ONE day per kind (bar,
+ * card): the soonest, as the server's activeDayNotice picks. Two announced
+ * days with overlapping windows never stack two bars or two cards.
+ */
 export function showDayNotices(now = Date.now(), path = window.location.pathname): void {
   const quiet = QUIET_PATHS.some((p) => path.startsWith(p))
-  document.querySelectorAll<HTMLElement>('[data-day-notice]').forEach((el) => {
+  const els = [...document.querySelectorAll<HTMLElement>('[data-day-notice]')]
+  const inWindow = (el: HTMLElement) => {
     const from = Date.parse(el.dataset.from ?? '')
     const until = Date.parse(el.dataset.until ?? '')
-    const inWindow = now >= from && now < until
-    el.hidden = !inWindow || (el.dataset.dayNotice === 'bar' && quiet)
-  })
+    return now >= from && now < until
+  }
+  // The soonest day showing, per kind ('' sorts first: a built notice without a date).
+  const soonest = new Map<string, string>()
+  for (const el of els) {
+    if (!inWindow(el)) continue
+    const kind = el.dataset.dayNotice ?? ''
+    const date = el.dataset.date ?? ''
+    const cur = soonest.get(kind)
+    if (cur === undefined || date < cur) soonest.set(kind, date)
+  }
+  for (const el of els) {
+    const kind = el.dataset.dayNotice ?? ''
+    const show = inWindow(el) && soonest.get(kind) === (el.dataset.date ?? '')
+    el.hidden = !show || (kind === 'bar' && quiet)
+  }
 }
 
 const FIELDS: [keyof LiveDayNotice, string][] = [

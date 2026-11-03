@@ -72,7 +72,7 @@ export async function flyerHtml(p: FlyerPage): Promise<string> {
   .wrap { padding: 16px 0; display: flex; justify-content: center; }
   .page { width: 8.5in; height: 11in; padding: 0.55in 0.6in; background: #f8f5f1; display: flex; flex-direction: column; align-items: center; text-align: center; position: relative; overflow: hidden; box-shadow: 0 8px 30px rgba(0,0,0,0.12); }
   @media screen and (max-width: 8.6in) { .page { zoom: 0.45; } }
-  @media print { html { background: none; } .bar { display: none; } .wrap { padding: 0; } .page { box-shadow: none; zoom: 1; } }
+  @media print { html, body { height: 11in; overflow: hidden; } html { background: none; } .bar { display: none; } .wrap { padding: 0; } .page { box-shadow: none; zoom: 1; height: 10.95in; break-after: avoid; page-break-after: avoid; break-inside: avoid; } }
   .frame { position: absolute; inset: 0.25in; border: 3px solid #5e8c6a; border-radius: 0.3in; pointer-events: none; }
   .logo { height: 0.85in; margin-top: 0.1in; }
   .eyebrow { margin: 0.3in 0 0; font-size: 15pt; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: #b07a2a; }
@@ -92,7 +92,7 @@ export async function flyerHtml(p: FlyerPage): Promise<string> {
   .qr p { margin: 0; font-size: 11pt; line-height: 1.4; white-space: nowrap; }
 </style></head>
 <body>
-${p.printBar ? `<div class="bar"><button type="button" onclick="window.print()">Print</button><a href="${esc(p.printBar.backHref)}">Back to admin</a><span>Letter paper, no margins. On an iPad: Share › Print.</span></div>` : ''}
+${p.printBar ? `<div class="bar"><button type="button" onclick="window.print()">Print</button><a href="${esc(p.printBar.backHref)}">Back to admin</a><span>Letter paper. On an iPad: tap Share, then Print.</span></div>` : ''}
 <div class="wrap"><div class="page"><div class="frame"></div>
   <img class="logo" src="${esc(p.logoSrc)}" alt="Hometown Studio">
   <p class="eyebrow">✦ ${esc(n.headline)} ✦</p>

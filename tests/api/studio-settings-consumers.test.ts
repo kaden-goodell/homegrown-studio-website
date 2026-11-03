@@ -21,7 +21,7 @@ vi.mock('@config/providers', () => ({
 }))
 vi.mock('@lib/party-store', () => ({ getPartyRecord: vi.fn(async () => null) }))
 vi.mock('@lib/audit', () => ({ recordAudit: vi.fn(async () => undefined) }))
-vi.mock('@lib/bookings-gate', () => ({ previewCookieName: 'hg_preview', bookingsOpen: () => true, bookingsClosedResponse: () => new Response('closed', { status: 403 }) }))
+vi.mock('@lib/bookings-gate', () => ({ previewCookieName: 'hg_preview', bookingsOpenNow: async () => true, bookingsClosedResponse: () => new Response('closed', { status: 403 }) }))
 vi.mock('@lib/classes/square-catalog', () => ({ syncClassToSquare: vi.fn(async () => ({ itemId: 'i', variations: {}, imageUrl: null })), archiveClassInSquare: vi.fn(), CLASS_TAX_NOT_SET: 'x' }))
 vi.mock('@lib/classes/square-api', () => ({ squareFetch: vi.fn(async () => { throw new Error('no Square in tests') }), squareSettings: () => ({ environment: 'sandbox' }) }))
 vi.mock('@lib/staff-auth', async (orig) => ({ ...(await orig<typeof import('@lib/staff-auth')>()), staffAuthorized: () => ({ id: 't', name: 'Test', role: 'crew' }) }))

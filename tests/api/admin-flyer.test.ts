@@ -42,6 +42,10 @@ describe('/admin/flyer/<date>', () => {
     expect(r.html).toContain('ourhometownstudio.com/craft-cafe')
     expect(r.html).toContain('onclick="window.print()"')
     expect(r.html).not.toMatch(/api\.qrserver|chart\.googleapis/)
+    // Printing from an iPad: no instruction it can't follow, and one page only.
+    expect(r.html).toContain('Letter paper. On an iPad: tap Share, then Print.')
+    expect(r.html).not.toMatch(/no margins/i)
+    expect(r.html).toMatch(/@media print \{ html, body \{ height: 11in; overflow: hidden; \}[^}]*\}[^@]*\.page \{[^}]*height: 10\.95in; break-after: avoid/)
   })
 
   it('a special day without an announcement uses its name; the config’s grand opening works before any save', async () => {
