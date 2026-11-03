@@ -1,7 +1,8 @@
 /**
  * M1: when the owners, an owner's email or mobile, or the Notifications picks
- * change, the OTHER owners hear by email and text at the addresses they had
- * BEFORE the change (owner-notice.ts). A stolen /admin session can then no
+ * change, EVERY owner hears by email and text at the addresses they had
+ * BEFORE the change (owner-notice.ts), including the one the device said it
+ * was and any owner who was removed or whose own email or mobile changed (N1). A stolen /admin session can then no
  * longer quietly add someone as an owner, or swap an owner's email, to get a
  * weekly copy of every waiver and incident: the real owners are told at once
  * (and the archive waits a day for a new address, notify-recipients.ts).
@@ -9,11 +10,11 @@
  * Server only.
  */
 import { createLogger } from '@lib/logger'
-import { studioWhen, tellOwners, type NoticeOwner } from '@lib/owner-notice'
+import { deviceSaid, studioWhen, tellOwners, type NoticeOwner } from '@lib/owner-notice'
 
 const logger = createLogger('owner-change-notice')
 
-const CHECK = 'If that wasn’t expected, check /admin › More › Staff › People and Notifications, and change the admin passcode.'
+const CHECK = 'If that was you, there’s nothing to do. If not, check /admin › More › Staff › People and Notifications, and change the admin passcode.'
 
 /** What changed between two owner lists, as short phrases ("made Dana an owner"). Matched by staff id. Pure. */
 export function ownerChanges(before: NoticeOwner[] | null, after: NoticeOwner[] | null): { phrases: string[]; added: NoticeOwner[] } {
@@ -50,7 +51,7 @@ async function rowsFor(ownerId: string, name: string): Promise<string[]> {
 }
 
 /**
- * After a Staff › People change: tell the other owners when the owners or
+ * After a Staff › People change: tell every owner when the owners or
  * their contacts changed. `before` is the owner snapshot from before the
  * change. Never throws.
  */
@@ -65,20 +66,21 @@ export async function noticeOwnerChange(by: { name: string }, before: NoticeOwne
       const rows = await rowsFor(o.id!, o.name)
       if (rows.length) gets.push(`${o.name} now gets: ${rows.join(', ')}.`)
     }
-    const line = [`${by.name} ${joinAnd(phrases)} in /admin (${studioWhen()}).`, ...gets, CHECK].join(' ')
-    await tellOwners({ owners: before, except: by.name === 'Owner' ? null : by.name, subject: 'The studio’s owners changed in /admin', line })
+    const line = [`${deviceSaid(by)} ${joinAnd(phrases)} (${studioWhen()}).`, ...gets, CHECK].join(' ')
+    // `before` only: a changed owner is told at the OLD address, a removed one still hears.
+    await tellOwners({ owners: before, subject: 'The studio’s owners changed in /admin', line })
   } catch (err) {
     logger.warn('Owner change notice failed', { error: err instanceof Error ? err.message : String(err) })
   }
 }
 
-/** After Notifications is saved: tell the other owners which rows now go to whom. Never throws. */
+/** After Notifications is saved: tell every owner which rows now go to whom. Never throws. */
 export async function noticeNotifyChange(by: { name: string }, owners: NoticeOwner[] | null, changed: { label: string; to: string[] }[]): Promise<void> {
   try {
     if (!changed.length) return
     const parts = changed.map((c) => `${c.label} now goes to ${joinAnd(c.to)}`)
-    const line = `${by.name} changed who gets alerts and reports in /admin (${studioWhen()}): ${parts.join('; ')}. If that wasn’t expected, check /admin › More › Notifications and change the admin passcode.`
-    await tellOwners({ owners, except: by.name === 'Owner' ? null : by.name, subject: 'Who gets the studio’s alerts changed in /admin', line })
+    const line = `${deviceSaid(by)} changed who gets alerts and reports (${studioWhen()}): ${parts.join('; ')}. If that was you, there’s nothing to do. If not, check /admin › More › Notifications and change the admin passcode.`
+    await tellOwners({ owners, subject: 'Who gets the studio’s alerts changed in /admin', line })
   } catch (err) {
     logger.warn('Notifications change notice failed', { error: err instanceof Error ? err.message : String(err) })
   }

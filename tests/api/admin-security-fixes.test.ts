@@ -16,7 +16,7 @@ import * as peopleRoute from '@pages/api/admin/staff-people.json'
 import * as notifyRoute from '@pages/api/admin/notify.json'
 import { adminCookie } from '@lib/admin-auth'
 import { _resetAdminPasscodeCache, _resetAdminPasscodeForTests, _resetTakeoverMemory, _writeRawAdminPasscodeForTests, ENV_SEEN_CAP } from '@lib/admin-passcode'
-import { ADMIN_FAILURE_LOCK, ADMIN_LOCKED_MESSAGE, MANY_ADMIN_FAILURES, adminFailedSignInsToday } from '@lib/admin-signin-failures'
+import { ADMIN_SLOWDOWN_AT, ADMIN_SLOWDOWN_MAX_MS, MANY_ADMIN_FAILURES, adminFailedSignInsToday, adminSlowMessage, slowdownGapMs } from '@lib/admin-signin-failures'
 import { _resetNotifyForTests } from '@lib/notify-settings'
 import { _resetStaffListForTests, staffListForOwners } from '@lib/staff-directory'
 import { _resetPasscodeForTests } from '@lib/staff-passcode'
@@ -81,16 +81,16 @@ afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.useRealTimers() 
 
 const mails = () => sendMail.mock.calls.map((c) => c[0])
 
-describe('M1: the other owners hear about owner and Notifications changes, at the addresses they had', () => {
-  it('making someone an owner: Kaden (not Catherine, who did it) gets an email and a text', async () => {
+describe('M1/N1: every owner hears about owner and Notifications changes, at the addresses they had', () => {
+  it('making someone an owner: every owner (Catherine, whose device made it, too) gets an email and a text', async () => {
     await staffListForOwners()
     const r = await people({ action: 'add', givenName: 'Dana', familyName: 'Reyes', role: 'owner', phone: '256-555-0123', email: 'dana@example.com' })
     expect(r.status).toBe(200)
     expect(mails()).toHaveLength(1)
-    expect(mails()[0]).toMatchObject({ to: 'kaden@example.com', subject: 'The studio’s owners changed in /admin' })
-    expect(mails()[0].text).toMatch(/^Catherine made Dana an owner in \/admin \(.+\)\. If that wasn’t expected, check \/admin › More › Staff › People and Notifications, and change the admin passcode\.$/)
-    expect(texts.map((t) => t.to)).toEqual([['+14025550101']])
-    expect(texts[0].content).toMatch(/^Hometown Studio: Catherine made Dana an owner/)
+    expect(mails()[0]).toMatchObject({ to: 'kaden@example.com, cat@example.com', subject: 'The studio’s owners changed in /admin' })
+    expect(mails()[0].text).toMatch(/^A signed-in \/admin device that said it was Catherine made Dana an owner \(.+\)\. If that was you, there’s nothing to do\. If not, check \/admin › More › Staff › People and Notifications, and change the admin passcode\.$/)
+    expect(texts.map((t) => t.to).sort()).toEqual([['+12565550104'], ['+14025550101']])
+    expect(texts[0].content).toMatch(/^Hometown Studio: A signed-in \/admin device that said it was Catherine made Dana an owner/)
   })
 
   it('changing an owner’s email: told at the OLD address (and the other owner), never the new one', async () => {
@@ -98,10 +98,32 @@ describe('M1: the other owners hear about owner and Notifications changes, at th
     const cat = await person('TM4')
     await people({ action: 'edit', id: 'TM4', givenName: 'Catherine', familyName: 'Goodell', role: 'owner', phone: '+12565550104', email: 'attacker@example.com', expectedUpdatedAt: cat.updatedAt }, 'Kaden')
     expect(mails()).toHaveLength(1)
-    expect(mails()[0].to).toBe('cat@example.com') // Kaden made the change, so Catherine hears, at her old address
+    expect(mails()[0].to).toBe('kaden@example.com, cat@example.com') // Catherine hears at her OLD address
     expect(mails()[0].to).not.toContain('attacker')
-    expect(mails()[0].text).toMatch(/^Kaden changed Catherine’s email in \/admin/)
-    expect(texts.map((t) => t.to)).toEqual([['+12565550104']])
+    expect(mails()[0].text).toMatch(/^A signed-in \/admin device that said it was Kaden changed Catherine’s email/)
+    expect(texts.map((t) => t.to[0]).sort()).toEqual(['+12565550104', '+14025550101'])
+  })
+
+  it('N1 attack: a stolen session claiming to be Kaden swaps Kaden’s own email and mobile; Kaden is still told at his OLD email and phone', async () => {
+    await staffListForOwners()
+    const kaden = await person('TM1')
+    const r = await people({ action: 'edit', id: 'TM1', givenName: 'Kaden', familyName: 'Goodell', role: 'owner', phone: '+12565559999', email: 'evil@example.com', expectedUpdatedAt: kaden.updatedAt }, 'Kaden')
+    expect(r.status).toBe(200)
+    expect(mails()).toHaveLength(1)
+    expect(mails()[0].to.split(', ')).toEqual(expect.arrayContaining(['kaden@example.com', 'cat@example.com']))
+    expect(mails()[0].to).not.toContain('evil')
+    expect(mails()[0].text).toMatch(/said it was Kaden changed Kaden’s email and changed Kaden’s mobile/)
+    const to = texts.map((t) => t.to[0])
+    expect(to).toEqual(expect.arrayContaining(['+14025550101', '+12565550104']))
+    expect(to).not.toContain('+12565559999')
+  })
+
+  it('N1: the passcode change notice reaches the owner the device claimed to be, too', async () => {
+    await staffListForOwners()
+    expect((await changePasscode('owner-secret', 'q1-in-admin')).status).toBe(200) // X-Admin-Who: Catherine
+    const notice = mails().find((m) => m.subject === 'The /admin passcode was changed')!
+    expect(notice.to).toBe('kaden@example.com, cat@example.com')
+    expect(notice.text).toMatch(/^A signed-in \/admin device that said it was Catherine changed the \/admin passcode/)
   })
 
   it('an unknown actor (“Owner”): every owner hears', async () => {
@@ -117,8 +139,8 @@ describe('M1: the other owners hear about owner and Notifications changes, at th
     expect(mails()).toHaveLength(0)
     await people({ action: 'leave', id: 'TM1' })
     expect(mails()).toHaveLength(1)
-    expect(mails()[0].to).toBe('kaden@example.com') // told at the address Kaden had, before he was taken off
-    expect(mails()[0].text).toMatch(/^Catherine took Kaden off as an owner/)
+    expect(mails()[0].to).toBe('kaden@example.com, cat@example.com') // Kaden told at the address he had, before he was taken off
+    expect(mails()[0].text).toMatch(/said it was Catherine took Kaden off as an owner/)
     await people({ action: 'return', id: 'TM1' })
     expect(mails()).toHaveLength(2)
     expect(mails()[1].text).toMatch(/made Kaden an owner/)
@@ -138,25 +160,27 @@ describe('M1: the other owners hear about owner and Notifications changes, at th
     expect(mails()[0].text).not.toMatch(/Dana now gets/)
   })
 
-  it('saving Notifications tells the other owners which rows go to whom', async () => {
+  it('saving Notifications tells every owner which rows go to whom', async () => {
     await staffListForOwners()
     const rows = { 'owner-texts': ['TM1', 'TM4'], 'booking-alerts': ['TM1', 'TM4'], 'warnings-email': ['TM1', 'TM4'], 'tax-report': ['TM1', 'TM4'], archive: ['TM4'] }
     const r = await post(notifyRoute, '/api/admin/notify.json', { rows, expectedUpdatedAt: null })
     expect(r.status).toBe(200)
     const notice = mails().find((m) => m.subject === 'Who gets the studio’s alerts changed in /admin')!
-    expect(notice.to).toBe('kaden@example.com')
-    expect(notice.text).toMatch(/^Catherine changed who gets alerts and reports in \/admin \(.+\): .*Weekly records archive now goes to Catherine\. If that wasn’t expected/)
+    expect(notice.to).toBe('kaden@example.com, cat@example.com')
+    expect(notice.text).toMatch(/^A signed-in \/admin device that said it was Catherine changed who gets alerts and reports \(.+\): .*Weekly records archive now goes to Catherine\. If that was you, there’s nothing to do\./)
     expect(texts.some((t) => t.to[0] === '+14025550101' && /changed who gets alerts/.test(t.content))).toBe(true)
   })
 
-  it('the only owner making a change: the site setup hears (nobody is left out of the loop)', async () => {
+  it('the only owner making a change: she hears herself; with no owner contacts at all, the site setup hears', async () => {
     await staffListForOwners()
     await people({ action: 'leave', id: 'TM1' })
     sendMail.mockClear()
     texts.length = 0
     await people({ action: 'add', givenName: 'Dana', familyName: 'Reyes', role: 'owner', phone: '', email: 'dana@example.com' })
-    expect(mails()[0].to).toBe('kaden@ourhometownstudio.com, catherine@ourhometownstudio.com')
-    expect(texts.map((t) => t.to)).toEqual([['+14029802907']])
+    expect(mails()[0].to).toBe('cat@example.com')
+    expect(texts.map((t) => t.to)).toEqual([['+12565550104']])
+    const { noticeRecipients } = await import('@lib/owner-notice')
+    expect(noticeRecipients([{ id: 'x', name: 'Cat', email: null, phone: null }])).toEqual({ emails: ['kaden@ourhometownstudio.com', 'catherine@ourhometownstudio.com'], phones: ['+14029802907'] })
   })
 })
 
@@ -234,7 +258,7 @@ describe('M3 (sign-in messages) and L3', () => {
 })
 
 describe('L1: wrong admin passcodes for the whole site (in the store, not just per server)', () => {
-  it('counts across addresses; at 20 the owners hear once; at 200 sign-in pauses for the day; a passcode change starts it over', async () => {
+  it('counts across addresses; at 20 the owners hear once; many more slow sign-in down (never stop it); a passcode change starts it over', async () => {
     await staffListForOwners()
     for (let i = 0; i < MANY_ADMIN_FAILURES; i++) expect((await login(`guess-${i}`)).status).toBe(401)
     expect(await adminFailedSignInsToday()).toBe(MANY_ADMIN_FAILURES)
@@ -247,12 +271,37 @@ describe('L1: wrong admin passcodes for the whole site (in the store, not just p
 
     const kv = (await import('@lib/blob-store')).makeKvStore('admin-access', 'admin-access')
     const { studioDay } = await import('@lib/staff-signin-failures')
-    await kv.set('failed-signins', JSON.stringify({ day: studioDay(), count: ADMIN_FAILURE_LOCK, told: true }))
-    expect(await login('owner-secret')).toMatchObject({ status: 429, body: { error: ADMIN_LOCKED_MESSAGE, locked: true } })
+    // 200 wrong today, the last one just now: a short wait, then the right passcode works.
+    await kv.set('failed-signins', JSON.stringify({ day: studioDay(), count: 200, told: true, last: Date.now() }))
+    const slowed = await login('owner-secret')
+    expect(slowed.status).toBe(429)
+    expect(slowed.body).toMatchObject({ slowed: true })
+    expect(slowed.body.wait).toBeGreaterThan(0)
+    expect(slowed.body.wait).toBeLessThanOrEqual(ADMIN_SLOWDOWN_MAX_MS / 1000)
+    expect(slowed.body.error).toBe(adminSlowMessage(slowed.body.wait))
     expect((await changePasscode('owner-secret', 'q1-in-admin')).status).toBe(429)
-    await kv.set('failed-signins', JSON.stringify({ day: studioDay(), count: 3, told: false }))
+    // Even a huge count never waits longer than the cap: once it's passed, the right passcode gets in.
+    await kv.set('failed-signins', JSON.stringify({ day: studioDay(), count: 99_999, told: true, last: Date.now() - ADMIN_SLOWDOWN_MAX_MS - 1 }))
+    expect((await login('owner-secret')).status).toBe(200)
     expect((await changePasscode('owner-secret', 'q1-in-admin')).status).toBe(200)
     expect(await adminFailedSignInsToday()).toBe(0)
+  })
+
+  it('N2: the wait grows with the count and is capped; under the threshold there is none', () => {
+    expect(slowdownGapMs(ADMIN_SLOWDOWN_AT - 1)).toBe(0)
+    expect(slowdownGapMs(ADMIN_SLOWDOWN_AT)).toBeGreaterThan(0)
+    expect(slowdownGapMs(ADMIN_SLOWDOWN_AT + 100)).toBeGreaterThan(slowdownGapMs(ADMIN_SLOWDOWN_AT))
+    expect(slowdownGapMs(1_000_000)).toBe(ADMIN_SLOWDOWN_MAX_MS)
+  })
+
+  it('N2: wrong passcodes past the threshold make the next try wait (site-wide), not every try forever', async () => {
+    await staffListForOwners()
+    const kv = (await import('@lib/blob-store')).makeKvStore('admin-access', 'admin-access')
+    const { studioDay } = await import('@lib/staff-signin-failures')
+    await kv.set('failed-signins', JSON.stringify({ day: studioDay(), count: ADMIN_SLOWDOWN_AT, told: true }))
+    expect((await login('guess-a')).status).toBe(401) // no `last` yet: checked, and counted
+    expect((await login('guess-b')).status).toBe(429) // right after a wrong one: wait
+    expect(await adminFailedSignInsToday()).toBe(ADMIN_SLOWDOWN_AT + 1) // a refused try isn't counted
   })
 
   it('R41: a test site sharing the live stores counts nothing', async () => {

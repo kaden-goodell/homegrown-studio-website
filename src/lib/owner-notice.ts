@@ -9,10 +9,13 @@
  * (M3) or by the hosting setting (M4), a new email or text key pasted in.
  *
  * `owners` is a snapshot taken BEFORE the change, so a changed address is
- * told at the address it had (an attacker who swaps Catherine's email can't
- * hide it from her). `except` leaves out the owner who made the change, so
- * the OTHER owners hear. With nobody left to tell, or nobody with an email or
- * mobile, the site setup's owner emails and alert numbers are used, so the
+ * told at the address it had and a removed owner is still told (an attacker
+ * who swaps Catherine's email can't hide it from her). EVERY owner hears,
+ * including the one the device said it was: that name comes from a header
+ * any signed-in device can set (N1), so it's only a label, never a reason to
+ * leave someone out. Notices say so ("a signed-in /admin device that said it
+ * was Kaden", see deviceSaid()). With nobody to tell, or nobody with an email
+ * or mobile, the site setup's owner emails and alert numbers are used, so the
  * notice always goes somewhere.
  *
  * Goes through sendEmail / sendQuoText, so a muted test site lists it under
@@ -50,12 +53,20 @@ function setupPhones(): string[] {
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-/** Where a notice goes: the owners given (minus `except`), else the site setup. Pure. */
-export function noticeRecipients(owners: NoticeOwner[] | null, except?: string | null): { emails: string[]; phones: string[] } {
-  const skip = (except ?? '').trim().toLowerCase()
-  const others = (owners ?? []).filter((o) => !skip || o.name.trim().toLowerCase() !== skip)
-  const emails = [...new Set(others.map((o) => o.email?.trim().toLowerCase()).filter((x): x is string => !!x))]
-  const phones = [...new Set(others.map((o) => o.phone?.trim()).filter((x): x is string => !!x))]
+/**
+ * Who made a change, in a notice: the device is signed in, but the name is
+ * only what it picked at the top of /admin, so it's never stated as fact.
+ * "A signed-in /admin device that said it was Kaden". Pure.
+ */
+export function deviceSaid(by: { name: string }): string {
+  return by.name && by.name !== 'Owner' ? `A signed-in /admin device that said it was ${by.name}` : 'A signed-in /admin device (no name picked)'
+}
+
+/** Where a notice goes: every owner given, else the site setup. Pure. */
+export function noticeRecipients(owners: NoticeOwner[] | null): { emails: string[]; phones: string[] } {
+  const all = owners ?? []
+  const emails = [...new Set(all.map((o) => o.email?.trim().toLowerCase()).filter((x): x is string => !!x))]
+  const phones = [...new Set(all.map((o) => o.phone?.trim()).filter((x): x is string => !!x))]
   return {
     emails: emails.length ? emails : [...siteConfig.ownerEmails],
     phones: phones.length ? phones : setupPhones(),
@@ -71,11 +82,9 @@ export async function tellOwners(input: {
   line: string
   /** Snapshot from before the change (ownersSnapshot()); read now when left out. */
   owners?: NoticeOwner[] | null
-  /** The owner who made the change: everyone else hears. */
-  except?: string | null
 }): Promise<{ emails: number; texts: number }> {
   const owners = input.owners === undefined ? await ownersSnapshot() : input.owners
-  const { emails, phones } = noticeRecipients(owners, input.except)
+  const { emails, phones } = noticeRecipients(owners)
   let sentEmails = 0
   let sentTexts = 0
   try {

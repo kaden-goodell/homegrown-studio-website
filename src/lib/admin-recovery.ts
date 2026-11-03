@@ -19,14 +19,22 @@
  *     passcode uses it up with compare-and-set, then the normal passcode rules
  *     apply, the generation moves on (everyone is signed out) and that device
  *     is signed in.
- *  4. Rate limits in the store, not just memory: 3 links an hour and 10 a day
- *     for the whole site (plus a per-address limit in memory). Wrong or old
- *     links count as wrong passcodes (admin-signin-failures.ts).
+ *  4. Limits. While a link is still good (not used, not run out, same
+ *     passcode), a new request sends nothing and isn't counted: the answer is
+ *     the same "on its way" message, and the owners use the email already
+ *     sent (N2). That alone keeps it to one email per 15 minutes. On top, 3
+ *     links an hour for the whole site, in the store (plus a per-address
+ *     limit in memory). No daily cap, so the email way back always reopens
+ *     within the hour. Wrong or old links count as wrong passcodes
+ *     (admin-signin-failures.ts).
  *  5. Audited (admin.recovery-requested / admin.recovery-used, never the
  *     token or an email). When a link is used, every owner gets an email and
  *     a text.
  *  6. Refused on a test site that shares the live stores (R41). On the muted
- *     sandbox preview the email is listed in More › Messages, not sent.
+ *     sandbox preview nothing is sent, and More › Messages keeps only the
+ *     email's first line ("Someone asked…"), never the link: the link can't
+ *     be used from there, on purpose. Don't make the preview store the whole
+ *     body (preview-outbound.ts).
  *
  * Server only.
  */
@@ -45,14 +53,12 @@ export const RECOVERY_TTL_MS = 15 * 60_000
 /** An owner newer than this (or with a newer email) doesn't get a link. */
 export const RECOVERY_NEW_OWNER_MS = 72 * 60 * 60_000
 export const RECOVERY_PER_HOUR = 3
-export const RECOVERY_PER_DAY = 10
 const CURRENT = 'recovery-current'
 const REQUESTS = 'recovery-requests'
 const HOUR = 3600_000
-const DAY = 24 * HOUR
 
 export const RECOVERY_MESSAGES = {
-  sent: 'A link is on its way to every owner’s email on the staff list. It works once, for 15 minutes. Check spam if it isn’t there in a minute.',
+  sent: 'A link is on its way to every owner’s email on the staff list (an owner added or changed in the last 3 days isn’t sent one). It works once, for 15 minutes. Check spam if it isn’t there in a minute. Asked again within 15 minutes? Use the email that already came.',
   limited: 'Several links were asked for already. Use the newest email, or try again in an hour.',
   used: 'This link was already used. Go to /admin and tap “Forgot the passcode?” for a new one.',
   expired: 'This link has run out (they work for 15 minutes). Go to /admin and tap “Forgot the passcode?” for a new one.',
@@ -122,30 +128,41 @@ export async function recoveryRecipients(now = Date.now()): Promise<string[]> {
   return [...siteConfig.ownerEmails]
 }
 
-/** Counts this request against the site's limits; false when over. */
+/** Counts this request against the site's hourly limit; false when over. */
 async function underSiteLimit(now: number): Promise<boolean> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const { value, etag } = await kv.getWithMeta(REQUESTS)
     let times: number[] = []
     try { const j = value ? JSON.parse(value) : null; if (Array.isArray(j?.times)) times = j.times.filter((t: unknown) => typeof t === 'number') } catch { times = [] }
-    times = times.filter((t) => now - t < DAY)
-    if (times.length >= RECOVERY_PER_DAY || times.filter((t) => now - t < HOUR).length >= RECOVERY_PER_HOUR) return false
+    times = times.filter((t) => now - t < HOUR)
+    if (times.length >= RECOVERY_PER_HOUR) return false
     if (await kv.setIfMatch(REQUESTS, JSON.stringify({ times: [...times, now] }), etag, value !== null)) return true
   }
   return false
 }
 
+/** True while the newest link is still good: not used, not run out, same passcode. */
+async function liveLinkOut(gen: number, now: number): Promise<boolean> {
+  const hash = await kv.get(CURRENT)
+  if (!hash) return false
+  let rec: RecoveryRecord | null = null
+  try { const j = JSON.parse((await kv.get(keyOf(hash))) ?? 'null'); if (j && typeof j.exp === 'number' && typeof j.gen === 'number') rec = j } catch { rec = null }
+  return stateOf(rec, gen, now) === 'ok'
+}
+
 /**
  * Emails a fresh link to the owners. `origin` is the site's address
- * (https://…). Returns 'sent' or 'limited'. Throws TestSiteStoreError (R41)
- * or RecoveryError(503) when the passcode can't be read.
+ * (https://…). Returns 'sent', 'live' (a link sent earlier still works:
+ * nothing sent, nothing counted, N2) or 'limited'. Throws TestSiteStoreError
+ * (R41) or RecoveryError(503) when the passcode can't be read.
  */
-export async function requestRecovery(origin: string, now = new Date()): Promise<'sent' | 'limited'> {
+export async function requestRecovery(origin: string, now = new Date()): Promise<'sent' | 'live' | 'limited'> {
   if (classWritesRefusal()) throw new TestSiteStoreError()
   const t = now.getTime()
-  if (!(await underSiteLimit(t))) return 'limited'
   const gen = await currentGen()
   if (gen === null) throw new RecoveryError(503, RECOVERY_MESSAGES.unreadable)
+  if (await liveLinkOut(gen, t)) return 'live'
+  if (!(await underSiteLimit(t))) return 'limited'
   const token = randomBytes(32).toString('base64url')
   const hash = hashOf(token)
   const rec: RecoveryRecord = { at: now.toISOString(), exp: t + RECOVERY_TTL_MS, gen, used: false }

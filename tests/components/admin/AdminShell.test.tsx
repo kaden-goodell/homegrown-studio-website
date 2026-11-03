@@ -199,7 +199,7 @@ describe('sign in', () => {
     render(<AdminShell />)
     fireEvent.click(await screen.findByRole('button', { name: 'Forgot the passcode?' }))
     const panel = screen.getByRole('group', { name: 'Forgot the passcode?' })
-    expect(panel).toHaveTextContent('We’ll email a link to every owner’s email in Staff › People. It works once, for 15 minutes')
+    expect(panel).toHaveTextContent('We’ll email a link to every owner’s email in Staff › People (an owner added or changed in the last 3 days isn’t sent one). It works once, for 15 minutes')
     fireEvent.click(within(panel).getByRole('button', { name: 'Email the owners a link' }))
     expect(await within(panel).findByRole('status')).toHaveTextContent('A link is on its way to every owner’s email')
     const sent = f.mock.calls.find((c) => c[0] === '/api/admin/recover.json')!

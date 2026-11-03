@@ -77,7 +77,7 @@ export default function AdminRecover() {
         )}
         {stage.kind === 'done' && (
           <>
-            <p role="status">The admin passcode is changed, and you’re signed in on this device. Every other phone or iPad signed in to /admin is signed out and needs the new one. The other owners got an email and a text saying it was reset.</p>
+            <p role="status">The admin passcode is changed, and you’re signed in on this device. Every other phone or iPad signed in to /admin is signed out and needs the new one. Every owner got an email and a text saying it was reset.</p>
             <a className="adm-btn is-pri" href="/admin">Go to /admin</a>
           </>
         )}

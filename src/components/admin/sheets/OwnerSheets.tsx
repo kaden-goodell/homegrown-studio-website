@@ -361,11 +361,12 @@ export function KeyPaste({ service, keys, onSaved }: { service: 'gmail' | 'quo';
   const [tested, setTested] = useState<{ ok: boolean; text: string } | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
-  useSheetDirty(open && (value !== '' || current !== ''))
+  const [removing, setRemoving] = useState(false)
+  useSheetDirty((open || removing) && (value !== '' || current !== ''))
   const st = keys[service]
   const label = service === 'gmail' ? 'Gmail app password' : 'Quo key'
 
-  function close() { setOpen(false); setValue(''); setCurrent(''); setTested(null); setError('') }
+  function close() { setOpen(false); setRemoving(false); setValue(''); setCurrent(''); setTested(null); setError('') }
 
   async function test() {
     if (busy) return
@@ -382,7 +383,21 @@ export function KeyPaste({ service, keys, onSaved }: { service: 'gmail' | 'quo';
     const r = await api<{ updatedAt: string }>(KEYS, { action: 'save', service, value, current })
     setBusy('')
     if (r.ok) {
-      toast(`Saved. ${service === 'gmail' ? 'Emails' : 'Texts'} now go out with the new ${label}. The other owners got an email and a text saying so.`)
+      toast(`Saved. ${service === 'gmail' ? 'Emails' : 'Texts'} now go out with the new ${label}. Every owner got an email and a text saying so.`)
+      close()
+      onSaved()
+      return
+    }
+    setError(r.error ?? DIDNT_SAVE)
+  }
+  async function remove() {
+    if (busy) return
+    if (!current) return setError('Type the admin passcode you use now first.')
+    setBusy('remove'); setError('')
+    const r = await api<{ removed: boolean }>(KEYS, { action: 'remove', service, current })
+    setBusy('')
+    if (r.ok) {
+      toast(`Done. ${service === 'gmail' ? 'Emails' : 'Texts'} now use the ${label} in the hosting settings. Every owner got an email and a text saying so.`)
       close()
       onSaved()
       return
@@ -394,11 +409,27 @@ export function KeyPaste({ service, keys, onSaved }: { service: 'gmail' | 'quo';
     <div className="adm-gap-top">
       {st.setInAdmin && !st.broken && st.updatedAt && <span className="adm-small adm-muted">{`The ${label} was pasted here${st.by ? ` by ${st.by}` : ''} ${dayAndClock(st.updatedAt)}. It’s never shown again.`}</span>}
       {st.broken && <p className="adm-panel is-warn" role="alert">{`The ${label} saved here can’t be read, so the one from the site setup is in use. Paste a new one below.`}</p>}
+      {st.setInAdmin && keys.canStore && !keys.readOnly && !open && (
+        !removing ? (
+          <button type="button" className="adm-btn is-ghost" onClick={() => { setRemoving(true); setError('') }}>Use the hosting setting instead</button>
+        ) : (
+          <div className="adm-panel" role="group" aria-label="Use the hosting setting instead">
+            <b>Use the hosting setting instead</b>
+            <span className="adm-small">{`This forgets the ${label} pasted here, so the one in the hosting settings is used again. Every owner gets an email and a text saying so.`}</span>
+            <label className="adm-fld"><span>Admin passcode you use now</span><input type="password" value={current} autoComplete="current-password" maxLength={64} onChange={(e) => { setCurrent(e.target.value); setError('') }} /></label>
+            {error && <p className="adm-error" role="alert">{error}</p>}
+            <div className="adm-two">
+              <button type="button" className="adm-btn is-ghost" onClick={close}>Cancel</button>
+              <button type="button" className="adm-btn is-pri" disabled={!current || !!busy} onClick={remove}>{busy === 'remove' ? 'Switching…' : 'Use the hosting setting'}</button>
+            </div>
+          </div>
+        )
+      )}
       {!keys.canStore ? (
         <span className="adm-small adm-muted">{`This site can’t keep a ${label} safely (a setting is missing), so use the steps under What to do.`}</span>
       ) : keys.readOnly ? (
         <span className="adm-small adm-muted">This test site can’t change the live site’s keys.</span>
-      ) : !open ? (
+      ) : removing ? null : !open ? (
         <button type="button" className="adm-btn is-ghost" onClick={() => setOpen(true)}>{KEY_TITLE[service]}</button>
       ) : (
         <div className="adm-panel" role="group" aria-label={KEY_TITLE[service]}>

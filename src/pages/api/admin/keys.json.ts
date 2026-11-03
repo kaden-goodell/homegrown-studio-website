@@ -2,15 +2,15 @@ import type { APIRoute } from 'astro'
 import { adminActor, adminAuthorized, checkAdminPasscode } from '@lib/admin-auth'
 import { resolveOwner } from '@lib/admin-owners'
 import { ADMIN_PASSCODE_BUCKET, ADMIN_PASSCODE_MAX_TRIES, ADMIN_PASSCODE_MESSAGES, ADMIN_PASSCODE_WINDOW_MS, TOO_MANY_TRIES } from '@lib/admin-passcode'
-import { ADMIN_LOCKED_MESSAGE, adminSignInLocked, noteAdminFailedSignIn } from '@lib/admin-signin-failures'
+import { adminSlowdown, noteAdminFailedSignIn } from '@lib/admin-signin-failures'
 import { ADMIN_WHO_HEADER } from '@lib/admin-who'
 import { recordAudit } from '@lib/audit'
 import { classWritesRefusal, TestSiteStoreError } from '@lib/classes/test-site-guard'
 import { fromHeader, gmailUser } from '@lib/email'
 import { createLogger } from '@lib/logger'
 import { noteOk } from '@lib/outbound-health'
-import { canStoreKeys, keyStatus, KeyStoreError, noteTested, saveKey, wasTested, type KeyService } from '@lib/outbound-keys'
-import { studioWhen, tellOwners } from '@lib/owner-notice'
+import { canStoreKeys, keyStatus, KeyStoreError, noteTested, removeKey, saveKey, wasTested, type KeyService } from '@lib/outbound-keys'
+import { deviceSaid, studioWhen, tellOwners } from '@lib/owner-notice'
 import { messagesMuted } from '@lib/preview-outbound'
 import { QUO_MESSAGES_URL, QUO_PHONE_NUMBERS_URL, quoFromNumber, toE164 } from '@lib/quo'
 import { rateLimited } from '@lib/rate-limit'
@@ -139,6 +139,10 @@ async function testQuo(key: string, to: string, muted: boolean): Promise<string>
  *   The current admin passcode again (tries shared with sign-in); only a key
  *   that passed Test it in the last 15 minutes. Encrypted at rest; wins over
  *   the site setup's. Audited (never the key); every owner emailed and texted.
+ * POST { action: 'remove', service, current } → { removed }
+ *   "Use the hosting setting instead" (N4): the current admin passcode again;
+ *   forgets the key saved here so the hosting setting is used. Audited; every
+ *   owner emailed and texted.
  */
 export const GET: APIRoute = async ({ request }) => {
   if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
@@ -161,10 +165,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (!body || typeof body !== 'object') return json(400, { error: "We couldn't read that. Try again." })
   const { action, service } = body as { action?: unknown; service?: unknown }
   if (service !== 'gmail' && service !== 'quo') return json(400, { error: 'Pick Gmail or Quo.' })
-  if (action !== 'test' && action !== 'save') return json(400, { error: 'Pick Test it or Save it.' })
+  if (action !== 'test' && action !== 'save' && action !== 'remove') return json(400, { error: 'Pick Test it or Save it.' })
   if (classWritesRefusal()) return json(503, { error: KEY_MESSAGES.readOnly })
   const value = cleanValue(service, (body as { value?: unknown }).value)
-  if (!value) return json(400, { error: KEY_MESSAGES.empty })
+  if (!value && action !== 'remove') return json(400, { error: KEY_MESSAGES.empty })
   const by = await adminActor(request)
   const audit = (what: string, details: Record<string, string | number | boolean | null>) =>
     recordAudit({ by: { ...by, role: 'owner' }, action: `keys.${what}`, target: { kind: 'settings', id: `key-${service}`, label: SERVICE_LABEL[service] }, details })
@@ -189,13 +193,31 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     }
   }
 
-  // Save: the current admin passcode again, counted like a sign-in try before anything else.
+  // Save or remove: the current admin passcode again, counted like a sign-in try before anything else.
   if (rateLimited(ADMIN_PASSCODE_BUCKET(clientAddress), ADMIN_PASSCODE_MAX_TRIES, ADMIN_PASSCODE_WINDOW_MS)) return json(429, { error: TOO_MANY_TRIES })
-  if (await adminSignInLocked()) return json(429, { error: ADMIN_LOCKED_MESSAGE })
+  const slow = await adminSlowdown()
+  if (slow) return json(429, slow)
   const current = typeof (body as { current?: unknown }).current === 'string' ? (body as { current: string }).current : ''
   if (!(await checkAdminPasscode(current))) {
     await noteAdminFailedSignIn()
     return json(403, { error: current && current !== current.trim() ? ADMIN_PASSCODE_MESSAGES.currentSpaces : ADMIN_PASSCODE_MESSAGES.current })
+  }
+  if (action === 'remove') {
+    try {
+      const removed = await removeKey(service, by)
+      await audit('removed', { removed })
+      if (removed) {
+        await tellOwners({
+          subject: `The ${SERVICE_LABEL[service]} pasted in /admin was removed`,
+          line: `${deviceSaid(by)} removed the ${SERVICE_LABEL[service]} pasted in /admin (${studioWhen()}). ${service === 'gmail' ? 'Emails' : 'Texts'} from the website now use the one in the hosting settings. If none of you did this, sign in to /admin, change the admin passcode, and check More › Email, texts and Square.`,
+        })
+      }
+      return json(200, { data: { removed } })
+    } catch (e) {
+      if (e instanceof TestSiteStoreError) return json(503, { error: e.message })
+      logger.error('Key could not be removed', { service, error: e instanceof Error ? e.message : String(e) })
+      return json(503, { error: 'That didn’t go through. Try again in a minute.' })
+    }
   }
   if (!(await wasTested(service, value))) return json(400, { error: KEY_MESSAGES.testFirst })
   try {
@@ -205,7 +227,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     await noteOk(service === 'gmail' ? 'email' : 'text')
     await tellOwners({
       subject: `A new ${SERVICE_LABEL[service]} was saved in /admin`,
-      line: `${by.name} pasted a new ${SERVICE_LABEL[service]} in /admin (${studioWhen()}). ${service === 'gmail' ? 'Emails' : 'Texts'} from the website now go out with it. If none of you did this, sign in to /admin, change the admin passcode, and check More › Email, texts and Square.`,
+      line: `${deviceSaid(by)} pasted a new ${SERVICE_LABEL[service]} (${studioWhen()}). ${service === 'gmail' ? 'Emails' : 'Texts'} from the website now go out with it. If none of you did this, sign in to /admin, change the admin passcode, and check More › Email, texts and Square.`,
     })
     return json(200, { data: { updatedAt } })
   } catch (e) {

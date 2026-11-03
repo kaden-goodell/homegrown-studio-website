@@ -9,15 +9,19 @@
  *    pasted key can only be the studio's own (the Quo key is checked against
  *    the studio number before it can be saved).
  *  - Encrypted at rest: AES-256-GCM with a key derived (HKDF) from the
- *    server-only LOOKUP_SIGNING_SECRET, with its own info string. Without
- *    that setting nothing can be saved (fail closed) and the site setup's
- *    keys are used.
+ *    server-only LOOKUP_SIGNING_SECRET, with its own info string. The full
+ *    16-byte tag is required (a shortened one is refused), and the service
+ *    name is the additional data, so a Gmail record can't be moved into the
+ *    Quo slot (N3). Without that setting nothing can be saved (fail closed)
+ *    and the site setup's keys are used.
  *  - A saved key wins over the site setup's. One that can't be decrypted
  *    (the setting changed, or the record is damaged) is ignored: the site
- *    setup's is used and the screen says so.
+ *    setup's is used and the screen says so. "Use the hosting setting
+ *    instead" removes it (removeKey, N4).
  *  - Never shown back, never logged, never in the audit or the archive.
  *  - Saved only after "Test it" worked with that exact key in the last 15
- *    minutes (a fingerprint is kept for that, never the key).
+ *    minutes (an HMAC fingerprint is kept for that, never the key, under its
+ *    own derived key, not the encryption key).
  *  - Refused on a test site that shares the live stores (R41).
  *
  * One record per service in kv `outbound-keys`. Server only.
@@ -38,9 +42,10 @@ export type KeyService = (typeof KEY_SERVICES)[number]
 export const TESTED_FOR_MS = 15 * 60_000
 const CACHE_MS = 30_000
 const HISTORY_CAP = 20
+const TAG_BYTES = 16
 
 interface KeyRecord {
-  v: 1
+  v: 2
   iv: string
   ct: string
   tag: string
@@ -54,29 +59,41 @@ function env(name: string): string {
   return meta[name] || (typeof process !== 'undefined' ? process.env[name] : '') || ''
 }
 
-/** The encryption key, or null when LOOKUP_SIGNING_SECRET isn't set (then nothing is stored or read). */
-function secretKey(): Buffer | null {
+function derived(info: string): Buffer | null {
   const secret = env('LOOKUP_SIGNING_SECRET')
   if (!secret) return null
-  return Buffer.from(hkdfSync('sha256', secret, 'hometown-studio', 'outbound-keys v1', 32))
+  return Buffer.from(hkdfSync('sha256', secret, 'hometown-studio', info, 32))
 }
+
+/** The encryption key, or null when LOOKUP_SIGNING_SECRET isn't set (then nothing is stored or read). */
+const secretKey = () => derived('outbound-keys v1')
+/** The "tested" fingerprint's HMAC key: its own, never the encryption key (N3). */
+const testedKey = () => derived('outbound-keys tested v1')
 
 /** Whether this site can keep a pasted key safely. */
 export function canStoreKeys(): boolean {
   return secretKey() !== null
 }
 
-function encrypt(value: string, key: Buffer): { iv: string; ct: string; tag: string } {
+const aad = (service: KeyService) => Buffer.from(`outbound-keys:${service}`, 'utf8')
+
+function encrypt(service: KeyService, value: string, key: Buffer): { iv: string; ct: string; tag: string } {
   const iv = randomBytes(12)
-  const c = createCipheriv('aes-256-gcm', key, iv)
+  const c = createCipheriv('aes-256-gcm', key, iv, { authTagLength: TAG_BYTES })
+  c.setAAD(aad(service))
   const ct = Buffer.concat([c.update(value, 'utf8'), c.final()])
   return { iv: iv.toString('base64url'), ct: ct.toString('base64url'), tag: c.getAuthTag().toString('base64url') }
 }
 
-function decrypt(rec: KeyRecord, key: Buffer): string | null {
+/** The key, or null: wrong secret, damaged, a shortened tag, or a record from another service's slot. */
+function decrypt(service: KeyService, rec: KeyRecord, key: Buffer): string | null {
   try {
-    const d = createDecipheriv('aes-256-gcm', key, Buffer.from(rec.iv, 'base64url'))
-    d.setAuthTag(Buffer.from(rec.tag, 'base64url'))
+    if (rec.v !== 2) return null
+    const tag = Buffer.from(rec.tag, 'base64url')
+    if (tag.length !== TAG_BYTES) return null
+    const d = createDecipheriv('aes-256-gcm', key, Buffer.from(rec.iv, 'base64url'), { authTagLength: TAG_BYTES })
+    d.setAAD(aad(service))
+    d.setAuthTag(tag)
     return Buffer.concat([d.update(Buffer.from(rec.ct, 'base64url')), d.final()]).toString('utf8')
   } catch {
     return null
@@ -128,7 +145,7 @@ export async function storedKey(service: KeyService): Promise<string | null> {
     try {
       const rec = parse(await kv.get(service))
       if (rec && rec !== 'invalid') {
-        value = decrypt(rec, key)
+        value = decrypt(service, rec, key)
         if (value === null) logger.error('A key saved in /admin can’t be decrypted; using the site setup’s', { service })
       }
     } catch (err) {
@@ -156,7 +173,7 @@ export async function keyStatus(service: KeyService): Promise<KeyStatus> {
     if (!rec) return { setInAdmin: false, updatedAt: null, by: null, broken: false }
     if (rec === 'invalid') return { setInAdmin: true, updatedAt: null, by: null, broken: true }
     const key = secretKey()
-    return { setInAdmin: true, updatedAt: rec.updatedAt, by: rec.by?.name ?? null, broken: !key || decrypt(rec, key) === null }
+    return { setInAdmin: true, updatedAt: rec.updatedAt, by: rec.by?.name ?? null, broken: !key || decrypt(service, rec, key) === null }
   } catch {
     return { setInAdmin: false, updatedAt: null, by: null, broken: true }
   }
@@ -166,14 +183,14 @@ const fingerprint = (service: KeyService, value: string, key: Buffer) => createH
 
 /** Remember that "Test it" worked with this exact key (a fingerprint, never the key). */
 export async function noteTested(service: KeyService, value: string, now = Date.now()): Promise<void> {
-  const key = secretKey()
+  const key = testedKey()
   if (!key || classWritesRefusal()) return
   await kv.set(`tested:${service}`, JSON.stringify({ fp: fingerprint(service, value, key), at: now }))
 }
 
 /** True when "Test it" worked with this exact key in the last 15 minutes. */
 export async function wasTested(service: KeyService, value: string, now = Date.now()): Promise<boolean> {
-  const key = secretKey()
+  const key = testedKey()
   if (!key) return false
   try {
     const raw = await kv.get(`tested:${service}`)
@@ -199,10 +216,25 @@ export async function saveKey(service: KeyService, value: string, by: By, now = 
   const prev = parse(await kv.get(service).catch(() => null))
   const history = prev && prev !== 'invalid' && Array.isArray(prev.history) ? prev.history : []
   const updatedAt = now.toISOString()
-  const rec: KeyRecord = { v: 1, ...encrypt(value, key), updatedAt, by, history: [{ at: updatedAt, by }, ...history].slice(0, HISTORY_CAP) }
+  const rec: KeyRecord = { v: 2, ...encrypt(service, value, key), updatedAt, by, history: [{ at: updatedAt, by }, ...history].slice(0, HISTORY_CAP) }
   await kv.set(service, JSON.stringify(rec))
   await kv.set(`tested:${service}`, 'null') // a test counts for one save
   cache.set(service, { at: Date.now(), value })
   logger.info('Key saved in /admin', { service, by: by.name })
   return { updatedAt }
+}
+
+/**
+ * "Use the hosting setting instead" (N4): forgets the key saved in /admin,
+ * so the site setup's (hosting) one is used again. The caller checks the
+ * passcode, audits and tells the owners. False when none was saved.
+ */
+export async function removeKey(service: KeyService, by: By): Promise<boolean> {
+  if (classWritesRefusal()) throw new TestSiteStoreError() // R41
+  const had = parse(await kv.get(service))
+  await kv.set(service, 'null')
+  await kv.set(`tested:${service}`, 'null')
+  cache.set(service, { at: Date.now(), value: null })
+  logger.info('Key saved in /admin removed; the hosting setting is used', { service, by: by.name, had: !!had })
+  return !!had
 }

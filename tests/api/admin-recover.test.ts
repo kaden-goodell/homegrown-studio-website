@@ -52,6 +52,8 @@ function lastToken(): string {
   return t[1]
 }
 const use = (token: string, passcode: string, again = passcode, address?: string) => call({ action: 'use', token, passcode, again }, { address })
+/** Forget the live link (as if it ran out), so the next request sends a new one. */
+const forgetLiveLink = () => makeKvStore('admin-access', 'admin-access').set('recovery-current', 'null')
 
 beforeEach(async () => {
   site.context = 'dev'
@@ -67,6 +69,7 @@ beforeEach(async () => {
   await _resetStaffListForTests()
   await _resetHealthForTests()
   await makeKvStore('admin-access', 'admin-access').set('recovery-requests', 'null')
+  await makeKvStore('admin-access', 'admin-access').set('recovery-current', 'null')
   searchMock.mockReset()
   searchMock.mockResolvedValue({ teamMembers: TEAM })
   sendMail.mockReset()
@@ -100,14 +103,47 @@ describe('Forgot the passcode? › Email the owners a link', () => {
     expect(mails()[0].to).toBe('kaden@ourhometownstudio.com, catherine@ourhometownstudio.com')
     await staffListForOwners()
     await addPerson({ givenName: 'Dana', familyName: 'Reyes', role: 'owner', phone: '', email: 'dana@example.com' }, BY)
+    await forgetLiveLink()
     await call({ action: 'request' })
     expect(mails()[1].to).toBe('kaden@example.com, cat@example.com')
   })
 
   it('rate limited in the store for the whole site (3 an hour), not just per address', async () => {
-    for (let i = 0; i < RECOVERY_PER_HOUR; i++) expect((await call({ action: 'request' })).status).toBe(200)
+    for (let i = 0; i < RECOVERY_PER_HOUR; i++) {
+      expect((await call({ action: 'request' })).status).toBe(200)
+      await forgetLiveLink()
+    }
     expect(await call({ action: 'request' })).toMatchObject({ status: 429, body: { error: RECOVERY_MESSAGES.limited } })
     expect(mails()).toHaveLength(RECOVERY_PER_HOUR)
+  })
+
+  it('N2: while a link is still good, asking again sends nothing and isn’t counted, with the same answer', async () => {
+    await staffListForOwners()
+    expect((await call({ action: 'request' })).status).toBe(200)
+    const token = lastToken()
+    for (let i = 0; i < 10; i++) expect(await call({ action: 'request' })).toMatchObject({ status: 200, body: { data: { message: RECOVERY_MESSAGES.sent } } })
+    expect(mails()).toHaveLength(1)
+    expect((await call({ action: 'check', token })).body.data.state).toBe('ok') // the first link still works
+    const raw = await makeKvStore('admin-access', 'admin-access').get('recovery-requests')
+    expect(JSON.parse(raw!).times).toHaveLength(1)
+    expect(RECOVERY_MESSAGES.sent).toMatch(/an owner added or changed in the last 3 days isn’t sent one/)
+  })
+
+  it('N2: no daily cap: links asked for all day (each after the last ran out) keep going out, within 3 an hour', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const start = Date.now()
+    for (let i = 0; i < 15; i++) {
+      vi.setSystemTime(start + i * 21 * 60_000) // every 21 minutes: the last link has run out
+      expect((await call({ action: 'request' })).status).toBe(200)
+    }
+    expect(mails()).toHaveLength(15)
+  })
+
+  it('N2: a used link doesn’t block a new one', async () => {
+    await call({ action: 'request' })
+    expect((await use(lastToken(), 'fresh-start-9')).status).toBe(200)
+    await call({ action: 'request' })
+    expect(mails().filter((m) => /Set a new \/admin passcode/.test(m.subject))).toHaveLength(2)
   })
 
   it('the link always points at the studio’s own site, never a forged Host', () => {
@@ -128,6 +164,11 @@ describe('Forgot the passcode? › Email the owners a link', () => {
     vi.stubEnv('SQUARE_ENVIRONMENT', 'sandbox')
     expect((await call({ action: 'request' }, { url: 'https://kaden-own-booking-system--iridescent-croissant-494fc3.netlify.app/api/admin/recover.json' })).status).toBe(200)
     expect(sendMail).not.toHaveBeenCalled()
+    // N5: only the first line is kept, never the link or its token.
+    const { listMuted } = await import('@lib/preview-outbound')
+    const entry = (await listMuted()).find((m) => /Set a new \/admin passcode/.test(m.subject ?? ''))!
+    expect(entry.firstLine).toMatch(/^Someone asked for a link/)
+    expect(JSON.stringify(await listMuted())).not.toMatch(/recover\?t=/)
   })
 })
 
@@ -187,8 +228,11 @@ describe('the link', () => {
   it('a newer link ends the older one; a passcode change in Admin access ends it too', async () => {
     await call({ action: 'request' })
     const first = lastToken()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.now() + RECOVERY_TTL_MS + 1000)
     await call({ action: 'request' })
     const second = lastToken()
+    expect(second).not.toBe(first)
     expect((await call({ action: 'check', token: first })).body.data.state).toBe('unknown')
     const changed = await (accessRoute as any).POST({
       request: new Request('https://x.test/', { method: 'POST', headers: { cookie: adminCookie().split(';')[0], 'X-Admin-Who': 'Catherine' }, body: JSON.stringify({ current: 'owner-secret', passcode: 'changed-here-1', again: 'changed-here-1', expectedUpdatedAt: null }) }),

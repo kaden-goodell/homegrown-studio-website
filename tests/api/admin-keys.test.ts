@@ -1,7 +1,8 @@
 // @vitest-environment node
 // More › Email, texts and Square: paste a new Gmail app password or Quo key (never the Square token).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
+import { createHmac, hkdfSync } from 'node:crypto'
 
 const { searchMock, audit, transports } = vi.hoisted(() => ({ searchMock: vi.fn(), audit: [] as any[], transports: [] as any[] }))
 vi.mock('@providers/square/client', () => ({ createSquareClient: () => ({ teamMembers: { search: searchMock } }) }))
@@ -201,9 +202,80 @@ describe('kept safe', () => {
     expect(sentMails().filter((m) => m.to === 'a@example.com').at(-1)!.pass).toBe(gmail.envPass)
   })
 
+  it('N3: a record with a shortened auth tag is refused (the key is not used)', async () => {
+    await call('POST', { action: 'test', service: 'gmail', value: 'abcdefghijklmnop' })
+    await call('POST', { action: 'save', service: 'gmail', value: 'abcdefghijklmnop', current: 'owner-secret' })
+    const file = `${process.env.BLOB_STORE_FS_DIR}/outbound-keys/gmail.json`
+    const rec = JSON.parse(await readFile(file, 'utf8'))
+    expect(Buffer.from(rec.tag, 'base64url')).toHaveLength(16)
+    await writeFile(file, JSON.stringify({ ...rec, tag: Buffer.from(rec.tag, 'base64url').subarray(0, 4).toString('base64url') }))
+    _forgetKeyCacheForTests()
+    expect(await storedKey('gmail')).toBeNull()
+    expect((await call('GET')).body.data.gmail).toMatchObject({ setInAdmin: true, broken: true })
+  })
+
+  it('N3: the service name is bound in: a Gmail record copied into the Quo slot doesn’t decrypt', async () => {
+    await call('POST', { action: 'test', service: 'gmail', value: 'abcdefghijklmnop' })
+    await call('POST', { action: 'save', service: 'gmail', value: 'abcdefghijklmnop', current: 'owner-secret' })
+    const dir = `${process.env.BLOB_STORE_FS_DIR}/outbound-keys`
+    await writeFile(`${dir}/quo.json`, await readFile(`${dir}/gmail.json`, 'utf8'))
+    _forgetKeyCacheForTests()
+    expect(await storedKey('gmail')).toBe('abcdefghijklmnop')
+    expect(await storedKey('quo')).toBeNull()
+  })
+
+  it('N3: the “tested” fingerprint uses its own derived key, not the encryption key', async () => {
+    await call('POST', { action: 'test', service: 'gmail', value: 'abcdefghijklmnop' })
+    const { fp } = JSON.parse(await readFile(`${process.env.BLOB_STORE_FS_DIR}/outbound-keys/tested:gmail.json`, 'utf8'))
+    const derive = (info: string) => Buffer.from(hkdfSync('sha256', 'server-only-secret-1', 'hometown-studio', info, 32))
+    const mac = (k: Buffer) => createHmac('sha256', k).update('tested:gmail:abcdefghijklmnop').digest('base64url')
+    expect(fp).toBe(mac(derive('outbound-keys tested v1')))
+    expect(fp).not.toBe(mac(derive('outbound-keys v1')))
+  })
+
   it('R41: a test site sharing the live stores can’t test or save', async () => {
     site.context = 'deploy-preview'
     expect((await call('GET')).body.data.readOnly).toBe(true)
     expect(await call('POST', { action: 'test', service: 'gmail', value: 'abcdefghijklmnop' })).toMatchObject({ status: 503, body: { error: route.KEY_MESSAGES.readOnly } })
+  })
+})
+
+describe('Use the hosting setting instead (N4)', () => {
+  it('needs the admin passcode; removes the pasted key so the hosting one is used; audited; every owner told', async () => {
+    await call('POST', { action: 'test', service: 'gmail', value: 'abcdefghijklmnop' })
+    await call('POST', { action: 'save', service: 'gmail', value: 'abcdefghijklmnop', current: 'owner-secret' })
+    expect(await storedKey('gmail')).toBe('abcdefghijklmnop')
+    transports.length = 0
+    quoCalls.length = 0
+    audit.length = 0
+
+    expect(await call('POST', { action: 'remove', service: 'gmail', current: 'wrong' })).toMatchObject({ status: 403 })
+    expect(await storedKey('gmail')).toBe('abcdefghijklmnop')
+
+    const r = await call('POST', { action: 'remove', service: 'gmail', current: 'owner-secret' })
+    expect(r).toMatchObject({ status: 200, body: { data: { removed: true } } })
+    expect(await storedKey('gmail')).toBeNull()
+    _forgetKeyCacheForTests()
+    expect(await storedKey('gmail')).toBeNull()
+    expect((await call('GET')).body.data.gmail).toMatchObject({ setInAdmin: false, broken: false })
+    expect(audit.map((a) => [a.action, a.details])).toEqual([['keys.removed', { removed: true }]])
+    const notice = sentMails().find((m) => /pasted in \/admin was removed/.test(m.subject))!
+    expect(notice).toMatchObject({ to: 'kaden@example.com, cat@example.com', pass: gmail.envPass })
+    expect(notice.text).toMatch(/^A signed-in \/admin device that said it was Catherine removed the Gmail app password pasted in \/admin .* now use the one in the hosting settings/)
+    expect(quoCalls.some((c) => c.url.endsWith('/messages') && /removed the Gmail app password/.test(c.body.content))).toBe(true)
+
+    await sendEmail({ to: 'a@example.com', subject: 's', text: 't', html: 'h' })
+    expect(sentMails().find((m) => m.to === 'a@example.com')!.pass).toBe(gmail.envPass)
+  })
+
+  it('with nothing pasted: nothing to tell', async () => {
+    const r = await call('POST', { action: 'remove', service: 'quo', current: 'owner-secret' })
+    expect(r).toMatchObject({ status: 200, body: { data: { removed: false } } })
+    expect(sentMails()).toHaveLength(0)
+  })
+
+  it('R41: refused on a test site sharing the live stores', async () => {
+    site.context = 'deploy-preview'
+    expect(await call('POST', { action: 'remove', service: 'gmail', current: 'owner-secret' })).toMatchObject({ status: 503 })
   })
 })

@@ -7,12 +7,17 @@
  *
  *  - at MANY_ADMIN_FAILURES in a studio day the owners get one text and email
  *    ("Lots of wrong /admin passcodes today"), and Admin access says so;
- *  - at ADMIN_FAILURE_LOCK in a day, passcode sign-in stops for everyone until
- *    the next day or until the passcode is changed. The owners still get in
- *    with "Forgot the passcode?" (the emailed link), which isn't a guess.
+ *  - from ADMIN_SLOWDOWN_AT in a day, passcode tries slow down for the whole
+ *    site (N2): each one has to wait a little after the last wrong one, the
+ *    wait doubling every ADMIN_SLOWDOWN_STEP more wrong ones, never more than
+ *    ADMIN_SLOWDOWN_MAX_MS. It never stops altogether, so nobody (with no
+ *    sign-in at all) can close /admin to the owners for a day; the
+ *    per-address limit in memory still applies on top. The owners can also
+ *    use "Forgot the passcode?" (the emailed link), which isn't a guess.
  *
  * One record in kv `admin-access` (key `failed-signins`): the day, the count,
- * whether the owners were told. Never an address or what was typed. Best
+ * when the last wrong one was, whether the owners were told. Never an
+ * address or what was typed. Best
  * effort: a store blip never changes what sign-in answers. Never written from
  * a test site that shares the live stores (R41).
  *
@@ -28,13 +33,26 @@ const kv = makeKvStore('admin-access', 'admin-access')
 const KEY = 'failed-signins'
 /** The owners hear once a day at this many. */
 export const MANY_ADMIN_FAILURES = 20
-/** Passcode sign-in stops for the day at this many (the emailed link still works). */
-export const ADMIN_FAILURE_LOCK = 200
+/** From this many wrong ones in a day, passcode tries slow down site-wide. */
+export const ADMIN_SLOWDOWN_AT = 50
+/** The wait doubles every this many more. */
+export const ADMIN_SLOWDOWN_STEP = 50
+const SLOWDOWN_FIRST_MS = 2_000
+/** The longest anyone ever waits between tries: sign-in never closes. */
+export const ADMIN_SLOWDOWN_MAX_MS = 30_000
 const CAP = 100_000
 
-export const ADMIN_LOCKED_MESSAGE = 'Too many wrong passcodes were typed today, so passcode sign-in is paused until tomorrow. Tap “Forgot the passcode?” to get an email link instead.'
+export const adminSlowMessage = (seconds: number) =>
+  `Lots of wrong passcodes were typed today, so sign-in is slowed down. Wait ${seconds} second${seconds === 1 ? '' : 's'} and try again, or tap “Forgot the passcode?” to get an email link.`
 
-interface Failures { day: string; count: number; told?: boolean }
+interface Failures { day: string; count: number; told?: boolean; last?: number }
+
+/** The gap needed after the last wrong passcode at `count` wrong ones today. Pure. */
+export function slowdownGapMs(count: number): number {
+  if (count < ADMIN_SLOWDOWN_AT) return 0
+  const doublings = Math.floor((count - ADMIN_SLOWDOWN_AT) / ADMIN_SLOWDOWN_STEP)
+  return Math.min(ADMIN_SLOWDOWN_MAX_MS, SLOWDOWN_FIRST_MS * 2 ** Math.min(doublings, 20))
+}
 
 function read(json: string | null): Failures | null {
   if (!json) return null
@@ -59,7 +77,7 @@ export async function noteAdminFailedSignIn(now = new Date()): Promise<void> {
       const count = same ? Math.min(cur!.count + 1, CAP) : 1
       const told = !!(same && cur!.told)
       tell = !told && count >= MANY_ADMIN_FAILURES
-      if (await kv.setIfMatch(KEY, JSON.stringify({ day, count, told: told || tell }), etag, value !== null)) break
+      if (await kv.setIfMatch(KEY, JSON.stringify({ day, count, told: told || tell, last: now.getTime() }), etag, value !== null)) break
       tell = false
     }
   } catch (err) {
@@ -86,9 +104,28 @@ export async function adminFailedSignInsToday(now = new Date()): Promise<number>
   }
 }
 
-/** True when passcode sign-in is paused for today. False when it can't be read (a blip never locks anyone out). */
-export async function adminSignInLocked(now = new Date()): Promise<boolean> {
-  return (await adminFailedSignInsToday(now)) >= ADMIN_FAILURE_LOCK
+/**
+ * Whole seconds to wait before the next passcode try is checked (0 = go
+ * ahead). Never a full stop: at most ADMIN_SLOWDOWN_MAX_MS. 0 when it can't
+ * be read (a blip never keeps anyone out).
+ */
+export async function adminSignInWait(now = new Date()): Promise<number> {
+  try {
+    const cur = read(await kv.get(KEY))
+    if (!cur || cur.day !== studioDay(now)) return 0
+    const gap = slowdownGapMs(cur.count)
+    if (!gap || typeof cur.last !== 'number') return 0
+    const left = cur.last + gap - now.getTime()
+    return left > 0 ? Math.ceil(left / 1000) : 0
+  } catch {
+    return 0
+  }
+}
+
+/** The 429 answer while slowed down, or null to go ahead. */
+export async function adminSlowdown(now = new Date()): Promise<{ error: string; wait: number } | null> {
+  const wait = await adminSignInWait(now)
+  return wait > 0 ? { error: adminSlowMessage(wait), wait } : null
 }
 
 /** Start the count over (the passcode was just changed). Never throws. */

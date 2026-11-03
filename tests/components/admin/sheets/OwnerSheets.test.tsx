@@ -247,7 +247,7 @@ describe('emails, texts and Square (G2)', () => {
     expect(await within(panel).findByRole('status')).toHaveTextContent('Google accepted it')
     fireEvent.change(within(panel).getByLabelText('Admin passcode you use now'), { target: { value: 'owner-secret' } })
     fireEvent.click(within(panel).getByRole('button', { name: 'Save it' }))
-    expect(await screen.findByText('Saved. Emails now go out with the new Gmail app password. The other owners got an email and a text saying so.')).toBeInTheDocument()
+    expect(await screen.findByText('Saved. Emails now go out with the new Gmail app password. Every owner got an email and a text saying so.')).toBeInTheDocument()
     expect(posts(fetchMock, KEYS).map((p: any) => p.body)).toEqual([
       { action: 'test', service: 'gmail', value: 'abcd efgh ijkl mnop' },
       { action: 'save', service: 'gmail', value: 'abcd efgh ijkl mnop', current: 'owner-secret' },
@@ -255,5 +255,15 @@ describe('emails, texts and Square (G2)', () => {
     const texts = screen.getByRole('region', { name: 'Texts' })
     expect(texts).toHaveTextContent('The Quo key was pasted here by Kaden')
     expect(within(screen.getByRole('region', { name: 'Square' })).queryByRole('button', { name: /Paste/ })).toBeNull()
+    // N4: only a pasted key offers going back to the hosting setting.
+    expect(within(email).queryByRole('button', { name: 'Use the hosting setting instead' })).toBeNull()
+    fireEvent.click(within(texts).getByRole('button', { name: 'Use the hosting setting instead' }))
+    const back = within(texts).getByRole('group', { name: 'Use the hosting setting instead' })
+    expect(back).toHaveTextContent('This forgets the Quo key pasted here, so the one in the hosting settings is used again.')
+    expect(within(back).getByRole('button', { name: 'Use the hosting setting' })).toBeDisabled()
+    fireEvent.change(within(back).getByLabelText('Admin passcode you use now'), { target: { value: 'owner-secret' } })
+    fireEvent.click(within(back).getByRole('button', { name: 'Use the hosting setting' }))
+    expect(await screen.findByText('Done. Texts now use the Quo key in the hosting settings. Every owner got an email and a text saying so.')).toBeInTheDocument()
+    expect(posts(fetchMock, KEYS).map((p: any) => p.body).at(-1)).toEqual({ action: 'remove', service: 'quo', current: 'owner-secret' })
   })
 })

@@ -3,7 +3,7 @@ import { rateLimited } from '@lib/rate-limit'
 import { adminDoor, checkAdminPasscode, adminSignInCookie, clearAdminCookie } from '@lib/admin-auth'
 import { ownerNames } from '@lib/admin-owners'
 import { ADMIN_PASSCODE_BUCKET, ADMIN_PASSCODE_MAX_TRIES, ADMIN_PASSCODE_WINDOW_MS, TOO_MANY_TRIES } from '@lib/admin-passcode'
-import { ADMIN_LOCKED_MESSAGE, adminSignInLocked, noteAdminFailedSignIn } from '@lib/admin-signin-failures'
+import { adminSlowdown, noteAdminFailedSignIn } from '@lib/admin-signin-failures'
 
 export const prerender = false
 const json = (status: number, body: unknown, cookie?: string) =>
@@ -24,11 +24,12 @@ export const LOGIN_MESSAGES = {
  * 503 { error, door: 'unreadable' | 'damaged' | 'none' } when nobody can sign
  * in, with a different message for each (M3). Wrong passcodes count per
  * address (memory) and for the whole site (store, L1); a day with very many
- * pauses passcode sign-in (the emailed link still works).
+ * slows passcode tries down site-wide, never stops them (N2).
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (rateLimited(ADMIN_PASSCODE_BUCKET(clientAddress), ADMIN_PASSCODE_MAX_TRIES, ADMIN_PASSCODE_WINDOW_MS)) return json(429, { error: TOO_MANY_TRIES })
-  if (await adminSignInLocked()) return json(429, { error: ADMIN_LOCKED_MESSAGE, locked: true })
+  const slow = await adminSlowdown()
+  if (slow) return json(429, { ...slow, slowed: true })
   const door = await adminDoor()
   if (door !== 'open') return json(503, { error: LOGIN_MESSAGES[door], door })
   const body = await request.json().catch(() => ({}))

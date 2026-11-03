@@ -181,7 +181,7 @@ function Forgot() {
   return (
     <div className="adm-panel" role="group" aria-label="Forgot the passcode?">
       <b>Forgot the passcode?</b>
-      <span className="adm-small">We’ll email a link to every owner’s email in Staff › People. It works once, for 15 minutes, and lets you set a new admin passcode. Every other phone or iPad is signed out when you do.</span>
+      <span className="adm-small">We’ll email a link to every owner’s email in Staff › People (an owner added or changed in the last 3 days isn’t sent one). It works once, for 15 minutes, and lets you set a new admin passcode. Every other phone or iPad is signed out when you do.</span>
       {result && <p role={result.ok ? 'status' : 'alert'} className={result.ok ? 'adm-small' : 'field-error'}>{result.text}</p>}
       {!result?.ok && (
         <div className="adm-two">

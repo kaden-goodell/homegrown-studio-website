@@ -39,8 +39,9 @@ const BY = { id: 'recovery', name: 'Emailed link' }
  * "Forgot the passcode?" (M3). Signed out, so no admin cookie is needed.
  * POST { action: 'request' } → { message }: emails a single-use, 15-minute
  *   link to every owner's email on the staff list (nothing is typed, so the
- *   answer can't reveal who the owners are). Rate limited per address and,
- *   in the store, for the whole site.
+ *   answer can't reveal who the owners are). While a link sent earlier still
+ *   works, nothing is sent or counted (same answer). Rate limited per
+ *   address and, in the store, 3 an hour for the whole site.
  * POST { action: 'check', token } → { state }: opening the link; never uses it up.
  * POST { action: 'use', token, passcode, again } → signs this device in:
  *   the same rules as Admin access, then the link is used up, the passcode is
@@ -55,6 +56,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     try {
       const r = await requestRecovery(recoveryOrigin(request.url))
       if (r === 'limited') return json(429, { error: RECOVERY_MESSAGES.limited })
+      // A link from earlier still works: the same answer, nothing sent or counted (N2).
+      if (r === 'live') return json(200, { data: { message: RECOVERY_MESSAGES.sent } })
       await recordAudit({ by: { ...BY, role: 'owner' }, action: 'admin.recovery-requested', target: { kind: 'admin', id: 'passcode', label: 'Admin passcode' } })
       return json(200, { data: { message: RECOVERY_MESSAGES.sent } })
     } catch (e) {

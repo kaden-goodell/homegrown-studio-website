@@ -10,8 +10,8 @@ import { classWritesRefusal, TestSiteStoreError } from '@lib/classes/test-site-g
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { checkPasscode as matchesStaffPasscode } from '@lib/staff-auth'
-import { ADMIN_LOCKED_MESSAGE, adminFailedSignInsToday, adminSignInLocked, clearAdminFailedSignIns, MANY_ADMIN_FAILURES, noteAdminFailedSignIn } from '@lib/admin-signin-failures'
-import { ownersSnapshot, studioWhen, tellOwners } from '@lib/owner-notice'
+import { adminFailedSignInsToday, adminSlowdown, clearAdminFailedSignIns, MANY_ADMIN_FAILURES, noteAdminFailedSignIn } from '@lib/admin-signin-failures'
+import { deviceSaid, ownersSnapshot, studioWhen, tellOwners } from '@lib/owner-notice'
 import { json } from '@lib/staffing/http'
 
 export const prerender = false
@@ -57,7 +57,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (!body || typeof body !== 'object') return json(400, { error: "We couldn't read that. Try again." })
   // Counted like a sign-in try, before anything is checked.
   if (rateLimited(ADMIN_PASSCODE_BUCKET(clientAddress), ADMIN_PASSCODE_MAX_TRIES, ADMIN_PASSCODE_WINDOW_MS)) return json(429, { error: TOO_MANY_TRIES })
-  if (await adminSignInLocked()) return json(429, { error: ADMIN_LOCKED_MESSAGE })
+  const slow = await adminSlowdown()
+  if (slow) return json(429, slow)
   const by = await adminActor(request)
   try {
     // 403, never 401: a wrong current passcode must not sign this device out. Exactly as typed (L3).
@@ -74,12 +75,11 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const { rec } = await setAdminPasscode(passcode, by, expected, envAdminPasscode())
     await recordAudit({ by: { ...by, role: 'owner' }, action: 'admin.passcode-changed', target: { kind: 'admin', id: 'passcode', label: 'Admin passcode' } })
     await clearAdminFailedSignIns()
-    // The other owners hear (a stolen session can't quietly lock them out).
+    // Every owner hears, the named one too (a stolen session can't quietly lock them out).
     await tellOwners({
       owners: before,
-      except: by.name === 'Owner' ? null : by.name,
       subject: 'The /admin passcode was changed',
-      line: `${by.name} changed the /admin passcode (${studioWhen()}). Every other phone or iPad is signed out. If that wasn’t expected, use “Forgot the passcode?” on the /admin sign-in page.`,
+      line: `${deviceSaid(by)} changed the /admin passcode (${studioWhen()}). Every other phone or iPad is signed out. If that wasn’t expected, use “Forgot the passcode?” on the /admin sign-in page.`,
     })
     // Everyone else is signed out by the new generation; this device signs in again on the spot.
     return json(200, { data: { updatedAt: rec.updatedAt } }, { 'Set-Cookie': await adminSignInCookie() })
