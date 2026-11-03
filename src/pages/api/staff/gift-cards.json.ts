@@ -6,11 +6,14 @@ import { alertOwners } from '@lib/owner-alert'
 import { createLogger } from '@lib/logger'
 import { recordAudit } from '@lib/audit'
 import {
-  listMintedGiftCards, saveMintedGiftCard, validateMint, newGiftCardRecordId,
+  listMintedGiftCards, saveMintedGiftCard, validateMint, newGiftCardRecordId, giftCardIdForPress, getMintedGiftCard,
   type MintedGiftCard,
 } from '@lib/gift-cards'
 
 export const prerender = false
+
+/** M9: a mint whose answer failed may still have made the card in Square. */
+export const GIFT_CARD_MAYBE_MADE = 'Square didn’t answer clearly, so the card may or may not have been made. Check the list below before making another; tapping Make the gift card again for the same card never makes a second one.'
 
 const logger = createLogger('api:staff:gift-cards')
 const HEADERS = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
@@ -47,13 +50,20 @@ export const POST: APIRoute = async ({ request }) => {
   const v = validateMint(body)
   if (!v.ok) return json({ error: v.error }, 400)
 
-  const id = newGiftCardRecordId()
+  // M9: the same press (double tap, retry) → the same id and Square key → the same card, never two.
+  const pressed = giftCardIdForPress((body as { pressId?: unknown } | null)?.pressId, v.value.amountCents)
+  const id = pressed ?? newGiftCardRecordId()
+  if (pressed) {
+    const have = await getMintedGiftCard(pressed).catch(() => null)
+    if (have) return json({ data: { card: have, balanceCents: null, replayed: true } })
+  }
   let minted
   try {
     minted = await providers.giftcard.mint({ amountCents: v.value.amountCents, idempotencyKey: id })
   } catch (err) {
     logger.error('Gift card mint failed', { error: err instanceof Error ? err.message : String(err) })
-    return json({ error: 'Could not make the gift card' }, 502)
+    // Square may have made it before the answer was lost: never say it wasn't.
+    return json({ error: GIFT_CARD_MAYBE_MADE }, 502)
   }
 
   const record: MintedGiftCard = {

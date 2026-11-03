@@ -24,6 +24,7 @@ vi.mock('@lib/gift-cards', async (importOriginal) => {
     ...actual,
     saveMintedGiftCard: async (r: any) => { if (saveFails) throw new Error('store down'); saved.push(r) },
     listMintedGiftCards: async () => records,
+    getMintedGiftCard: async (id: string) => saved.find((r) => r.id === id) ?? null,
   }
 })
 
@@ -67,6 +68,25 @@ describe('/api/staff/gift-cards', () => {
       target: { kind: 'gift-card', id: saved[0].id, label: 'Megan' },
       details: { amountCents: 2500, forWhom: 'Megan', note: 'FB' },
     })
+  })
+
+  it('M9: a double tap of one press makes one card (same id and Square key); a failed answer says it may have been made', async () => {
+    mint.mockResolvedValue({ id: 'sq1', gan: '1234', balanceCents: 2500, state: 'ACTIVE' })
+    const a = await post({ amountDollars: 25, forWhom: 'Megan', pressId: 'press-1234abcd' })
+    const b = await post({ amountDollars: 25, forWhom: 'Megan', pressId: 'press-1234abcd' })
+    expect(a.status).toBe(200)
+    expect(b.status).toBe(200)
+    expect((await b.json()).data).toMatchObject({ replayed: true, card: { gan: '1234' } })
+    expect(mint).toHaveBeenCalledTimes(1)
+    expect(saved).toHaveLength(1)
+    mint.mockRejectedValueOnce(new Error('timeout'))
+    const lost = await post({ amountDollars: 30, forWhom: 'Megan', pressId: 'press-9999abcd' })
+    expect(lost.status).toBe(502)
+    expect((await lost.json()).error).toMatch(/may or may not have been made\. Check the list/)
+    // tapped again: the same key goes to Square (it hands back the same card if it was made)
+    mint.mockResolvedValueOnce({ id: 'sq2', gan: '5678', balanceCents: 3000, state: 'ACTIVE' })
+    await post({ amountDollars: 30, forWhom: 'Megan', pressId: 'press-9999abcd' })
+    expect(mint.mock.calls.at(-1)[0].idempotencyKey).toBe(mint.mock.calls.at(-2)[0].idempotencyKey)
   })
 
   it('lists with live balance, null when lookup throws', async () => {

@@ -5,7 +5,7 @@
  *
  * Netlify Blobs in prod, `.data/gift-cards/` on disk in dev.
  */
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { createLogger } from '@lib/logger'
 import { isPreviewOrDev } from '@lib/deploy-context'
 import { makeKvStore } from '@lib/blob-store'
@@ -36,6 +36,22 @@ export function giftCardKey(id: string): string {
 
 export function newGiftCardRecordId(): string {
   return 'gc_' + randomUUID().slice(0, 8)
+}
+
+/**
+ * Money M9: one press of "Make the gift card" → one record id and one Square
+ * idempotency key, however often it's sent (a double tap, a retry after a
+ * lost answer): Square hands back the same card. The page sends a press id
+ * made when the form is filled; a new amount is a new card.
+ */
+export function giftCardIdForPress(pressId: unknown, amountCents: number): string | null {
+  if (typeof pressId !== 'string' || !/^[A-Za-z0-9_-]{8,80}$/.test(pressId)) return null
+  return 'gc_' + createHash('sha256').update(`${pressId}:${amountCents}`).digest('hex').slice(0, 12)
+}
+
+export async function getMintedGiftCard(id: string): Promise<MintedGiftCard | null> {
+  const json = await kv.get(giftCardKey(id))
+  return json ? (JSON.parse(json) as MintedGiftCard) : null
 }
 
 export async function saveMintedGiftCard(r: MintedGiftCard): Promise<void> {
