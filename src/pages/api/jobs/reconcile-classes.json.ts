@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { reconcileClasses } from '@lib/classes/square-events'
+import { reconcileClasses, reconcileUnfinished } from '@lib/classes/square-events'
 import { studioClock } from '@lib/studio-time'
 import { createLogger } from '@lib/logger'
 import { adminAuthorized } from '@lib/admin-auth'
@@ -30,13 +30,24 @@ function allowed(request: Request): boolean {
 }
 
 /**
- * Run by netlify/functions/reconcile-classes.ts at 08:00 and 09:00 UTC; only
- * the run that lands at 3 AM in the studio's time does anything (3 AM all
- * year through daylight saving). Catches what the webhook missed: every
- * COMPLETED or OPEN order and every refund of the last 48 hours go through
- * the same handlers, which never record anything twice.
+ * How long one call keeps starting new work. Every call (the scheduled job's,
+ * an owner's, the sandbox harness's) is an ordinary web request, so it stays
+ * far under the web function limit: at this point it finishes the item in
+ * hand, saves where it stopped and answers `more: true`; calling again
+ * carries on (the scheduled job calls again until done, within its own limit).
+ */
+export const CALL_BUDGET_MS = 6_000
+
+/**
+ * Run by netlify/functions/reconcile-classes.ts from 08:00 UTC; a new pass
+ * starts only on the run that lands at 3 AM in the studio's time (3 AM all
+ * year through daylight saving), and an unfinished pass is carried on by any
+ * job call. Catches what the webhook missed: every COMPLETED or OPEN order and
+ * every refund of the last 48 hours go through the same handlers, which never
+ * record anything twice.
  *
- * An owner signed in to /admin can run it now with POST ?force=1.
+ * An owner signed in to /admin can run it now with POST ?force=1 (call again
+ * while it answers `more: true`).
  */
 export const POST: APIRoute = async ({ request, url }) => {
   const job = allowed(request)
@@ -45,9 +56,11 @@ export const POST: APIRoute = async ({ request, url }) => {
   const force = owner && (url ?? new URL(request.url)).searchParams.get('force') === '1'
   const now = new Date()
   const hour = studioClock(now.toISOString()).slice(0, 2)
-  if (!force && hour !== '03') return json({ data: { skipped: `studio time is ${hour}:00, not 3 AM` } }, 200)
   try {
-    const data = await reconcileClasses(now)
+    if (!force && hour !== '03' && !(job && (await reconcileUnfinished()))) {
+      return json({ data: { skipped: `studio time is ${hour}:00, not 3 AM` } }, 200)
+    }
+    const data = await reconcileClasses(now, { budgetMs: CALL_BUDGET_MS })
     logger.info('Classes reconcile run', { ...data, manual: force })
     return json({ data }, 200)
   } catch (err) {

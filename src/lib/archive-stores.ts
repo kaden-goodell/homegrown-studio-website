@@ -72,6 +72,8 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'party-by-host' },
   // Where the 10-minute sweep of stuck party checkouts carries on from (one party id)
   { name: 'party-sweep' },
+  // Where an unfinished nightly classes reconcile carries on from, and where the last one ended (one document)
+  { name: 'reconcile-classes' },
   // our own classes
   { name: 'classes' },
   { name: 'class-library' },

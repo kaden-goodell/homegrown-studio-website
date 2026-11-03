@@ -867,6 +867,94 @@ describe('nightly reconcile', () => {
     expect(lists[0].get('cursor')).toBeNull()
     expect(lists[1].get('cursor')).toBe('RC1')
   })
+
+  describe('time budget and resume (HTTP calls stop well under the function limit)', () => {
+    const state = makeKvStore('reconcile-classes', 'reconcile-classes')
+    /** A clock that moves 1 s each time it is read: with a 2.5 s budget a call does 3 items, then stops. */
+    const ticking = () => { let t = 0; return () => (t += 1_000) }
+    const searchWindow = (i: number) => sq.calls.filter((c) => c.path === '/orders/search')[i].body.query.filter.date_time_filter.updated_at
+
+    it('stops starting new orders at its budget, says there is more, and the next call carries on with the same window; nothing twice', async () => {
+      const cls = makeClass(20); classes.list = [cls]
+      const sales = Array.from({ length: 7 }, (_, i) => order([lineItem(cls.square.variations['all:person'], 1, 3000)], {
+        updated_at: `2026-10-20T14:5${i}:00.000Z`,
+      }))
+      const listed = () => { sq.search = [[...sales].reverse()] } // Square's page order doesn't matter
+      listed()
+      const first = await reconcileClasses(NOW, { budgetMs: 2_500, clock: ticking() })
+      expect(first).toMatchObject({ orders: 3, recorded: 3, more: true })
+      expect((await getLedger(cls.id)).lines.map((l) => l.square.orderId)).toEqual(sales.slice(0, 3).map((o) => o.id))
+      expect(JSON.parse((await state.get('state'))!).pass).toMatchObject({ phase: 'orders', after: { id: sales[2].id }, end: NOW.toISOString() })
+
+      const later = new Date(NOW.getTime() + 60_000)
+      listed()
+      expect(await reconcileClasses(later, { budgetMs: 2_500, clock: ticking() })).toMatchObject({ orders: 3, recorded: 3, more: true })
+      listed()
+      expect(await reconcileClasses(later, { budgetMs: 2_500, clock: ticking() })).toMatchObject({ orders: 1, recorded: 1, more: false })
+      // The same window every call of the pass (end = when the pass began), not the later call's time.
+      expect([searchWindow(1), searchWindow(2)]).toEqual([searchWindow(0), searchWindow(0)])
+      expect(searchWindow(0).end_at).toBe(NOW.toISOString())
+      expect((await getLedger(cls.id)).lines.map((l) => l.square.orderId)).toEqual(sales.map((o) => o.id))
+      expect(JSON.parse((await state.get('state'))!)).toEqual({ pass: null, lastEnd: NOW.toISOString() })
+
+      // A new pass: the last 48 hours again; every sale is already on the ledger.
+      listed()
+      expect(await reconcileClasses(later)).toMatchObject({ orders: 7, recorded: 0, more: false })
+      expect(searchWindow(3)).toEqual({ start_at: new Date(later.getTime() - 48 * 3_600_000).toISOString(), end_at: later.toISOString() })
+      expect((await getLedger(cls.id)).lines).toHaveLength(7)
+    })
+
+    it('every call moves forward: at least one item, however slow', async () => {
+      const cls = makeClass(); classes.list = [cls]
+      const sales = Array.from({ length: 2 }, () => order([lineItem(cls.square.variations['all:person'], 1, 3000)]))
+      sq.search = [sales]
+      expect(await reconcileClasses(NOW, { budgetMs: 0, clock: ticking() })).toMatchObject({ orders: 1, more: true })
+      sq.search = [sales]
+      expect(await reconcileClasses(NOW, { budgetMs: 0, clock: ticking() })).toMatchObject({ orders: 1, more: true })
+      // Orders done: the refunds step and the saved-refund check are each a step of their own.
+      sq.search = [sales]
+      expect(await reconcileClasses(NOW, { budgetMs: 0, clock: ticking() })).toMatchObject({ orders: 0, more: false })
+      expect((await getLedger(cls.id)).lines).toHaveLength(2)
+    })
+
+    it('refunds carry on too, in the order Square made them', async () => {
+      const cls = makeClass(); classes.list = [cls]
+      const sale = order([lineItem(cls.square.variations['all:person'], 1, 3000)])
+      await handleOrder(sale, NOW)
+      const paymentId = sale.tenders[0].payment_id
+      const rfs = Array.from({ length: 4 }, (_, i) => refund(paymentId, 100, { created_at: `2026-10-21T10:0${i}:00.000Z` }))
+      const listed = () => { sq.refundPages = [[...rfs].reverse()] }
+      sq.search = [[]]; listed()
+      expect(await reconcileClasses(NOW, { budgetMs: 2_500, clock: ticking() })).toMatchObject({ refunds: 3, more: true })
+      listed()
+      expect(await reconcileClasses(NOW, { budgetMs: 2_500, clock: ticking() })).toMatchObject({ orders: 0, refunds: 1, more: false })
+      const q = new URL(`https://x${sq.calls.filter((c) => c.path.startsWith('/refunds?'))[0].path}`).searchParams
+      expect([q.get('end_time'), q.get('sort_order')]).toEqual([NOW.toISOString(), 'ASC'])
+      const recorded = (await getLedger(cls.id)).lines.flatMap((l) => l.refunds).map((r) => r.squareRefundId)
+      expect(recorded.sort()).toEqual(rfs.map((r) => r.id).sort())
+    })
+
+    it('a new pass reaches back to where the last one ended (no gap), at most 7 days', async () => {
+      classes.list = [makeClass()]
+      await state.set('state', JSON.stringify({ pass: null, lastEnd: '2026-10-17T03:00:00.000Z' }))
+      sq.search = [[]]
+      await reconcileClasses(NOW)
+      expect(searchWindow(0).start_at).toBe('2026-10-17T03:00:00.000Z')
+      await state.set('state', JSON.stringify({ pass: null, lastEnd: '2026-09-01T03:00:00.000Z' }))
+      sq.search = [[]]
+      await reconcileClasses(NOW)
+      expect(searchWindow(1).start_at).toBe('2026-10-13T15:00:00.000Z')
+      sq.search = [[]]
+      await reconcileClasses(NOW)
+      expect(searchWindow(2).start_at).toBe('2026-10-18T15:00:00.000Z')
+    })
+
+    it('with no budget (scripts, tests) a call runs to the end', async () => {
+      const cls = makeClass(40); classes.list = [cls]
+      sq.search = [Array.from({ length: 30 }, () => order([lineItem(cls.square.variations['all:person'], 1, 3000)]))]
+      expect(await reconcileClasses(NOW, { clock: ticking() })).toMatchObject({ orders: 30, recorded: 30, more: false })
+    })
+  })
 })
 
 describe('Task 14: decisions on counter sales and Square refunds (R27)', () => {

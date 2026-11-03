@@ -1151,108 +1151,206 @@ export interface ReconcileResult {
   /** our saved refunds Square never showed within 24 h, flagged for the owners (never retried) */
   staleRequests: number
   errors: number
+  /** true: this call stopped at its time limit with work left; the next call carries on where it stopped */
+  more: boolean
 }
 
 const MAX_PAGES = 50
+/** The window every pass looks back over (orders updated, refunds made). */
+const WINDOW_MS = 48 * 3_600_000
+/** A new pass reaches back to where the last finished one ended, but never further than this. */
+const MAX_CATCH_UP_MS = 7 * 86_400_000
+
+/**
+ * Where an unfinished reconcile pass stands (one document). A pass has a
+ * fixed window; orders are walked in (updated_at, id) order and refunds in
+ * (created_at, id) order, so "after" says exactly where to carry on. Every
+ * handler is idempotent, so redoing an item after a lost save is harmless.
+ */
+export interface ReconcilePass {
+  since: string; end: string; startedAt: string
+  phase: 'orders' | 'refunds' | 'flags'
+  /** the last item done in this phase (sort key + id) */
+  after: { at: string; id: string } | null
+}
+interface ReconcileState { pass: ReconcilePass | null; lastEnd: string | null }
+const reconcileKv = makeKvStore('reconcile-classes', 'reconcile-classes')
+const STATE_KEY = 'state'
+/** Where a pass stands is also saved every this many items (a call cut off mid-way redoes at most these). */
+const SAVE_EVERY = 25
+
+async function readReconcileState(): Promise<ReconcileState> {
+  const raw = await reconcileKv.get(STATE_KEY)
+  if (!raw) return { pass: null, lastEnd: null }
+  try { return { pass: null, lastEnd: null, ...JSON.parse(raw) } } catch { return { pass: null, lastEnd: null } }
+}
+/** True when a pass stopped at its time limit and the next call should carry on (the job runs outside 3 AM for it). */
+export async function reconcileUnfinished(): Promise<boolean> {
+  return !!(await readReconcileState()).pass
+}
+
+const afterKey = (k: { at: string; id: string }, after: { at: string; id: string } | null) =>
+  !after || k.at > after.at || (k.at === after.at && k.id > after.id)
+const orderKey = (o: any) => ({ at: String(o?.updated_at ?? ''), id: String(o?.id ?? '') })
+const refundKeyOf = (r: any) => ({ at: String(r?.created_at ?? ''), id: String(r?.id ?? '') })
+const byKey = (k: (x: any) => { at: string; id: string }) => (a: any, b: any) => {
+  const x = k(a); const y = k(b)
+  return x.at < y.at ? -1 : x.at > y.at ? 1 : x.id < y.id ? -1 : x.id > y.id ? 1 : 0
+}
+
+export interface ReconcileOptions {
+  /**
+   * Stop starting new work this long after the call began (the item in hand is finished). Each call does at
+   * least one item, so every call moves forward. Unset: run to the end (tests, scripts).
+   */
+  budgetMs?: number
+  /** the clock the budget is measured on (tests) */
+  clock?: () => number
+}
 
 /**
  * The safety net for missed webhooks. Every order at our location updated in
- * the last 48 hours (COMPLETED, or OPEN with a completed payment) through the
- * sale handler, then every refund made in those 48 hours (ListPaymentRefunds)
- * through the refund handler. Both are idempotent (order id + line uid + unit;
- * Square refund id). Catalog lookups for items that aren't ours: one batched
- * call for the whole run.
+ * the pass's window (COMPLETED, or OPEN with a completed payment) through the
+ * sale handler, then every refund made in it (ListPaymentRefunds) through the
+ * refund handler, then our saved refunds Square never confirmed. All
+ * idempotent (order id + line uid + unit; Square refund id). Catalog lookups
+ * for items that aren't ours: one batched call per call.
+ *
+ * Bounded: with `budgetMs` a call stops starting new items once the budget is
+ * spent, saves where it stopped, and answers `more: true`; the next call
+ * carries on with the same window. A finished pass is forgotten; the next
+ * pass covers the last 48 hours, reaching back to where the last one ended
+ * (at most 7 days) so no gap opens between passes.
  */
-export async function reconcileClasses(now = new Date()): Promise<ReconcileResult> {
+export async function reconcileClasses(now = new Date(), opts: ReconcileOptions = {}): Promise<ReconcileResult> {
   const loc = squareSettings().locationId || ''
   if (!loc) throw new Error('The Square location is not set up.')
-  const since = new Date(now.getTime() - 48 * 3_600_000).toISOString()
-  // I-10: the orders step needs only classes a sale in the last 48 hours can be for, not every class ever.
-  const ctx: RunContext = { ...contextFor(await listClasses(saleWindow(since)), new CatalogCache({ rememberFailures: true })), retryConfirmations: true }
-  const result: ReconcileResult = { orders: 0, recorded: 0, unmatched: 0, refunds: 0, refundsHandled: 0, staleRequests: 0, errors: 0 }
+  const clock = opts.clock ?? Date.now
+  const began = clock()
+  let done = 0
+  /** Out of time: only after at least one item this call. */
+  const outOfTime = () => opts.budgetMs !== undefined && done > 0 && clock() - began >= opts.budgetMs
+  const result: ReconcileResult = { orders: 0, recorded: 0, unmatched: 0, refunds: 0, refundsHandled: 0, staleRequests: 0, errors: 0, more: false }
 
-  // 1. Every order first, so the catalog is asked once about every item that isn't ours.
-  const orders: any[] = []
-  let cursor: string | undefined
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const res = await squareFetch('/orders/search', {
-      method: 'POST',
-      body: JSON.stringify({
-        location_ids: [loc],
-        limit: 500,
-        ...(cursor ? { cursor } : {}),
-        query: {
-          filter: {
-            state_filter: { states: ['COMPLETED', 'OPEN'] },
-            date_time_filter: { updated_at: { start_at: since, end_at: now.toISOString() } },
+  const state = await readReconcileState()
+  let pass: ReconcilePass = state.pass ?? (() => {
+    const fresh = now.getTime() - WINDOW_MS
+    const last = state.lastEnd ? Date.parse(state.lastEnd) : NaN
+    const since = Number.isFinite(last) && last < fresh ? Math.max(last, now.getTime() - MAX_CATCH_UP_MS) : fresh
+    return { since: new Date(since).toISOString(), end: now.toISOString(), startedAt: now.toISOString(), phase: 'orders', after: null }
+  })()
+  const save = async (p: ReconcilePass | null) => {
+    await reconcileKv.set(STATE_KEY, JSON.stringify(p ? { pass: p, lastEnd: state.lastEnd } : { pass: null, lastEnd: pass.end } satisfies ReconcileState))
+  }
+  const stop = async (): Promise<ReconcileResult> => {
+    await save(pass)
+    logger.info('Reconcile stopped at its time limit; the next run carries on', { phase: pass.phase, after: pass.after?.id ?? null })
+    return { ...result, more: true }
+  }
+
+  // 1. Orders. All of them listed first (one search), so the catalog is asked once about every item that isn't ours.
+  if (pass.phase === 'orders') {
+    // I-10: the orders step needs only classes a sale in the window can be for, not every class ever.
+    const ctx: RunContext = { ...contextFor(await listClasses(saleWindow(pass.since)), new CatalogCache({ rememberFailures: true })), retryConfirmations: true }
+    const listed: any[] = []
+    let cursor: string | undefined
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const res = await squareFetch('/orders/search', {
+        method: 'POST',
+        body: JSON.stringify({
+          location_ids: [loc],
+          limit: 500,
+          ...(cursor ? { cursor } : {}),
+          query: {
+            filter: {
+              state_filter: { states: ['COMPLETED', 'OPEN'] },
+              date_time_filter: { updated_at: { start_at: pass.since, end_at: pass.end } },
+            },
+            sort: { sort_field: 'UPDATED_AT', sort_order: 'ASC' },
           },
-          sort: { sort_field: 'UPDATED_AT', sort_order: 'ASC' },
-        },
-      }),
-    })
-    orders.push(...(res?.orders ?? []))
-    cursor = res?.cursor
-    if (!cursor) break
-  }
-  await ctx.catalog.prefetch(orders.flatMap((o) => (o?.line_items ?? [])
-    .map((li: any) => li?.catalog_object_id as string | undefined)
-    .filter((id: string | undefined): id is string => !!id && !ctx.index.has(id))))
-  for (const order of orders) {
-    result.orders++
-    try {
-      const o = await handleOrder(order, now, { ctx })
-      result.recorded += o.recorded
-      result.unmatched += o.unmatched
-    } catch (e) {
-      result.errors++
-      logger.error('Reconcile could not record an order', { orderId: order?.id, error: e instanceof Error ? e.message : String(e) })
+        }),
+      })
+      listed.push(...(res?.orders ?? []))
+      cursor = res?.cursor
+      if (!cursor) break
     }
-  }
-
-  // 2. Refunds: every one Square lists for the window first, then (only if there are any) which
-  // classes each payment touched, from the ledgers read in parallel after the sales above landed (M2).
-  const refunds: any[] = []
-  cursor = undefined
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const q: URLSearchParams = new URLSearchParams({ begin_time: since, location_id: loc, ...(cursor ? { cursor } : {}) })
-    const res: any = await squareFetch(`/refunds?${q.toString()}`, { method: 'GET' })
-    refunds.push(...(res?.refunds ?? []))
-    cursor = res?.cursor
-    if (!cursor) break
-  }
-  if (refunds.length) {
-    const payments = new Map<string, Set<string>>()
-    // A refund can come long after its class: classes from the last REFUND_LOOKBACK_DAYS (I-10: not every class ever).
-    const refundClasses = await listClasses({ fromIso: new Date(now.getTime() - REFUND_LOOKBACK_DAYS * 86_400_000).toISOString(), toIso: new Date(now.getTime() + 800 * 86_400_000).toISOString() })
-    const ledgers = await mapLimit(refundClasses, LEDGER_READS_AT_ONCE, (c) => getLedger(c.id))
-    ledgers.forEach((ledger, i) => {
-      for (const l of ledger.lines) {
-        for (const id of [l.square.paymentId, ...(l.square.paymentIds ?? [])]) {
-          if (!id) continue
-          payments.set(id, (payments.get(id) ?? new Set()).add(refundClasses[i].id))
-        }
-      }
-    })
-    const refundCtx: RunContext = { ...contextFor(refundClasses, ctx.catalog), retryConfirmations: true, payments }
-    for (const refund of refunds) {
-      result.refunds++
+    const orders = listed.filter((o) => afterKey(orderKey(o), pass.after)).sort(byKey(orderKey))
+    await ctx.catalog.prefetch(orders.flatMap((o) => (o?.line_items ?? [])
+      .map((li: any) => li?.catalog_object_id as string | undefined)
+      .filter((id: string | undefined): id is string => !!id && !ctx.index.has(id))))
+    for (const order of orders) {
+      if (outOfTime()) return stop()
+      result.orders++
       try {
-        const r = await handleRefund(refund, now, { ctx: refundCtx })
-        if (r.action !== 'ignored') result.refundsHandled++
+        const o = await handleOrder(order, now, { ctx })
+        result.recorded += o.recorded
+        result.unmatched += o.unmatched
       } catch (e) {
         result.errors++
-        logger.error('Reconcile could not handle a refund', { refundId: refund?.id, error: e instanceof Error ? e.message : String(e) })
+        logger.error('Reconcile could not record an order', { orderId: order?.id, error: e instanceof Error ? e.message : String(e) })
+      }
+      done++
+      pass = { ...pass, after: orderKey(order) }
+      if (done % SAVE_EVERY === 0) await save(pass).catch(() => undefined)
+    }
+    pass = { ...pass, phase: 'refunds', after: null }
+  }
+
+  // 2. Refunds: every one Square lists for the window first, then (only if any are left) which
+  // classes each payment touched, from the ledgers read in parallel after the sales above landed (M2).
+  if (pass.phase === 'refunds') {
+    if (outOfTime()) return stop()
+    const listed: any[] = []
+    let cursor: string | undefined
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const q: URLSearchParams = new URLSearchParams({ begin_time: pass.since, end_time: pass.end, sort_order: 'ASC', location_id: loc, ...(cursor ? { cursor } : {}) })
+      const res: any = await squareFetch(`/refunds?${q.toString()}`, { method: 'GET' })
+      listed.push(...(res?.refunds ?? []))
+      cursor = res?.cursor
+      if (!cursor) break
+    }
+    const refunds = listed.filter((r) => afterKey(refundKeyOf(r), pass.after)).sort(byKey(refundKeyOf))
+    if (refunds.length) {
+      const payments = new Map<string, Set<string>>()
+      // A refund can come long after its class: classes from the last REFUND_LOOKBACK_DAYS (I-10: not every class ever).
+      const refundClasses = await listClasses({ fromIso: new Date(now.getTime() - REFUND_LOOKBACK_DAYS * 86_400_000).toISOString(), toIso: new Date(now.getTime() + 800 * 86_400_000).toISOString() })
+      const ledgers = await mapLimit(refundClasses, LEDGER_READS_AT_ONCE, (c) => getLedger(c.id))
+      ledgers.forEach((ledger, i) => {
+        for (const l of ledger.lines) {
+          for (const id of [l.square.paymentId, ...(l.square.paymentIds ?? [])]) {
+            if (!id) continue
+            payments.set(id, (payments.get(id) ?? new Set()).add(refundClasses[i].id))
+          }
+        }
+      })
+      const refundCtx: RunContext = { ...contextFor(refundClasses, new CatalogCache({ rememberFailures: true })), retryConfirmations: true, payments }
+      for (const refund of refunds) {
+        if (outOfTime()) return stop()
+        result.refunds++
+        try {
+          const r = await handleRefund(refund, now, { ctx: refundCtx })
+          if (r.action !== 'ignored') result.refundsHandled++
+        } catch (e) {
+          result.errors++
+          logger.error('Reconcile could not handle a refund', { refundId: refund?.id, error: e instanceof Error ? e.message : String(e) })
+        }
+        done++
+        pass = { ...pass, after: refundKeyOf(refund) }
+        if (done % SAVE_EVERY === 0) await save(pass).catch(() => undefined)
       }
     }
+    pass = { ...pass, phase: 'flags', after: null }
   }
 
   // 3. Our own refunds saved and sent but never seen at Square: shown to the owners, never sent again.
+  if (outOfTime()) return stop()
   try {
     result.staleRequests = await flagUnconfirmedRequests(now)
   } catch (e) {
     result.errors++
     logger.error('Reconcile could not check saved refunds', { error: e instanceof Error ? e.message : String(e) })
   }
+  await save(null)
   return result
 }
 

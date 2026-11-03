@@ -685,12 +685,21 @@ describe('reconcileUntil', () => {
     const ran = await reconcileUntil({ admin: { post } as any, sleep }, async () => ++n >= 3, { waitMs: 10 })
     expect(post).toHaveBeenCalledTimes(3)
     expect(sleep).toHaveBeenCalledTimes(2)
-    expect(ran).toEqual({ orders: 1, recorded: 0 })
+    expect(ran).toEqual({ orders: 1, recorded: 0, calls: 1 })
   })
   it('gives up after its tries and hands back the last answer', async () => {
     const post = vi.fn(async () => ({ status: 200, body: { data: { orders: 0 } }, text: '' }))
     await reconcileUntil({ admin: { post } as any, sleep: async () => undefined }, async () => false, { tries: 2 })
     expect(post).toHaveBeenCalledTimes(2)
+  })
+  it('one reconcile calls again while the site says there is more (each call is time-boxed), counts summed', async () => {
+    const post = vi.fn()
+      .mockResolvedValueOnce({ status: 200, body: { data: { orders: 60, recorded: 1, more: true } }, text: '' })
+      .mockResolvedValueOnce({ status: 200, body: { data: { orders: 40, recorded: 2, more: true } }, text: '' })
+      .mockResolvedValueOnce({ status: 200, body: { data: { orders: 5, recorded: 0, more: false } }, text: '' })
+    const ran = await reconcileUntil({ admin: { post } as any, sleep: async () => undefined }, async () => true)
+    expect(post).toHaveBeenCalledTimes(3)
+    expect(ran).toEqual({ orders: 105, recorded: 3, more: false, calls: 3 })
   })
 })
 

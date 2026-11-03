@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mockRun = vi.fn()
-vi.mock('@lib/classes/square-events', () => ({ reconcileClasses: (...a: any[]) => mockRun(...a) }))
+const unfinished = vi.fn(async () => false)
+vi.mock('@lib/classes/square-events', () => ({ reconcileClasses: (...a: any[]) => mockRun(...a), reconcileUnfinished: () => unfinished() }))
 
-import { POST, reconcileClassesJobKey } from '@pages/api/jobs/reconcile-classes.json'
+import { POST, reconcileClassesJobKey, CALL_BUDGET_MS } from '@pages/api/jobs/reconcile-classes.json'
 import { adminCookie } from '@lib/admin-auth'
 
 const SECRET = 'test-secret'
@@ -22,7 +23,8 @@ beforeEach(() => {
   vi.stubEnv('ADMIN_PASSCODE', 'owner-secret')
   vi.clearAllMocks()
   vi.useFakeTimers({ toFake: ['Date'] })
-  mockRun.mockResolvedValue({ orders: 4, recorded: 1, unmatched: 0, errors: 0 })
+  mockRun.mockResolvedValue({ orders: 4, recorded: 1, unmatched: 0, errors: 0, more: false })
+  unfinished.mockResolvedValue(false)
 })
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs() })
 
@@ -61,6 +63,36 @@ describe('POST /api/jobs/reconcile-classes.json', () => {
   it('?force=1 needs the owner sign-in; the owner cookie alone without force waits for 3 AM', async () => {
     vi.setSystemTime(new Date('2026-10-19T17:30:00.000Z'))
     expect((await ownerRun({ cookie: false })).status).toBe(403)
+    expect((await (await ownerRun({ force: false })).json()).data.skipped).toMatch(/not 3 AM/)
+    expect(mockRun).not.toHaveBeenCalled()
+  })
+
+  it('every call works within a time budget well under the web function limit', async () => {
+    vi.setSystemTime(new Date('2026-10-19T08:00:00.000Z'))
+    await call()
+    expect(CALL_BUDGET_MS).toBeLessThanOrEqual(6_000)
+    expect(mockRun.mock.calls[0][1]).toEqual({ budgetMs: CALL_BUDGET_MS })
+    vi.setSystemTime(new Date('2026-10-19T17:30:00.000Z'))
+    await ownerRun()
+    expect(mockRun.mock.calls[1][1]).toEqual({ budgetMs: CALL_BUDGET_MS })
+  })
+
+  it('says there is more to do; the job carries an unfinished pass on at any hour (but never starts one outside 3 AM)', async () => {
+    mockRun.mockResolvedValue({ orders: 40, recorded: 0, unmatched: 0, errors: 0, more: true })
+    vi.setSystemTime(new Date('2026-10-19T08:00:00.000Z'))
+    expect((await (await call()).json()).data.more).toBe(true)
+    vi.setSystemTime(new Date('2026-10-19T10:00:00.000Z')) // 5 AM in the studio
+    unfinished.mockResolvedValue(true)
+    expect((await (await call()).json()).data.more).toBe(true)
+    expect(mockRun).toHaveBeenCalledTimes(2)
+    unfinished.mockResolvedValue(false)
+    expect((await (await call()).json()).data.skipped).toMatch(/not 3 AM/)
+    expect(mockRun).toHaveBeenCalledTimes(2)
+  })
+
+  it('an owner without ?force=1 never carries a pass on (only the job and ?force=1 run it)', async () => {
+    vi.setSystemTime(new Date('2026-10-19T17:30:00.000Z'))
+    unfinished.mockResolvedValue(true)
     expect((await (await ownerRun({ force: false })).json()).data.skipped).toMatch(/not 3 AM/)
     expect(mockRun).not.toHaveBeenCalled()
   })
