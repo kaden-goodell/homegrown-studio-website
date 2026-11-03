@@ -4,6 +4,7 @@
  * Refund right there, the same panel as on the class), their parties and
  * their places on a waitlist, each with Open.
  */
+import { prettyPhone } from '@lib/phone-display'
 import { partyDisplayName } from '@lib/parties/party-name'
 import { useState, type FormEvent } from 'react'
 import type { FindResult, FoundClassBooking } from '@lib/customer-find'
@@ -109,7 +110,7 @@ function FoundBooking({ c, onOpen, onChanged }: { c: FoundClassBooking; onOpen: 
       </div>
       {b.customer && (b.customer.phone || b.customer.email) && (
         <p className="adm-small adm-links">
-          {b.customer.phone && <a href={telHref(b.customer.phone)}>{b.customer.phone}</a>}
+          {b.customer.phone && <a href={telHref(b.customer.phone)}>{prettyPhone(b.customer.phone)}</a>}
           {b.customer.email && <a href={`mailto:${b.customer.email}`}>{b.customer.email}</a>}
         </p>
       )}

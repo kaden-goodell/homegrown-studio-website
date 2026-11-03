@@ -1042,9 +1042,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
               </ul>
             </div>
           )}
-          {passSessions.length === 1 && (
-            <p style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>{formatDayAndSpan(passSessions[0].startIso, passSessions[0].endIso)}</p>
-          )}
+          {/* One date: it's in the line at the top already (UI review: it was said twice). */}
 
           <div style={{ display: 'grid', gap: '0.75rem' }}>
             {types.map((t) => {

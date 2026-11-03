@@ -4,6 +4,7 @@
  * .data/ in dev), the owners' copy by email, and the sender's short "got it".
  * Each form keeps its own checks and its own words.
  */
+import { prettyPhone } from '@lib/phone-display'
 import { randomUUID } from 'node:crypto'
 import { makeKvStore } from '@lib/blob-store'
 import { sendEmail } from '@lib/email'
@@ -130,10 +131,7 @@ export function ownerEmailTextOf(e: OwnerEmail): string {
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 const digitsOf = (phone: string) => phone.replace(/[^\d+]/g, '')
 /** "4029802907" → "(402) 980-2907"; anything else as typed. */
-export function prettyPhone(phone: string): string {
-  const d = phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')
-  return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : phone
-}
+export { prettyPhone }
 
 /**
  * The same email, laid out: who it is, one-tap Reply / Text / Call, then each

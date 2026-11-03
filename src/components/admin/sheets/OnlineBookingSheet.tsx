@@ -175,7 +175,7 @@ function OnlineBookingForm({ v, setV }: { v: OnlineBookingView; setV: (v: Online
       {stale && <p className="adm-error" role="alert">{stale}</p>}
       <p className="adm-small adm-muted adm-gap-bottom">
         {v.source === 'setup'
-          ? 'From the site setup. The first change you make here takes over.'
+          ? 'Right now this is how the website was set up. Tap Open or Paused below to change it.'
           : v.source === 'unreadable'
             ? 'The saved setting couldn’t be read, so the website is treating everything as paused. Choose Open or Paused below to set it again.'
             : `Set on this screen${v.by && v.updatedAt ? ` · last change by ${v.by.name}, ${whenLabel(v.updatedAt)}` : ''}.`}

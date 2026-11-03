@@ -23,6 +23,9 @@ import {
   type Contacts, type StaffingRow, type StaffPersonRow,
 } from './api'
 
+/** "Maya" from "Maya Lopez" (the Put … on button says who). */
+const firstOfName = (name: string) => name.trim().split(/\s+/)[0] || 'them'
+
 export interface StaffDay { key: string; startIso: string }
 
 export function StaffRow({ eventKey, startIso, days, onChanged, headingLevel = 3, initial, bare }: {
@@ -189,7 +192,7 @@ export function StaffRow({ eventKey, startIso, days, onChanged, headingLevel = 3
             <div className="adm-staff-btns">
               {p.assigned
                 ? <button type="button" className="adm-btn is-ghost is-sm" disabled={!!busy} onClick={() => change(p, 'unassign', false)}>{busy === `unassign-${p.staffId}-one` ? 'Saving…' : 'Take off'}</button>
-                : <button type="button" className="adm-btn is-pri is-sm" disabled={!!busy} onClick={() => change(p, 'assign', false)}>{busy === `assign-${p.staffId}-one` ? 'Saving…' : 'Put on'}</button>}
+                : <button type="button" className="adm-btn is-pri is-sm" disabled={!!busy} onClick={() => change(p, 'assign', false)}>{busy === `assign-${p.staffId}-one` ? 'Saving…' : `Put ${firstOfName(p.name)} on`}</button>}
               {many && !cancelled && (
                 <>
                   <button type="button" className="adm-btn is-ghost is-sm" disabled={!!busy} onClick={() => change(p, 'assign', true)}>{busy === `assign-${p.staffId}-all` ? 'Saving…' : 'Every day'}</button>

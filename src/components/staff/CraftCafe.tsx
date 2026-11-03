@@ -58,8 +58,12 @@ export function CafeRow({ date, hours, here, onOpen }: { date: string; hours: { 
       aria-label={`Craft Café ${range}${typeof here === 'number' ? `, ${here} here` : ''}. Open the Craft Café list for ${formatCalendarDay(date)}`}
       style={{ ...card, background: 'rgba(255,255,255,0.85)', width: '100%', textAlign: 'left', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.5rem', minHeight: '2.75rem' }}
     >
-      <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>☕ Craft Café {range}</span>
-      {typeof here === 'number' && <span data-testid="cafe-here" style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{`· ${here} here`}</span>}
+      {/* UI review (3 Nov): laid out like the class and party rows: name (and who's here) left, time right. */}
+      <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'baseline' }}>
+        <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>☕ Craft Café</span>
+        {typeof here === 'number' && <span data-testid="cafe-here" style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{`· ${here} here`}</span>}
+      </span>
+      <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{range}</span>
     </button>
   )
 }

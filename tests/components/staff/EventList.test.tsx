@@ -65,7 +65,7 @@ describe('EventList day in the address', () => {
       { kind: 'workshop', id: 'clssch_a', title: 'Fall Earring Bar', startIso: '2026-10-17T00:00:00Z', days: ['2026-10-16'], dropOff: false, capacity: 35, seats: 23, rsvpCount: 4, hereNow: 0 },
     ], sources: {} } }) }))
     render(<EventList date={TODAY} stepper={false} onOpenRoster={() => {}} />)
-    expect(await screen.findByText(/of 35 sold/)).toHaveTextContent('12 of 35 sold')
+    expect(await screen.findByText(/of 35 booked/)).toHaveTextContent('12 of 35 booked')
   })
 
   const row = (over: any) => ({ kind: 'workshop', id: 'clssch_p', title: 'Bedazzled Pumpkin Pails', startIso: '2026-10-18T18:00:00Z', days: ['2026-10-18'], dropOff: true, capacity: 35, seats: 28, rsvpCount: 3, hereNow: 0, ...over })
@@ -91,7 +91,7 @@ describe('EventList day in the address', () => {
   it('no prep line for a class without questions', async () => {
     serve([row({})])
     render(<EventList date={TODAY} stepper={false} onOpenRoster={() => {}} />)
-    await screen.findByText(/of 35 sold/)
+    await screen.findByText(/of 35 booked/)
     expect(screen.queryByTestId('prep-line')).toBeNull()
   })
 })

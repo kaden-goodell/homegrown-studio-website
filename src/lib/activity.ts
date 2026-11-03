@@ -31,6 +31,56 @@ export function areaOf(action: string): ActivityArea {
 const money = (cents: unknown) => (typeof cents === 'number' && Number.isFinite(cents) ? `$${(cents / 100).toFixed(2)}` : '')
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
 
+/** UI review (3 Nov): the everyday setup actions in plain words ("Added class: Holiday Wreath Night"), not "Class create". */
+const ACTION_WORDS: Record<string, string> = {
+  'class-create': 'Added class',
+  'class-update': 'Changed class',
+  'update-series': 'Changed every date of class',
+  'series-capacity': 'Changed the seats on every date of class',
+  'class-duplicate': 'Copied class',
+  'class-repeat': 'Repeated class',
+  'class-cancel': 'Cancelled class',
+  'cancel-series': 'Cancelled every date of class',
+  'class-library-save': 'Saved to the class library',
+  'class-library-restore': 'Brought back from the class library',
+  'class-library-import-square': 'Brought into the class library from Square',
+  'class-photo-upload': 'Uploaded a class photo',
+  'class-sync-pos': 'Put class on the register',
+  'sync-pos': 'Put class on the register',
+  'class-update-register': 'Updated the register for',
+  'update-register': 'Updated the register for',
+  'class-fix-register-price': 'Fixed the register price for',
+  'fix-register-price': 'Fixed the register price for',
+  'blocked-time-add': 'Blocked time',
+  'blocked-time-remove': 'Unblocked time',
+  'party-book': 'Booked',
+  'party-cancel': 'Cancelled',
+  'party-move': 'Moved',
+  'party-edit': 'Changed the details of',
+  'party-details': 'Emailed the host the details of',
+  'party-link': 'Sent the payment link for',
+  'party-card': 'Took a card payment for',
+  'party-extra': 'Changed the extras on',
+  'party-told': 'Marked the host as told for',
+  'party-settings': 'Changed the party setup',
+  'studio-settings': 'Changed studio hours, Craft Café or closed days',
+  'online-booking': 'Changed online booking',
+  'craft-create': 'Added craft',
+  'craft-update': 'Changed craft',
+  'craft-photo': 'Changed the photo of craft',
+  'register-setup': 'Changed register setup',
+  'records-download': 'Downloaded records',
+  'notify.saved': 'Changed who gets messages',
+  'staff.add': 'Added to the staff list',
+  'staff.edit': 'Changed the details of',
+  'staff.leave': 'Marked as no longer working here',
+  'staff.return': 'Marked as working here again',
+  'staffing.assign': 'Put someone on',
+  'staffing.unassign': 'Took someone off',
+  'admin.passcode-changed': 'Changed the admin passcode',
+  'staff.passcode-changed': 'Changed the staff passcode',
+}
+
 /** What happened, in plain words, without the person (shown next to it). */
 export function activityWhat(e: Pick<AuditEntry, 'action' | 'target' | 'details'>): string {
   const d = e.details ?? {}
@@ -76,6 +126,8 @@ export function activityWhat(e: Pick<AuditEntry, 'action' | 'target' | 'details'
     case 'staff.signed-in': return 'Signed in to /staff'
     case 'staff.login-refused': return 'Wrong staff passcode'
     default: {
+      const said = ACTION_WORDS[e.action]
+      if (said) return label ? `${said}: ${label}` : said
       const words = e.action.replace(/[._-]+/g, ' ').trim()
       const head = words ? words[0].toUpperCase() + words.slice(1) : 'Did something'
       return label ? `${head}: ${label}` : head

@@ -19,6 +19,7 @@
  * Staff (stage 3): who's on the party, on both kinds; a staffing line opens
  * the sheet on Staff.
  */
+import { prettyPhone } from '@lib/phone-display'
 import { SQ_LEGACY_PARTY } from '@lib/admin-help'
 import { SquareHow } from '../shell/SquareHow'
 import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
@@ -97,8 +98,8 @@ function CallText({ phone }: { phone: string }) {
   if (!phone) return null
   return (
     <div className="adm-two">
-      <ContactButton label="Call" href={telHref(phone)} text={phone} />
-      <ContactButton label="Text" href={smsHref(phone)} text={phone} />
+      <ContactButton label="Call" href={telHref(phone)} text={prettyPhone(phone)} />
+      <ContactButton label="Text" href={smsHref(phone)} text={prettyPhone(phone)} />
     </div>
   )
 }
@@ -118,7 +119,7 @@ function SquareParty({ id, party: p, item, guests, day, staffFirst }: { id: stri
           <>
             {kv('When', when)}
             {kv('Host', p.hostName)}
-            {kv('Phone', p.hostPhone)}
+            {kv('Phone', p.hostPhone ? prettyPhone(p.hostPhone) : '')}
             {kv('Email', p.hostEmail)}
             {kv('Guests', p.guestCount)}
             {kv('Craft', p.craftName)}
@@ -342,7 +343,7 @@ function OurParty({ party: p, guests, notice, staffFirst }: { party: AdminParty;
             <>
               {kv('When', <>{when}{extraMinutes > 0 && <><br />{`includes ${extraMinutes} minutes of extra time`}</>}</>)}
               {kv('Host', p.hostName)}
-              {kv('Phone', p.hostPhone ? <a href={telHref(p.hostPhone)}>{p.hostPhone}</a> : '')}
+              {kv('Phone', p.hostPhone ? <a href={telHref(p.hostPhone)}>{prettyPhone(p.hostPhone)}</a> : '')}
               {kv('Email', p.hostEmail ? <a href={`mailto:${p.hostEmail}`}>{p.hostEmail}</a> : '')}
               {kv('Guests', p.guestCount)}
               {kv('Craft', p.craftName)}

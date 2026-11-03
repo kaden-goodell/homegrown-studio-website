@@ -52,8 +52,9 @@ describe('admin.css', () => {
     expect(css).not.toMatch(/^\.adm p \{/m)
   })
 
-  it('fix round 2: Needs you is 2×2 on iPad portrait and beside a panel; chips never break mid-word', () => {
-    expect(css).toMatch(/@media \(min-width: 768px\) and \(max-width: 1023px\) \{\s*\.adm-need \{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/)
+  it('fix round 2 + UI review: Needs you is 2×2 on every iPad width and beside a panel, labels whole words; chips never break mid-word', () => {
+    expect(css).toMatch(/@media \(min-width: 768px\) \{\s*\.adm-need \{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/)
+    expect(blocks('.adm-need small').join('\n')).toContain('overflow-wrap: normal')
     expect(css).toMatch(/\.adm-shell\.is-paneled \.adm-need \{\s*grid-template-columns: repeat\(2/)
     const chipRules = blocks('.adm-chip b').join('\n')
     expect(chipRules).toContain('overflow-wrap: normal')

@@ -168,7 +168,7 @@ export default function EventList({
             </div>
             <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
               {e.kind === 'workshop' && typeof e.capacity === 'number' && typeof e.seats === 'number' && (
-                <><strong style={{ color: 'var(--color-dark)' }}>{e.capacity - e.seats}</strong> of {e.capacity} sold · </>
+                <><strong style={{ color: 'var(--color-dark)' }}>{e.capacity - e.seats}</strong> of {e.capacity} booked · </>
               )}
               <strong style={{ color: 'var(--color-dark)' }}>{e.rsvpCount}</strong> RSVP’d · <strong style={{ color: 'var(--color-dark)' }}>{e.hereNow}</strong> here
             </p>

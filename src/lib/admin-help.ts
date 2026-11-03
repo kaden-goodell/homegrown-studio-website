@@ -114,7 +114,7 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'Change, move or reopen a class',
     points: [
       'Open the class (Calendar or Classes). The tabs: **Bookings**, **Details**, **Dates**.',
-      '**Details**: change anything, then **Save**. It asks **Only this class** or **This class and the library** (so next time starts from the new version too). A class you repeated asks **Just this date** or **All dates in this series** instead.',
+      '**Details**: change anything, then **Save**. It asks **Only this class** or **This class and the library** (so next time starts from the new version too). A class you repeated asks **Save just this date** or **Save all dates in this series** instead.',
       '**Dates**: change a date or time, then **Save dates**. If people are booked it asks first: **Move and I’ll tell them**. Then it lists who to tell, with their numbers to tap, **Text everyone**, **Copy the numbers** and **Email everyone the new details** (each gets their confirmation again with the new time and a new calendar file that replaces the old one). Nothing is sent until you tap it.',
       '**Dates** tab › Status (under the dates): **Open** (people can book), **Closed** (on the website, sign-ups closed) or **Draft** (only you see it). Then **Save dates**.',
       '**Run it again on new dates** makes a new class from this one, a week on, for you to adjust.',

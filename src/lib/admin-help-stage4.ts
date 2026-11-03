@@ -48,7 +48,7 @@ export const STAGE4_HELP_SECTIONS: HelpSection[] = [
     comingWith: 'extras',
     points: [
       'When you add a class, the **Repeat** box: **Every week**, **Every 2 weeks** or **Pick dates**, and an until date. Each date shows ✓ or why it’s skipped (closed that day, a party at that time, already past). Untick any you don’t want, then tap Add (it says how many, like “Add 6 classes”).',
-      'Each date is its own class (its own bookings, its own spot on the register), kept together as one series. On any of them, a change on **Details** asks **Just this date** or **All dates in this series** (every date still to come). Changing only the seats on **Dates** asks the same. People already booked keep what they paid.',
+      'Each date is its own class (its own bookings, its own spot on the register), kept together as one series. On any of them, a change on **Details** asks **Save just this date** or **Save all dates in this series** (every date still to come). Changing only the seats on **Dates** asks the same. People already booked keep what they paid.',
       'A date with people booked keeps its kinds of seat, ways to book, extras and questions when you change all dates from another date’s sheet, and seats never go below what’s booked. The screen lists any date it didn’t change, and why: change that one on its own sheet.',
       'An early-bird ends the same number of days before each date as before the first one (the date list says so), so the last date’s early-bird doesn’t end weeks early.',
       'If some dates didn’t go on, the screen says which: **Try the rest again** adds only those, never a second copy.',

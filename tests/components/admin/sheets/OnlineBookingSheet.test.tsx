@@ -41,7 +41,7 @@ describe('More › Online booking', () => {
   it('shows each kind open or paused, where it comes from, and hides kits while kits don’t exist', async () => {
     vi.stubGlobal('fetch', server())
     renderSheet(<OnlineBookingSheet />)
-    expect(await screen.findByText('From the site setup. The first change you make here takes over.')).toBeInTheDocument()
+    expect(await screen.findByText('Right now this is how the website was set up. Tap Open or Paused below to change it.')).toBeInTheDocument()
     expect(screen.getByRole('group', { name: 'Parties online' })).toBeInTheDocument()
     expect(screen.getByRole('group', { name: 'Classes & workshops online' })).toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'Take-home kits online' })).toBeNull()

@@ -167,7 +167,7 @@ export const GET: APIRoute = async ({ url }) => {
       error: error instanceof Error ? error.message : String(error),
       duration_ms: Date.now() - startTime,
     })
-    return errorResponse('Failed to fetch service information', 500)
+    return errorResponse('The crafts couldn’t be loaded from Square. Try again in a minute.', 500)
   }
 }
 

@@ -817,6 +817,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
                       type="checkbox"
                       checked={!!attending[r.id]}
                       onChange={(e) => setAttending((a) => ({ ...a, [r.id]: e.target.checked }))}
+                      style={{ width: '1.3rem', height: '1.3rem', flex: '0 0 auto', accentColor: 'var(--color-primary)', cursor: 'pointer' }}
                     />
                   )}
                   <span>{r.label}</span>
@@ -1003,7 +1004,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
             type="checkbox"
             checked={ageConfirmed}
             onChange={(e) => setAgeConfirmed(e.target.checked)}
-            style={{ marginTop: '0.2rem' }}
+            style={{ marginTop: '0.2rem', width: '1.3rem', height: '1.3rem', flex: '0 0 auto', accentColor: 'var(--color-primary)', cursor: 'pointer' }}
           />
           <span><strong>{form.ageConfirmLabel}</strong></span>
         </label>
@@ -1200,7 +1201,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
             type="checkbox"
             checked={agreeRelease}
             onChange={(e) => setAgreeRelease(e.target.checked)}
-            style={{ marginTop: '0.2rem' }}
+            style={{ marginTop: '0.2rem', width: '1.3rem', height: '1.3rem', flex: '0 0 auto', accentColor: 'var(--color-primary)', cursor: 'pointer' }}
           />
           <span>
             <strong>{form.releaseCheckboxLabel}</strong>

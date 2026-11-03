@@ -29,3 +29,11 @@ describe('Activity lines for Craft Café texts and overrides', () => {
       .toBe('Checked Jane Doe in at Craft Café (1 person), anyway: their waiver needs signing again')
   })
 })
+
+describe('UI review (3 Nov): setup actions read as plain words', () => {
+  it('"Added class: Holiday Wreath Night", not "Class create"', () => {
+    expect(activityWhat({ action: 'class-create', target: { kind: 'class', id: 'c', label: 'Holiday Wreath Night' }, details: {} })).toBe('Added class: Holiday Wreath Night')
+    expect(activityWhat({ action: 'class-library-save', target: { kind: 'class-library', id: 'l', label: 'Pots' }, details: {} })).toBe('Saved to the class library: Pots')
+    expect(activityWhat({ action: 'class-photo-upload', target: undefined as any, details: {} })).toBe('Uploaded a class photo')
+  })
+})

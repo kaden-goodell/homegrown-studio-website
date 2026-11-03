@@ -48,7 +48,7 @@ describe('CafeRow', () => {
     const open = vi.fn()
     render(<CafeRow date={TODAY} hours={{ opens: '09:00', closes: '13:00' }} here={6} onOpen={open} />)
     const row = screen.getByRole('button', { name: /Craft Café 9 AM – 1 PM, 6 here/ })
-    expect(row).toHaveTextContent('☕ Craft Café 9 AM – 1 PM· 6 here')
+    expect(row).toHaveTextContent('☕ Craft Café· 6 here9 AM – 1 PM')
     fireEvent.click(row)
     expect(open).toHaveBeenCalled()
   })

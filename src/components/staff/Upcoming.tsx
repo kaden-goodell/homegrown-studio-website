@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { prettyPhone } from '@lib/phone-display'
 import { partyDisplayName } from '@lib/parties/party-name'
 import StaffHeader from '@components/staff/StaffHeader'
 import { type HouseholdMatch } from '@components/staff/DoorSearch'
@@ -94,7 +95,7 @@ export default function Upcoming({
               <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{p.endIso ? formatDayAndSpan(p.startIso, p.endIso) : formatWhen(p.startIso)}</span>
             </div>
             <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
-              Host: {p.hostName}{p.hostPhone ? ` · ${p.hostPhone}` : ''} · <strong style={{ color: 'var(--color-dark)' }}>{p.rsvpHouseholds}</strong> RSVP’d ({p.rsvpPeople} ppl on file)
+              Host: {p.hostName}{p.hostPhone ? ` · ${prettyPhone(p.hostPhone)}` : ''} · <strong style={{ color: 'var(--color-dark)' }}>{p.rsvpHouseholds}</strong> RSVP’d ({p.rsvpPeople} ppl on file)
             </p>
           </button>
         ))}

@@ -839,9 +839,10 @@ describe('class sheet › a repeated class (final review I3)', () => {
     renderSheet(<ClassSheet id="cls_1" tab="details" />)
     await loaded()
     fireEvent.change(await screen.findByLabelText('Price per seat ($)'), { target: { value: '35' } })
-    expect(await within(footer()).findByRole('button', { name: 'All dates in this series' })).toBeInTheDocument()
-    expect(within(footer()).getByRole('button', { name: 'Just this date' })).toBeInTheDocument()
-    fireEvent.click(within(footer()).getByRole('button', { name: 'All dates in this series' }))
+    // UI review: the two buttons say they save.
+    expect(await within(footer()).findByRole('button', { name: 'Save all dates in this series' })).toBeInTheDocument()
+    expect(within(footer()).getByRole('button', { name: 'Save just this date' })).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Save all dates in this series' }))
     await waitFor(() => expect(posts(f, CLASSES)).toHaveLength(1))
     expect(posts(f, CLASSES)[0].body).toMatchObject({ action: 'update-series', id: 'cls_1' })
     const note = await screen.findByRole('group', { name: 'All dates in this series' })

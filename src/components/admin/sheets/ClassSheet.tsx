@@ -9,6 +9,7 @@
  * Staff (stage 3): who's on each day, with "every day" for a class that
  * runs on several days; a staffing line opens the sheet here on its day.
  */
+import { prettyPhone } from '@lib/phone-display'
 import { earlyBirdRunning } from '@lib/classes/early-bird'
 import { shortDay } from '@lib/classes/chicago-day'
 import { notOnRegister, posPricesStale, registerSetupStale, type RegisterInForce } from '@lib/classes/pos-plan'
@@ -459,9 +460,9 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
         {detailsDirty && others.length > 0
           ? (
             <>
-              <button type="button" className="adm-btn is-pri" disabled={saving} onClick={() => saveDetails(false)}>{busy === 'only' ? 'Saving…' : 'Just this date'}</button>
-              <button type="button" className="adm-btn is-ghost" disabled={saving} onClick={saveSeries}>{busy === 'series' ? 'Saving…' : 'All dates in this series'}</button>
-              <span className="adm-small adm-muted">{`This class was repeated: ${others.length} other ${others.length === 1 ? 'date is' : 'dates are'} still to come. All dates in this series changes them too. People already booked keep what they paid.`}</span>
+              <button type="button" className="adm-btn is-pri" disabled={saving} onClick={() => saveDetails(false)}>{busy === 'only' ? 'Saving…' : 'Save just this date'}</button>
+              <button type="button" className="adm-btn is-ghost" disabled={saving} onClick={saveSeries}>{busy === 'series' ? 'Saving…' : 'Save all dates in this series'}</button>
+              <span className="adm-small adm-muted">{`This class was repeated: ${others.length} other ${others.length === 1 ? 'date is' : 'dates are'} still to come. Save all dates in this series changes them too. People already booked keep what they paid.`}</span>
               {differsFromLibrary && <button type="button" className="adm-btn is-ghost" disabled={saving} onClick={() => saveDetails(true)}>{busy === 'both' ? 'Saving…' : 'This class and the library'}</button>}
             </>
           )
@@ -491,9 +492,9 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
       : seatsOnly !== null && others.length > 0
         ? (
           <div className="adm-stack">
-            <button type="button" className="adm-btn is-pri" disabled={saving} onClick={() => saveDates()}>{busy === 'dates' ? 'Saving…' : 'Just this date'}</button>
-            <button type="button" className="adm-btn is-ghost" disabled={saving} onClick={() => saveSeriesCapacity(seatsOnly)}>{busy === 'series' ? 'Saving…' : 'All dates in this series'}</button>
-            <span className="adm-small adm-muted">{`${seatsOnly} seats. All dates in this series gives the ${others.length} other ${others.length === 1 ? 'date' : 'dates'} still to come ${seatsOnly} seats too (never fewer than are booked).`}</span>
+            <button type="button" className="adm-btn is-pri" disabled={saving} onClick={() => saveDates()}>{busy === 'dates' ? 'Saving…' : 'Save just this date'}</button>
+            <button type="button" className="adm-btn is-ghost" disabled={saving} onClick={() => saveSeriesCapacity(seatsOnly)}>{busy === 'series' ? 'Saving…' : 'Save all dates in this series'}</button>
+            <span className="adm-small adm-muted">{`${seatsOnly} seats. Save all dates in this series gives the ${others.length} other ${others.length === 1 ? 'date' : 'dates'} still to come ${seatsOnly} seats too (never fewer than are booked).`}</span>
           </div>
         )
         : <button type="button" className="adm-btn is-pri" disabled={!datesDirty || saving} onClick={() => saveDates()}>{saving ? 'Saving…' : 'Save dates'}</button>
@@ -606,7 +607,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
                           <span>{[nameOf(b), `${seatsHeld(b)} ${seatsHeld(b) === 1 ? 'seat' : 'seats'}`, moneyWords(b), b.refundedCents ? `refunded ${formatMoney(b.refundedCents)}` : ''].filter(Boolean).join(' · ')}</span>
                           {(b.customer?.phone || b.customer?.email) && (
                             <span className="adm-links">
-                              {b.customer?.phone && <a href={telHref(b.customer.phone)}>{b.customer.phone}</a>}
+                              {b.customer?.phone && <a href={telHref(b.customer.phone)}>{prettyPhone(b.customer.phone)}</a>}
                               {b.customer?.email && <a href={`mailto:${b.customer.email}`}>{b.customer.email}</a>}
                             </span>
                           )}
@@ -846,7 +847,7 @@ function BookingRow({ b, cls, ticket, canEmail, onChanged }: { b: ClassBooking; 
       )}
       {b.customer && (b.customer.phone || b.customer.email) && (
         <p className="adm-small adm-links">
-          {b.customer.phone && <a href={telHref(b.customer.phone)}>{b.customer.phone}</a>}
+          {b.customer.phone && <a href={telHref(b.customer.phone)}>{prettyPhone(b.customer.phone)}</a>}
           {b.customer.email && <a href={`mailto:${b.customer.email}`}>{b.customer.email}</a>}
         </p>
       )}

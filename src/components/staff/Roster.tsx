@@ -410,7 +410,7 @@ export default function Roster({
 
         <div data-testid="roster-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.5rem', marginTop: '0.9rem' }}>
           {(kind === 'workshop' && typeof event.capacity === 'number' && typeof event.seats === 'number'
-            ? [{ n: `${event.capacity - event.seats}`, sub: `of ${event.capacity} sold`, over: event.seats < 0 }]
+            ? [{ n: `${event.capacity - event.seats}`, sub: `of ${event.capacity} booked`, over: event.seats < 0 }]
             : [{ n: `${data.summary.households}`, sub: data.summary.households === 1 ? 'family RSVP’d' : 'families RSVP’d', over: false }]
           ).concat([
             { n: `${coming}`, sub: 'crafting', over: false },

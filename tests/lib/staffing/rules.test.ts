@@ -240,7 +240,7 @@ describe('verdictLabel (owner screens use the crew\'s own words)', () => {
     expect(verdictLabel({ verdict: 'cant', markNote: '' })).toBe('Can’t')
     expect(verdictLabel({ verdict: 'partly', hours: '4–9 PM' })).toBe('Part (4–9 PM)')
     expect(verdictLabel({ verdict: 'outside', hours: '4–9 PM' })).toBe('Outside the hours they gave (4–9 PM)')
-    expect(verdictLabel({ verdict: 'unknown' })).toBe('Not said')
+    expect(verdictLabel({ verdict: 'unknown' })).toBe('Hasn’t said if free')
   })
 })
 

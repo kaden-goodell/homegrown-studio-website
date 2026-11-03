@@ -44,10 +44,10 @@ describe('Staff section', () => {
     let release: (v: unknown) => void = () => {}
     fetchMock.mockReturnValueOnce(new Promise((r) => { release = r }))
     const jess = screen.getAllByRole('listitem')[1]
-    fireEvent.click(within(jess).getByRole('button', { name: 'Put on' }))
+    fireEvent.click(within(jess).getByRole('button', { name: /^Put \S+ on$/ }))
     // Every button is off while it saves: a double tap can't send a second message.
     expect(within(jess).getByRole('button', { name: 'Saving…' })).toBeDisabled()
-    for (const b of screen.getAllByRole('button', { name: 'Put on' })) expect(b).toBeDisabled()
+    for (const b of screen.getAllByRole('button', { name: /^Put \S+ on$/ })) expect(b).toBeDisabled()
     expect(bodies(fetchMock, STAFFING)).toEqual([{ body: { action: 'assign', staffId: 'TM2', tell: true, key: 'ses:ses_1' }, headers: expect.anything() }])
     const after = row({ people: [person('TM1', 'Kaden'), person('TM2', 'Jessica', { assigned: true }), person('TM3', 'Sam')] })
     await act(async () => { release(ok({ data: { row: after } })) })
@@ -61,7 +61,7 @@ describe('Staff section', () => {
     await screen.findByRole('list', { name: 'Who can work' })
     fireEvent.click(screen.getByRole('checkbox', { name: 'Tell them by text and email' }))
     fetchMock.mockResolvedValueOnce(ok({ data: { row: row() } }))
-    fireEvent.click(within(screen.getAllByRole('listitem')[2]).getByRole('button', { name: 'Put on' }))
+    fireEvent.click(within(screen.getAllByRole('listitem')[2]).getByRole('button', { name: /^Put \S+ on$/ }))
     await screen.findByText('Sam is on.')
     expect(bodies(fetchMock, STAFFING)[0].body.tell).toBe(false)
   })
@@ -72,7 +72,7 @@ describe('Staff section', () => {
     await screen.findByRole('list', { name: 'Who can work' })
     const after = row({ people: [person('TM1', 'Kaden'), person('TM2', 'Jessica', { assigned: true, verdict: 'cant', markNote: 'dentist' }), person('TM3', 'Sam')] })
     fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ data: { row: after }, warning: "Jessica marked this time as Can't (dentist)." }) })
-    fireEvent.click(within(screen.getAllByRole('listitem')[1]).getByRole('button', { name: 'Put on' }))
+    fireEvent.click(within(screen.getAllByRole('listitem')[1]).getByRole('button', { name: /^Put \S+ on$/ }))
     expect(await screen.findByText("Jessica is on. Jessica marked this time as Can't (dentist).")).toBeInTheDocument()
     const check = screen.getByRole('group', { name: 'Check with Jessica' })
     expect(within(check).getByRole('link', { name: /Call Jessica/ })).toHaveAttribute('href', 'tel:+12565550199')
@@ -85,7 +85,7 @@ describe('Staff section', () => {
     await screen.findByRole('list', { name: 'Who can work' })
     const after = row({ people: [person('TM1', 'Kaden'), person('TM2', 'Jessica', { assigned: true }), person('TM3', 'Sam')] })
     fetchMock.mockResolvedValueOnce(ok({ data: { row: after }, warning: "Saved. The text to Jessica didn't go through.", undelivered: { staffId: 'TM2', name: 'Jessica' } }))
-    fireEvent.click(within(screen.getAllByRole('listitem')[1]).getByRole('button', { name: 'Put on' }))
+    fireEvent.click(within(screen.getAllByRole('listitem')[1]).getByRole('button', { name: /^Put \S+ on$/ }))
     expect(await screen.findByText("Jessica is on. Saved. The text to Jessica didn't go through.")).toBeInTheDocument()
     const tell = screen.getByRole('group', { name: 'Tell Jessica yourself' })
     expect(tell).toHaveTextContent('The message to Jessica didn’t go through')
@@ -163,7 +163,7 @@ describe('Staff section', () => {
     expect(bodies(fetchMock, STAFFING)[1].body).toMatchObject({ action: 'unassign', staffId: 'TM2', tell: true, keys: ['ses:ses_2', 'ses:ses_3'] })
 
     fetchMock.mockResolvedValueOnce(ok({ data: { row: past } }))
-    fireEvent.click(within(screen.getAllByRole('listitem')[0]).getByRole('button', { name: 'Put on' }))
+    fireEvent.click(within(screen.getAllByRole('listitem')[0]).getByRole('button', { name: /^Put \S+ on$/ }))
     expect(await screen.findByText('Kaden is on.')).toBeInTheDocument()
     expect(bodies(fetchMock, STAFFING)[2].body).toMatchObject({ action: 'assign', staffId: 'TM1', tell: false, key: 'ses:ses_1' })
   })

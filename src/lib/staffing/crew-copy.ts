@@ -20,7 +20,7 @@ export const OWNERS_ASSIGN = 'Only an owner can put people on a class or party. 
  * A person's mark for one event, in the words crew use themselves, for owner
  * screens ("Who can work", the Staff section). Never a pronoun: "they".
  *   can → "Can" · cant → "Can't" or "Can't (dentist)" · partly → "Part (4–9 PM)"
- *   outside → "Outside the hours they gave (4–9 PM)" · unknown → "Not said"
+ *   outside → "Outside the hours they gave (4–9 PM)" · unknown → "Hasn’t said if free"
  */
 export function verdictLabel(p: { verdict: 'can' | 'cant' | 'partly' | 'outside' | 'unknown'; markNote?: string; hours?: string }): string {
   const paren = (s: string | undefined) => (s ? ` (${s})` : '')
@@ -29,6 +29,7 @@ export function verdictLabel(p: { verdict: 'can' | 'cant' | 'partly' | 'outside'
     case 'cant': return `Can’t${paren(p.markNote)}`
     case 'partly': return `Part${paren(p.hours)}`
     case 'outside': return `Outside the hours they gave${paren(p.hours)}`
-    default: return 'Not said'
+    // UI review (3 Nov): "Not said" was unclear on the owners' Staff tab.
+    default: return 'Hasn’t said if free'
   }
 }

@@ -38,7 +38,7 @@ describe('This week (staff landing tab)', () => {
     serve([])
     render(<ThisWeek staff={STAFF} onOpenRoster={() => {}} />)
     const sat = await screen.findByRole('region', { name: 'Sat Nov 7' })
-    expect(within(sat).getByText('☕ Craft Café 9 AM – 8 PM')).toBeInTheDocument()
+    expect(within(sat).getByRole('button', { name: /^Craft Café 9 AM – 8 PM/ })).toBeInTheDocument()
   })
 
   it('uses the café hours the server sends (the owners’ hours and closed days), not the config', async () => {
@@ -46,7 +46,7 @@ describe('This week (staff landing tab)', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: { events: [], cafe: { '2026-11-08': { opens: '13:00', closes: '15:00' } } } }) }))
     render(<ThisWeek staff={STAFF} onOpenRoster={() => {}} />)
     const sun = await screen.findByRole('region', { name: 'Sun Nov 8' })
-    expect(within(sun).getByText('☕ Craft Café 1 – 3 PM')).toBeInTheDocument()
+    expect(within(sun).getByRole('button', { name: /^Craft Café 1 – 3 PM/ })).toBeInTheDocument()
     // Sat 7 isn't in the server's list (closed on /admin, say): no café row, no region.
     expect(screen.queryByRole('region', { name: 'Sat Nov 7' })).toBeNull()
   })
