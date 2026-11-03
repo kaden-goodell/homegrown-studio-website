@@ -1,7 +1,7 @@
 /**
  * Audit log of staff actions: who did what, to what, and when. Backend only —
- * read it with `scripts/audit-log.ts` (production, via the netlify CLI) or
- * `GET /api/staff/audit.json`.
+ * read it in /admin › More › Activity (owners only, /api/admin/activity.json) or
+ * with `scripts/audit-log.ts`. Crew can't read it (DV19).
  *
  * No role gates anywhere: any signed-in staff member can act, and this log is
  * how the owners check afterward. `recordAudit` NEVER throws — an audit failure
@@ -49,11 +49,22 @@ export function auditKeysNewestFirst(keys: string[], since?: string): string[] {
 }
 
 export async function recordAudit(e: Omit<AuditEntry, 'id' | 'at'>): Promise<void> {
+  let entry: AuditEntry | null = null
   try {
-    const { key, entry } = newAuditEntry(e)
-    await kv.set(key, JSON.stringify(entry))
+    const made = newAuditEntry(e)
+    entry = made.entry
+    await kv.set(made.key, JSON.stringify(made.entry))
   } catch (err) {
     logger.error('Audit write failed', { action: e.action, error: err instanceof Error ? err.message : String(err) })
+  }
+  // DV19: the owners hear about every crew refund, comp and gift card (batched hourly; see crew-heads-up.ts).
+  if (entry && entry.by?.role === 'crew') {
+    try {
+      const { noteCrewAction } = await import('@lib/crew-heads-up')
+      await noteCrewAction(entry)
+    } catch (err) {
+      logger.error('Crew heads-up failed', { action: e.action, error: err instanceof Error ? err.message : String(err) })
+    }
   }
 }
 
