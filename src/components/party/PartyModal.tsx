@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useId, type FormEvent } from 'react'
 import PaymentForm from '@components/checkout/PaymentForm'
 import type { PaymentFormRef } from '@components/checkout/PaymentForm'
-import BookingPanel from '@components/shared/BookingPanel'
+import BookingPanel, { PAYMENT_GOING_THROUGH } from '@components/shared/BookingPanel'
 import BookingConfirmed, { ConfirmedBlock } from '@components/shared/BookingConfirmed'
 import ContactFields, { type ContactFieldsHandle } from '@components/shared/ContactFields'
 import NotifyMe from '@components/shared/NotifyMe'
@@ -32,7 +32,7 @@ import {
 } from '@lib/party-share'
 import { formatTime, formatSlotLabel, formatDayAndSpan } from '@lib/studio-time'
 import { saveRecentParty } from '@lib/recent-party'
-import { newAttemptId } from '@lib/checkout-attempt'
+import { attemptIdFor, forgetPendingAttempt, newAttemptId, pendingAttempt, rememberPendingAttempt } from '@lib/checkout-attempt'
 import { messageForFailure, outcomeUnknown, partyMessages, UNKNOWN_OUTCOME_MESSAGE } from '@lib/checkout-messages'
 import {
   trackWizardStarted,
@@ -106,6 +106,9 @@ interface Slot {
 }
 
 const TEXT_US = partyContent.textNumber
+/** sessionStorage scope for a party payment still going through (C2). */
+const ATTEMPT_SCOPE = 'party'
+const EARLIER_PENDING = 'Your last payment for a party may still be going through. Check your email for a receipt before you pay again.'
 const COULD_NOT_LOAD = TEXT_US ? `We couldn’t load this. Try again, or text us at ${TEXT_US}.` : 'We couldn’t load this. Please try again.'
 const POLICY_UNTICKED = 'Tick the box to agree to the booking and cancellation policy.'
 
@@ -198,6 +201,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const [slotSettled, setSlotSettled] = useState(false)
   /** The time they wanted has gone. Says so on the date step. */
   const [slotMissed, setSlotMissed] = useState(false)
+  /** Why the chosen time went: someone else booked it while they paid, or a saved link's time isn't open any more. */
+  const [missedWhy, setMissedWhy] = useState<'taken' | 'link'>('link')
   /**
    * The date step is one of two things at a time, never both: picking one of
    * the open dates, or asking to be told when a later date opens.
@@ -295,10 +300,26 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   // never book or charge twice. Changing what is being booked (time, craft,
   // guests, package, extras, table), or a plain "nothing was charged", starts
   // a new one.
-  const attemptId = useRef(newAttemptId())
+  //
+  // C2: the id of a try still going through is kept for this tab (sessionStorage), keyed by what is
+  // being booked, so closing, reloading or swiping back and booking the same party again resumes that
+  // try: the server answers with its result instead of booking or charging twice.
+  const attemptShape = JSON.stringify([selectedSlot?.startAt ?? null, selectedCraft?.id ?? null, people, selectedTheme?.id ?? null, pkg.id, addOnsKey])
+  const attemptId = useRef('')
+  if (!attemptId.current) attemptId.current = attemptIdFor(ATTEMPT_SCOPE, attemptShape)
   useEffect(() => {
+    attemptId.current = attemptIdFor(ATTEMPT_SCOPE, attemptShape)
+  }, [attemptShape])
+  /** That attempt is over (booked, or nothing charged): forget it; the next try is a new one. */
+  function endAttempt() {
+    forgetPendingAttempt(ATTEMPT_SCOPE, attemptId.current)
     attemptId.current = newAttemptId()
-  }, [selectedSlot?.startAt, selectedCraft?.id, people, selectedTheme?.id, pkg.id, addOnsKey])
+  }
+  // An earlier try from this tab that never got a clear answer.
+  const [earlierPending] = useState(() => pendingAttempt(ATTEMPT_SCOPE))
+  // The server saw a party booked by the same host minutes ago: they say whether to book this one too.
+  const [repeatAsk, setRepeatAsk] = useState<string | null>(null)
+  const confirmRepeat = useRef(false)
 
   useEffect(() => {
     trackWizardStarted('party')
@@ -785,6 +806,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     setSelectedSlot(null)
     setSlotSettled(false) // brings the date step back if a link had removed it
     setSlotMissed(true)
+    setMissedWhy('taken')
     setWhenMode('pick')
     setCurrentStep('when')
     if (!info) return
@@ -841,6 +863,9 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       }
 
       trackAddPaymentInfo('party', deposit / 100, walletToken ? 'wallet' : sourceKind)
+      setRepeatAsk(null)
+      // Until a plain answer comes back, this attempt is going through (kept for this tab).
+      rememberPendingAttempt(ATTEMPT_SCOPE, attemptId.current, attemptShape)
       let bookRes: Response
       try {
         bookRes = await fetch('/api/party/book.json', {
@@ -870,6 +895,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             ...(selectedTheme && themeTierAvailable ? { theme: { themeId: selectedTheme.id, serves: themeTierServes } } : {}),
             paymentToken: token,
             sourceKind,
+            ...(confirmRepeat.current ? { confirmRepeat: true } : {}),
           }),
         })
       } catch {
@@ -884,8 +910,13 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         // changed…): that attempt is over, and the next try is a new one.
         // "Still finishing your last try" is not an ending: the next try must
         // be recognised as the same one, so it keeps the ID.
-        const keep = outcomeUnknown(failure) || errData?.code === 'in_progress'
-        if (!keep) attemptId.current = newAttemptId()
+        // A "slow down" (429) never says how an earlier try ended: keep the attempt too.
+        const keep = outcomeUnknown(failure) || errData?.code === 'in_progress' || bookRes.status === 429
+        if (!keep) endAttempt()
+        if (errData?.code === 'recent_booking') {
+          setRepeatAsk(typeof errData.detail === 'string' ? errData.detail : partyMessages.already_booked)
+          return
+        }
         if (errData?.code === 'slot_taken' || errData?.code === 'not_open') {
           trackPaymentFailed(errData.code)
           await recoverFromLostTime()
@@ -898,6 +929,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       // A success we can't read is still not a failure we can vouch for.
       if (!json) throw new Error(UNKNOWN_OUTCOME_MESSAGE)
       const data = json.data ?? json
+      endAttempt()
+      confirmRepeat.current = false
       setReceiptUrl(data.receiptUrl ?? null)
       setTotalCharged(typeof data.totalCharged === 'number' ? data.totalCharged : deposit)
       const newBookingId = typeof data.bookingId === 'string' ? data.bookingId : null
@@ -1002,7 +1035,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
           {hostPageUrl ? (
             <ConfirmedBlock label="Your party page">
-              <p style={{ margin: '0 0 0.625rem' }}>See who’s coming and manage the details. Keep this link: it’s also in your email.</p>
+              <p style={{ margin: '0 0 0.625rem' }}>See who’s coming and manage the details. Keep this link. It’s also in your email.</p>
               {/* ph-no-capture: the link carries the host key; PostHog never records this click. */}
               <a href={hostPageUrl} className="btn btn-primary ph-no-capture">
                 Open your party page
@@ -1027,7 +1060,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                   className="field-input"
                   value={partyTitle}
                   onChange={(e) => setPartyTitle(e.target.value)}
-                  placeholder="Maya’s birthday, team night…"
+                  placeholder="Maya’s party, team night…"
                   maxLength={60}
                 />
               </div>
@@ -1058,12 +1091,11 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
           <ConfirmedBlock label="Before the party">
             <p style={{ margin: '0 0 0.5rem' }}>
-              About a week before, we’ll text you to check your headcount. It’s for our prep only: you pay for who comes, minimum{' '}
-              {pkg.minGuests}.
+              Know your headcount closer to the day? Text us so we can prep. You pay for who comes, with a minimum of {pkg.minGuests}.
             </p>
             {selectedCraft.personalized && (
               <p style={{ margin: '0 0 0.5rem' }}>
-                Your craft is made to order, so we’ll also email you for your final count and personalization details.
+                Your craft is made to order. Text us your final count and personalization details before the party.
               </p>
             )}
             {bookingId && (
@@ -1073,7 +1105,10 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             )}
           </ConfirmedBlock>
 
-          <ConfirmedBlock label="Changing plans">{partyRefundLine(selectedSlot.startAt, new Date(), totalCharged ?? deposit)}</ConfirmedBlock>
+          <ConfirmedBlock label="Need to move or cancel?">
+            {partyRefundLine(selectedSlot.startAt, new Date(), pkg.priceCents)}{' '}
+            {hostPageUrl ? 'Ask from your party page, or text us, and we’ll sort it out with you.' : 'Text us and we’ll sort it out with you.'}
+          </ConfirmedBlock>
 
           {TEXT_US && (
             <ConfirmedBlock label="Questions">
@@ -1205,8 +1240,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           <div style={{ marginTop: '1.25rem', padding: '1rem 1.125rem', borderRadius: '0.75rem', border: '1.5px solid var(--craft-marigold, #e3a72f)', background: 'var(--craft-marigold-soft, #fdf3dc)' }}>
             <p style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>This craft is made to order</p>
             <p style={{ margin: '0.35rem 0 0.75rem', fontSize: '0.875rem', lineHeight: 1.5, color: 'var(--color-dark)' }}>
-              It’s personalized for your group. Once your items are made, they can’t be changed or refunded. We’ll email you after booking
-              for your final count and personalization details.
+              It’s personalized for your group. Once your items are made, they can’t be changed or refunded. After booking, text us
+              your final count and personalization details.
             </p>
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', cursor: 'pointer', minHeight: '2.75rem' }}>
               <input
@@ -1277,9 +1312,13 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       <div>
         {slotMissed && (
           <p role="status" style={{ margin: '0 0 1rem', padding: '0.75rem 1rem', borderRadius: '0.625rem', border: '1.5px solid var(--craft-marigold, #e3a72f)', background: 'var(--craft-marigold-soft, #fdf3dc)', fontSize: '0.9375rem', color: 'var(--color-dark)' }}>
-            {availableSlots.length === 0 && !loadingSlots
-              ? 'That time was just booked and that date is now full. Nothing was charged. Pick another date.'
-              : 'That time was just booked. Nothing was charged. These are still open.'}
+            {missedWhy === 'link'
+              ? availableSlots.length === 0 && !loadingSlots
+                ? 'That time isn’t open any more, and that date is full. Pick another date.'
+                : 'That time isn’t open any more. These times are.'
+              : availableSlots.length === 0 && !loadingSlots
+                ? 'That time was just booked by someone else and that date is now full. Nothing was charged. Pick another date.'
+                : 'That time was just booked by someone else. Nothing was charged. These are still open.'}
           </p>
         )}
 
@@ -1696,7 +1735,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         <PaymentForm
           bookingKind="party"
           ref={paymentFormRef}
-          wallet={{ amount: (deposit / 100).toFixed(2), label: 'Hometown Studio party, studio fee', bnpl: true }}
+          wallet={{ amount: (deposit / 100).toFixed(2), label: deposit > pkg.priceCents ? 'Hometown Studio party' : 'Hometown Studio party, studio fee', bnpl: true }}
           onWalletToken={(token) => handlePay(token)}
           // Runs before the wallet sheet opens, so nobody approves in their
           // wallet and then meets a form error. Marks what's missing as it goes.
@@ -1704,6 +1743,17 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           onReadyChange={setPaymentReady}
         />
 
+        {earlierPending && (
+          <p role="status" data-testid="earlier-pending" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5, fontWeight: 600, color: 'var(--color-dark)' }}>{EARLIER_PENDING}</p>
+        )}
+        {repeatAsk && (
+          <div role="alert" data-testid="recent-booking" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5, color: 'var(--color-dark)' }}>
+            <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>{repeatAsk}</p>
+            <button type="button" className="btn btn-secondary" disabled={processing} onClick={() => { confirmRepeat.current = true; setRepeatAsk(null); void handlePay() }}>
+              Yes, book this party too
+            </button>
+          </div>
+        )}
         {error && (
           <p role="alert" className="field-error" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5 }}>
             {error}
@@ -1771,7 +1821,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         </button>
         {selectedSlot && (
           <p style={{ margin: '0.5rem 0 0', textAlign: 'center', fontSize: '0.8125rem', lineHeight: 1.4, color: 'var(--color-text)' }}>
-            {partyRefundLine(selectedSlot.startAt, new Date(), deposit)}
+            {partyRefundLine(selectedSlot.startAt, new Date(), pkg.priceCents)}
           </p>
         )}
       </>
@@ -1803,6 +1853,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     <BookingPanel
       title="Book a party"
       onRequestClose={requestClose}
+      busy={processing ? PAYMENT_GOING_THROUGH : null}
       stepKey={completed ? 'confirmed' : currentStep === 'when' ? `when-${whenMode}` : currentStep}
       stepName={completed || !info ? undefined : stepLabel(currentStep)}
       stepNumber={stepIdx + 1}

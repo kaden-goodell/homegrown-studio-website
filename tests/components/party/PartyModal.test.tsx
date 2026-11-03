@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { cleanup as cleanupRender } from '@testing-library/react'
 import PartyModal from '@components/party/PartyModal'
 import { CONTACT_MESSAGES } from '@lib/contact-rules'
 import { configPartySettings, publicPartyFacts } from '@lib/parties/party-times'
@@ -88,6 +89,7 @@ beforeEach(() => {
 
 afterEach(() => {
   paymentFormReady = true
+  try { sessionStorage.clear() } catch { /* none */ }
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })
@@ -377,7 +379,7 @@ describe('PartyModal — dates and times', () => {
     open({ initialStart: SUN_1.startAt })
     await pickCraft()
     next()
-    expect(await screen.findByText('That time was just booked. Nothing was charged. These are still open.')).toBeInTheDocument()
+    expect(await screen.findByText('That time isn’t open any more. These times are.')).toBeInTheDocument()
   })
 })
 
@@ -541,7 +543,7 @@ describe('PartyModal — paying', () => {
     await toPay('Sun, Nov 8', '1:00 PM')
     await pay('Nov 8')
 
-    expect(await screen.findByText('That time was just booked. Nothing was charged. These are still open.')).toBeInTheDocument()
+    expect(await screen.findByText('That time was just booked by someone else. Nothing was charged. These are still open.')).toBeInTheDocument()
     expect(screen.getByText('Date and time')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '1:00 PM' })).toBeNull()
 
@@ -591,8 +593,9 @@ describe('PartyModal — confirmation', () => {
     expect(screen.getByText('Sat, Nov 7 · 1:30–3 PM')).toBeInTheDocument()
     expect(screen.getByText('Arrive up to 30 minutes early to set up.')).toBeInTheDocument()
     expect(screen.getByText(/525 Hughes Rd, Suite F, Madison, AL 35758/)).toBeInTheDocument()
-    expect(screen.getByText(/About a week before, we’ll text you to check your headcount/)).toHaveTextContent('you pay for who comes, minimum 10.')
-    expect(screen.getByText('Full refund until Oct 24. After that, studio credit.')).toBeInTheDocument()
+    expect(screen.getByText(/Know your headcount closer to the day\? Text us so we can prep\./)).toHaveTextContent('You pay for who comes, with a minimum of 10.')
+    // Final review I4: how to move or cancel, said as a request, with the policy for this date.
+    expect(screen.getByText('Need to move or cancel?').parentElement).toHaveTextContent('Full refund until Oct 24. After that, studio credit. Ask from your party page, or text us, and we’ll sort it out with you.')
     expect(screen.getByRole('link', { name: '(256) 464-1710' })).toHaveAttribute('href', 'sms:2564641710')
   })
 
@@ -1071,5 +1074,68 @@ describe('PartyModal — fix round 1', () => {
     open()
     await toWhen()
     expect(screen.getByText('Every party is 90 minutes. The whole studio, just your group.')).toBeInTheDocument()
+  })
+})
+
+describe('PartyModal — leaving during payment can never charge twice (final review C2)', () => {
+  it('while paying, × says the payment is going through and the panel stays open', async () => {
+    let answer!: (v: unknown) => void
+    answers.book = () => new Promise((resolve) => { answer = resolve }) as never
+    const { onClose } = open()
+    await toPay()
+    await pay()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Processing…' })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(screen.getByRole('alertdialog', { name: 'Your payment is going through' })).toHaveTextContent('Stay on this page.')
+    expect(onClose).not.toHaveBeenCalled()
+    answer({ ok: true, status: 200, json: async () => ({ data: { bookingId: 'bk-1', hostToken: 'host-key', receiptUrl: null, totalCharged: 30000, emailSent: true } }) })
+    await screen.findByText('You’re booked')
+  })
+
+  it('reopened after an unclear answer, the same party sends the same attempt id, with a note to check email first', async () => {
+    answers.book = () => {
+      throw new TypeError('Failed to fetch')
+    }
+    open()
+    await toPay()
+    await pay()
+    expect(await screen.findByRole('alert')).toHaveTextContent('We’re not sure that went through.')
+    cleanupRender()
+    answers.book = { body: { data: { bookingId: 'bk-1', hostToken: 'host-key', receiptUrl: null, totalCharged: 30000, emailSent: true, replayed: true } } }
+    open()
+    await toPay()
+    expect(screen.getByTestId('earlier-pending')).toHaveTextContent('may still be going through')
+    await pay()
+    await screen.findByText('You’re booked')
+    const ids = requestsTo('book').map(([, init]) => JSON.parse(init.body).attemptId)
+    expect(ids).toHaveLength(2)
+    expect(ids[1]).toBe(ids[0])
+  })
+
+  it('a "slow down" (429) keeps the attempt', async () => {
+    answers.book = { status: 429, body: { code: 'unavailable', detail: 'That’s a lot of tries in a row. Give it a minute, then try again.' } }
+    open()
+    await toPay()
+    await pay()
+    await screen.findByText(/a lot of tries/)
+    answers.book = { body: { data: { bookingId: 'bk-1', hostToken: 'host-key', receiptUrl: null, totalCharged: 30000, emailSent: true } } }
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $300 and reserve Nov 7' }))
+    await screen.findByText('You’re booked')
+    const ids = requestsTo('book').map(([, init]) => JSON.parse(init.body).attemptId)
+    expect(ids[1]).toBe(ids[0])
+  })
+
+  it('booked another party minutes ago: nothing charged, they choose to book this one too', async () => {
+    answers.book = { status: 409, body: { code: 'recent_booking', detail: 'You booked a party for Sun, Nov 8 · 1:00 PM CT a few minutes ago. Check your email for the confirmation. Nothing was charged this time. Book this one too only if you meant to.' } }
+    open()
+    await toPay()
+    await pay()
+    expect(await screen.findByTestId('recent-booking')).toHaveTextContent('a few minutes ago')
+    answers.book = { body: { data: { bookingId: 'bk-2', hostToken: 'host-key', receiptUrl: null, totalCharged: 30000, emailSent: true } } }
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, book this party too' }))
+    await screen.findByText('You’re booked')
+    const bodies = requestsTo('book').map(([, init]) => JSON.parse(init.body))
+    expect(bodies[0].confirmRepeat).toBeUndefined()
+    expect(bodies[1].confirmRepeat).toBe(true)
   })
 })

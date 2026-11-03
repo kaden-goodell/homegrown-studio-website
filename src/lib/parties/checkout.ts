@@ -112,7 +112,7 @@ export type BookOutcome =
 /** The customer's words for a still-running attempt. */
 export const IN_PROGRESS_MESSAGE = 'We’re still finishing your last try. Give it a minute, then check your email before trying again.'
 /** Square's total far above our quote: nothing charged. */
-export const PRICE_MISMATCH_MESSAGE = 'Pricing mismatch — your card was not charged and the date was released. Please try again or text us.'
+export const PRICE_MISMATCH_MESSAGE = 'We couldn’t price your party just now. Nothing was charged and the time is open again. Try again in a few minutes, or text us.'
 // DRAFT copy (new, for Kaden): a craft that left the catalog; a retried key whose party was cancelled.
 export const CRAFT_GONE_MESSAGE = 'That craft isn’t available any more. Nothing was charged. Pick another craft.'
 export const PARTY_CANCELLED_MESSAGE = 'That party was cancelled. Nothing was charged. Start a new booking, or text us.'
@@ -452,7 +452,7 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
   // Square's idempotency keys: the attempt id (as /book always did), or the party id for an owner's longer create key.
   const sqKey = isAttemptId(input.key) ? input.key : partyId
   const startMs = Date.parse(input.startIso)
-  if (!Number.isFinite(startMs)) return refuse(400, 'invalid', 'Missing party time information')
+  if (!Number.isFinite(startMs)) return refuse(400, 'invalid', 'Pick a date and time first. Nothing was charged.')
   const startIso = new Date(startMs).toISOString()
   const card = input.pay.kind === 'card' ? input.pay : null
   const via: PartyCharge['via'] = input.audience === 'admin' ? 'admin-card' : 'online'

@@ -619,12 +619,12 @@ async function handleFresh(
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (rateLimited(`sign:${clientAddress}`, 10, 60_000)) {
-    return bad('Too many submissions — give it a minute and try again.', 429)
+    return bad('That’s a lot of tries in a row. Give it a minute, then try again.', 429)
   }
 
   try {
     const body = await request.json().catch(() => null)
-    if (!body) return bad('Invalid request body')
+    if (!body) return bad('Something was missing. Check the form and try again.')
 
     const now = new Date()
     const partyId = typeof body.partyId === 'string' && body.partyId.trim() ? body.partyId.trim() : null

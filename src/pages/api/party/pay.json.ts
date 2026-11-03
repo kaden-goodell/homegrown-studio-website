@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro'
 import { rateLimited } from '@lib/rate-limit'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 import { isAttemptId } from '@lib/checkout-attempt'
-import { UNKNOWN_OUTCOME_MESSAGE } from '@lib/checkout-messages'
+import { partyMessages, UNKNOWN_OUTCOME_MESSAGE } from '@lib/checkout-messages'
 import { payBalance, type PayOutcome } from '@lib/parties/pay-balance'
 import { dueCents } from '@lib/parties/money'
 
@@ -18,16 +18,16 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   try {
     body = await request.json()
   } catch {
-    return errorResponse('Invalid request body', 400, 'invalid')
+    return errorResponse(partyMessages.invalid, 400, 'invalid')
   }
-  if (!body || typeof body !== 'object') return errorResponse('Invalid request body', 400, 'invalid')
-  if (!isAttemptId(body.attemptId)) return errorResponse('Missing payment information', 400, 'invalid')
+  if (!body || typeof body !== 'object') return errorResponse(partyMessages.invalid, 400, 'invalid')
+  if (!isAttemptId(body.attemptId)) return errorResponse('This page is out of date. Refresh it and try again. Nothing was charged.', 400, 'invalid')
   // The amount the page showed: anything else is refused before any order (never a surprise charge).
   const expectedCents = Number(body.expectedCents)
-  if (!Number.isInteger(expectedCents) || expectedCents < 0) return errorResponse('Missing payment information', 400, 'invalid')
+  if (!Number.isInteger(expectedCents) || expectedCents < 0) return errorResponse('This page is out of date. Refresh it and try again. Nothing was charged.', 400, 'invalid')
   const simulated = paymentBypassEnabled(request)
   if (!simulated && (typeof body.paymentToken !== 'string' || !body.paymentToken || body.paymentToken.length > 4000)) {
-    return errorResponse('Missing payment information', 400, 'invalid')
+    return errorResponse('This page is out of date. Refresh it and try again. Nothing was charged.', 400, 'invalid')
   }
 
   let out: PayOutcome
