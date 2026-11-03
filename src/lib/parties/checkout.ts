@@ -62,7 +62,7 @@ import { checkStart, PARTY_TIMES_UNREADABLE } from './open-times'
 import { confirmTime, extendHold, holdTime, holdsBetween, releaseTime } from './party-book'
 import { quoteParty, orderLineItems, type Audience, type PartyQuote } from './pricing'
 import { recordPartyPayment } from './party-payments'
-import { deleteCheckout, getCheckout, saveCheckout, type PartyCheckout } from './party-checkouts'
+import { deleteCheckout, getCheckout, saveCheckout, savePaidElsewhere, type PartyCheckout } from './party-checkouts'
 import { partyWritesRefusal } from './test-site'
 import type { PartySettings } from './types'
 
@@ -310,6 +310,21 @@ export async function recordPaidParty(
     await alertOwners(
       `Party booked and paid, but its party page could not be set up: ${whoOf(c.host)}, ${slot}, Square order ${pay.orderId}. They were told to text us for the link.`,
     ).catch(() => undefined)
+  }
+  // Money M10: the party was already recorded with a DIFFERENT payment (two payments on one attempt key,
+  // very unlikely): this one is no charge on the party, so it's never filed under one. It goes to To decide
+  // as a party payment to check (Refund it / Put it toward the party / already sorted), owners texted.
+  if (!pay.simulated && saved?.kind === 'exists' && !(saved.rec.charges ?? []).some((ch) => ch.paymentId === pay.paymentId)) {
+    logger.error('SECOND PAYMENT ON A RECORDED PARTY — sent to To decide', { partyId, paymentId: pay.paymentId, orderId: pay.orderId })
+    const kept = await savePaidElsewhere({
+      partyId, state: 'paid-elsewhere', why: 'other-payment', startIso: c.startIso, endIso: c.endIso, draft: null, order: null,
+      orderId: pay.orderId, quotedCents: 0, squareCents: pay.cents, paymentId: pay.paymentId, host: c.host, origin: '', via: 'online',
+      at: now.toISOString(), updatedAt: now.toISOString(),
+    }).catch((err) => { logger.error('Second party payment not kept for To decide', { partyId, error: String(err) }); return 'failed' as const })
+    if (kept !== 'settled' && kept !== 'kept') {
+      await alertOwners(`Party payment to check: a second ${dollars(pay.cents)} payment came in for ${whoOf(c.host)}'s party (${slot}), already paid. Nothing was refunded. Open /admin › To decide.`).catch(() => undefined)
+    }
+    return { rec: saved.rec, charge: saved.rec.charges?.[0] ?? charge, created: false }
   }
   if (!pay.simulated) {
     let indexed = false

@@ -275,6 +275,22 @@ describe('Square says a party order is paid (webhook / nightly reconcile)', () =
     expect(await getPartyRecord('pty_00000000000000d1')).toBeNull()
   })
 
+  it('money M10: a second payment on an already recorded party (same attempt) is never filed under a charge that doesn’t exist: To decide has it', async () => {
+    const inp = input(at('2027-04-04', '15:30'))
+    const partyId = partyIdFor(inp.key)
+    expect(await bookParty(inp, NOW)).toMatchObject({ kind: 'booked' })
+    const rec = (await getPartyRecord(partyId))!
+    const { recordPaidParty } = await import('@lib/parties/checkout')
+    const c = { partyId, startIso: rec.startIso, endIso: rec.endIso, draft: rec, quotedCents: 30000, via: 'online' as const, host: { firstName: 'A', lastName: 'S', email: 'a@x.co', phone: '1' } }
+    m.alert.mockClear()
+    const out = await recordPaidParty(c, { orderId: 'ord-second', paymentId: 'pay-second', cents: 30000, receiptUrl: null }, NOW)
+    expect(out.created).toBe(false)
+    expect(await partyForPayment('pay-second')).toBeNull()
+    expect((await getPartyRecord(partyId))!.charges).toHaveLength(1)
+    expect((await listCheckouts()).find((x) => x.orderId === 'ord-second')).toMatchObject({ state: 'paid-elsewhere', why: 'other-payment', paymentId: 'pay-second' })
+    expect(m.alert.mock.calls.filter(([t]) => /second \$300\.00 payment/.test(String(t)))).toHaveLength(1)
+  })
+
   it('paid with nothing to record it from: kept for To decide, owners told once', async () => {
     m.paid.set('ord-orphan', { id: 'pay-orphan', orderId: 'ord-orphan', amount: 30000, status: 'completed', receiptUrl: null })
     const order = { id: 'ord-orphan', reference_id: 'pty_0000000000000abc', state: 'COMPLETED', tenders: [] }
