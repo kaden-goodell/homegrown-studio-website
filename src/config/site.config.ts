@@ -1,5 +1,6 @@
 import { OPENING_DATE, GRAND_OPENING_DATE } from './opening'
 import { SITE_URL } from './site-url'
+import { kitsEnabledFor, serverEnv } from './kits-preview'
 import { STUDIO_HOURS, CAFE_HOURS, formatHours, formatCafeHours } from './hours'
 
 export interface SiteConfig {
@@ -294,7 +295,8 @@ export const siteConfig: SiteConfig = {
     kits: {
       // Paused for the pre-booking launch (2026-07-18) — core flows first.
       // Flip back on with the photos deploy once parties/workshops are proven live.
-      enabled: false,
+      // A namespaced sandbox preview can show them with KITS_ENABLED_PREVIEW=on (never production).
+      enabled: kitsEnabledFor(false, serverEnv()),
     },
     programs: {
       enabled: false,

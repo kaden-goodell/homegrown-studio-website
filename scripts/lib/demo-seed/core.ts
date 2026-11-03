@@ -163,16 +163,59 @@ export function isDemoLibrary(lib: any): boolean {
 /** The library entry's current name. */
 export const libraryName = (lib: any): string => String(lib?.versions?.at?.(-1)?.content?.name ?? '')
 
-/** Run options: --remove, --dry-run, --help. */
-export interface SeedArgs { remove: boolean; dryRun: boolean; help: boolean }
+/** Run options: --remove, --dry-run, --classes-only, --help. */
+export interface SeedArgs { remove: boolean; dryRun: boolean; help: boolean; classesOnly: boolean }
 export function parseSeedArgs(argv: string[]): SeedArgs {
-  const out: SeedArgs = { remove: false, dryRun: false, help: false }
+  const out: SeedArgs = { remove: false, dryRun: false, help: false, classesOnly: false }
   for (const a of argv) {
     if (a === '--remove') out.remove = true
+    else if (a === '--classes-only') out.classesOnly = true
     else if (a === '--dry-run') out.dryRun = true
     else if (a === '--help' || a === '-h') out.help = true
-    else throw new Error(`Unknown option ${a}. Use --remove, --dry-run or --help.`)
+    else throw new Error(`Unknown option ${a}. Use --remove, --dry-run, --classes-only or --help.`)
   }
   if (out.remove && out.dryRun) throw new Error('--remove and --dry-run go separately.')
   return out
+}
+
+/** HH:MM to HH:MM on a studio day as an ISO session (daylight saving handled). */
+export function sessionAt(ymd: string, from: string, to: string, capacity = DEMO_CAPACITY): { startIso: string; endIso: string; capacity: number } {
+  return { startIso: chicagoToUtcIso(ymd, from), endIso: chicagoToUtcIso(ymd, to), capacity }
+}
+
+/** The party crafts copied from the live "Crafts" category (by name; the words, price, badge and photo come from the live catalog). */
+export const DEMO_CRAFT_NAMES = [
+  'Paracord Bubble Letter Keychain', 'Denim Patch Notebooks', 'Fabric Bulletin Boards', 'Decoupage Succulent Pots', 'Junk Journaling', 'Pony Bead Keychains',
+] as const
+
+/** The demo crew on the staff list (Kaden's +demo addresses; messages are muted on the preview anyway). */
+export const DEMO_CREW = [
+  { givenName: 'Demo Crew', familyName: 'Sam', email: 'kaden+demo-sam@ourhometownstudio.com' },
+  { givenName: 'Demo Crew', familyName: 'Jess', email: 'kaden+demo-jess@ourhometownstudio.com' },
+] as const
+
+export const DEMO_PROMO = { code: 'DEMO10', label: 'Demo seed (scripts/seed-demo.ts)', off: { kind: 'percent', percent: 10 }, appliesTo: { kind: 'all' }, maxUses: 50 } as const
+
+/** One live catalog item as a craft for /admin › Crafts: name, words, price, popular badge, photo URL. Null when it isn't a usable craft. */
+export function craftFromLive(item: any, objects: any[]): { name: string; description: string; cents: number; popular: boolean; photoUrl: string | null } | null {
+  const d = item?.item_data
+  if (!d || item.is_deleted) return null
+  const cents = Number(d.variations?.[0]?.item_variation_data?.price_money?.amount)
+  if (!Number.isInteger(cents) || cents <= 0) return null
+  const cat = (id: string) => objects.find((o) => o.type === 'CATEGORY' && o.id === id)?.category_data?.name
+  const cats = (d.categories ?? []).map((c: any) => cat(c.id))
+  const image = objects.find((o) => o.type === 'IMAGE' && o.id === d.image_ids?.[0])?.image_data?.url ?? null
+  return {
+    name: String(d.name).trim(),
+    description: String(d.description_plaintext ?? d.description ?? '').trim(),
+    cents,
+    popular: cats.includes('Most Popular'),
+    photoUrl: image,
+  }
+}
+
+/** A live catalog item as a LiveWorkshop (for a class the live site isn't listing right now, like Needlepoint 101). */
+export function workshopFromCatalog(item: any, objects: any[], startTime: string, minutes = 120): LiveWorkshop | null {
+  const c = craftFromLive(item, objects)
+  return c ? { name: c.name, description: c.description, price: c.cents, startTime, duration: minutes, imageUrl: c.photoUrl } : null
 }
