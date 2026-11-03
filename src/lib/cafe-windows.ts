@@ -30,10 +30,11 @@ export function addDays(ymd: string, n: number): string {
 
 /** Every window from `from` to `through` (both included), never before the café's first day. Pure. */
 export function cafeWindows(days: StudioDays, from: string, through: string): string[] {
-  const start = from < OPEN_STUDIO_START_DATE ? OPEN_STUDIO_START_DATE : from
   const out: string[] = []
-  for (let day = start; day <= through; day = addDays(day, 1)) {
-    // A special day (the Nov 7 grand opening) opens the studio and wins over the weekly hours.
+  for (let day = from; day <= through; day = addDays(day, 1)) {
+    // Weekly days only from the start date; a special day (the Nov 7 grand opening) whenever it falls,
+    // opening the studio and winning over the weekly hours.
+    if (day < OPEN_STUDIO_START_DATE && !days.cafe.special.some((s) => s.date === day)) continue
     if (!isStudioOpenOn(day, days)) continue
     const h = cafeHoursOn(day, days.cafe)
     if (h) out.push(`${day}T${h.opens}-${h.closes}`)
