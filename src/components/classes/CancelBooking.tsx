@@ -9,7 +9,7 @@
  * One press = one attempt token, sent again on a retry, so a double tap, a
  * slow network or two tabs never refund twice.
  */
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CancelView } from '@lib/classes/self-cancel'
 import { newAttemptId } from '@lib/checkout-attempt'
 import { formatMoney } from '@lib/money'
@@ -29,6 +29,15 @@ export default function CancelBooking({ token, initial }: { token: string; initi
   const [writing, setWriting] = useState(initial.mode === 'request' && initial.state === 'open')
   const [note, setNote] = useState('')
   const attempt = useRef(newAttemptId())
+  // VoiceOver and keyboard (final review I18): the confirm step takes focus; "Keep my booking" gives it back.
+  const confirmRef = useRef<HTMLParagraphElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const wasSure = useRef(false)
+  useEffect(() => {
+    if (sure) confirmRef.current?.focus()
+    else if (wasSure.current && !done) triggerRef.current?.focus()
+    wasSure.current = sure
+  }, [sure])
 
   const total = view.seats.filter((s) => picked.includes(s.lineId)).reduce((n, s) => n + s.cents, 0)
   const free = view.mode === 'free'
@@ -90,7 +99,7 @@ export default function CancelBooking({ token, initial }: { token: string; initi
   const heading = view.state === 'cancelled'
     ? 'Your booking is cancelled'
     : view.state === 'cancelling'
-      ? 'Your cancel is in'
+      ? 'We’re finishing your cancel'
       : view.state === 'over' ? 'Nothing to cancel here' : 'Can’t make it?'
 
   return (
@@ -103,7 +112,7 @@ export default function CancelBooking({ token, initial }: { token: string; initi
         {done?.kind === 'cancelled' && (
           <p className="mt-5" style={{ color: 'var(--color-dark)' }}>
             {done.cents > 0
-              ? `Done. We refunded ${formatMoney(done.cents)} to the card you paid with, and we sent you an email to say so.`
+              ? `Done. We refunded ${formatMoney(done.cents)} to the card you paid with, and we’re emailing you to say so.`
               : 'Done. Your seat is cancelled. This booking was free, so there’s nothing to refund.'}
           </p>
         )}
@@ -130,13 +139,13 @@ export default function CancelBooking({ token, initial }: { token: string; initi
             <ul style={{ listStyle: 'none', padding: 0, margin: '0.5rem 0 0' }}>
               {view.seats.map((s) => (
                 <li key={s.lineId} style={{ padding: '0.4rem 0' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', color: s.canPick ? 'var(--color-dark)' : 'var(--color-text)' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minHeight: '2.75rem', cursor: s.canPick ? 'pointer' : 'default', color: s.canPick ? 'var(--color-dark)' : 'var(--color-text)' }}>
                     <input
                       type="checkbox"
                       checked={picked.includes(s.lineId)}
                       disabled={!s.canPick || view.wholeOnly || !!busy}
                       onChange={(e) => { setSure(false); setPicked((cur) => (e.target.checked ? [...cur, s.lineId] : cur.filter((x) => x !== s.lineId))) }}
-                      style={{ width: '1.25rem', height: '1.25rem', accentColor: 'var(--color-primary)' }}
+                      style={{ width: '1.5rem', height: '1.5rem', flexShrink: 0, accentColor: 'var(--color-primary)' }}
                     />
                     <span>
                       {`Seat ${s.seat} · ${s.label}`}
@@ -149,10 +158,10 @@ export default function CancelBooking({ token, initial }: { token: string; initi
           </fieldset>
           {free
             ? <p className="text-sm mt-2" style={{ color: 'var(--color-text)' }}>This booking was free, so there’s nothing to refund. Cancelling gives your seat to someone else.</p>
-            : <p className="text-sm mt-2" style={{ color: 'var(--color-text)' }}>{`You’re more than ${view.policyHours} hours out, so you get back everything those seats cost, tax included, on the card you paid with.`}</p>}
+            : <p className="text-sm mt-2" style={{ color: 'var(--color-text)' }}>{`You’re more than ${view.policyHours} hours out, so you get back everything you paid for those seats, on the card you paid with.`}</p>}
           {sure ? (
             <div role="group" aria-label="Cancel for sure?" className="mt-4" style={{ border: '1px solid var(--color-border, #e8e0d8)', borderRadius: '0.75rem', padding: '1rem' }}>
-              <p className="font-semibold" style={{ color: 'var(--color-dark)' }}>
+              <p ref={confirmRef} tabIndex={-1} className="font-semibold" style={{ color: 'var(--color-dark)', outline: 'none' }}>
                 {free ? `Cancel your ${seatsWord(picked.length)}?` : `Cancel your ${seatsWord(picked.length)} and refund ${formatMoney(total)}?`}
               </p>
               <p className="text-sm" style={{ color: 'var(--color-text)' }}>Once it’s cancelled the seat goes to someone else, so it can’t be undone here.</p>
@@ -164,7 +173,7 @@ export default function CancelBooking({ token, initial }: { token: string; initi
               </div>
             </div>
           ) : (
-            <button type="button" className="btn btn-primary mt-4" disabled={!picked.length || !!busy} onClick={() => setSure(true)}>
+            <button ref={triggerRef} type="button" className="btn btn-primary mt-4" disabled={!picked.length || !!busy} onClick={() => setSure(true)}>
               {free ? (picked.length > 1 ? `Cancel ${picked.length} seats` : 'Cancel my seat') : picked.length ? `Cancel and refund ${formatMoney(total)}` : 'Pick the seats to cancel'}
             </button>
           )}
@@ -193,8 +202,9 @@ export default function CancelBooking({ token, initial }: { token: string; initi
               rows={4}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Tell us what happened and what would help, like a credit or another date."
-              style={{ display: 'block', width: '100%', marginTop: '0.4rem', padding: '0.6rem', borderRadius: '0.5rem', border: '1px solid var(--color-border, #d9cfc6)' }}
+              style={{ display: 'block', width: '100%', marginTop: '0.4rem', padding: '0.6rem', borderRadius: '0.5rem', border: '1px solid var(--color-border, #d9cfc6)', fontSize: '1rem' }}
             />
+            {!note.trim() && <p className="text-sm mt-2" style={{ color: 'var(--color-text)' }}>Write a few words first, then send it.</p>}
             <button type="button" className="btn btn-primary mt-3" disabled={!!busy || !note.trim()} onClick={send}>{busy === 'note' ? 'Sending…' : 'Send us a note'}</button>
           </div>
         ) : (

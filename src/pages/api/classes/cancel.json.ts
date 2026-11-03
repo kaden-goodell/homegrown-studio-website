@@ -13,7 +13,8 @@ const json = (status: number, body: unknown) =>
 function fail(err: unknown): Response {
   if (err instanceof CancelError) return json(err.status, { error: err.message, code: err.code, ...(err.view ? { view: err.view } : {}) })
   logger.error('Cancel request failed', { error: err instanceof Error ? err.message : String(err) })
-  return json(503, { error: CANCEL_MESSAGES.unavailable, code: 'unavailable' })
+  // Something broke part way: a refund may already have gone out, so never "Nothing changed" here.
+  return json(503, { error: 'We couldn’t finish that just now. Try again in a minute. You’ll never be refunded twice.', code: 'unavailable' })
 }
 
 /**
