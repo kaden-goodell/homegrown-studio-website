@@ -26,6 +26,8 @@ export default function RenameNotice() {
   useEffect(() => {
     if (window.location.pathname.startsWith('/waiver') || alreadySeen()) return
     const t = window.setTimeout(() => {
+      // UI review (3 Nov): never on top of a booking someone just opened from a link (a class or party sheet).
+      if (document.querySelector('[data-booking-panel]')) return
       setOpen(true)
       trackRenameNotice('shown')
       // Next frame, so the slide-up transition runs.

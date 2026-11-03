@@ -27,6 +27,19 @@ describe('RenameNotice', () => {
     expect(screen.getByText('Same studio, new name')).toBeTruthy()
   })
 
+  it('UI review: stays away while a booking sheet is open (someone landed on a class link)', async () => {
+    const panel = document.createElement('div')
+    panel.setAttribute('data-booking-panel', '')
+    document.body.appendChild(panel)
+    try {
+      render(<RenameNotice />)
+      await wait()
+      expect(screen.queryByText('Same studio, new name')).toBeNull()
+    } finally {
+      panel.remove()
+    }
+  })
+
   it('"Got it" closes it and it stays gone next time', async () => {
     const { unmount } = render(<RenameNotice />)
     await wait()
