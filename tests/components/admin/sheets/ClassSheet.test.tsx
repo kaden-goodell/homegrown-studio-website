@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { screen, fireEvent, within, waitFor, act } from '@testing-library/react'
+import { screen, fireEvent, within, waitFor, act, cleanup } from '@testing-library/react'
 import { ClassSheet, STALE_KEPT } from '@components/admin/sheets/ClassSheet'
 import { setAdminWho } from '@components/admin/classes/api'
 import { at, booking, cls, content, lib, ok, posts, refuse, renderSheet } from './harness'
@@ -126,10 +126,14 @@ describe('class sheet › Bookings', () => {
     expect(within(panel).getByRole('link', { name: 'Open Messages' })).toHaveAttribute('href', 'sms:/open?addresses=2565550100,2565550111')
   })
 
-  it('no bookings: says where it is, by status', async () => {
+  it('no bookings: says where it is, by status — and never "live" when people can’t pay for it yet', async () => {
     vi.stubGlobal('fetch', server())
     renderSheet(<ClassSheet id="cls_1" />)
-    expect(await screen.findByText('No bookings yet. It’s live on the What’s On page.')).toBeInTheDocument()
+    expect(await screen.findByText('No bookings yet. People see it on the What’s On page but can’t pay for it until it’s on the register (the button above).')).toBeInTheDocument()
+    cleanup()
+    vi.stubGlobal('fetch', server({ the: cls({ square: { itemId: 'ITEM', variations: { 'pas_full:person': 'V' } } as any }) }))
+    renderSheet(<ClassSheet id="cls_1" />)
+    expect(await screen.findByText('No bookings yet. People can find it and book it on the What’s On page.')).toBeInTheDocument()
   })
 })
 
@@ -731,8 +735,15 @@ describe('class sheet › the early-bird and the register (stage 4)', () => {
     renderSheet(<ClassSheet id="cls_1" />)
     await loaded()
     const panel = screen.getByTestId('not-on-register')
-    expect(panel).toHaveTextContent('This class isn’t on the register yet, so it can’t be booked online.')
-    fireEvent.click(within(panel).getByRole('button', { name: 'Put it on the register' }))
+    expect(panel).toHaveTextContent('People can see this class on What’s On, but they can’t book it online yet: it isn’t on the register.')
+    // UI review: never "it's live" for a class people can't pay for.
+    expect(document.body.textContent).not.toMatch(/It’s live|People can book\./)
+    // The banner sits on Bookings only; Dates says plainly what customers get, with a way to the button.
+    fireEvent.click(screen.getByRole('button', { name: 'Dates' }))
+    expect(screen.queryByTestId('not-on-register')).toBeNull()
+    expect(screen.getByTestId('status-not-bookable')).toHaveTextContent('On the website, but people can’t pay for it yet: it isn’t on the register.')
+    fireEvent.click(within(screen.getByTestId('status-not-bookable')).getByRole('button', { name: 'Put it on the register' }))
+    fireEvent.click(within(screen.getByTestId('not-on-register')).getByRole('button', { name: 'Put it on the register' }))
     expect(await screen.findByText('It’s on the register now. People can book it online.')).toBeInTheDocument()
     expect(posts(f, CLASSES)[0].body).toEqual({ action: 'sync-pos', id: 'cls_1' })
     expect(screen.queryByTestId('not-on-register')).toBeNull()

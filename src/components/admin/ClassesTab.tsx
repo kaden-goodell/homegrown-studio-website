@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ClassTotals } from '@lib/classes/admin-actions'
 import type { LibraryClass, ScheduledClass } from '@lib/classes/types'
+import { notOnRegister } from '@lib/classes/pos-plan'
 import { formatMoney } from '@lib/money'
 import { localDate } from '@lib/party-slots'
 import { api, CLASSES } from './classes/api'
@@ -39,6 +40,8 @@ function useClasses() {
 function ClassRow({ cls, sub, onOpen, active, noTag }: { cls: ScheduledClass; sub: string; onOpen: () => void; active: boolean; noTag?: boolean }) {
   const s = nextSession(cls)
   const tag = noTag ? null : STATUS_TAG[cls.status]
+  // UI review (3 Nov): an open class people can't pay for yet says so on its row.
+  const notBookable = !noTag && !!cls.square && notOnRegister(cls, new Date())
   return (
     <button
       type="button"
@@ -49,7 +52,7 @@ function ClassRow({ cls, sub, onOpen, active, noTag }: { cls: ScheduledClass; su
       <span className="adm-rt">{s ? timeSpan(s.startIso, s.endIso) : ''}</span>
       <span className="adm-rm">
         <b>{cls.content.name}</b>
-        <small>{sub}{tag && <span className={`adm-tag${cls.status === 'cancelled' ? ' is-red' : ''}`}>{tag}</span>}</small>
+        <small>{sub}{tag && <span className={`adm-tag${cls.status === 'cancelled' ? ' is-red' : ''}`}>{tag}</span>}{notBookable && <span className="adm-tag is-red" data-testid="not-bookable">Can’t be booked online</span>}</small>
       </span>
       <span className="adm-chev" aria-hidden="true">›</span>
     </button>

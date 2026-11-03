@@ -438,10 +438,12 @@
   border-radius: 0.75rem;
 }
 .adm-seg button {
-  flex: 1;
+  /* UI review (3 Nov): sized from the words, so a longer label ("Bookings") gets the room it needs
+     instead of four equal boxes cutting it to "Bookin…" in a narrow sheet. */
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 2.75rem;
-  padding: 0 0.4rem;
+  padding: 0 0.3rem;
   border: 0;
   border-radius: 0.6rem;
   background: none;

@@ -562,7 +562,8 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     <SheetFrame tall title={c.name} subtitle={subtitle} footer={footer}>
       <div ref={body}>
         <Seg label="Show" value={tab} options={TABS} onChange={(t) => { setTab(t); setTexting(false) }} />
-        <RegisterPanel cls={cls} register={data.register} onFixed={(saved) => { setData((d) => (d ? { ...d, cls: saved } : d)); bump() }} />
+        {/* UI review (3 Nov): the register panel once, on Bookings (it repeated on every tab). */}
+        {tab === 'bookings' && <RegisterPanel cls={cls} register={data.register} onFixed={(saved) => { setData((d) => (d ? { ...d, cls: saved } : d)); bump() }} />}
         {seriesNote && <SeriesNote note={seriesNote} onClose={() => setSeriesNote(null)} />}
 
         {tab === 'bookings' && (
@@ -640,7 +641,9 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
               <p className="adm-empty">
                 {cls.status === 'draft' ? 'No bookings yet. It’s a draft, so it isn’t on the website.'
                   : cls.status === 'closed' ? 'No bookings. Sign-ups are closed.'
-                    : cancelled ? 'No bookings.' : 'No bookings yet. It’s live on the What’s On page.'}
+                    : cancelled ? 'No bookings.'
+                      : notOnRegister(cls, new Date()) ? 'No bookings yet. People see it on the What’s On page but can’t pay for it until it’s on the register (the button above).'
+                        : 'No bookings yet. People can find it and book it on the What’s On page.'}
               </p>
             )}
             {bookings.map((b) => <BookingRow key={b.bookingId} b={b} cls={cls} ticket={ticket} canEmail={!cancelled && !past} onChanged={() => { load(); bump() }} />)}
@@ -670,7 +673,14 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
               <>
                 <p className="adm-lbl">Status</p>
                 <Seg label="Status" value={status === 'cancelled' ? 'open' : status} options={[['open', 'Open'], ['draft', 'Draft'], ['closed', 'Closed']]} onChange={(s) => setStatus(s as ClassStatus)} />
-                <p className="adm-small adm-muted">{STATUS_NOTE[status === 'cancelled' ? 'open' : status]}</p>
+                {status !== 'draft' && notOnRegister(cls, new Date())
+                  ? (
+                    <p className="adm-small adm-warntext" data-testid="status-not-bookable">
+                      {status === 'closed' ? 'On the website, with sign-ups closed.' : 'On the website, but people can’t pay for it yet: it isn’t on the register.'}{' '}
+                      <button type="button" className="adm-btn is-ghost is-sm" onClick={() => setTab('bookings')}>Put it on the register</button>
+                    </p>
+                  )
+                  : <p className="adm-small adm-muted">{STATUS_NOTE[status === 'cancelled' ? 'open' : status]}</p>}
               </>
             )}
             {moved && <MovedPanel cls={cls} moved={moved} />}
@@ -951,7 +961,7 @@ function RegisterPanel({ cls, register, onFixed }: { cls: ScheduledClass; regist
   return (
     <div className="adm-panel is-warn" role="group" aria-label="The register" data-testid={missing ? 'not-on-register' : oldSetup ? 'register-old-setup' : 'register-price'}>
       <b>{missing
-        ? 'This class isn’t on the register yet, so it can’t be booked online.'
+        ? 'People can see this class on What’s On, but they can’t book it online yet: it isn’t on the register.'
         : oldSetup ? 'The register still has the old tax or category for this class.'
           : running ? 'The register doesn’t have the early-bird price yet.' : 'The register still rings the early-bird price, which has ended.'}</b>
       <span className="adm-small">{missing

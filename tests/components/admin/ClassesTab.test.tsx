@@ -11,7 +11,7 @@ const c = (id: string, name: string, status: string, day: string, extra: any = {
   sessions: [{ id: `ses_${id}`, startIso: at(day, '18:00'), endIso: at(day, '20:00'), capacity: 12 }], ...extra,
 })
 const classes = [
-  c('cls_a', 'Pottery', 'open', '2026-10-22'),
+  c('cls_a', 'Pottery', 'open', '2026-10-22', { square: { itemId: null, variations: {} } }),
   c('cls_b', 'Candles', 'draft', '2026-10-30'),
   c('cls_c', 'Watercolor', 'open', '2026-10-10'),
   c('cls_d', 'Macramé', 'cancelled', '2026-10-24'),
@@ -40,6 +40,15 @@ beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('Classes tab', () => {
+  it('UI review: an open class people can’t pay for yet (not on the register) is tagged on its row', async () => {
+    vi.stubGlobal('fetch', server())
+    render(<ClassesTab onOpen={vi.fn()} />)
+    const thu = await screen.findByRole('region', { name: 'Thu Oct 22' })
+    const [wreaths, pottery] = within(thu).getAllByRole('button')
+    expect(pottery).toHaveTextContent('Can’t be booked online')
+    expect(wreaths).not.toHaveTextContent('Can’t be booked online')
+  })
+
   it('Upcoming: grouped by day, "N of M booked", sign-ups closed tagged; cancelled folded away at the end; tapping opens the class sheet', async () => {
     vi.stubGlobal('fetch', server())
     const onOpen = vi.fn()
