@@ -1489,6 +1489,26 @@ describe('class booking — the same person minutes later, with a new attempt (f
     expect(again.status).toBe(200)
   })
 
+  it('run 3 (scenario 52): a declined try never counts as "booked": the retry right after goes through', async () => {
+    const cls = makeClass()
+    mockProcessPayment.mockRejectedValueOnce(Object.assign(new Error('declined'), { statusCode: 402, errors: [{ code: 'CARD_DECLINED' }] }))
+    expect((await POST(ctx(body(cls)))).status).toBe(402)
+    newAttempt()
+    const retry = await POST(ctx(body(cls, { attemptId: ATTEMPT })))
+    expect(retry.status).toBe(200)
+  })
+
+  it('run 3 (scenario 6): a full class answers sold_out, never "you booked minutes ago, book more?"', async () => {
+    const cls = makeClass({ capacity: 3 })
+    expect((await POST(ctx(body(cls)))).status).toBe(200)
+    newAttempt()
+    mockProcessPayment.mockClear()
+    const res = await POST(ctx(body(cls, { attemptId: ATTEMPT })))
+    expect(res.status).toBe(409)
+    expect((await res.json()).code).toBe('sold_out')
+    expect(mockProcessPayment).not.toHaveBeenCalled()
+  })
+
   it('a different person, or the same person after the window, books as usual', async () => {
     const cls = makeClass()
     expect((await POST(ctx(body(cls)))).status).toBe(200)

@@ -17,3 +17,14 @@ describe('crew I6: is a booking inside the 48-hour refund window?', () => {
     expect(insidePolicyWindow([], ['a'], now)).toBe(false)
   })
 })
+
+describe('run 3: recentSamePerson counts only bookings that really hold a paid seat', () => {
+  it('released, refunded-and-freed, or lapsed tries never count as booked', async () => {
+    const { recentSamePerson } = await import('@lib/classes/checkout')
+    const base = { bookingId: 'b1', customer: { email: 'ada@x.com' }, at: now.toISOString(), holdExpiresAt: null, refunds: [], square: { orderId: null } } as any
+    expect(recentSamePerson([{ ...base, state: 'released' }], 'b2', 'ada@x.com', now)).toBeNull()
+    expect(recentSamePerson([{ ...base, state: 'held', holdExpiresAt: at(-1) }], 'b2', 'ada@x.com', now)).toBeNull()
+    expect(recentSamePerson([{ ...base, state: 'confirmed', refunds: [{ freedSeat: true }] }], 'b2', 'ada@x.com', now)).toBeNull()
+    expect(recentSamePerson([{ ...base, state: 'confirmed' }], 'b2', 'ADA@x.com', now)).toBe('booked')
+  })
+})

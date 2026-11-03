@@ -6,9 +6,9 @@ import {
   lineTax, MissingSecretError, onStop, parseArgs, type Pending, pick, PREVIEW_ORIGIN, PreviewClient, RateGate, readSecrets, redact, RefusedHostError, RUN_LINE,
   runScenarios, SkipScenario, SlotAllocator, SquareError, SquareSandbox, SQUARE_SANDBOX_VERSION, totalWithTax, type Scenario,
 } from '../../scripts/lib/sandbox-e2e/core'
-import { blockedDay, bookingIdOf, cleanUpLeftovers, CLEANUP_PLAN, firstDay, reconcileUntil, scenarios, tenderTookMoney, testContent, type Ctx } from '../../scripts/lib/sandbox-e2e/scenarios'
+import { blockedDay, book, bookingIdOf, cleanUpLeftovers, CLEANUP_PLAN, firstDay, reconcileUntil, scenarios, tenderTookMoney, testContent, type Ctx } from '../../scripts/lib/sandbox-e2e/scenarios'
 import { ALL_SCENARIOS, main } from '../../scripts/sandbox-e2e'
-import { cleanUpExtrasLeftovers, e2eCode, EXTRAS_CLEANUP_PLAN, EXTRAS_NEED_TOKEN, extrasScenarios } from '../../scripts/lib/sandbox-e2e/extras-scenarios'
+import { cleanUpExtrasLeftovers, e2eCode, EXTRAS_CLEANUP_PLAN, EXTRAS_NEED_TOKEN, extrasScenarios, waitlistHoursSkip } from '../../scripts/lib/sandbox-e2e/extras-scenarios'
 import { bookingIdFor } from '@lib/classes/checkout'
 import { SQUARE_API_VERSION } from '@lib/classes/square-api'
 import { taxCents } from '@lib/tax'
@@ -509,6 +509,32 @@ describe('main', () => {
     expect(out.join('\n')).not.toContain(STAFF)
     expect(fetch.mock.calls.some(([u]) => new URL(u as string).pathname === '/api/classes/book.json')).toBe(false)
     expect(fetch.mock.calls.every(([u]) => new URL(u as string).host === PREVIEW_HOST)).toBe(true)
+    // N1: an owner picked on /staff also sends the admin passcode.
+    const pickCall = fetch.mock.calls.find(([u]) => new URL(u as string).pathname === '/api/staff/pick.json')!
+    expect(JSON.parse(String((pickCall[1] as any).body))).toMatchObject({ staffId: 's1', adminPasscode: ADMIN })
+  })
+})
+
+describe('run 3 harness fixes', () => {
+  it('book() sends the panel’s "Book this one too" flag, unless a scenario turns it off', async () => {
+    const post = vi.fn(async () => ({ status: 200, body: {}, text: '' }))
+    const ctx = { pub: { post }, person: { givenName: 'E', familyName: 'T', email: 'e@x.com', phone: '' } } as any
+    await book(ctx, 'cls_1', { passId: 'single', tickets: { person: 1 } })
+    expect((post.mock.calls[0] as any[])[1]).toMatchObject({ confirmRepeat: true })
+    await book(ctx, 'cls_1', { passId: 'single', tickets: { person: 1 } }, undefined, { confirmRepeat: false })
+    expect((post.mock.calls[1] as any[])[1].confirmRepeat).toBeUndefined()
+  })
+  it('scenario 69 asserts the repeat question; scenario 49 gates on quote = Square = charged at 1144', () => {
+    expect(ALL_SCENARIOS.find((s) => s.id === 69)!.plan.join(' ')).toMatch(/recent_booking/)
+    expect(extrasScenarios.find((s) => s.id === 49)!.plan.join(' ')).toMatch(/94 cents.*\$11\.44/)
+  })
+  it('waitlist scenarios run only 8 AM–7:50 PM Chicago, else they skip with a note', () => {
+    const chicago = (hhmm: string) => new Date(`2026-11-10T${hhmm}:00-06:00`)
+    expect(waitlistHoursSkip(chicago('07:59'))).toMatch(/run between 8 AM and 8 PM Chicago/)
+    expect(waitlistHoursSkip(chicago('08:00'))).toBeNull()
+    expect(waitlistHoursSkip(chicago('19:49'))).toBeNull()
+    expect(waitlistHoursSkip(chicago('19:55'))).toMatch(/8 AM and 8 PM/)
+    expect(waitlistHoursSkip(chicago('23:30'))).toMatch(/8 AM and 8 PM/)
   })
 })
 
@@ -669,7 +695,7 @@ describe('reconcileUntil', () => {
 })
 
 describe('stage 4 extras scenarios (49+)', () => {
-  it('are numbered 49.. with no gaps, each with a title and a plan; ALL_SCENARIOS runs 1–23, 24–40, 41–48, 49–67, then crafts 68, in order', () => {
+  it('are numbered 49.. with no gaps, each with a title and a plan; ALL_SCENARIOS runs 1–23, 24–40, 41–48, 49–67, crafts 68, then the repeat question 69, in order', () => {
     expect(extrasScenarios[0].id).toBe(49)
     expect(extrasScenarios.map((s) => s.id)).toEqual(Array.from({ length: extrasScenarios.length }, (_, i) => i + 49))
     expect(extrasScenarios.length).toBeGreaterThanOrEqual(19)
@@ -677,7 +703,7 @@ describe('stage 4 extras scenarios (49+)', () => {
       expect(s.title.length, String(s.id)).toBeGreaterThan(5)
       expect(s.plan.length, String(s.id)).toBeGreaterThan(0)
     }
-    expect(ALL_SCENARIOS.map((s) => s.id)).toEqual(Array.from({ length: 68 }, (_, i) => i + 1))
+    expect(ALL_SCENARIOS.map((s) => s.id)).toEqual(Array.from({ length: 69 }, (_, i) => i + 1))
     expect(extrasScenarios.map((s) => s.id)).toEqual(Array.from({ length: 19 }, (_, i) => i + 49))
     expect(new Set(ALL_SCENARIOS.map((s) => s.id)).size).toBe(ALL_SCENARIOS.length)
   })
@@ -694,7 +720,8 @@ describe('stage 4 extras scenarios (49+)', () => {
     expect(pick(ALL_SCENARIOS, [49, 65]).map((s) => s.id)).toEqual([49, 65])
     expect(pick(ALL_SCENARIOS, [30, 45, 49]).map((s) => s.id)).toEqual([30, 45, 49])
     expect(pick(ALL_SCENARIOS, [68]).map((s) => s.id)).toEqual([68]) // crafts in /admin (audit C)
-    expect(() => pick(ALL_SCENARIOS, [69])).toThrow(/No scenario 69/)
+    expect(pick(ALL_SCENARIOS, [69]).map((s) => s.id)).toEqual([69]) // the same-person repeat question (run 3)
+    expect(() => pick(ALL_SCENARIOS, [70])).toThrow(/No scenario 70/)
     expect(() => pick(ALL_SCENARIOS, [999])).toThrow(/No scenario 999/)
   })
 

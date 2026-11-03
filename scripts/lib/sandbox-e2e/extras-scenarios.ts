@@ -28,6 +28,24 @@ const KADEN_PHONE = '(402) 980-2907'
 
 // ── Building blocks ────────────────────────────────────────────────────────
 
+/**
+ * Run 3: the waitlist charges and texts only 8 AM–8 PM Chicago (waitlist-quiet.ts, by design). A waitlist
+ * scenario started outside that (or within 10 minutes of 8 PM, so it can't run past it) is SKIPPED with a
+ * note, never failed. Returns the skip note, or null when it may run.
+ */
+export function waitlistHoursSkip(now: Date = new Date()): string | null {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' }).formatToParts(now)
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value)
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value)
+  const mins = hour * 60 + minute
+  if (mins >= 8 * 60 && mins < 20 * 60 - 10) return null
+  return 'the waitlist only charges and texts between 8 AM and 8 PM Chicago: run between 8 AM and 8 PM Chicago (by 7:50 PM)'
+}
+function needWaitlistHours(): void {
+  const skip = waitlistHoursSkip()
+  if (skip) throw new SkipScenario(skip)
+}
+
 /** A promo code for this run: "E2E" + run digits + a letter (A–Z 0–9, 3–20 long). */
 export function e2eCode(runTag: string, letter: string): string {
   return `E2E${runTag.replace(/\D/g, '').slice(-8)}${letter}`.toUpperCase()
@@ -67,7 +85,8 @@ interface Paid { reply: Reply; bookingId: string; attemptId: string }
 async function bookWith(
   ctx: Ctx, classId: string,
   req: { passId?: string; tickets: Record<string, number>; seats?: unknown[]; sessionIds?: string[] },
-  opts: { token?: string | null; code?: string; expected?: number; customer?: Record<string, string> } = {},
+  /** `confirmRepeat` (default on): the panel's "Book this one too", since the run books with one email again and again. */
+  opts: { token?: string | null; code?: string; expected?: number; customer?: Record<string, string>; confirmRepeat?: boolean } = {},
 ): Promise<Paid> {
   const attemptId = randomUUID()
   const token = opts.token === undefined ? CARD_OK : opts.token
@@ -76,7 +95,7 @@ async function bookWith(
     ...(token ? { paymentToken: token, sourceKind: 'card' } : {}),
     ...(opts.code ? { promoCode: opts.code } : {}),
     ...(typeof opts.expected === 'number' ? { expectedTotalCents: opts.expected } : {}),
-    attemptId, customer: opts.customer ?? ctx.person,
+    attemptId, customer: opts.customer ?? ctx.person, ...(opts.confirmRepeat === false ? {} : { confirmRepeat: true }),
   }, { gated: true })
   if (reply.status === 403) throw new Error(`Bookings are closed on the preview (${sayReply(reply)}). Set BOOKINGS_OPEN to include workshops for the branch.`)
   return { reply, bookingId: bookingIdOf(attemptId), attemptId }
@@ -240,9 +259,9 @@ export const extrasScenarios: Scenario<Ctx>[] = [
     id: 49,
     title: 'HARD GATE · S4-1 Half cent: 30% off $15, Square rounds like us',
     plan: [
-      'code E2E…A, 30% off, this class only; quote: line net $10.50, tax 95 cents (94.5 rounded half up)',
-      'book 1 seat with it; Square order line total and tax equal the quote on every line',
-      'if Square rounds the half cent another way: FAIL (percent codes must not ship)',
+      'code E2E…A, 30% off, this class only; quote: line net $10.50, tax 94 cents (94.5 rounded half to even, once on the order, like Square\'s CalculateOrder: DV20), total $11.44',
+      'book 1 seat with it; our quote total = Square\'s order total = what was charged, and every Square line equals the quote',
+      'if any of the three differ: FAIL (percent codes must not ship)',
       'HARD GATE: needs SQUARE_SANDBOX_ACCESS_TOKEN; without it the whole scenario is SKIPPED (never counted as a pass)',
     ],
     async run(ctx, scope) {
@@ -254,17 +273,19 @@ export const extrasScenarios: Scenario<Ctx>[] = [
       const q = await quoteWith(ctx, cls.id, code, { passId: 'single', tickets: { person: 1 } })
       checkStatus(q, 200, 'Check the code')
       const line = q.body.data.quote.lines[0]
-      checkEqual([line.listCents, line.cents, line.taxCents], [1500, 1050, 95], 'Our quote (list, net, tax)')
-      checkEqual(q.body.data.quote.totalCents, 1145, 'Our quote total')
-      const b = await bookWith(ctx, cls.id, { tickets: { person: 1 } }, { code, expected: 1145 })
+      // DV20: Square rounds tax half to even, once per order on the line sum (CalculateOrder probe): 94.5 → 94.
+      checkEqual([line.listCents, line.cents, line.taxCents], [1500, 1050, 94], 'Our quote (list, net, tax)')
+      const quoted = q.body.data.quote.totalCents
+      checkEqual(quoted, 1144, 'Our quote total')
+      const b = await bookWith(ctx, cls.id, { tickets: { person: 1 } }, { code, expected: quoted })
       checkStatus(b.reply, 200, 'Book with the code')
-      checkEqual(b.reply.body.data.totalChargedCents, 1145, 'Charged')
+      const charged = b.reply.body.data.totalChargedCents
       const mine = await ledgerBooking(ctx, cls.id, b.bookingId)
-      checkEqual(mine.paidCents, 1145, 'Ledger paid')
+      checkEqual(mine.paidCents, charged, 'Ledger paid')
       const order = (await ctx.square.get(`/orders/${encodeURIComponent(b.reply.body.data.orderId)}`)).order
-      const li = (order.line_items ?? [])[0]
-      const tax = Number(li?.total_tax_money?.amount)
-      check(tax === 95, `Square taxed the $10.50 line ${tax} cents, we say 95. Square rounds the half cent differently: percent codes and percent early-birds must NOT ship until quote() matches Square.`)
+      const squareTotal = Number(order.total_money?.amount)
+      check(quoted === squareTotal && squareTotal === charged,
+        `HARD GATE: our quote ${quoted}, Square's order total ${squareTotal}, charged ${charged} must all be equal. Percent codes and percent early-birds must NOT ship until they are.`)
       await checkOrderMatchesQuote(ctx, order.id, q.body.data.quote)
     },
   },
@@ -489,12 +510,14 @@ export const extrasScenarios: Scenario<Ctx>[] = [
     id: 56,
     title: 'S4-7 Waitlist adds and charges the saved card when a seat frees',
     plan: [
+      'SKIPPED outside 8 AM–7:50 PM Chicago (the waitlist only charges and texts 8 AM–8 PM, by design)',
       'capacity 1, booked; join the waitlist with the sandbox card (Cards API: enabled, reference_id = the entry)',
       'refund the booking and free the seat → the run (inline, or Run the waitlist now) adds them',
       'entry added with a booking; that booking is on the ledger; Square order COMPLETED and paid in full; the card is off file',
       'the same-key payment replay proof is in scenario 61',
     ],
     async run(ctx, scope) {
+      needWaitlistHours()
       const { cls, seat } = await fullClass(ctx, scope, 'Waitlist add')
       const { entryId } = await joinWaitlist(ctx, scope, cls, waiter(ctx, 1))
       if (ctx.square) {
@@ -525,12 +548,14 @@ export const extrasScenarios: Scenario<Ctx>[] = [
     id: 57,
     title: 'S4-8 Waitlist decline: a disabled card moves on to the next person',
     plan: [
+      'SKIPPED outside 8 AM–7:50 PM Chicago (the waitlist only charges and texts 8 AM–8 PM, by design)',
       'capacity 1, booked; two people join; the first one\'s card is disabled in the sandbox',
       'free the seat → the first is declined (card-gone or declined, never a setup stop), the second added',
       'owners are texted (the preview reroutes to Kaden); Square\'s error code for the charge is noted',
       'needs SQUARE_SANDBOX_ACCESS_TOKEN (skipped without it)',
     ],
     async run(ctx, scope) {
+      needWaitlistHours()
       if (!ctx.square) throw new SkipScenario('needs SQUARE_SANDBOX_ACCESS_TOKEN to disable a sandbox card')
       const { cls, seat } = await fullClass(ctx, scope, 'Waitlist decline')
       const one = await joinWaitlist(ctx, scope, cls, waiter(ctx, 1))
@@ -601,10 +626,12 @@ export const extrasScenarios: Scenario<Ctx>[] = [
     id: 60,
     title: 'S4-11 Waitlist first: a freed seat goes to the person waiting',
     plan: [
+      'SKIPPED outside 8 AM–7:50 PM Chicago (the waitlist only charges and texts 8 AM–8 PM, by design)',
       'capacity 1, booked; one person waiting; free the seat and straight away book it as the public',
       'the public booking is refused sold out (the waitlist holds it, or already took it); the entry ends added',
     ],
     async run(ctx, scope) {
+      needWaitlistHours()
       const { cls, seat } = await fullClass(ctx, scope, 'Waitlist first')
       const { entryId } = await joinWaitlist(ctx, scope, cls, waiter(ctx, 1))
       checkStatus(await freeTheSeat(ctx, cls.id, seat.bookingId), 200, 'Refund and free the seat')

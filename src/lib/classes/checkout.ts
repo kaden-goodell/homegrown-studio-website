@@ -14,7 +14,7 @@ import { formatDay } from '@lib/studio-time'
 import { ticketSummary } from '@lib/ticket-types'
 import type { Quote } from './pricing'
 import type { LedgerLine } from './seat-ledger'
-import { paidOn } from './seat-status'
+import { paidOn, seatFreed } from './seat-status'
 import { posPricesNow } from './square-catalog'
 import type { ScheduledClass } from './types'
 
@@ -63,7 +63,9 @@ export function recentSamePerson(lines: LedgerLine[], bookingId: string, email: 
       if (!found || typeof found === 'string') found = { unclear: { bookingId: l.bookingId, orderId: l.square?.orderId ?? null } }
       continue
     }
-    if (l.state === 'confirmed' && Date.parse(l.at) >= since && found === null) found = 'booked'
+    // Run 3 (scenario 52): only a booking that really holds a paid seat counts; a declined, released,
+    // lapsed or freed try never makes someone "already booked".
+    if (l.state === 'confirmed' && !seatFreed(l) && Date.parse(l.at) >= since && found === null) found = 'booked'
   }
   return found
 }

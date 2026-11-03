@@ -176,7 +176,7 @@ describe('staffing scenarios: the list', () => {
     const ids = ALL_SCENARIOS.map((s) => s.id)
     expect(new Set(ids).size).toBe(ids.length)
     expect(ids).toEqual([...ids].sort((a, b) => a - b))
-    expect(ids).toEqual(Array.from({ length: 68 }, (_, i) => i + 1))
+    expect(ids).toEqual(Array.from({ length: 69 }, (_, i) => i + 1))
     expect(ALL_SCENARIOS.slice(40, 48)).toEqual(staffingScenarios)
     expect(ALL_SCENARIOS.slice(0, scenarios.length)).toEqual(scenarios)
   })

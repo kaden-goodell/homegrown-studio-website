@@ -32,7 +32,7 @@ describe('the party scenarios', () => {
       expect(s.title.length).toBeLessThanOrEqual(60)
       expect(s.plan.length).toBeGreaterThan(0)
     }
-    expect(ALL_SCENARIOS.map((s) => s.id)).toEqual(Array.from({ length: 68 }, (_, i) => i + 1))
+    expect(ALL_SCENARIOS.map((s) => s.id)).toEqual(Array.from({ length: 69 }, (_, i) => i + 1))
   })
 
   it('--only takes a range', () => {
@@ -50,7 +50,7 @@ describe('the party scenarios', () => {
     expect(fetch).not.toHaveBeenCalled()
     const out = log.mock.calls.flat().join('\n')
     for (let id = 1; id <= 68; id++) expect(out).toContain(`[${id}] `)
-    expect(out).toContain('Would run 68 scenarios')
+    expect(out).toContain('Would run 69 scenarios')
     expect(out).toContain('$1, Only with the link')
     expect(out).toMatch(/scenarios 11, 22, 40, [0-9, ]+ and the To decide half of 27 would be skipped/)
   })

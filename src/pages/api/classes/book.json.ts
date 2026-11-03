@@ -16,7 +16,7 @@ import { onFileToAskAbout } from '@lib/email-fix'
 import { formatSlotLabel } from '@lib/studio-time'
 import { getClass } from '@lib/classes/class-store'
 import { quote as quoteFor, type BookingRequest, type Quote, type QuoteOptions } from '@lib/classes/pricing'
-import { confirm, extendHold, getLedger, hold, release, type HoldInput, type LedgerLine } from '@lib/classes/seat-ledger'
+import { confirm, extendHold, getLedger, hold, release, type HoldInput, type Ledger, type LedgerLine } from '@lib/classes/seat-ledger'
 import {
   bookingIdFor,
   classMessages,
@@ -50,7 +50,7 @@ import { earlyBirdRunning } from '@lib/classes/early-bird'
 import { countUse, extendUse, getPromo, getUses, releaseUse, reserveUse } from '@lib/promos/promo-store'
 import { normalizeCode, promoRefusal, PROMO_REFUSALS, usesLeft } from '@lib/promos/rules'
 import { getWaitlist } from '@lib/classes/waitlist-store'
-import { waitlistGoesFirst } from '@lib/classes/waitlist-rules'
+import { fitsNow, waitlistGoesFirst } from '@lib/classes/waitlist-rules'
 import type { PromoCode } from '@lib/promos/types'
 import { notePaidOnCancelled } from '@lib/classes/paid-on-cancelled'
 import { sendClassCancelledAsBookedEmail } from '@lib/email'
@@ -159,8 +159,10 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   const now = new Date()
   let mine: LedgerLine[]
   let everyLine: LedgerLine[]
+  let ledgerNow: Ledger
   try {
-    everyLine = (await getLedger(cls.id)).lines
+    ledgerNow = await getLedger(cls.id)
+    everyLine = ledgerNow.lines
     mine = everyLine.filter((l) => l.bookingId === bookingId)
   } catch (err) {
     logger.error('Seat ledger unreadable before booking — refusing', { classId, error: String(err) })
@@ -246,10 +248,6 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
       logger.info('Same person still has a payment going through on this class — nothing charged', { classId: cls.id, bookingId })
       return fail(409, 'in_progress', STILL_GOING_THROUGH_MESSAGE)
     }
-    if (recent === 'booked' && body.confirmRepeat !== true) {
-      logger.info('Same person booked this class minutes ago — asking before a second booking', { classId: cls.id, bookingId })
-      return fail(409, 'recent_booking', RECENT_CLASS_BOOKING_MESSAGE)
-    }
   }
 
   // ── 1. The class, the quote, the cutoff ─────────────────────────────────────
@@ -263,6 +261,16 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   setQuote(cls, priced.value)
   const cutoff = door ? null : cutoffRefusal(cls, q!.sessionIds, now)
   if (cutoff) return fail(409, 'not_open', cutoff)
+
+  // C2: booked this class minutes ago → ask before a second booking. Run 3 (scenario 6): only when there is room
+  // for these seats; a full class answers sold_out (with the waitlist) from the hold below, never "book more?".
+  if (!door && body.confirmRepeat !== true && recentSamePerson(everyLine, bookingId, email, now) === 'booked') {
+    const seatCount = q!.lines.filter((l) => l.kind === 'seat').length
+    if (fitsNow(cls, ledgerNow, q!.sessionIds, seatCount, now)) {
+      logger.info('Same person booked this class minutes ago — asking before a second booking', { classId: cls.id, bookingId })
+      return fail(409, 'recent_booking', RECENT_CLASS_BOOKING_MESSAGE)
+    }
+  }
 
   // The code works on this class now, with a use left (its own earlier hold or use doesn't count against it).
   if (promoCode) {

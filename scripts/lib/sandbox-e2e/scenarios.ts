@@ -134,16 +134,20 @@ export async function updateClass(ctx: Ctx, classId: string, change: Record<stri
 
 export interface Booked { reply: Reply; attemptId: string; bookingId: string }
 
-/** Book as a customer (through the shared gate). */
+/**
+ * Book as a customer (through the shared gate). The run books with one email again and again on purpose,
+ * so every booking sends the panel's "Book this one too" flag (`confirmRepeat`), unless `confirmRepeat: false`
+ * (a scenario about the "you booked this a few minutes ago" question itself, or about what comes before it).
+ */
 export async function book(
   ctx: Ctx, classId: string,
   req: { passId: string; tickets: Record<string, number>; sessionIds?: string[] },
-  token = CARD_OK, opts: { gated?: boolean } = {},
+  token = CARD_OK, opts: { gated?: boolean; confirmRepeat?: boolean } = {},
 ): Promise<Booked> {
   const attemptId = randomUUID()
   const reply = await ctx.pub.post('/api/classes/book.json', {
     classId, ...req, paymentToken: token, attemptId, sourceKind: token.startsWith('cnon:gift') ? 'gift' : 'card',
-    customer: ctx.person,
+    customer: ctx.person, ...(opts.confirmRepeat === false ? {} : { confirmRepeat: true }),
   }, { gated: opts.gated ?? true })
   if (reply.status === 403) throw new Error(`Bookings are closed on the preview (${sayReply(reply)}). Set BOOKINGS_OPEN to include workshops for the branch.`)
   return { reply, attemptId, bookingId: bookingIdOf(attemptId) }
@@ -496,7 +500,8 @@ export const scenarios: Scenario<Ctx>[] = [
       const two = await book(ctx, cls.id, { passId: 'single', tickets: { person: 2 } })
       await checkPaid(ctx, scope, cls, two, { seatPrices: [2000, 2000] })
       const since = sinceNow()
-      const third = await book(ctx, cls.id, { passId: 'single', tickets: { person: 1 } })
+      // No "book this too" flag: a full class answers sold_out before any "you booked minutes ago" question (run 3).
+      const third = await book(ctx, cls.id, { passId: 'single', tickets: { person: 1 } }, CARD_OK, { confirmRepeat: false })
       checkStatus(third.reply, 409, 'Third seat')
       checkEqual(third.reply.body?.code, 'sold_out', 'Refusal code')
       const { seatsTaken, bookings } = await bookingsOf(ctx, cls.id)
@@ -1030,3 +1035,27 @@ export async function cleanUpLeftovers(ctx: Pick<Ctx, 'admin'>, log: (line: stri
   }
   return { done, failed }
 }
+
+/** After the crafts (68): the "you booked this class a few minutes ago" question itself (final review C2, run 3). */
+export const repeatScenarios: Scenario<Ctx>[] = [
+  {
+    id: 69,
+    title: 'Same person books the class again minutes later: asked first, then booked with "Book this one too"',
+    plan: [
+      'book 1 seat; the same email books again with a new attempt and no flag → 409 recent_booking, nothing charged',
+      'the same booking with confirmRepeat (the panel\'s "Book this one too") → 200, a second paid booking',
+    ],
+    async run(ctx, scope) {
+      const cls = await makeClass(ctx, scope, { content: testContent({ name: nameOf(ctx, 'Again') }), sessions: ctx.slots.sessions(1) })
+      const first = await book(ctx, cls.id, { passId: 'single', tickets: { person: 1 } })
+      await checkPaid(ctx, scope, cls, first, { seatPrices: [2000] })
+      const since = sinceNow()
+      const asked = await book(ctx, cls.id, { passId: 'single', tickets: { person: 1 } }, CARD_OK, { confirmRepeat: false })
+      checkStatus(asked.reply, 409, 'The same person again, no flag')
+      checkEqual(asked.reply.body?.code, 'recent_booking', 'Refusal code')
+      await checkNotCharged(ctx, scope, [asked.bookingId], since)
+      const again = await book(ctx, cls.id, { passId: 'single', tickets: { person: 1 } })
+      await checkPaid(ctx, scope, cls, again, { seatPrices: [2000] })
+    },
+  },
+]

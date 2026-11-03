@@ -63,7 +63,7 @@ import {
   actAsOwner, formatPlan, formatSummary, MissingSecretError, onStop, ownerNumbersProblem, parseArgs, pick, PREVIEW_ORIGIN, PreviewClient, RateGate, readSecrets, redact, runScenarios,
   SlotAllocator, SquareSandbox, checkStatus, check, Halt, type Pending, type Secrets, type StopProcess,
 } from './lib/sandbox-e2e/core'
-import { blockedDay, CLEANUP_PLAN, cleanUpLeftovers, firstDay, scenarios } from './lib/sandbox-e2e/scenarios'
+import { blockedDay, CLEANUP_PLAN, cleanUpLeftovers, firstDay, repeatScenarios, scenarios } from './lib/sandbox-e2e/scenarios'
 import { cleanUpPartyLeftovers, PARTY_CLEANUP_PLAN, partyScenarios, type PartyCtx } from './lib/sandbox-e2e/party-scenarios'
 import { staffingScenarios, type StaffingCtx } from './lib/sandbox-e2e/staffing-scenarios'
 import { cleanUpExtrasLeftovers, EXTRAS_CLEANUP_PLAN, EXTRAS_NEED_TOKEN, extrasScenarios } from './lib/sandbox-e2e/extras-scenarios'
@@ -73,10 +73,10 @@ import { Cleanup, type CleanupResult, type Scenario } from './lib/sandbox-e2e/co
 /** The run's context: the party bits (run-level cleanup) and the crew bits (a third /staff client). */
 export type RunCtx = PartyCtx & StaffingCtx
 
-/** Every scenario, in id order: our classes (1–23), parties (24–40), staffing (41–48), the stage 4 extras (49–67), then crafts in /admin (68). */
+/** Every scenario, in id order: our classes (1–23), parties (24–40), staffing (41–48), the stage 4 extras (49–67), crafts in /admin (68), then the same-person repeat question (69). */
 export const ALL_SCENARIOS: Scenario<RunCtx>[] = [
   ...(scenarios as Scenario<RunCtx>[]), ...(partyScenarios as Scenario<RunCtx>[]), ...(staffingScenarios as Scenario<RunCtx>[]),
-  ...(extrasScenarios as Scenario<RunCtx>[]), ...(craftScenarios as Scenario<RunCtx>[]),
+  ...(extrasScenarios as Scenario<RunCtx>[]), ...(craftScenarios as Scenario<RunCtx>[]), ...(repeatScenarios as Scenario<RunCtx>[]),
 ]
 
 /** Runs the run-level undo steps (Parties setup put back) once, saying what happened. */
