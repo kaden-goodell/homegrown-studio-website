@@ -13,8 +13,11 @@ export default function SwitchPersonSheet({
   onClose,
   onSwitched,
   onSignedOut,
+  zIndex = 200,
 }: {
   current: StaffMember
+  /** Above the hand-back cover when opened from it. */
+  zIndex?: number
   onClose: () => void
   onSwitched: (staff: StaffMember) => void
   onSignedOut: () => void
@@ -63,7 +66,7 @@ export default function SwitchPersonSheet({
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Switch person" style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={onClose}>
+    <div role="dialog" aria-modal="true" aria-label="Switch person" style={{ position: 'fixed', inset: 0, zIndex, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--color-surface)', width: '100%', maxWidth: '32rem', borderRadius: '1rem 1rem 0 0', padding: '1.25rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom, 0px))', display: 'grid', gap: '0.6rem' }}>
         <p style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--color-dark)' }}>Who’s using the iPad?</p>
         {!team && !error && <p style={{ margin: 0, color: 'var(--color-muted)' }}>Loading…</p>}

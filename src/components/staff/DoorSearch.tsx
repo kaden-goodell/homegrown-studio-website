@@ -5,6 +5,7 @@ import { card, btn, field, Badge } from '@components/staff/ui'
 import { formatMonthDay, formatMonthDayYear, formatMonthYear, formatTime } from '@lib/studio-time'
 import { SITE_URL } from '@config/site-url'
 import type { EventKind } from '@lib/events'
+import { markKioskOut } from '@lib/kiosk-handback'
 
 const STORAGE_KEY = 'hg_lastDoorQuery'
 const DEBOUNCE_MS = 250
@@ -62,8 +63,12 @@ const personIdsFor = (h: HouseholdMatch) => ['adult', ...h.kids.map((_, i) => `c
 /** Walk-in: sign with no event. Event mode: sign FOR that event, then land back
  *  on its roster. */
 export function signOnIpad(event?: DoorEvent) {
-  if (!event) { location.assign('/waiver?kiosk=1&return=/staff'); return }
-  location.assign(`/waiver?kiosk=1&${event.kind}=${encodeURIComponent(event.id)}&return=${encodeURIComponent(`/staff?open=${event.kind}:${event.id}`)}`)
+  // replace(), not assign(): /staff must not be the Back entry behind the
+  // family's form (crew review C1). The flag makes /staff cover itself if a
+  // Back swipe or a restored page brings it up anyway.
+  markKioskOut()
+  if (!event) { location.replace('/waiver?kiosk=1&return=/staff'); return }
+  location.replace(`/waiver?kiosk=1&${event.kind}=${encodeURIComponent(event.id)}&return=${encodeURIComponent(`/staff?open=${event.kind}:${event.id}`)}`)
 }
 
 /** One household's result — GOOD TO GO / EXPIRED, with the exact wording
@@ -233,13 +238,15 @@ function ResultCard({
 export default function DoorSearch(props: {
   todayEvents?: TodayEvent[]
   initialHousehold?: HouseholdMatch
+  /** Start with this search typed (the roster's "No one here matches" → + Add a family). */
+  initialQuery?: string
   onCheckedIn?: () => void
   onAdded?: (r: AddedResult) => void
   onAddToEvent?: (e: TodayEvent, h: HouseholdMatch) => void
 } & ({ mode?: 'walk-in'; event?: undefined } | { mode: 'event'; event: DoorEvent })) {
   const { mode = 'walk-in', todayEvents, initialHousehold, onCheckedIn, onAdded, onAddToEvent } = props
   const doorEvent = props.mode === 'event' ? props.event : undefined
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(props.initialQuery ?? '')
   const [results, setResults] = useState<HouseholdMatch[] | null>(initialHousehold ? [initialHousehold] : null)
   const [selectedId, setSelectedId] = useState<string | null>(initialHousehold?.recordId ?? null)
   const [error, setError] = useState<string | null>(null)

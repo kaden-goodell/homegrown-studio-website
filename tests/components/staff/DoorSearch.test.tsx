@@ -90,13 +90,15 @@ describe('DoorSearch — walk-in mode (Today)', () => {
 
   it('expired: Show QR + Sign on this iPad go to the general agreement (no event)', async () => {
     serve([sam({ covered: false })])
-    const assign = vi.fn()
-    Object.defineProperty(window, 'location', { value: { ...window.location, assign }, writable: true })
+    const replace = vi.fn()
+    Object.defineProperty(window, 'location', { value: { ...window.location, replace }, writable: true })
     render(<DoorSearch onCheckedIn={vi.fn()} />)
     search('lee')
     await screen.findByText(/EXPIRED — Sam Lee/)
     fireEvent.click(screen.getByRole('button', { name: 'Sign on this iPad' }))
-    expect(assign).toHaveBeenCalledWith('/waiver?kiosk=1&return=/staff')
+    // replace, so /staff is never the Back entry behind the family's form (C1); the flag covers /staff if it comes back
+    expect(replace).toHaveBeenCalledWith('/waiver?kiosk=1&return=/staff')
+    expect(sessionStorage.getItem('hg_kioskOut')).toBe('1')
   })
 })
 
@@ -144,8 +146,8 @@ describe('DoorSearch — event mode (+ Add family)', () => {
 
   it('NOT ON FILE → Show QR (the event link) and Sign on this iPad (event deep link + return to the roster)', async () => {
     serve([])
-    const assign = vi.fn()
-    Object.defineProperty(window, 'location', { value: { ...window.location, assign }, writable: true })
+    const replace = vi.fn()
+    Object.defineProperty(window, 'location', { value: { ...window.location, replace }, writable: true })
     render(<DoorSearch mode="event" event={camp} onAdded={vi.fn()} />)
     search('nobody')
     await screen.findByText(/NOT ON FILE for “nobody”/)
@@ -155,7 +157,7 @@ describe('DoorSearch — event mode (+ Add family)', () => {
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Done' }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign on this iPad' }))
-    expect(assign).toHaveBeenCalledWith(`/waiver?kiosk=1&workshop=cs-camp&return=${encodeURIComponent('/staff?open=workshop:cs-camp')}`)
+    expect(replace).toHaveBeenCalledWith(`/waiver?kiosk=1&workshop=cs-camp&return=${encodeURIComponent('/staff?open=workshop:cs-camp')}`)
   })
 
   it('EXPIRED gets the same two buttons', async () => {

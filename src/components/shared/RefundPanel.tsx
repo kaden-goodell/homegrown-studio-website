@@ -152,7 +152,7 @@ type Kind = 'booking' | 'person' | 'session' | 'custom'
  * one token per "Already refunded" answer, reused across retries (R31); when
  * a retry finds its own repeat already finished, it shows as refunded.
  */
-export default function RefundPanel({ classId, booking, ticketLabel, endpoint = ADMIN_REFUND, reasonRequired = false, last4, waiting: waitingProp = null, counterSalesAtRegister = false, send = api, onDone }: {
+export default function RefundPanel({ classId, booking, ticketLabel, endpoint = ADMIN_REFUND, reasonRequired = false, last4, waiting: waitingProp = null, counterSalesAtRegister = false, crew = false, send = api, onDone }: {
   classId: string
   booking: BookingView
   ticketLabel?: (ticketTypeId: string) => string
@@ -164,6 +164,8 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   waiting?: WaitingRefund | null
   /** /staff: a counter (POS) sale is refunded at the register where it was rung up, not from here */
   counterSalesAtRegister?: boolean
+  /** /staff: crew wording (who to ask instead of "in Square"; the button names the amount and the person) */
+  crew?: boolean
   send?: Send
   onDone?: () => void
 }) {
@@ -198,6 +200,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   useEffect(() => { setWaiting(waitingProp) }, [waitingProp?.requestId])
 
   const label = (t: string) => ticketLabel?.(t) ?? t
+  const customerName = booking.customer ? `${booking.customer.givenName} ${booking.customer.familyName}`.trim() : ''
   // A different ask is not the one already made: back to "Confirm refund".
   useEffect(() => { setAlready(''); setAgainOf(null) }, [kind, person, sessionSeats, amount, freeSeat])
   const left = Math.min(seats.reduce((s, x) => s + x.remainingCents, 0), booking.refundableCents ?? Infinity)
@@ -342,7 +345,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
             ? <span style={{ ...muted, fontSize: '0.9rem' }}>Refund this at the register, where it was rung up.</span>
             : booking.free
               ? <span style={{ ...muted, fontSize: '0.9rem' }}>This booking was free, so there’s nothing to refund. Free the seat instead.</span>
-            : !booking.paidHere && booking.source !== 'comp' && <span style={{ ...muted, fontSize: '0.9rem' }}>Refund this one in Square, where it was paid.</span>}
+            : !booking.paidHere && booking.source !== 'comp' && <span style={{ ...muted, fontSize: '0.9rem' }}>{crew ? 'This one was paid in Square. Ask Catherine or Kaden to refund it.' : 'Refund this one in Square, where it was paid.'}</span>}
         {done && <span role="status" style={{ fontWeight: 600 }}>{done}</span>}
       </div>
     )
@@ -410,7 +413,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
         </>
       ) : (
         <div style={row}>
-          <button type="button" className="btn btn-primary" disabled={!canGo} style={dim(!canGo)} onClick={() => go()}>{busy ? 'Refunding…' : 'Confirm refund'}</button>
+          <button type="button" className="btn btn-primary" disabled={!canGo} style={dim(!canGo)} onClick={() => go()}>{busy ? 'Refunding…' : crew && preview > 0 && !tooMuch ? `Refund ${formatMoney(preview)}${customerName ? ` to ${customerName}` : ''}` : 'Confirm refund'}</button>
           <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setOpen(false); setError('') }}>Back</button>
         </div>
       )}

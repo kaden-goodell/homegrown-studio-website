@@ -9,6 +9,7 @@ import { formatTime } from '@lib/studio-time'
 import { createLogger } from '@lib/logger'
 import { recordAudit } from '@lib/audit'
 import { paymentBypassEnabled } from '@lib/dev-flags'
+import { agreementState, type AgreementState } from '@lib/waiver-coverage'
 
 const logger = createLogger('api:staff:checkin')
 
@@ -150,6 +151,21 @@ export const POST: APIRoute = async ({ request }) => {
   if (action !== 'checkin' && action !== 'undo-checkin' && action !== 'pickup' && action !== 'pickup-override' &&
       action !== 'undo-pickup' && action !== 'reissue-code' && action !== 'set-pickup') {
     return new Response(JSON.stringify({ error: 'Unknown action' }), { status: 400 })
+  }
+
+  // An expired agreement, or one signed on older terms, signs again first
+  // (crew review I2). "Mark here anyway" sends `anyway: true` and is logged.
+  const agreement: AgreementState | null = waiverRecord && typeof waiverRecord.validUntil === 'string' && typeof waiverRecord.agreementVersion === 'string'
+    ? agreementState(waiverRecord, new Date())
+    : null
+  const markedAnyway = action === 'checkin' && agreement !== null && agreement !== 'current'
+  if (markedAnyway && body?.anyway !== true) {
+    return new Response(JSON.stringify({
+      error: agreement === 'expired'
+        ? 'Their agreement has expired. Have them sign again first.'
+        : 'They signed an older agreement. Have them sign the new one first.',
+      needsSigning: agreement,
+    }), { status: 409 })
   }
 
   const CHECKOUT_ACTIONS = ['pickup', 'undo-pickup', 'pickup-override', 'reissue-code', 'set-pickup']
@@ -505,6 +521,7 @@ export const POST: APIRoute = async ({ request }) => {
       ...(action === 'pickup' || action === 'pickup-override' ? { collectedBy: collectedByAudit || null, idChecked: !!body?.idChecked } : {}),
       ...(action === 'pickup-override' ? { reason: typeof body?.reason === 'string' ? body.reason : null } : {}),
       ...(action === 'reissue-code' ? { reason: typeof body?.reason === 'string' ? body.reason.trim() : null } : {}),
+      ...(markedAnyway ? { markedAnyway: true, agreement } : {}),
     },
     ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
   })

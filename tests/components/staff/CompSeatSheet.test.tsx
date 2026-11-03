@@ -100,6 +100,20 @@ describe('CompSeatSheet', () => {
     expect(box.textContent).toBe('Now take $25 at the registerIn Square, open Pumpkins, tap Ada Lovelace, then Take payment.')
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).payAtRegister).toBe(true)
   })
+
+  it('a walk-in with no waiver: the done screen leads to signing on this iPad (M7), and says why email is asked', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ data: { bookingId: 'clsbk_1', emailSent: false, seats: 1, dueCents: 2500 } }) })
+    render(<CompSeatSheet mode="sell" priceCents={2500} event={event} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    expect(screen.getByLabelText('Email')).toHaveAccessibleDescription('For their receipt and waiver.')
+    fill()
+    fireEvent.click(screen.getByRole('button', { name: 'Add seat, pay at register' }))
+    const next = await screen.findByTestId('sign-next')
+    expect(next).toHaveTextContent('No waiver on file for Ada Lovelace yet.')
+    const replace = vi.fn()
+    Object.defineProperty(window, 'location', { value: { ...window.location, replace }, writable: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Now sign the waiver on this iPad' }))
+    expect(replace).toHaveBeenCalledWith(`/waiver?kiosk=1&workshop=SCHED123&return=${encodeURIComponent('/staff?open=workshop:SCHED123')}`)
+  })
 })
 
 describe('CompSeatSheet — find a customer, then who’s coming', () => {
@@ -451,7 +465,7 @@ describe('CompSeatSheet on our own classes (Task 14)', () => {
     const closed = { ...workshop, own: { ...own, rules: { ...own.rules, joinPartway: false }, passes: own.passes.map((p) => ({ ...p, state: 'closed' })), sessions: own.sessions.map((x) => ({ ...x, closed: true })) } }
     fetchMock.mockImplementation(async () => ({ ok: true, status: 200, json: async () => ({ workshop: closed }) }))
     render(<CompSeatSheet mode="sell" event={ownEvent} options={[]} onRecorded={() => {}} onClose={() => {}} />)
-    expect(await screen.findByTestId('signups-closed')).toHaveTextContent('Sign-ups for this class closed when it started. Turn on joining partway in /admin to add people now.')
+    expect(await screen.findByTestId('signups-closed')).toHaveTextContent('Sign-ups for this class closed when it started. Ask Catherine or Kaden to turn on joining partway.')
     expect(screen.queryByRole('button', { name: 'Pay on the iPad' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Pay at the counter' })).toBeNull()
   })

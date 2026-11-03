@@ -5,7 +5,8 @@ import EventSettingsSheet from '@components/staff/EventSettingsSheet'
 import AddFamilySheet from '@components/staff/AddFamilySheet'
 import CompSeatSheet from '@components/staff/CompSeatSheet'
 import type { HouseholdMatch } from '@components/staff/DoorSearch'
-import HouseholdCard, { type Household, type Checkin } from '@components/staff/HouseholdCard'
+import HouseholdCard, { type Household, type Checkin, type PostResult } from '@components/staff/HouseholdCard'
+import WaiverNextSteps from '@components/staff/WaiverNextSteps'
 import { card, btn, field, Badge, FlagBanner } from '@components/staff/ui'
 import { formatDayAndSpan, formatWhen, studioDate } from '@lib/studio-time'
 import type { StaffMember } from '@lib/staff-auth'
@@ -138,7 +139,7 @@ function OwnBooking({ b, classId, households, taken, ticketLabels, onChanged }: 
       {readerMsg && <p role="status" style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: 'var(--color-dark)', fontWeight: 600 }}>{readerMsg}</p>}
       {error && <p role="alert" style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: '#b91c1c', fontWeight: 600 }}>{error}</p>}
       {!readerWaiting && <div style={{ marginTop: '0.4rem' }}>
-        <RefundPanel classId={classId} booking={b} endpoint={STAFF_REFUND} reasonRequired counterSalesAtRegister waiting={b.waiting} ticketLabel={(t) => ticketLabels[t] ?? t} onDone={onChanged} />
+        <RefundPanel classId={classId} booking={b} endpoint={STAFF_REFUND} reasonRequired counterSalesAtRegister crew waiting={b.waiting} ticketLabel={(t) => ticketLabels[t] ?? t} onDone={onChanged} />
       </div>}
     </li>
   )
@@ -181,6 +182,8 @@ export default function Roster({
   const [addFamilyOpen, setAddFamilyOpen] = useState(!!addFamily)
   const [compSeatOpen, setCompSeatOpen] = useState(false)
   const [sellSeatOpen, setSellSeatOpen] = useState(false)
+  /** What was typed in the roster search when "+ Add family" / Sell / Comp was tapped from "No one here matches" (I3). */
+  const [carryQuery, setCarryQuery] = useState('')
   const [moreOpen, setMoreOpen] = useState(false)
   const [data, setData] = useState<RosterData | null>(null)
   const [netError, setNetError] = useState<string | null>(null)
@@ -249,7 +252,7 @@ export default function Roster({
     return () => { cancelled = true }
   }, [kind, id])
 
-  async function post(recordId: string, extra: any): Promise<{ error?: string; oneTimeCode?: string; smsFailed?: boolean }> {
+  async function post(recordId: string, extra: any): Promise<PostResult> {
     if (!data) return {}
     try {
       const res = await fetch('/api/staff/checkin.json', {
@@ -279,7 +282,7 @@ export default function Roster({
         }
         setData((d) => d && { ...d, households: d.households.map((hh) => (hh.recordId === recordId ? { ...hh, checkin: checkinForCard } : hh)) })
       }
-      if (!res.ok) return { error: json?.error ?? 'Something went wrong.' }
+      if (!res.ok) return { error: json?.error ?? 'Something went wrong.', ...(json?.needsSigning ? { needsSigning: json.needsSigning } : {}) }
       return { oneTimeCode: json.data.oneTimeCode, smsFailed: json.data.smsFailed }
     } catch {
       return { error: 'Couldn’t save — check wifi and try again.' }
@@ -457,6 +460,139 @@ export default function Roster({
         {kind === 'workshop' && <button type="button" onClick={() => setCompSeatOpen(true)} style={{ ...btn(), minHeight: '2.75rem', fontSize: '0.95rem', flex: '1 1 7rem' }}>Comp a seat</button>}
       </div>
 
+      {addFamilyOpen && (
+        <AddFamilySheet
+          event={{ kind, id, title: event.title, day: data.day }}
+          initialHousehold={addFamily?.household}
+          initialQuery={carryQuery}
+          onAdded={refresh}
+          onClose={() => { setAddFamilyOpen(false); setCarryQuery('') }}
+        />
+      )}
+
+      {sellSeatOpen && kind === 'workshop' && (
+        <CompSeatSheet
+          mode="sell"
+          priceCents={event.priceCents}
+          event={{ id, title: event.title, day: data.day, ...(event.own ? { own: true as const } : {}) }}
+          options={options}
+          initialQuery={carryQuery}
+          onRecorded={refresh}
+          onClose={() => { setSellSeatOpen(false); setCarryQuery('') }}
+        />
+      )}
+
+      {compSeatOpen && kind === 'workshop' && (
+        <CompSeatSheet
+          event={{ id, title: event.title, day: data.day, ...(event.own ? { own: true as const } : {}) }}
+          options={options}
+          initialQuery={carryQuery}
+          onRecorded={refresh}
+          onClose={() => { setCompSeatOpen(false); setCarryQuery('') }}
+        />
+      )}
+
+      {eventSettingsOpen && (
+        <EventSettingsSheet
+          event={event}
+          isOwner={staff.role === 'owner'}
+          onSaved={applyEventSettings}
+          onClose={() => setEventSettingsOpen(false)}
+        />
+      )}
+
+      {incidentsOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Incidents for this event"
+          onClick={(e) => { if (e.target === e.currentTarget) setIncidentsOpen(false) }}
+          style={{ position: 'fixed', inset: 0, zIndex: 125, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.35)', padding: '1rem' }}
+        >
+          <div style={{ width: '100%', maxWidth: '28rem', maxHeight: '85%', overflowY: 'auto', padding: '1.25rem', borderRadius: '1rem', background: 'rgba(255,255,255,0.98)', boxShadow: '0 24px 60px rgba(0,0,0,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.8rem' }}>
+              <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)' }}>🚑 Incidents · {event.title}</h3>
+              <button type="button" onClick={() => setIncidentsOpen(false)} aria-label="Close" style={{ ...btn(), padding: '0.35rem 0.6rem' }}>✕</button>
+            </div>
+            {incidents.map((inc) => (
+              <div key={inc.id} style={{ ...card, background: 'rgba(255,255,255,0.85)' }}>
+                <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-muted)' }}>
+                  {formatWhen(inc.at)} · {inc.who.length ? inc.who.map((w) => w.name).join(', ') : 'Unnamed'} · filed by {inc.by.name}
+                </p>
+                <p style={{ margin: '0.4rem 0 0', fontSize: '0.875rem', color: 'var(--color-dark)' }}>{inc.what}</p>
+                {inc.firstAid && <p style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}><strong style={{ color: 'var(--color-dark)' }}>First aid:</strong> {inc.firstAid}</p>}
+                <p style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
+                  {inc.parentNotified.how === 'not-yet' ? 'Parent not yet notified' : `Parent notified (${inc.parentNotified.how}${inc.parentNotified.at ? `, ${formatWhen(inc.parentNotified.at)}` : ''})`}
+                </p>
+                <a href={`/staff/incident-print?id=${encodeURIComponent(inc.id)}`} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', marginTop: '0.5rem', ...btn(), textDecoration: 'none' }}>
+                  🖨 Print note
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Search — stays in reach while scrolling a long class (I1) */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 5, padding: '0.35rem 0', marginBottom: '0.45rem', background: 'var(--color-surface, #fff)' }}>
+        <input
+          type="search"
+          aria-label="Find a family or kid"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Find a family or kid…"
+          style={{ ...field, width: '100%', boxSizing: 'border-box' }}
+        />
+      </div>
+
+      {data.households.length === 0 && (
+        <div style={{ ...card, background: 'rgba(255,255,255,0.7)', textAlign: 'center' }}>
+          <p style={{ margin: 0, color: 'var(--color-muted)' }}>
+            No RSVPs yet — anyone who signs the agreement for this event will appear here, or tap “+ Add family”.
+          </p>
+          {event.dropOff && (
+            <p style={{ margin: '0.5rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
+              Send them the link: <strong style={{ color: 'var(--color-dark)', wordBreak: 'break-all' }}>{waiverLink}</strong>
+            </p>
+          )}
+        </div>
+      )}
+
+      {data.households.length > 0 && visibleHouseholds.length === 0 && (
+        // Not on the list: the next step right here, with what was typed carried along (I3).
+        <div data-testid="roster-no-match" style={{ ...card, background: 'rgba(255,255,255,0.85)', textAlign: 'center' }}>
+          <p style={{ margin: '0 0 0.6rem', color: 'var(--color-muted)' }}>No one here matches “{query}”.</p>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button type="button" onClick={() => { setCarryQuery(query.trim()); setAddFamilyOpen(true) }} style={{ ...btn(true), flex: '1 1 10rem' }}>+ Add a family</button>
+            {kind === 'workshop' && <button type="button" onClick={() => { setCarryQuery(query.trim()); setSellSeatOpen(true) }} style={{ ...btn(), flex: '1 1 7rem' }}>Sell a seat</button>}
+            {kind === 'workshop' && <button type="button" onClick={() => { setCarryQuery(query.trim()); setCompSeatOpen(true) }} style={{ ...btn(), flex: '1 1 7rem' }}>Comp a seat</button>}
+          </div>
+        </div>
+      )}
+
+      {/* Keyed by record AND day: the in/out selections and the revealed pickup
+          code belong to one day's roster, and carried straight over when staff
+          switched days on a multi-day camp. */}
+      {visibleHouseholds.map((h) => (
+        <HouseholdCard key={`${h.recordId}:${data.day}`} h={h} dropOff={event.dropOff} kind={kind} id={id} day={data.day} eventTitle={event.title} post={post} picks={choices?.byEmail[h.email.trim().toLowerCase()]} seats={kind === 'workshop' && choices ? (choices.seatsByEmail?.[h.email.trim().toLowerCase()] ?? { seats: 0, comped: 0, atRegister: 0 }) : undefined} />
+      ))}
+
+      {choices && choices.unmatched.length > 0 && (
+        <div style={{ ...card, background: 'rgba(255,255,255,0.7)' }}>
+          <p style={{ margin: '0 0 0.4rem', fontWeight: 700, color: 'var(--color-dark)' }}>Paid or comped, not signed in yet</p>
+          {choices.unmatched.map((u, i) => (
+            <div key={`${u.email}:${i}`} data-testid="unsigned-booker" style={{ padding: '0.5rem 0', borderTop: i === 0 ? 'none' : '1px solid rgba(var(--color-primary-rgb),0.1)' }}>
+              <p style={{ margin: '0 0 0.4rem', fontSize: '0.875rem', color: 'var(--color-dark)' }}>
+                {`${u.name} · ${u.seats} seat${u.seats === 1 ? '' : 's'}${u.picks.length ? ` · Picks: ${picksShort(u.picks)}` : ''}`}
+                {u.comped && <>{' '}<Badge tone="muted">comped</Badge></>}
+                {u.atRegister && <>{' '}<Badge tone="warn">Not paid yet</Badge></>}
+              </p>
+              {/* Booked, never signed: get them signed without leaving the roster (I2). */}
+              <WaiverNextSteps kind={kind} id={id} title={event.title} day={data.day} email={u.email} />
+            </div>
+          ))}
+        </div>
+      )}
       {picksUnknown && (
         <p style={{ margin: '0 0 0.8rem', fontSize: '0.875rem', color: 'var(--color-muted)', textAlign: 'center' }}>Picks unavailable — reload the page</p>
       )}
@@ -497,151 +633,70 @@ export default function Roster({
         )
       })()}
 
-      {addFamilyOpen && (
-        <AddFamilySheet
-          event={{ kind, id, title: event.title, day: data.day }}
-          initialHousehold={addFamily?.household}
-          onAdded={refresh}
-          onClose={() => setAddFamilyOpen(false)}
-        />
-      )}
-
-      {sellSeatOpen && kind === 'workshop' && (
-        <CompSeatSheet
-          mode="sell"
-          priceCents={event.priceCents}
-          event={{ id, title: event.title, day: data.day, ...(event.own ? { own: true as const } : {}) }}
-          options={options}
-          onRecorded={refresh}
-          onClose={() => setSellSeatOpen(false)}
-        />
-      )}
-
-      {compSeatOpen && kind === 'workshop' && (
-        <CompSeatSheet
-          event={{ id, title: event.title, day: data.day, ...(event.own ? { own: true as const } : {}) }}
-          options={options}
-          onRecorded={refresh}
-          onClose={() => setCompSeatOpen(false)}
-        />
-      )}
-
-      {eventSettingsOpen && (
-        <EventSettingsSheet
-          event={event}
-          onSaved={applyEventSettings}
-          onClose={() => setEventSettingsOpen(false)}
-        />
-      )}
-
-      {incidentsOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Incidents for this event"
-          onClick={(e) => { if (e.target === e.currentTarget) setIncidentsOpen(false) }}
-          style={{ position: 'fixed', inset: 0, zIndex: 125, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.35)', padding: '1rem' }}
-        >
-          <div style={{ width: '100%', maxWidth: '28rem', maxHeight: '85vh', overflowY: 'auto', padding: '1.25rem', borderRadius: '1rem', background: 'rgba(255,255,255,0.98)', boxShadow: '0 24px 60px rgba(0,0,0,0.25)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.8rem' }}>
-              <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)' }}>🚑 Incidents · {event.title}</h3>
-              <button type="button" onClick={() => setIncidentsOpen(false)} aria-label="Close" style={{ ...btn(), padding: '0.35rem 0.6rem' }}>✕</button>
-            </div>
-            {incidents.map((inc) => (
-              <div key={inc.id} style={{ ...card, background: 'rgba(255,255,255,0.85)' }}>
-                <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-muted)' }}>
-                  {formatWhen(inc.at)} · {inc.who.length ? inc.who.map((w) => w.name).join(', ') : 'Unnamed'} · filed by {inc.by.name}
-                </p>
-                <p style={{ margin: '0.4rem 0 0', fontSize: '0.875rem', color: 'var(--color-dark)' }}>{inc.what}</p>
-                {inc.firstAid && <p style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}><strong style={{ color: 'var(--color-dark)' }}>First aid:</strong> {inc.firstAid}</p>}
-                <p style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
-                  {inc.parentNotified.how === 'not-yet' ? 'Parent not yet notified' : `Parent notified (${inc.parentNotified.how}${inc.parentNotified.at ? `, ${formatWhen(inc.parentNotified.at)}` : ''})`}
-                </p>
-                <a href={`/staff/incident-print?id=${encodeURIComponent(inc.id)}`} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', marginTop: '0.5rem', ...btn(), textDecoration: 'none' }}>
-                  🖨 Print note
-                </a>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {data.bookings && (
-        <section aria-label="Bookings" style={{ ...card, background: 'rgba(255,255,255,0.9)' }}>
-          <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.12em', color: 'var(--color-primary)' }}>
-            BOOKINGS · {data.bookings.reduce((n, b) => n + b.seatsToday, 0)} SEAT{data.bookings.reduce((n, b) => n + b.seatsToday, 0) === 1 ? '' : 'S'}
+      {/* Parties: what to ring up at the end (crafts are settled at the register after the party, D1) — I10. */}
+      {data.partyMoney && !data.partyMoney.cancelled && data.partyMoney.ringUp && (
+        <section aria-label="At the end" data-testid="party-ring-up" style={{ ...card, background: 'rgba(255,255,255,0.92)', borderLeft: '4px solid var(--color-primary)' }}>
+          <p style={{ margin: '0 0 0.35rem', fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.12em', color: 'var(--color-primary)' }}>AT THE END</p>
+          <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--color-dark)', lineHeight: 1.5 }}>
+            {`Ring up crafts at the register: ${data.partyMoney.ringUp.guests} booked × ${data.partyMoney.ringUp.craftName}`}
+            {data.partyMoney.ringUp.perHeadCents !== null ? ` (${formatMoney(data.partyMoney.ringUp.perHeadCents)} each)` : ' (the price is on the register)'}
+            {'. Count who actually made one.'}
           </p>
-          {data.bookings.length === 0 && <p style={{ margin: '0.4rem 0 0', fontSize: '0.9rem', color: 'var(--color-muted)' }}>No one booked on this day yet.</p>}
-          <ul style={{ margin: '0.3rem 0 0', padding: 0 }}>
-            {data.bookings.map((b) => (
-              <OwnBooking key={b.bookingId} b={b} classId={id} households={data.households} taken={new Set(data.bookings!.map((x) => x.customer?.email.trim().toLowerCase()).filter((e): e is string => !!e))} ticketLabels={data.ticketLabels ?? {}} onChanged={refresh} />
-            ))}
-          </ul>
+          {data.partyMoney.dueCents > 0 && (
+            <p style={{ margin: '0.4rem 0 0', fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-dark)' }}>
+              {`Still to pay: ${formatMoney(data.partyMoney.dueCents)}. `}
+              <span style={{ fontWeight: 400 }}>
+                {data.partyMoney.stillToPayBy === 'link'
+                  ? 'Catherine or Kaden sent them a payment link. If they’d rather pay now, take it at the register.'
+                  : 'Take it at the register.'}
+              </span>
+            </p>
+          )}
         </section>
       )}
+
+      {/* Money last, folded away: refund buttons never sit between the crew and the families (I1). */}
+      {data.bookings && (() => {
+        const seatsTotal = data.bookings.reduce((n, b) => n + b.seatsToday, 0)
+        const readerWaiting = data.bookings.filter((b) => b.source === 'door-reader' && b.state === 'held').length
+        const unnamed = data.bookings.filter((b) => !b.customer).length
+        const flags = [readerWaiting ? `${readerWaiting} waiting on the reader` : '', unnamed ? `${unnamed} need${unnamed === 1 ? 's' : ''} a name` : ''].filter(Boolean)
+        return (
+          <details data-testid="roster-bookings" open={readerWaiting > 0 || unnamed > 0} style={{ ...card, background: 'rgba(255,255,255,0.9)' }}>
+            <summary style={{ cursor: 'pointer', fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-dark)', minHeight: '2.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+              {`Bookings and refunds (${seatsTotal} seat${seatsTotal === 1 ? '' : 's'})`}
+              {flags.length > 0 && <span style={{ fontWeight: 600, color: '#b45309', fontSize: '0.875rem' }}>{`· ${flags.join(' · ')}`}</span>}
+            </summary>
+            <section aria-label="Bookings">
+              {data.bookings.length === 0 && <p style={{ margin: '0.4rem 0 0', fontSize: '0.9rem', color: 'var(--color-muted)' }}>No one booked on this day yet.</p>}
+              <ul style={{ margin: '0.3rem 0 0', padding: 0 }}>
+                {data.bookings.map((b) => (
+                  <OwnBooking key={b.bookingId} b={b} classId={id} households={data.households} taken={new Set(data.bookings!.map((x) => x.customer?.email.trim().toLowerCase()).filter((e): e is string => !!e))} ticketLabels={data.ticketLabels ?? {}} onChanged={refresh} />
+                ))}
+              </ul>
+            </section>
+          </details>
+        )
+      })()}
 
       {data.partyMoney && (data.partyMoney.charges.length > 0 || data.partyMoney.waiting) && (
-        <section aria-label="Payments" style={{ ...card, background: 'rgba(255,255,255,0.9)' }}>
-          <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.12em', color: 'var(--color-primary)' }}>PAYMENTS</p>
-          <ul style={{ margin: '0.3rem 0 0.6rem', padding: 0, listStyle: 'none' }}>
-            {data.partyMoney.charges.map((c) => (
-              <li key={c.id} style={{ fontSize: '0.9rem', color: 'var(--color-dark)', padding: '0.15rem 0' }}>
-                {c.label}{c.left === 0 ? ' · refunded' : ''}
-              </li>
-            ))}
-          </ul>
-          {data.partyMoney.dueCents > 0 && (
-            <p style={{ margin: '0 0 0.6rem', fontSize: '0.875rem', color: 'var(--color-muted)' }}>{`Still to pay: ${formatMoney(data.partyMoney.dueCents)}`}</p>
-          )}
-          <AmountRefundPanel partyId={id} payer={data.partyMoney.payer} charges={data.partyMoney.charges} endpoint={STAFF_PARTY_REFUND} reasonRequired waiting={data.partyMoney.waiting} onDone={refresh} />
-        </section>
+        <details data-testid="roster-payments" open={!!data.partyMoney.waiting} style={{ ...card, background: 'rgba(255,255,255,0.9)' }}>
+          <summary style={{ cursor: 'pointer', fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-dark)', minHeight: '2.75rem', display: 'flex', alignItems: 'center' }}>
+            {`Payments and refunds (${data.partyMoney.charges.length})`}
+          </summary>
+          <section aria-label="Payments">
+            <ul style={{ margin: '0.3rem 0 0.6rem', padding: 0, listStyle: 'none' }}>
+              {data.partyMoney.charges.map((c) => (
+                <li key={c.id} style={{ fontSize: '0.9rem', color: 'var(--color-dark)', padding: '0.15rem 0' }}>
+                  {c.label}{c.left === 0 ? ' · refunded' : ''}
+                </li>
+              ))}
+            </ul>
+            <AmountRefundPanel partyId={id} payer={data.partyMoney.payer} charges={data.partyMoney.charges} endpoint={STAFF_PARTY_REFUND} reasonRequired waiting={data.partyMoney.waiting} onDone={refresh} />
+          </section>
+        </details>
       )}
 
-      {/* Search */}
-      <input
-        type="search"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Find a family or kid…"
-        style={{ ...field, width: '100%', boxSizing: 'border-box', marginBottom: '0.8rem' }}
-      />
-
-      {data.households.length === 0 && (
-        <div style={{ ...card, background: 'rgba(255,255,255,0.7)', textAlign: 'center' }}>
-          <p style={{ margin: 0, color: 'var(--color-muted)' }}>
-            No RSVPs yet — anyone who signs the agreement for this event will appear here, or tap “+ Add family”.
-          </p>
-          {event.dropOff && (
-            <p style={{ margin: '0.5rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
-              Send them the link: <strong style={{ color: 'var(--color-dark)', wordBreak: 'break-all' }}>{waiverLink}</strong>
-            </p>
-          )}
-        </div>
-      )}
-
-      {data.households.length > 0 && visibleHouseholds.length === 0 && (
-        <p style={{ color: 'var(--color-muted)', textAlign: 'center' }}>No one here matches “{query}”.</p>
-      )}
-
-      {/* Keyed by record AND day: the in/out selections and the revealed pickup
-          code belong to one day's roster, and carried straight over when staff
-          switched days on a multi-day camp. */}
-      {visibleHouseholds.map((h) => (
-        <HouseholdCard key={`${h.recordId}:${data.day}`} h={h} dropOff={event.dropOff} kind={kind} id={id} day={data.day} post={post} picks={choices?.byEmail[h.email.trim().toLowerCase()]} seats={kind === 'workshop' && choices ? (choices.seatsByEmail?.[h.email.trim().toLowerCase()] ?? { seats: 0, comped: 0, atRegister: 0 }) : undefined} />
-      ))}
-
-      {choices && choices.unmatched.length > 0 && (
-        <div style={{ ...card, background: 'rgba(255,255,255,0.7)' }}>
-          <p style={{ margin: '0 0 0.4rem', fontWeight: 700, color: 'var(--color-dark)' }}>Paid or comped, not signed in yet</p>
-          {choices.unmatched.map((u, i) => (
-            <p key={`${u.email}:${i}`} style={{ margin: '0.2rem 0 0', fontSize: '0.875rem', color: 'var(--color-dark)' }}>
-              {`${u.name} · ${u.seats} seat${u.seats === 1 ? '' : 's'}${u.picks.length ? ` · Picks: ${picksShort(u.picks)}` : ''}`}
-              {u.comped && <>{' '}<Badge tone="muted">comped</Badge></>}
-              {u.atRegister && <>{' '}<Badge tone="warn">Not paid yet</Badge></>}
-            </p>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

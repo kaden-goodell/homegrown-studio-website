@@ -5,6 +5,7 @@ import { card, btn, Badge, FlagBanner } from '@components/staff/ui'
 import PickupPanel from '@components/staff/PickupPanel'
 import AgreementSheet from '@components/staff/AgreementSheet'
 import HistorySheet from '@components/staff/HistorySheet'
+import WaiverNextSteps from '@components/staff/WaiverNextSteps'
 import type { EventKind } from '@lib/events'
 import type { AuthorizedPickup } from '@lib/waiver-store'
 import { picksShort, type SeatPick } from '@lib/seat-options'
@@ -57,8 +58,12 @@ export interface Household {
   signedAt: string
   agreementVersion: string
   validUntil: string
+  /** From the roster: good for today, expired, or signed on older terms (door-search rule). */
+  agreement?: 'current' | 'expired' | 'outdated'
   checkin: Checkin
 }
+
+export type PostResult = { error?: string; oneTimeCode?: string; smsFailed?: boolean; needsSigning?: 'expired' | 'outdated' }
 
 type Status = 'wait' | 'in' | 'out'
 
@@ -97,13 +102,16 @@ export default function HouseholdCard({
   post,
   picks,
   seats,
+  eventTitle = '',
 }: {
   h: Household
   dropOff: boolean
   kind: EventKind
   id: string
   day: string
-  post: (recordId: string, extra: any) => Promise<{ error?: string; oneTimeCode?: string; smsFailed?: boolean }>
+  post: (recordId: string, extra: any) => Promise<PostResult>
+  /** For "Sign again first" (the kiosk lands back on this roster). */
+  eventTitle?: string
   /** This family's seat picks (classes with questions). Read-only: picks never change after booking. */
   picks?: SeatPick[]
   /** Seats this family paid for or was comped (from the booking record), when we have one. */
@@ -119,6 +127,11 @@ export default function HouseholdCard({
   const allergyPeople = people.filter((p) => hasAllergy(p.allergies))
   const firstName = (n: string) => n.trim().split(/\s+/)[0]
   const expired = new Date(h.validUntil).getTime() < Date.now()
+  // The server can say so too (a roster loaded before it expired).
+  const [serverSaysSign, setServerSaysSign] = useState<null | 'expired' | 'outdated'>(null)
+  const signState: null | 'expired' | 'outdated' = serverSaysSign ?? (h.agreement ? (h.agreement === 'current' ? null : h.agreement) : expired ? 'expired' : null)
+  /** One post at a time: a double tap on slow wifi never logs twice (M2). */
+  const [busy, setBusy] = useState(false)
 
   const stateOf = (id: string): PersonState => {
     const p = presence[id]
@@ -178,8 +191,12 @@ export default function HouseholdCard({
   const bg = status === 'in' ? 'rgba(34,197,94,0.04)' : status === 'out' ? 'rgba(120,120,120,0.04)' : 'rgba(255,255,255,0.85)'
 
   async function act(extra: any) {
+    if (busy) return
     setErr(null)
-    const r = await post(h.recordId, { day, ...extra })
+    setBusy(true)
+    let r: PostResult
+    try { r = await post(h.recordId, { day, ...extra }) } finally { setBusy(false) }
+    if (r.needsSigning) { setServerSaysSign(r.needsSigning); return }
     if (r.error) setErr(r.error)
     else {
       if (extra.action === 'checkin') {
@@ -214,7 +231,7 @@ export default function HouseholdCard({
       return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
           {label}
-          <button type="button" onClick={(e) => { e.preventDefault(); act({ action: 'undo-checkin', personIds: [p.id] }) }} style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.8125rem' }}>Undo</button>
+          <button type="button" disabled={busy} onClick={(e) => { e.preventDefault(); act({ action: 'undo-checkin', personIds: [p.id] }) }} style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.8125rem', ...(busy ? { opacity: 0.5 } : {}) }}>Undo</button>
         </span>
       )
     }
@@ -225,7 +242,7 @@ export default function HouseholdCard({
           <span style={{ fontSize: '0.875rem', color: '#666', fontWeight: 700, whiteSpace: 'nowrap' }}>
             ✓ left {pr?.outAt ? formatTime(pr.outAt) : ''}{releasedTo?.name ? ` · ${releasedTo.name}` : ''}
           </span>
-          <button type="button" onClick={() => act({ action: 'undo-pickup', personIds: [p.id] })} style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.8125rem' }}>Undo</button>
+          <button type="button" disabled={busy} onClick={() => act({ action: 'undo-pickup', personIds: [p.id] })} style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.8125rem', ...(busy ? { opacity: 0.5 } : {}) }}>Undo</button>
         </span>
       )
     }
@@ -300,10 +317,12 @@ export default function HouseholdCard({
         <StatusPill status={status} hereCount={herePeople.length} total={people.length} dropOff={dropOff} />
       </div>
 
-      {/* Expired agreement (the only signature detail the card needs); the rest is in 📄 Agreement. */}
-      {expired && (
-        <p style={{ fontSize: '0.875rem', color: '#b91c1c', fontWeight: 700, margin: '0.4rem 0 0' }}>
-          Agreement EXPIRED — they need to sign again.
+      {/* Expired or older agreement (the only signature detail the card needs); the rest is in 📄 Agreement. */}
+      {signState && (
+        <p data-testid="agreement-needs-signing" style={{ fontSize: '0.875rem', color: '#b91c1c', fontWeight: 700, margin: '0.4rem 0 0' }}>
+          {signState === 'expired'
+            ? 'Agreement EXPIRED — they need to sign again.'
+            : `UPDATED AGREEMENT — ${firstName(h.signer)} signed ${h.agreementVersion}, which is out of date. They need to sign again.`}
         </p>
       )}
       {/* Can't-miss flags, before anyone reads the names. */}
@@ -408,16 +427,33 @@ export default function HouseholdCard({
       {/* Check-in — pick who's here (RSVP pre-selected), add late arrivals anytime */}
       {absentPeople.length > 0 && (
         <div style={{ marginTop: '0.7rem', borderTop: herePeople.length > 0 ? '1px solid rgba(var(--color-primary-rgb),0.12)' : 'none', paddingTop: herePeople.length > 0 ? '0.7rem' : 0 }}>
-          <button
-            type="button"
-            disabled={selectedIn.length === 0}
-            onClick={() => act({ action: 'checkin', personIds: selectedIn })}
-            style={{ ...btn(true), width: '100%', padding: '0.7rem', opacity: selectedIn.length === 0 ? 0.5 : 1 }}
-          >
-            {!dropOff
-              ? `✓ Here (${selectedIn.length})`
-              : status === 'wait' ? `Check in (${selectedIn.length})` : `Add / check in (${selectedIn.length})`}
-          </button>
+          {signState ? (
+            // Sign again first; "Mark here anyway" stays possible, and the log says so.
+            <div style={{ display: 'grid', gap: '0.45rem' }}>
+              <WaiverNextSteps kind={kind} id={id} title={eventTitle} day={day} recordId={h.recordId} signLabel="Sign again first" />
+              <button
+                type="button"
+                disabled={selectedIn.length === 0 || busy}
+                onClick={() => act({ action: 'checkin', personIds: selectedIn, anyway: true })}
+                style={{ ...btn(), width: '100%', color: 'var(--color-muted)', opacity: selectedIn.length === 0 || busy ? 0.5 : 1 }}
+              >
+                {busy ? 'Saving…' : `Mark here anyway (${selectedIn.length})`}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled={selectedIn.length === 0 || busy}
+              onClick={() => act({ action: 'checkin', personIds: selectedIn })}
+              style={{ ...btn(true), width: '100%', padding: '0.7rem', opacity: selectedIn.length === 0 || busy ? 0.5 : 1 }}
+            >
+              {busy
+                ? 'Saving…'
+                : !dropOff
+                  ? `✓ Here (${selectedIn.length})`
+                  : status === 'wait' ? `Check in (${selectedIn.length})` : `Add / check in (${selectedIn.length})`}
+            </button>
+          )}
         </div>
       )}
 

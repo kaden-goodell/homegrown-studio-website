@@ -10,6 +10,7 @@ import { createLogger } from '@lib/logger'
 import { ownRoster, type OwnRoster } from '@lib/classes/staff-roster'
 import { getPartyRecord } from '@lib/party-store'
 import { crewPartyMoney, type CrewPartyMoney } from '@lib/parties/staff-money'
+import { agreementState } from '@lib/waiver-coverage'
 
 export const prerender = false
 
@@ -96,6 +97,8 @@ export const GET: APIRoute = async ({ request, url }) => {
           signedAt: w.signedAt,
           agreementVersion: w.agreementVersion,
           validUntil: w.validUntil,
+          /** Good for today, expired, or signed on older terms: the same rule as the door search (crew review I2). */
+          agreement: agreementState(w, new Date()),
           checkin: {
             expected: pub.expected,
             presence: presenceOn(checkinState, day),

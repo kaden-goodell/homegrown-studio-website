@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 let authed: { id: string; name: string; role: 'owner' | 'crew' } | null = { id: 'k', name: 'Kaden', role: 'crew' }
 const mockAudit = vi.fn()
@@ -175,5 +175,33 @@ describe('GET /api/staff/event-meta.json', () => {
     expect(mockSetEventMeta).not.toHaveBeenCalled()
     const json = await res.json()
     expect(json.data).toMatchObject({ id: 'cs1', dropOff: true })
+  })
+})
+
+describe('POST /api/staff/event-meta.json — drop-off locked mid-event (crew review M10)', () => {
+  const underway = { kind: 'workshop', id: 'cs1', title: 'Camp', startIso: '2026-10-20T15:00:00.000Z', days: ['2026-10-20', '2026-10-21'], dropOff: true }
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-21T15:00:00.000Z')) })
+  afterEach(() => vi.useRealTimers())
+
+  it('the crew can’t turn drop-off off during the event: refused, nothing written', async () => {
+    mockGetEvent.mockResolvedValueOnce(underway)
+    const res = await POST(postCtx({ kind: 'workshop', id: 'cs1', dropOff: false }))
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toMatch(/Ask Catherine or Kaden/)
+    expect(mockSetEventMeta).not.toHaveBeenCalled()
+  })
+
+  it('an owner still can', async () => {
+    authed = { id: 'k', name: 'Kaden', role: 'owner' }
+    mockGetEvent.mockResolvedValueOnce(underway)
+    const res = await POST(postCtx({ kind: 'workshop', id: 'cs1', dropOff: false }))
+    expect(res.status).toBe(200)
+  })
+
+  it('before the event the crew can change it as before', async () => {
+    vi.setSystemTime(new Date('2026-10-19T15:00:00.000Z'))
+    mockGetEvent.mockResolvedValueOnce(underway)
+    const res = await POST(postCtx({ kind: 'workshop', id: 'cs1', dropOff: false }))
+    expect(res.status).toBe(200)
   })
 })

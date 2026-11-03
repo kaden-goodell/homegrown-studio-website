@@ -5,6 +5,7 @@ import { formatCalendarDate } from '@lib/studio-time'
 import PickupFields, { type PickupRow } from '@components/waiver/PickupFields'
 import { trackWaiverSigned, trackWaiverStarted, trackWaiverStep } from '@lib/analytics'
 import { inputStyle, labelStyle, sectionHeadingStyle, sectionNoteStyle, scrollBoxStyle, cardStyle } from '@components/waiver/waiver-ui'
+import { clearKioskOut } from '@lib/kiosk-handback'
 
 interface Props {
   /** Present when opened from a party guest link — /waiver?party={bookingId} */
@@ -553,6 +554,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     setPhotoConsent(true); setAgreeRelease(false); setSignature('')
     setResponsibleAdult(''); setSignerPresent(null)
     setError(null); setFormNotice(null); setDone(null); setArrival(null)
+    clearKioskOut() // a proper hand-back: /staff opens without its "hand the iPad back" cover
     try {
       history.replaceState(null, '', returnTo)
     } catch {

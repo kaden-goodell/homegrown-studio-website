@@ -92,3 +92,27 @@ describe('This week (staff landing tab)', () => {
     expect(open).toHaveBeenCalledWith({ kind: 'workshop', id: 'cls_camp', title: 'Clay Camp', day: '2026-10-17' })
   })
 })
+
+describe('This week: current at a class start (crew review I5, M10)', () => {
+  it('shows the door warnings, tags what you are on, and reloads itself every minute', async () => {
+    vi.useRealTimers()
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(new Date('2026-10-15T15:00:00Z'))
+    const calls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      calls.push(url)
+      if (url.includes('/api/staff/warnings.json')) return { ok: true, json: async () => ({ data: { warnings: [{ code: 'door-unpaid', eventKind: 'workshop', eventId: 'c1', when: '2026-10-15T23:00:00Z', title: 'Pails', line: 'Kim Ng · Pails · not paid at the counter yet. If they’re here, take it at the register.' }] } }) }
+      if (url.includes('/api/staff/shifts.json')) return { ok: true, json: async () => ({ data: { me: { id: 't' }, mine: [{ event: { status: 'on', roster: { kind: 'party', id: 'p1', day: '2026-10-17' } } }] } }) }
+      return { ok: true, json: async () => ({ data: { events: [pails, party] } }) }
+    }))
+    render(<ThisWeek staff={STAFF} onOpenRoster={() => {}} />)
+    expect(await screen.findByText(/Kim Ng · Pails/)).toBeInTheDocument()
+    const sat = await screen.findByRole('region', { name: 'Sat Oct 17' })
+    expect(await within(sat).findByText('✓ You’re on')).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Sun Oct 18' })).queryByText('✓ You’re on')).toBeNull()
+    const weekLoads = () => calls.filter((c) => c.includes('/api/staff/week.json')).length
+    expect(weekLoads()).toBe(1)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(weekLoads()).toBe(2)
+  })
+})
