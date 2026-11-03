@@ -60,7 +60,7 @@
  */
 import { pathToFileURL } from 'node:url'
 import {
-  formatPlan, formatSummary, MissingSecretError, onStop, ownerNumbersProblem, parseArgs, pick, PREVIEW_ORIGIN, PreviewClient, RateGate, readSecrets, redact, runScenarios,
+  actAsOwner, formatPlan, formatSummary, MissingSecretError, onStop, ownerNumbersProblem, parseArgs, pick, PREVIEW_ORIGIN, PreviewClient, RateGate, readSecrets, redact, runScenarios,
   SlotAllocator, SquareSandbox, checkStatus, check, Halt, type Pending, type Secrets, type StopProcess,
 } from './lib/sandbox-e2e/core'
 import { blockedDay, CLEANUP_PLAN, cleanUpLeftovers, firstDay, scenarios } from './lib/sandbox-e2e/scenarios'
@@ -96,6 +96,8 @@ async function signIn(secrets: Secrets, ctx: Pick<RunCtx, 'admin' | 'staff'>): P
   const a = await ctx.admin.post('/api/admin/login.json', { passcode: secrets.adminPasscode })
   checkStatus(a, 200, 'Sign in to /admin')
   check(ctx.admin.jar.has('hg_admin'), 'Signed in to /admin but no cookie came back')
+  // Owners come from the preview's staff list: act as one it names (Kaden when he is one; Kaden when it names none).
+  actAsOwner(a.body?.data?.owners)
 
   const s = await ctx.staff.post('/api/staff/login.json', { passcode: secrets.staffPasscode })
   checkStatus(s, 200, 'Staff passcode')

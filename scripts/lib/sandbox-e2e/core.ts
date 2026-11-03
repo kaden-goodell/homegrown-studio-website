@@ -158,6 +158,24 @@ export async function readReply(res: Response): Promise<Reply> {
 }
 
 /** One browser's worth of calls to the preview: its own cookies, never another host, never a redirect followed. */
+/**
+ * Who the run's /admin requests act as (the X-Admin-Who header). The owners
+ * are the people marked Owner on the preview's staff list, so the name is
+ * learned at sign-in from what /api/admin/login.json answers (actAsOwner):
+ * Kaden when he is one, else the first owner (the sandbox list names only
+ * "Sandbox"). Routes that need a real owner (the whole-studio calendar link)
+ * refuse a name that isn't on the list.
+ */
+export const OWNER_HEADERS: Record<string, string> = { 'X-Admin-Who': 'Kaden' }
+
+/** Picks who to act as from the sign-in's owner names (Kaden first), sets OWNER_HEADERS, and returns it; null when no owner is named. */
+export function actAsOwner(owners: unknown, prefer = 'Kaden'): string | null {
+  const names = Array.isArray(owners) ? owners.filter((o): o is string => typeof o === 'string' && o.trim() !== '') : []
+  const who = names.find((n) => n.trim().toLowerCase() === prefer.toLowerCase()) ?? names[0] ?? null
+  if (who) OWNER_HEADERS['X-Admin-Who'] = who
+  return who
+}
+
 export class PreviewClient {
   readonly jar = new CookieJar()
   constructor(private opts: { fetch?: FetchLike; gate?: RateGate; halt?: Halt } = {}) {}

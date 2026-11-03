@@ -4,7 +4,8 @@
  * list it runs; same --only, --dry-run, cleanup and summary.
  *
  * Who is who:
- *   ctx.admin  /admin, acting as Kaden (X-Admin-Who) — the only one who assigns
+ *   ctx.admin  /admin, acting as an owner (X-Admin-Who: Kaden, else the first
+ *              owner on the preview's staff list) — the only one who assigns
  *   ctx.crew   /staff signed in as "E2E Crew", the sandbox team member the
  *              seed makes (POST /api/admin/classes/seed-sandbox.json, the
  *              "Set up sandbox" button). Missing → the scenario is skipped
@@ -22,7 +23,7 @@
  * link he had on the preview; it is stopped at the end.
  */
 import {
-  addDays, check, checkEqual, checkStatus, chicagoDate, PreviewClient, sayReply, SkipScenario, SlotAllocator,
+  addDays, check, checkEqual, checkStatus, chicagoDate, OWNER_HEADERS, PreviewClient, sayReply, SkipScenario, SlotAllocator,
   type Reply, type Scenario, type Scope,
 } from './core'
 import { blockedDay, makeClass, testContent, cancelClass, type Ctx } from './scenarios'
@@ -38,7 +39,6 @@ export interface StaffingCtx extends Ctx {
   soonSlots?: SlotAllocator
 }
 
-const OWNER_HEADERS = { 'X-Admin-Who': 'Kaden' }
 export const E2E_CREW_NAME = 'E2E'
 export const NO_CREW = 'E2E Crew is not on the preview’s staff list yet. In /admin tap "Set up sandbox" (or POST /api/admin/classes/seed-sandbox.json), then run this again.'
 

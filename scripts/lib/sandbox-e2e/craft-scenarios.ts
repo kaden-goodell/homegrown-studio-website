@@ -18,10 +18,10 @@
  * TEST item in the sandbox catalog.
  */
 import { randomUUID } from 'node:crypto'
-import { check, checkEqual, checkStatus, type Scenario, type Scope } from './core'
+import { check, checkEqual, checkStatus, OWNER_HEADERS, type Scenario, type Scope } from './core'
 import type { Ctx } from './scenarios'
 
-const OWNER = { 'X-Admin-Who': 'Kaden' }
+const OWNER = OWNER_HEADERS
 
 async function adminPost(ctx: Ctx, body: Record<string, unknown>) {
   return ctx.admin.request('POST', '/api/admin/crafts.json', { body, headers: OWNER })

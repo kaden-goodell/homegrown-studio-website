@@ -1,6 +1,6 @@
 // tests/scripts/sandbox-e2e-staffing.test.ts — the staffing scenarios (41–48) against a fake preview (no network).
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { PREVIEW_ORIGIN, PreviewClient, runScenarios, SlotAllocator, type RateGate } from '../../scripts/lib/sandbox-e2e/core'
+import { actAsOwner, OWNER_HEADERS, PREVIEW_ORIGIN, PreviewClient, runScenarios, SlotAllocator, type RateGate } from '../../scripts/lib/sandbox-e2e/core'
 import { scenarios } from '../../scripts/lib/sandbox-e2e/scenarios'
 import { feedPath, icsTime, NO_CREW, parseIcs, staffingScenarios, type StaffingCtx } from '../../scripts/lib/sandbox-e2e/staffing-scenarios'
 import { ALL_SCENARIOS, main } from '../../scripts/sandbox-e2e'
@@ -13,7 +13,8 @@ function res(status: number, body: unknown, headers: Record<string, string> = {}
 }
 
 /** A tiny in-memory preview: classes, staffing rows, crew views, calendar links. */
-function fakePreview(opts: { withCrew?: boolean } = {}) {
+function fakePreview(opts: { withCrew?: boolean; owners?: string[] } = {}) {
+  const owners = opts.owners ?? ['Kaden']
   const team = [
     ...(opts.withCrew === false ? [] : [{ id: 'TMC', name: 'E2E', role: 'crew' }]),
     { id: 'TMK', name: 'Kaden', role: 'owner' },
@@ -120,6 +121,8 @@ function fakePreview(opts: { withCrew?: boolean } = {}) {
     }
     if (p === '/api/admin/feed.json') {
       if (method === 'DELETE' && body?.staffId) { for (const f of feeds.values()) if (f.staffId === body.staffId) f.live = false; return res(200, { data: { stopped: true } }) }
+      // like the site: the owner link needs X-Admin-Who to be an owner on the staff list
+      if (!owners.includes(headers['X-Admin-Who'])) return res(400, { error: 'Choose who you are at the top of /admin first.' })
       for (const f of feeds.values()) if (f.owner) f.live = false
       if (method === 'DELETE') return res(200, { data: { stopped: true } })
       const tok = `O${++n}`.padEnd(43, 'x')
@@ -165,7 +168,7 @@ function ctxFor(f: ReturnType<typeof fakePreview>): StaffingCtx {
   }
 }
 
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); OWNER_HEADERS['X-Admin-Who'] = 'Kaden' })
 
 describe('staffing scenarios: the list', () => {
   it('are 41–48, after the class (1–23) and party (24–40) scenarios, before the stage 4 extras (49–67) and crafts (68)', () => {
@@ -226,6 +229,27 @@ describe('staffing scenarios against a fake preview', () => {
     for (const c of f.calls.filter((x) => x.path === '/api/admin/staffing.json' || x.path === '/api/admin/feed.json')) expect(c.headers['X-Admin-Who']).toBe('Kaden')
     // only the preview
     expect(f.calls.length).toBeGreaterThan(0)
+  })
+
+  it('acts as the owner the sign-in names: a preview whose only owner is "Sandbox" still makes the whole-studio link (run 2, scenario 43)', async () => {
+    const f = fakePreview({ owners: ['Sandbox'] })
+    const ctx = ctxFor(f)
+    const s43 = staffingScenarios.filter((x) => x.id === 43)
+    // as before the fix: "Kaden" isn't an owner there, so the link is refused
+    expect((await runScenarios(s43, ctx, { secrets: [] }))[0].detail).toMatch(/expected HTTP 200, got 400 Choose who you are/)
+    expect(actAsOwner(['Sandbox'])).toBe('Sandbox')
+    const from = f.calls.length
+    const [r] = await runScenarios(s43, ctxFor(f), { secrets: [] })
+    expect({ outcome: r.outcome, detail: r.detail }).toEqual({ outcome: 'PASS', detail: '' })
+    expect(f.calls.slice(from).filter((c) => c.path === '/api/admin/feed.json').every((c) => c.headers['X-Admin-Who'] === 'Sandbox')).toBe(true)
+    expect([...f.feeds.values()].filter((x) => x.live)).toEqual([])
+  })
+
+  it('actAsOwner prefers Kaden, else the first owner, and keeps the last name when none is given', () => {
+    expect(actAsOwner(['Catherine', 'kaden'])).toBe('kaden')
+    expect(actAsOwner(['Catherine', 'Sandbox'])).toBe('Catherine')
+    expect(actAsOwner(undefined)).toBeNull()
+    expect(OWNER_HEADERS['X-Admin-Who']).toBe('Catherine')
   })
 
   it('without E2E Crew on the team: each staffing scenario is skipped with how to fix it, nothing made', async () => {
