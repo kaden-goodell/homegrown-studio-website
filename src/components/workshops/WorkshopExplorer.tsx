@@ -144,10 +144,13 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
   const linkFollowed = useRef(false)
   const mounted = useRef(true)
 
-  const load = useCallback(() => {
+  // A linked class missing from the (cached) list gets one fresh look before "finished".
+  const askedAgainFor = useRef('')
+
+  const load = useCallback((wanted?: string) => {
     setLoading(true)
     setFailed(false)
-    fetch('/api/workshops.json')
+    fetch(wanted ? `/api/workshops.json?w=${encodeURIComponent(wanted)}` : '/api/workshops.json')
       .then((res) => {
         if (!res.ok) throw new Error(`workshops fetch failed: ${res.status}`)
         return res.json()
@@ -156,7 +159,8 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
         const list = Array.isArray(data?.workshops) ? data.workshops : []
         // `incomplete` means Square could not be asked: an empty list then says nothing.
         if (data?.incomplete && list.length === 0) throw new Error('workshops lookup incomplete')
-        if (mounted.current) setWorkshops(list)
+        // A new array every time, so a second look always re-runs the link check.
+        if (mounted.current) setWorkshops([...list])
       })
       .catch(() => {
         if (mounted.current) setFailed(true)
@@ -182,9 +186,15 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
     if (typeof window === 'undefined' || loading || failed || linkFollowed.current) return
     const id = new URLSearchParams(window.location.search).get('w')
     if (!id) return
-    linkFollowed.current = true
 
     const target = workshops.find((w) => w.id === id)
+    if (!target && askedAgainFor.current !== id) {
+      // Maybe just added and the list is a minute old: ask once more first.
+      askedAgainFor.current = id
+      load(id)
+      return
+    }
+    linkFollowed.current = true
     if (!target) {
       setNotice(
         workshops.length > 0
@@ -259,7 +269,7 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
             We couldn&rsquo;t load workshops just now.
           </p>
           <p style={{ margin: '1.5rem 0 0' }}>
-            <button type="button" className="btn btn-secondary" onClick={load}>
+            <button type="button" className="btn btn-secondary" onClick={() => load()}>
               Try again
             </button>
           </p>

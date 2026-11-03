@@ -39,8 +39,15 @@ export const GET: APIRoute = async ({ request }) => {
   let failed = false
   // Infrastructure messages only (no secrets): lets a broken preview say why.
   const settingsErrors: { scheduleId: string; error: string }[] = []
+  // ?w=<id>: the page followed a link to a class its first list didn't have
+  // (a class added in the last minute). Ask Square again rather than say
+  // "finished". The CDN keys on the query, so this answer is fresh too.
+  const wanted = new URL(request.url).searchParams.get('w') ?? ''
   try {
-    const list = await remember('workshops:list', 30_000, () => providers.workshop.listWorkshops())
+    let list = await remember('workshops:list', 30_000, () => providers.workshop.listWorkshops())
+    if (/^[A-Za-z0-9_-]{6,64}$/.test(wanted) && !list.some((w) => w.id === wanted)) {
+      list = await providers.workshop.listWorkshops()
+    }
     const now = new Date()
     workshops = await Promise.all(
       list.map(async (w) => {

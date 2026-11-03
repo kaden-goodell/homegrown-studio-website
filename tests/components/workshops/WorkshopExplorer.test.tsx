@@ -261,25 +261,39 @@ describe('WorkshopExplorer — a link to one workshop (?w=<id>)', () => {
     expect(screen.queryByRole('status')).toBeNull()
   })
 
-  it('finished or unknown: says so above the list of what is coming up', () => {
+  it('finished or unknown: asks once more, then says so above the list of what is coming up', async () => {
     window.history.replaceState({}, '', '/workshops?w=gone')
+    const fetchMock = answerWith({ body: { workshops: mockWorkshops } })
     render(<WorkshopExplorer workshops={mockWorkshops} />)
 
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(FINISHED_NOTICE))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledWith('/api/workshops.json?w=gone')
     expect(screen.queryByTestId('booking-modal')).toBeNull()
-    expect(screen.getByRole('status')).toHaveTextContent(FINISHED_NOTICE)
     expect(screen.getAllByTestId(/^workshop-/)).toHaveLength(2)
   })
 
   it('finished or unknown: waits for the list before saying so', async () => {
     window.history.replaceState({}, '', '/workshops?w=gone')
     let arrive: (value: unknown) => void = () => {}
-    vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => { arrive = resolve })))
+    const answer = { ok: true, status: 200, json: async () => ({ workshops: mockWorkshops }) }
+    vi.stubGlobal('fetch', vi.fn().mockImplementationOnce(() => new Promise((resolve) => { arrive = resolve })).mockResolvedValue(answer))
     render(<WorkshopExplorer />)
 
     expect(screen.queryByRole('status')).toBeNull()
 
-    arrive({ ok: true, status: 200, json: async () => ({ workshops: mockWorkshops }) })
+    arrive(answer)
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(FINISHED_NOTICE))
+  })
+
+  it('a class added a minute ago: the second look finds it and opens it', async () => {
+    window.history.replaceState({}, '', '/workshops?w=new1')
+    const added = { ...mockWorkshops[0], id: 'new1', name: 'Christmas Tags' }
+    answerWith({ body: { workshops: [...mockWorkshops, added] } })
+    render(<WorkshopExplorer workshops={mockWorkshops} />)
+
+    await waitFor(() => expect(screen.getByTestId('booking-modal')).toBeInTheDocument())
+    expect(screen.queryByText(FINISHED_NOTICE)).toBeNull()
   })
 
   it('sign-ups closed: no booking panel, a notice instead', () => {

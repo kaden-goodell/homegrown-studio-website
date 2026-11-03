@@ -44,6 +44,8 @@ export interface BookingPanelProps {
   onBack?: () => void
   /** Pinned to the bottom: the primary button and anything that belongs with it. */
   footer?: ReactNode
+  /** Sits beside the ×, e.g. a share icon. */
+  headerAction?: ReactNode
   /** Wide suits a two-column picker; narrow suits a form. */
   width?: 'wide' | 'narrow'
   /** The leave prompt, when the flow wants one shown. */
@@ -95,6 +97,7 @@ export default function BookingPanel({
   summary,
   onBack,
   footer,
+  headerAction,
   width = 'narrow',
   leavePrompt,
   children,
@@ -274,6 +277,7 @@ export default function BookingPanel({
             >
               {title}
             </h2>
+            {headerAction && <span style={{ marginLeft: 'auto', display: 'inline-flex', marginRight: '-0.75rem' }}>{headerAction}</span>}
             <button type="button" onClick={onRequestClose} aria-label="Close" style={{ ...iconButton, fontSize: '1.75rem', lineHeight: 1, marginRight: '-0.5rem', flexShrink: 0 }}>
               <span aria-hidden="true">&times;</span>
             </button>
