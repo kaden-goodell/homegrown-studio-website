@@ -653,7 +653,7 @@ describe('ClassBookingPanel — stage 4 waitlist', () => {
     expect(paymentFormProps.mode).toBe('store')
     expect(paymentFormProps.wallet).toBeUndefined()
     // I2: the class and its date are named; the amount and close time are the ones sent with the join.
-    expect(screen.getByTestId('waitlist-consent')).toHaveTextContent('Save my card with Square. If a spot opens in Clay Camp (Sat, Oct 24 at 1 PM) before the waitlist closes on Sat, Oct 24 at 11 AM, Hometown Studio adds me and charges this card up to $21.80, even if the price goes up later, without asking again.')
+    expect(screen.getByTestId('waitlist-consent')).toHaveTextContent('Save my card with Square. If a spot opens in Clay Camp (Sat, Oct 24 at 1 PM) before the waitlist closes on Sat, Oct 24 at 11 AM, Hometown Studio adds me and charges this card. It’s never more than $21.80, even if the price goes up later, and they won’t ask again first. I’ll get a text and an email when it happens.')
     expect(screen.getByRole('button', { name: 'Join the waitlist' })).toBeInTheDocument()
   })
 
@@ -684,7 +684,7 @@ describe('ClassBookingPanel — stage 4 waitlist', () => {
     const sent = JSON.parse(init.body)
     expect(sent).toMatchObject({ action: 'join', classId: 'cls_1', passId: 'all', tickets: { person: 1 }, consent: true, cardToken: 'cnon:test-token', verificationToken: null })
     // The server prices it itself; the consent shown is sent only so a changed one is refused (I2).
-    expect(sent.consentShown).toEqual({ maxCents: 2180, closesIso: '2026-10-24T16:00:00.000Z', firstStartIso: expect.any(String), text: screen.queryByTestId('waitlist-consent')?.textContent ?? expect.stringContaining('up to $21.80') })
+    expect(sent.consentShown).toEqual({ maxCents: 2180, closesIso: '2026-10-24T16:00:00.000Z', firstStartIso: expect.any(String), text: screen.queryByTestId('waitlist-consent')?.textContent ?? expect.stringContaining('never more than $21.80') })
     const { consentShown: _shown, ...rest } = sent
     expect(JSON.stringify(rest)).not.toMatch(/Cents|price|amount/)
   })
@@ -699,7 +699,7 @@ describe('ClassBookingPanel — stage 4 waitlist', () => {
     fillContact()
     fireEvent.click(screen.getByRole('button', { name: 'Join the waitlist' }))
     expect(await screen.findByText('The price changed to $25.07. Check it and tick the box again. Nothing was charged.')).toBeInTheDocument()
-    expect(screen.getByTestId('waitlist-consent')).toHaveTextContent('charges this card up to $25.07, even if the price goes up later, without asking again')
+    expect(screen.getByTestId('waitlist-consent')).toHaveTextContent('It’s never more than $25.07, even if the price goes up later')
     expect(screen.getByText(/Never more than \$25\.07, charged only if a spot opens\./)).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: /Save my card with Square/ })).not.toBeChecked()
     expect(screen.queryByText('You’re on the waitlist')).toBeNull()

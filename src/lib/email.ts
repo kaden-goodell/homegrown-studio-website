@@ -974,7 +974,7 @@ export async function sendWaitlistJoinedEmail(input: {
     givenName: input.givenName,
     lines: [
       `You’re on the waitlist for ${input.className} on ${input.whenLabel}, ${input.seatsLabel}.`,
-      `We’ll add you and charge your card ending ${input.last4} if a spot opens before ${input.closesLabel}. It’s never more than ${formatMoney(input.maxCents)}. You’ll get a text and an email right away.`,
+      `We’ll add you and charge your card ending ${input.last4} if a spot opens before ${input.closesLabel}. It’s never more than ${formatMoney(input.maxCents)}. We’ll text and email you when it happens.`,
       'If no spot opens, nothing is charged and your card comes off.',
     ],
     link: { label: 'Leave the waitlist', url: input.leaveUrl },

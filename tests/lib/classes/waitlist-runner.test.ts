@@ -415,6 +415,23 @@ describe('runWaitlist', () => {
     expect(h.square.chargeSavedCardCalls).toHaveLength(1)
   })
 
+  it('final review I12: a seat freed at night charges and texts nobody; the 8 AM run adds them', async () => {
+    const cls = makeClass()
+    const other = await fill(cls)
+    await join(cls, 'Jane')
+    await release(cls.id, other)
+    const night = new Date('2026-10-11T04:40:00.000Z') // 11:40 PM Chicago
+    const r = await runWaitlist(cls.id, { reason: 'seat-freed' }, night)
+    expect(r).toMatchObject({ ran: true, added: 0, stopped: 'quiet' })
+    expect(r.note).toBe('It’s outside 8 AM to 8 PM, so nobody on the waitlist is charged or texted now. It picks up again at 8 AM.')
+    expect(h.square.chargeSavedCardCalls).toHaveLength(0)
+    expect((await entries(cls))[0].state).toBe('waiting')
+    const morning = new Date('2026-10-11T13:00:00.000Z') // 8:00 AM Chicago
+    const again = await runWaitlist(cls.id, { reason: 'sweep' }, morning)
+    expect(again).toMatchObject({ added: 1, stopped: null })
+    expect(h.square.chargeSavedCardCalls).toHaveLength(1)
+  })
+
   it('audit A I2: an unanswered try is never resent while paused; the same try goes once reopened', async () => {
     const cls = makeClass()
     const other = await fill(cls)

@@ -71,12 +71,12 @@ describe('sendRefundEmail', () => {
 describe('refund email after a class cancel (final review I10)', () => {
   it('a partial cancel says how many seats went and that the rest are still booked', async () => {
     await email.sendRefundEmail({ to: 'a@b.co', givenName: 'Ada', className: 'Candles', cents: 3270, keptSeat: true, seats: { cancelled: 1, stillBooked: 2 } })
-    const text = String(mockSendMail.mock.calls.at(-1)[0].text)
+    const text = String(mockSendMail.mock.calls.at(-1)![0].text)
     expect(text).toContain('Your 1 seat is cancelled. Your other 2 seats are still booked, so we’ll see you there.')
     expect(text).not.toContain('another class soon')
   })
   it('the whole booking cancelled says goodbye', async () => {
     await email.sendRefundEmail({ to: 'a@b.co', givenName: 'Ada', className: 'Candles', cents: 6540, keptSeat: false, seats: { cancelled: 2, stillBooked: 0 } })
-    expect(String(mockSendMail.mock.calls.at(-1)[0].text)).toContain('Your 2 seats are cancelled. We hope to see you at another class soon.')
+    expect(String(mockSendMail.mock.calls.at(-1)![0].text)).toContain('Your 2 seats are cancelled. We hope to see you at another class soon.')
   })
 })
