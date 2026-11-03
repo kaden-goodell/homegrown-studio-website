@@ -74,6 +74,7 @@ import { partyForPayment, type PartyPaymentEntry } from '@lib/parties/party-paym
 import { partyLabel, recordSquarePartyRefund } from '@lib/parties/refunds'
 import { getPartyRecord } from '@lib/party-store'
 import type { Cents, ScheduledClass, Session } from './types'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('classes:square-events')
 
@@ -98,7 +99,6 @@ export interface PendingReplacement {
 }
 /** A pending replacement matches a Square refund made this long after it was written down at most (the nightly refund list covers 48 h). */
 const PENDING_MATCH_MS = 2 * 86_400_000
-const ATTEMPTS = 3
 
 export interface UnmatchedPos {
   orderId: string; lineUid: string; name: string; qty: number; at: string
@@ -632,7 +632,8 @@ export async function paidNotSeatedForPayment(paymentId: string): Promise<PaidNo
 
 /** Changes one entry (CAS). `fn` returns the next entry or null for no change. */
 async function changePaidNotSeated(id: string, fn: (p: PaidNotSeated) => PaidNotSeated | null): Promise<PaidNotSeated | null> {
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await paidNotSeatedKv.getWithMeta(id)
     if (!value) return null
     const next = fn(JSON.parse(value) as PaidNotSeated)
@@ -651,6 +652,7 @@ export async function notePaidNotSeated(id: string, squareRefunded: PaidNotSeate
 export async function reopenPaidNotSeated(id: string, refundFailed: NonNullable<PaidNotSeated['refundFailed']>): Promise<boolean> {
   let reopened = false
   await changePaidNotSeated(id, (p) => {
+    reopened = false // reset on every CAS try
     if (p.resolved?.how !== 'refunded') return null
     reopened = true
     return { ...p, resolved: null, refundFailed }
@@ -660,7 +662,8 @@ export async function reopenPaidNotSeated(id: string, refundFailed: NonNullable<
 
 /** An owner seated them, refunded them, or said it’s already sorted: it leaves the list. */
 export async function resolvePaidNotSeated(id: string, by: By, how: 'seated' | 'sorted' | 'refunded'): Promise<void> {
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await paidNotSeatedKv.getWithMeta(id)
     if (!value) return
     const cur = JSON.parse(value) as PaidNotSeated
@@ -1292,7 +1295,8 @@ export async function listUnmatchedPos(): Promise<UnmatchedPos[]> {
 /** An owner matched a counter sale to a class, or said it wasn't for one: it leaves every list. */
 export async function resolveUnmatchedPos(orderId: string, lineUid: string, by: By, how: 'matched' | 'not-a-class'): Promise<void> {
   const k = `unmatched-${safeKey(orderId)}-${safeKey(lineUid)}`
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await unmatchedKv.getWithMeta(k)
     if (!value) return
     const cur = JSON.parse(value) as UnmatchedPos
@@ -1304,7 +1308,8 @@ export async function resolveUnmatchedPos(orderId: string, lineUid: string, by: 
 
 /** Undo of "Free a seat" from To decide: the refund flag waits for a decision again. */
 export async function reopenRefundFlag(id: string): Promise<void> {
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await flagsKv.getWithMeta(id)
     if (!value) return
     const cur = JSON.parse(value) as RefundFlag
@@ -1358,7 +1363,8 @@ export async function getRefundFlag(id: string): Promise<RefundFlag | null> {
 
 /** "Try the refund again" was turned down by Square: the next try uses a new key. */
 export async function bumpFlagRetries(id: string): Promise<void> {
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await flagsKv.getWithMeta(id)
     if (!value) return
     const cur = JSON.parse(value) as RefundFlag
@@ -1384,7 +1390,8 @@ export async function savePendingReplacement(p: PendingReplacement): Promise<voi
  */
 export async function fillPendingReplacement(flagId: string, retries: number, refundId: string, failed: boolean): Promise<void> {
   const k = pendingKey(flagId, retries)
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await replacementsKv.getWithMeta(k)
     if (!value) break
     const cur = JSON.parse(value) as PendingReplacement
@@ -1449,7 +1456,8 @@ export async function failedRefundOnBooks(flag: RefundFlag): Promise<boolean> {
  */
 export async function resolveRefundFlag(id: string, by: By, action: RefundFlagAction): Promise<RefundFlag> {
   if (!['freed-seat', 'kept-seat', 'dismissed'].includes(action)) throw new Error('Pick what was done about this refund.')
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await flagsKv.getWithMeta(id)
     if (!value) throw new Error('That refund note is no longer there.')
     const cur = JSON.parse(value) as RefundFlag
@@ -1479,7 +1487,8 @@ export async function setPosDays(id: string, sessionIds: string[], actor: { by: 
   if (ids.length !== count) throw new Error(count === 1 ? 'Pick 1 day.' : `Pick ${count} days.`)
   await moveLines(cls, entry.lineIds, ids, now)
   const next: PosNeedsDays = { ...entry, resolved: { at: now.toISOString(), by, sessionIds: ids } }
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await needsDaysKv.getWithMeta(id)
     if (!value) break
     if ((JSON.parse(value) as PosNeedsDays).resolved) return JSON.parse(value)

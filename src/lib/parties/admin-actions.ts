@@ -694,6 +694,7 @@ async function addExtraLocked(
   let saved: PartyRecord
   try {
     saved = await update(r.bookingId, (cur) => {
+      replay = false // reset on every CAS try
       const found = cur.items?.find((it) => it.id === itemId)
       if (found) { item = found; replay = true; return null }
       if (cur.status === 'cancelled') stop(409, PARTY_CANCELLED)

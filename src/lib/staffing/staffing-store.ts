@@ -32,11 +32,11 @@ import { BUSY_SAVING, NOT_A_PERSON, StaffingError, STALE_ENTRY, StaleError } fro
 import { storableStaffId } from './ids'
 import { isEventKey, withSeen } from './rules'
 import type { EventKey, StaffingEntry } from './types'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('staffing-store')
 const kv = makeKvStore('staffing', 'staffing')
 const INDEX_KEY = 'idx-parties'
-const ATTEMPTS = 3
 const PARALLEL = 8
 export const ENTRY_HISTORY_CAP = 100
 
@@ -116,7 +116,8 @@ export async function updateEntry(
   if (!isEventKey(key)) throw new StaffingError(400, "We couldn't find that class or party.")
   assertClassWritesAllowed() // R41
   const k = storeKey(key)
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(k)
     const cur = parse(key, value)
     if (expectedUpdatedAt !== undefined && (cur?.updatedAt ?? null) !== (expectedUpdatedAt ?? null)) {
@@ -153,7 +154,8 @@ export async function noteSeen(key: EventKey, ev: SeenEvent): Promise<StaffingEn
   if (!isEventKey(key)) return null
   assertClassWritesAllowed() // R41
   const k = storeKey(key)
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(k)
     const cur = parse(key, value)
     if (!cur) return null
@@ -184,7 +186,8 @@ async function indexParty(e: StaffingEntry): Promise<void> {
   if (!e.key.startsWith('party:pty_')) return
   const want = e.assigned.length + e.asks.length > 0 ? (e.seen?.startIso ?? null) : null
   try {
-    for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+      await casPause(attempt)
       const { value, etag } = await kv.getWithMeta(INDEX_KEY)
       const doc: PartyIndex = (value ? (JSON.parse(value) as PartyIndex | null) : null) ?? {}
       if ((doc[e.key] ?? null) === want) return

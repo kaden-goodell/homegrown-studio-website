@@ -26,11 +26,11 @@ import { CONFIG_STUDIO_WEEKLY, WEEKDAYS, type CafeSpecialDay, type CafeWeekly, t
 import { CONFIG_STUDIO_DAYS, type StudioDays } from '@config/studio-days'
 import type { CafeHours } from '@config/hours'
 import { SettingsError } from '@lib/settings-error'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('studio-settings')
 const kv = makeKvStore('studio-settings', 'studio-settings')
 const KEY = 'settings'
-const ATTEMPTS = 3
 export const CACHE_MS = 60_000
 export const HISTORY_CAP = 50
 export const NAME_MAX = 60
@@ -338,7 +338,8 @@ export async function saveStudioSettings(
   opts: { expectedUpdatedAt: string | null; by: By; now?: Date },
 ): Promise<{ saved: StudioSettings; before: SettingsInput; changed: string[] }> {
   assertClassWritesAllowed() // R41: never the live café hours or closed days from a test site
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(KEY)
     const cur = value ? parse(value) : null
     if ((cur?.updatedAt ?? null) !== (opts.expectedUpdatedAt ?? null)) {

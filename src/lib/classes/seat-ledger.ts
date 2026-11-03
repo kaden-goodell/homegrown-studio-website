@@ -14,6 +14,7 @@ import { studioDate } from '@lib/studio-time'
 import { assertClassWritesAllowed } from './test-site-guard'
 import { createLogger } from '@lib/logger'
 import { isExpiredHold, isPaidLine, paidOn, refundedOn, seatFreed, takesSeat } from './seat-status'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 export { isComing, isPaidLine, takesSeat } from './seat-status'
 
 const logger = createLogger('classes:seat-ledger')
@@ -104,7 +105,6 @@ export type HoldResult = { ok: true; lines: LedgerLine[] } | { ok: false; reason
 
 const kv = makeKvStore('seat-ledger', 'seat-ledger')
 const key = (classId: string) => `ledger-${classId}`
-const ATTEMPTS = 3
 const RETRY = 'Concurrent update — please retry'
 
 /** Seats taken on a session: unexpired holds + confirmed + refunds that kept the seat (seat-status.takesSeat). */
@@ -139,7 +139,8 @@ async function mutate<T>(classId: string, fn: (cur: Ledger) => { next: Ledger | 
   assertClassWritesAllowed() // R41: never a seat in the live ledger from a test site with no store of its own
   const k = key(classId)
   return withLock(k, async () => {
-    for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+      await casPause(attempt)
       const { value, etag } = await kv.getWithMeta(k)
       const { next, result } = fn(parse(classId, value))
       if (!next) return result

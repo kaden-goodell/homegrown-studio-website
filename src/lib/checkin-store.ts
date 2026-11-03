@@ -25,6 +25,7 @@ import { makeKvStore } from '@lib/blob-store'
 import { studioDate } from '@lib/studio-time'
 import type { By } from '@lib/staff-auth'
 import type { AuthorizedPickup } from '@lib/waiver-store'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('checkin-store')
 const kv = makeKvStore('checkins', 'checkins')
@@ -320,7 +321,8 @@ export async function mutateCheckin(
   fn: (s: CheckinState) => void | Promise<void>,
   opts?: CheckinOpts,
 ): Promise<CheckinState> {
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(key(eventKey, recordId))
     const state = value ? normalize(JSON.parse(value), opts?.firstDay) : emptyState()
     await fn(state)

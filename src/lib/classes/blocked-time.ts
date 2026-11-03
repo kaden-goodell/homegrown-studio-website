@@ -2,6 +2,7 @@ import { makeKvStore } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
 import { newId, toIso } from './validate'
 import { assertClassWritesAllowed } from './test-site-guard'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 /**
  * reason: why the room is held, as the calendar names it ("Closed", "Private
@@ -52,7 +53,8 @@ export async function addBlocked(input: { startIso: string; endIso: string; reas
 export async function removeBlocked(id: string, by: By): Promise<void> {
   assertClassWritesAllowed() // R41
   const k = key(id)
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(k)
     if (!value) return
     const cur = JSON.parse(value) as Stored

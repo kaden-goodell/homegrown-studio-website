@@ -13,6 +13,7 @@
  */
 import { createLogger } from '@lib/logger'
 import { makeKvStore } from '@lib/blob-store'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('waiver-store')
 const kv = makeKvStore('waivers', 'waivers')
@@ -243,7 +244,8 @@ export async function upsertWaiverInEventIndex(
   const key = indexKeyFor(kind, id)
   const ck = contactKeyOf(record)
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await rawGetWithMeta(key)
     const entries: StoredIndexEntry[] = value ? parseIndexEntries(value) : []
     const prev = entries.find((e) => e.contactKey === ck && e.waiverId !== record.id)

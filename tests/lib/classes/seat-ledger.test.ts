@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { CAS_ATTEMPTS } from '@lib/cas-retry'
 
 // Wrap the kv store so a test can make the first conditional write of a key
 // lose: the hook runs a competing write first, then the write reports false.
@@ -161,9 +162,11 @@ describe('seat ledger', () => {
     expect(seatsTaken(await getLedger(cls.id), 'ses_a', NOW)).toBe(1)
   })
 
-  it('three lost races throws a plain retry error', async () => {
+  it('every try lost (CAS_ATTEMPTS races) throws a plain retry error; three lost races now recover (I-7)', async () => {
     const cls = make(2)
     hook.loseAll = 3
+    expect((await hold(cls, q(cls), input({ bookingId: 'bkg_recovers' }), NOW)).ok).toBe(true)
+    hook.loseAll = CAS_ATTEMPTS
     await expect(hold(cls, q(cls), input(), NOW)).rejects.toThrow('Concurrent update — please retry')
   })
 

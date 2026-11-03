@@ -16,6 +16,7 @@ import type { AgreedLine, BookingRequest } from './pricing'
 import type { CardTrouble } from '@lib/saved-cards'
 import type { Cents } from './types'
 import { assertClassWritesAllowed } from './test-site-guard'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 export type WaitlistState = 'waiting' | 'charging' | 'added' | 'declined' | 'skipped' | 'left' | 'removed' | 'closed'
 
@@ -110,7 +111,6 @@ export interface Waitlist {
 
 const kv = makeKvStore('waitlists', 'waitlists')
 const key = (classId: string) => `wl-${classId}`
-const ATTEMPTS = 3
 export const WAITLIST_RETRY = 'Concurrent update — please retry'
 
 // One server runs a class's read-modify-write one at a time; across servers the conditional write keeps it right.
@@ -143,7 +143,8 @@ export async function mutateWaitlist<T>(classId: string, fn: (cur: Waitlist) => 
   assertClassWritesAllowed() // R41: a test site with no store of its own never writes the live waitlist
   const k = key(classId)
   return withLock(k, async () => {
-    for (let i = 0; i < ATTEMPTS; i++) {
+    for (let i = 0; i < CAS_ATTEMPTS; i++) {
+      await casPause(i)
       const { value, etag } = await kv.getWithMeta(k)
       const { next, result } = fn(parse(classId, value))
       if (!next) return result

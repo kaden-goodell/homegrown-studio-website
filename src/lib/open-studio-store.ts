@@ -10,6 +10,7 @@
 import { createLogger } from '@lib/logger'
 import { makeKvStore } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('open-studio-store')
 const kv = makeKvStore('open-studio', 'open-studio')
@@ -45,7 +46,8 @@ export async function checkInOpenStudio(
   by: By,
 ): Promise<OpenStudioDay> {
   const k = key(date)
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(k)
     const day: OpenStudioDay = value ? JSON.parse(value) : {}
     day[recordId] = { personIds, at: new Date().toISOString(), by }

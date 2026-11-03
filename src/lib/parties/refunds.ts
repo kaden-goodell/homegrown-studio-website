@@ -269,6 +269,7 @@ export async function recordSquarePartyRefund(
 ): Promise<Cents> {
   let added = 0
   await updatePartyRecord(partyId, (r) => {
+    added = 0 // reset on every CAS try
     if ((r.refunds ?? []).some((f) => f.squareRefundId === refund.id)) return null
     added = refund.cents
     const entry: PartyRefund = {

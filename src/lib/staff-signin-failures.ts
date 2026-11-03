@@ -15,6 +15,7 @@
 import { makeKvStore } from '@lib/blob-store'
 import { classWritesRefusal } from '@lib/classes/test-site-guard'
 import { createLogger } from '@lib/logger'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('staff-signin-failures')
 const kv = makeKvStore('staff-access', 'staff-access')
@@ -51,7 +52,8 @@ export async function noteFailedSignIn(now = new Date()): Promise<void> {
   if (classWritesRefusal()) return
   const day = studioDay(now)
   try {
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+      await casPause(attempt)
       const { value, etag } = await kv.getWithMeta(KEY)
       const cur = read(value)
       const count = cur && cur.day === day ? Math.min(cur.count + 1, CAP) : 1

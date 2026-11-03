@@ -27,6 +27,7 @@ import { makeKvStore } from '@lib/blob-store'
 import { classWritesRefusal } from '@lib/classes/test-site-guard'
 import { createLogger } from '@lib/logger'
 import { studioDay } from '@lib/staff-signin-failures'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('admin-signin-failures')
 const kv = makeKvStore('admin-access', 'admin-access')
@@ -70,7 +71,8 @@ export async function noteAdminFailedSignIn(now = new Date()): Promise<void> {
   const day = studioDay(now)
   let tell = false
   try {
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+      await casPause(attempt)
       const { value, etag } = await kv.getWithMeta(KEY)
       const cur = read(value)
       const same = cur && cur.day === day

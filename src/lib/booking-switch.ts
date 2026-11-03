@@ -23,11 +23,11 @@ import { createLogger } from '@lib/logger'
 import { SettingsError } from '@lib/settings-error'
 import type { By } from '@lib/staff-auth'
 import { siteConfig } from '@config/site.config'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('booking-switch')
 const kv = makeKvStore('site-switches', 'site-switches')
 const KEY = 'switches'
-const ATTEMPTS = 3
 export const SWITCH_CACHE_MS = 30_000
 export const SWITCH_HISTORY_CAP = 50
 export const PAUSE_NOTE_MAX = 140
@@ -301,7 +301,8 @@ export async function saveSwitches(
   opts: { expectedUpdatedAt: string | null; by: By; now?: Date },
 ): Promise<{ saved: SwitchState; before: SwitchState; changed: string[] }> {
   assertClassWritesAllowed() // R41: a test site never writes the live switch
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(KEY)
     let cur: SwitchDoc | null
     let damaged = false

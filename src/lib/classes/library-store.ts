@@ -5,6 +5,7 @@ import { contentChanges } from './content-diff'
 import type { ClassContent, LibraryClass } from './types'
 import { newId, validateContent } from './validate'
 import { assertClassWritesAllowed } from './test-site-guard'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const kv = makeKvStore('class-library', 'class-library')
 const key = (id: string) => `lib-${id}`
@@ -19,7 +20,8 @@ function checked(content: unknown): ClassContent {
 async function mutate(id: string, fn: (cur: LibraryClass | null) => LibraryClass): Promise<LibraryClass> {
   assertClassWritesAllowed() // R41
   const k = key(id)
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(k)
     const next = fn(value ? (JSON.parse(value) as LibraryClass) : null)
     if (await kv.setIfMatch(k, JSON.stringify(next), etag, value !== null)) return next
@@ -58,6 +60,7 @@ export async function saveLibraryVersion(input: { id?: string; createId?: string
   const id = input.id ?? input.createId ?? newId('lib')
   let same: LibraryClass | null = null
   const saved = await mutate(id, (cur) => {
+    same = null // reset on every CAS try
     if (input.createId && !input.id && cur) { same = cur; return cur }
     if (input.id && !cur) throw new Error('That class is not in the library.')
     if (input.expectedVersion !== undefined && cur && cur.versions[cur.versions.length - 1]?.version !== input.expectedVersion) throw new LibraryStaleError()

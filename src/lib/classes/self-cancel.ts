@@ -47,6 +47,7 @@ import { RefundError, REFUND_JUST_MADE, SQUARE_NO_ANSWER, SQUARE_TURNED_DOWN, ST
 import { assertClassWritesAllowed } from './test-site-guard'
 import { cancelToken, readCancelToken } from './self-cancel-token'
 import { bookingLinesOf, cancelOptions, cancelSplit, pickedSeats, wallHoursBetween, type CancelOptions, type CancelSeat } from './self-cancel-rules'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('classes:self-cancel')
 
@@ -126,7 +127,8 @@ async function mutate<T>(base: Omit<CancelRecord, 'tries' | 'asks' | 'updatedAt'
   assertClassWritesAllowed()
   const k = keyOf(base.bookingId)
   return withLock(k, async () => {
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < CAS_ATTEMPTS; i++) {
+      await casPause(i)
       const { value, etag } = await kv.getWithMeta(k)
       const cur: CancelRecord = value ? (JSON.parse(value) as CancelRecord) : { ...base, tries: [], asks: [], updatedAt: '' }
       const { next, result } = fn(cur)

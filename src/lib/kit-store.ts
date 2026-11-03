@@ -18,6 +18,7 @@ import { isPreviewOrDev } from '@lib/deploy-context'
 import { makeKvStore, type KvStore } from '@lib/blob-store'
 import { availabilityFor, CLAIM_TTL_MS, type WeekClaim, type LedgerRecord } from '@lib/kit-ledger'
 import type { By } from '@lib/staff-auth'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('kit-store')
 
@@ -118,7 +119,8 @@ export async function listKitOrders(): Promise<KitOrderRecord[]> {
 
 /** Apply a mutation to an order with optimistic concurrency (3 attempts). */
 export async function mutateKitOrder(orderId: string, fn: (o: KitOrderRecord) => void | Promise<void>): Promise<KitOrderRecord> {
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(orderId)
     if (!value) throw new Error(`Kit order not found: ${orderId}`)
     const record = JSON.parse(value) as KitOrderRecord
@@ -180,7 +182,8 @@ export async function claimWeek(params: {
   const now = params.now ?? Date.now()
   const key = claimsKey(ledgerThemeId, weekKey)
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(key)
     const existing = parseClaims(value)
     if (existing.some((c) => c.ref === ref)) return 'ok' // idempotent retry
@@ -198,7 +201,8 @@ export async function claimWeek(params: {
 }
 
 async function mutateClaims(key: string, fn: (claims: WeekClaim[]) => WeekClaim[]): Promise<void> {
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(key)
     const next = fn(parseClaims(value))
     if (await kv.setIfMatch(key, JSON.stringify(next), etag, value !== null)) return

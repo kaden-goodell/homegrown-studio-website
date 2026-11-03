@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { CAS_ATTEMPTS } from '@lib/cas-retry'
 
 /** An in-memory blob store with real etags, so compare-and-set is really tested. */
 const fake = vi.hoisted(() => {
@@ -117,9 +118,9 @@ describe('party settings store', () => {
     expect((await getPartySettings()).packages[0].priceCents).toBe(40000)
   })
 
-  it('gives up after three lost writes, saying so', async () => {
+  it('gives up after every try is lost, saying so', async () => {
     const { saved: first } = await savePartySettings(input(), { expectedUpdatedAt: null, by: KADEN })
-    fake.state.loseNext = 3
+    fake.state.loseNext = CAS_ATTEMPTS
     const err = await savePartySettings(input(40000), { expectedUpdatedAt: first.updatedAt, by: KADEN }).catch((e) => e)
     expect(err).toBeInstanceOf(SettingsError)
     expect(err.status).toBe(503)

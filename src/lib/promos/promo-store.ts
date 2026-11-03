@@ -31,13 +31,13 @@ import { alertOwners } from '@lib/owner-alert'
 import { createLogger } from '@lib/logger'
 import { normalizeCode, validatePromo } from './rules'
 import type { PromoCode, PromoFields, PromoUses } from './types'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('promos:store')
 const codes = makeKvStore('promo-codes', 'promo-codes')
 const usesKv = makeKvStore('promo-uses', 'promo-uses')
 const codeKey = (code: string) => `code-${code}`
 const usesKey = (code: string) => `uses-${code}`
-const ATTEMPTS = 3
 const RETRY = 'Concurrent update — please retry'
 const HISTORY_CAP = 100
 
@@ -124,7 +124,8 @@ export async function savePromo(input: unknown, by: By, expectedUpdatedAt: strin
     return p
   }
 
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await codes.getWithMeta(k)
     if (!value) throw new PromoSaveError(404, 'That code is gone. Reload and try again.')
     const cur = JSON.parse(value) as PromoCode
@@ -153,7 +154,8 @@ async function mutateUses<T>(raw: string, fn: (cur: PromoUses) => { next: PromoU
   const code = normalizeCode(raw)
   if (!code) throw new Error('That code is not readable.')
   const k = usesKey(code)
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await usesKv.getWithMeta(k)
     const cur: PromoUses = value ? JSON.parse(value) : { code, used: [], holds: [] }
     const { next, result } = fn(cur)

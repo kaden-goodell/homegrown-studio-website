@@ -37,6 +37,7 @@ import { makeKvStore } from '@lib/blob-store'
 import { assertClassWritesAllowed } from '@lib/classes/test-site-guard'
 import { clashes, clashMessage, type Busy } from '@lib/classes/studio-schedule'
 import { localDate, PARTY_CLEANUP_MINUTES } from './party-times'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 export interface PartyHold {
   partyId: string
@@ -50,7 +51,7 @@ export interface PartyHold {
 interface MonthDoc { month: string; holds: PartyHold[] }
 
 const kv = makeKvStore('party-book', 'party-book')
-const ATTEMPTS = 3
+const ATTEMPTS = CAS_ATTEMPTS
 const RETRY = 'Concurrent update — please retry'
 const TAKEN = 'That party time was just taken. Please pick another time.'
 const MIDNIGHT = 'A party and its hour of cleanup have to finish by midnight.'
@@ -111,6 +112,7 @@ async function mutate<T>(month: string, fn: (cur: MonthDoc) => { next: MonthDoc 
   const k = keyOf(month)
   return withLock(k, async () => {
     for (let i = 0; i < attempts; i++) {
+      await casPause(i)
       const { value, etag } = await timed(kv.getWithMeta(k))
       const { next, result } = fn(parse(month, value))
       if (!next) return result

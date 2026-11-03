@@ -22,11 +22,11 @@ import type { By } from '@lib/staff-auth'
 import { SettingsError } from '@lib/settings-error'
 import { configPartySettings, describePartyChanges } from './party-times'
 import type { PartySettings, PartySettingsInput } from './types'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('party-settings')
 const kv = makeKvStore('party-settings', 'party-settings')
 const KEY = 'settings'
-const ATTEMPTS = 3
 export const PARTY_SETTINGS_CACHE_MS = 60_000
 export const PARTY_HISTORY_CAP = 50
 
@@ -82,7 +82,8 @@ export async function savePartySettings(
   opts: { expectedUpdatedAt: string | null; by: By; now?: Date },
 ): Promise<{ saved: PartySettings; changed: string[] }> {
   assertClassWritesAllowed() // R41: never the live party times from a test site
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(KEY)
     const cur = value ? parse(value) : null
     if ((cur?.updatedAt ?? null) !== (opts.expectedUpdatedAt ?? null)) {
