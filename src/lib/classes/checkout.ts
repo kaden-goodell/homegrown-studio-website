@@ -28,11 +28,38 @@ export const CLASS_TAX_PERCENT = 9
 export { HOLD_MINUTES, PRICE_DRIFT_TOLERANCE_CENTS, UNCLEAR_HOLD_HOURS } from '@lib/booking-core/charge'
 
 /**
+ * Final review C2: the same person (by email) on the same class, a few
+ * minutes apart, with a different attempt. Usually the panel was closed or
+ * the page reloaded while the first payment was going through, and the new
+ * try would charge again. A live hold of theirs → "still going through"; a
+ * booking of theirs from the last few minutes → ask before booking again
+ * (they may really want more seats: `confirmRepeat` lets that through).
+ */
+export const RECENT_BOOKING_MINUTES = 10
+export const STILL_GOING_THROUGH_MESSAGE =
+  'Your last payment for this class is still going through. Give it a minute, then check your email before trying again. Nothing was charged this time.'
+export const RECENT_CLASS_BOOKING_MESSAGE =
+  'You booked this class a few minutes ago. Check your email for the confirmation. Nothing was charged this time. Book more seats only if you meant to.'
+
+export function recentSamePerson(lines: LedgerLine[], bookingId: string, email: string, now: Date): 'held' | 'booked' | null {
+  const who = email.trim().toLowerCase()
+  if (!who) return null
+  const since = now.getTime() - RECENT_BOOKING_MINUTES * 60_000
+  let found: 'held' | 'booked' | null = null
+  for (const l of lines) {
+    if (l.bookingId === bookingId || l.customer?.email?.trim().toLowerCase() !== who) continue
+    if (l.state === 'held' && l.holdExpiresAt && Date.parse(l.holdExpiresAt) > now.getTime()) return 'held'
+    if (l.state === 'confirmed' && Date.parse(l.at) >= since) found = 'booked'
+  }
+  return found
+}
+
+/**
  * More answers than the shared codes: a try with this attempt is still
  * running; a code that doesn't work (stage 4); the total went up since the
  * page showed it (stage 4, review I2: nothing charged, the new total sent).
  */
-export type ClassCheckoutCode = CheckoutErrorCode | 'in_progress' | 'promo' | 'price_changed'
+export type ClassCheckoutCode = CheckoutErrorCode | 'in_progress' | 'promo' | 'price_changed' | 'recent_booking'
 
 export const classMessages: Record<ClassCheckoutCode, string> = {
   ...workshopMessages,
@@ -41,6 +68,7 @@ export const classMessages: Record<ClassCheckoutCode, string> = {
   in_progress: 'We’re still finishing your last try. Give it a minute, then check your email before trying again.',
   promo: 'That code isn\'t valid. Nothing was charged.',
   price_changed: 'The price changed. Nothing was charged. Check the new total, then try again.',
+  recent_booking: 'You booked this class a few minutes ago. Check your email for the confirmation. Nothing was charged this time. Book more seats only if you meant to.',
 }
 
 /**

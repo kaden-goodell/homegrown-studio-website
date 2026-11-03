@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useState } from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import ClassBookingPanel from '@components/classes/ClassBookingPanel'
 import { toPublicClass } from '@lib/classes/public-view'
 import { defaultRules } from '@lib/classes/validate'
@@ -87,6 +87,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   _forgetContact()
+  sessionStorage.clear()
   vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -252,7 +253,7 @@ describe('ClassBookingPanel — paying', () => {
   it.each([
     ['unknown_outcome', 502, 'We’re not sure that went through. Check your email before trying again.'],
     ['in_progress', 409, 'We’re still finishing your last try. Give it a minute, then check your email before trying again.'],
-  ])('after %s it says the server’s words and offers only Close, no paying again', async (code, status, detail) => {
+  ])('after %s it says the server’s words and offers Check again and Close, no paying again', async (code, status, detail) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(serverSays(status as number, { code, detail })))
     const { onClose } = open()
     cont()
@@ -510,7 +511,7 @@ describe('ClassBookingPanel — stage 4: early-bird, codes, free, the price chan
     const cls = make({ ...onePass, earlyBird: { untilYmd: '2026-10-22', prices: { all: { person: 3000 } } } })
     open(cls)
     expect(screen.getByText('$40', { selector: 's' })).toBeInTheDocument()
-    expect(screen.getByText(/\$30 each, early-bird until Thu Oct 22/)).toBeInTheDocument()
+    expect(screen.getByText(/\$30 each, early-bird through Thu Oct 22/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^Continue/ })).toHaveTextContent(/Continue · \$30(\.00)?$/)
     cont()
     await screen.findByTestId('payment-form')
@@ -528,7 +529,10 @@ describe('ClassBookingPanel — stage 4: early-bird, codes, free, the price chan
     vi.stubGlobal('fetch', fetchMock)
     await toPay(cls)
     await applyCode('fall-friends')
-    await screen.findByText(/Code FALLFRIENDS/)
+    await screen.findByTestId('discount-row')
+    // VoiceOver hears what changed, and focus lands on the Pay button (final review I17).
+    expect(screen.getByText('Code FALLFRIENDS applied. New total $32.70.')).toBeInTheDocument()
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Pay $32.70' })))
     expect(JSON.parse((fetchMock.mock.calls[0] as any)[1].body)).toMatchObject({ classId: 'cls_1', code: 'fall-friends', request: { passId: 'all', tickets: { person: 1 } } })
     expect(screen.getAllByTestId('discount-row').map((r) => r.textContent)).toEqual(['Code FALLFRIENDS Remove−$10'])
     fireEvent.click(screen.getByRole('button', { name: 'Pay $32.70' }))
@@ -546,6 +550,8 @@ describe('ClassBookingPanel — stage 4: early-bird, codes, free, the price chan
     fireEvent.click(screen.getByRole('button', { name: 'Remove Code FALLFRIENDS' }))
     expect(screen.getByRole('button', { name: 'Pay $43.60' })).toBeInTheDocument()
     expect(screen.queryByTestId('discount-row')).toBeNull()
+    expect(screen.getByText('Code removed. New total $43.60.')).toBeInTheDocument()
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Have a code?' })))
   })
 
   it('a code that doesn\'t work says so kindly and changes nothing; Enter in the field never pays', async () => {
@@ -694,7 +700,7 @@ describe('ClassBookingPanel — stage 4 waitlist', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Join the waitlist' }))
     expect(await screen.findByText('The price changed to $25.07. Check it and tick the box again. Nothing was charged.')).toBeInTheDocument()
     expect(screen.getByTestId('waitlist-consent')).toHaveTextContent('charges this card up to $25.07, even if the price goes up later, without asking again')
-    expect(screen.getByText(/Up to \$25\.07, tax included, charged only if a spot opens\./)).toBeInTheDocument()
+    expect(screen.getByText(/Never more than \$25\.07, charged only if a spot opens\./)).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: /Save my card with Square/ })).not.toBeChecked()
     expect(screen.queryByText('You’re on the waitlist')).toBeNull()
   })
@@ -725,5 +731,112 @@ describe('ClassBookingPanel — stage 4 waitlist', () => {
     const workshop = toPublicClass(cls, { classId: cls.id, lines: taken(2, ['ses_a']) }, NOW, { door: true })
     render(<ClassBookingPanel workshop={workshop} onClose={vi.fn()} syncUrl={false} door />)
     expect(screen.queryByTestId('waitlist-note')).toBeNull()
+  })
+})
+
+describe('ClassBookingPanel — leaving during payment can never charge twice (final review C2)', () => {
+  async function toPayStep() {
+    cont()
+    await screen.findByTestId('payment-form')
+    fillContact()
+  }
+
+  it('while Pay is running, × and Escape say the payment is going through and keep the panel open', async () => {
+    let answer!: (v: unknown) => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => { answer = resolve })))
+    const { onClose } = open()
+    await toPayStep()
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $43.60' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Processing…' })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    const note = screen.getByRole('alertdialog', { name: 'Your payment is going through' })
+    expect(note).toHaveTextContent('Stay on this page. It only takes a moment.')
+    expect(screen.queryByText(/Nothing is saved until you pay/)).toBeNull()
+    // One button only: nothing here closes the panel.
+    expect(note.querySelectorAll('button')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }))
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByRole('alertdialog', { name: 'Your payment is going through' })).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+    answer(bookedReply())
+    await screen.findByText('You’re booked')
+  })
+
+  it('asks the browser to confirm before leaving the page mid-payment', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => undefined)))
+    open()
+    await toPayStep()
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $43.60' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Processing…' })).toBeInTheDocument())
+    const ev = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+  })
+
+  it('Check again sends the very same request (same attempt, same card token) and shows the booking', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(serverSays(502, { code: 'unknown_outcome', detail: 'We’re not sure that went through.' }))
+      .mockResolvedValueOnce(bookedReply())
+    vi.stubGlobal('fetch', fetchMock)
+    open()
+    await toPayStep()
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $43.60' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Check again' }))
+    await screen.findByText('You’re booked')
+    expect(fetchMock.mock.calls[1][1].body).toBe(fetchMock.mock.calls[0][1].body)
+  })
+
+  it('reopened after an unclear answer, the same booking sends the same attempt id, with a note to check email first', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(serverSays(502, { code: 'unknown_outcome', detail: 'We’re not sure that went through.' }))
+      .mockResolvedValueOnce(bookedReply())
+    vi.stubGlobal('fetch', fetchMock)
+    const first = open()
+    await toPayStep()
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $43.60' }))
+    await screen.findByRole('button', { name: 'Check again' })
+    const closes = screen.getAllByRole('button', { name: 'Close' })
+    fireEvent.click(closes[closes.length - 1])
+    expect(first.onClose).toHaveBeenCalled()
+    cleanup()
+    open()
+    await toPayStep()
+    expect(screen.getByTestId('earlier-pending')).toHaveTextContent('Your last payment for this class may still be going through. Check your email for a receipt before you pay again.')
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $43.60' }))
+    await screen.findByText('You’re booked')
+    const ids = fetchMock.mock.calls.map((c) => JSON.parse(c[1].body).attemptId)
+    expect(ids[1]).toBe(ids[0])
+    // Booked: the tab forgets it.
+    expect(Object.keys(sessionStorage).filter((k) => k.startsWith('hs-pending-attempt:'))).toEqual([])
+  })
+
+  it('a "slow down" (429) keeps the attempt, so the next tap is recognised as the same try', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(serverSays(429, { code: 'unavailable', detail: 'That’s a lot of attempts in a row. Give it a minute, then try again.' }))
+      .mockResolvedValueOnce(bookedReply())
+    vi.stubGlobal('fetch', fetchMock)
+    open()
+    await toPayStep()
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $43.60' }))
+    await screen.findByText(/a lot of attempts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $43.60' }))
+    await screen.findByText('You’re booked')
+    const ids = fetchMock.mock.calls.map((c) => JSON.parse(c[1].body).attemptId)
+    expect(ids[1]).toBe(ids[0])
+  })
+
+  it('the same person booked minutes ago: nothing charged, they choose to book again, and the retry says so', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(serverSays(409, { code: 'recent_booking', detail: 'You booked this class a few minutes ago. Check your email for the confirmation. Nothing was charged this time.' }))
+      .mockResolvedValueOnce(bookedReply())
+    vi.stubGlobal('fetch', fetchMock)
+    open()
+    await toPayStep()
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $43.60' }))
+    expect(await screen.findByTestId('recent-booking')).toHaveTextContent('You booked this class a few minutes ago.')
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, book these seats too' }))
+    await screen.findByText('You’re booked')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).confirmRepeat).toBeUndefined()
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).confirmRepeat).toBe(true)
   })
 })

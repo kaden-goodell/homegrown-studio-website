@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'rea
 import { agesLabel } from '@lib/workshop-copy'
 import { checkoutPolicySummary, POLICY_PATH, POLICY_ANCHORS } from '@config/policy-content'
 import { STUDIO_ADDRESS, STUDIO_ADDRESS_LINE, STUDIO_DIRECTIONS_URL } from '@config/studio-address'
-import { newAttemptId } from '@lib/checkout-attempt'
+import { attemptIdFor, forgetPendingAttempt, newAttemptId, pendingAttempt, rememberPendingAttempt } from '@lib/checkout-attempt'
 import { messageForFailure, outcomeUnknown, workshopMessages, UNKNOWN_OUTCOME_MESSAGE } from '@lib/checkout-messages'
 import { contactStarted, EMPTY_CONTACT, type Contact } from '@lib/contact-rules'
 import { rememberContact, rememberedContact } from '@lib/remembered-contact'
@@ -15,7 +15,8 @@ import { quote, type BookingRequest, type Quote } from '@lib/classes/pricing'
 import { asScheduledClass, currentPriceCents, type OwnClassData, type PublicPass } from '@lib/classes/public-class'
 import { shortDay } from '@lib/classes/chicago-day'
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
-import BookingPanel from '@components/shared/BookingPanel'
+import BookingPanel, { PAYMENT_GOING_THROUGH } from '@components/shared/BookingPanel'
+import { pluralWord } from '@lib/ticket-types'
 import BookingConfirmed, { ConfirmedBlock } from '@components/shared/BookingConfirmed'
 import ContactFields, { type ContactFieldsHandle } from '@components/shared/ContactFields'
 import PaymentForm from '@components/checkout/PaymentForm'
@@ -70,6 +71,11 @@ const STEP_NAMES: Record<Step, string> = { details: 'Details', seats: 'For each 
 /** Stage 4: the last step when they're joining the waitlist instead of paying. */
 const WAITLIST_STEP_NAME = 'Your details and card'
 const POLICY_UNTICKED = 'Tick the box to agree to the booking and cancellation policy.'
+/** While the card is being saved for the waitlist (nothing charged). */
+const SAVING_CARD = { title: 'Saving your card', body: 'Stay on this page. It only takes a moment.' }
+/** C2: an earlier payment for this class from this tab never got a clear answer. */
+const EARLIER_PENDING = 'Your last payment for this class may still be going through. Check your email for a receipt before you pay again.'
+const visuallyHidden = { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' } as const
 
 /** What the server says about a class booking it couldn't finish; its own sentence wins. */
 const CLASS_MESSAGES = {
@@ -312,12 +318,40 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
 
   // One attempt id per checkout. While we don't know how a try ended, a retry
   // sends the same id, so the server can never charge twice. Changing what is
-  // being booked starts a new one.
-  const attemptId = useRef(newAttemptId())
+  // being booked starts a new one. C2: the id of a try still going through is
+  // kept for this tab, so closing, reloading or swiping back and booking the
+  // same seats again resumes that try instead of charging twice. Never at the
+  // door: the shared iPad carries nothing from one customer to the next.
   const shape = JSON.stringify([passId, picked, counts, seats])
+  const scope = door ? null : `class:${own.classId}`
+  const attemptId = useRef<string>('')
+  if (!attemptId.current) attemptId.current = scope ? attemptIdFor(scope, shape) : newAttemptId()
   useEffect(() => {
-    attemptId.current = newAttemptId()
+    attemptId.current = scope ? attemptIdFor(scope, shape) : newAttemptId()
   }, [shape])
+  /** That attempt is over (booked, or nothing charged): forget it, and the next try is a new one. */
+  function endAttempt() {
+    if (scope) forgetPendingAttempt(scope, attemptId.current)
+    attemptId.current = newAttemptId()
+  }
+  // An earlier try from this tab that never got a clear answer (the panel was closed or the page reloaded).
+  const [earlierPending] = useState(() => (scope ? pendingAttempt(scope) : null))
+  // The last booking request, so "Check again" can send the very same one (same attempt, same card token).
+  const lastBody = useRef<string | null>(null)
+  const [checking, setChecking] = useState(false)
+  // The server saw a booking by the same person for this class minutes ago: they say whether to book again.
+  const [repeatAsk, setRepeatAsk] = useState<string | null>(null)
+  const confirmRepeat = useRef(false)
+  // VoiceOver: what just changed with the code, and where focus goes next.
+  const [codeStatus, setCodeStatus] = useState('')
+  const [focusNext, setFocusNext] = useState<null | 'pay' | 'code'>(null)
+  const payButtonRef = useRef<HTMLButtonElement>(null)
+  const haveCodeRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!focusNext) return
+    ;(focusNext === 'pay' ? payButtonRef.current : haveCodeRef.current)?.focus()
+    setFocusNext(null)
+  }, [focusNext])
 
   // What the Pay button, the summary and the wallet say: the server's total after "the price changed", else
   // the server's price with the code, else the same quote the server makes (early-bird included).
@@ -442,7 +476,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
 
   const ticketsLabel = own.ticketTypes.length <= 1
     ? plural(total, 'seat')
-    : own.ticketTypes.filter((t) => (counts[t.id] ?? 0) > 0).map((t) => plural(counts[t.id], t.label)).join(', ')
+    : own.ticketTypes.filter((t) => (counts[t.id] ?? 0) > 0).map((t) => `${counts[t.id]} ${counts[t.id] === 1 ? t.label : pluralWord(t.label)}`).join(', ')
 
   /** The details step is in order: says what isn't. */
   function detailsReady(): boolean {
@@ -548,11 +582,16 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
       })
       const body = await res.json().catch(() => null)
       if (res.ok && body?.data?.quote) {
-        setApplied({ code: String(body.data.code), quote: body.data.quote as Quote, shape })
+        const newQuote = body.data.quote as Quote
+        setApplied({ code: String(body.data.code), quote: newQuote, shape })
         setRepriced(null)
         setCodeOpen(false)
         setCodeText('')
         setError(null)
+        if (!quiet) {
+          setCodeStatus(`Code ${String(body.data.code)} applied. New total ${formatMoney(newQuote.totalCents, workshop.currency)}.`)
+          setFocusNext('pay')
+        }
         return
       }
       setApplied(null)
@@ -571,6 +610,8 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     setApplied(null)
     setRepriced(null)
     setCodeError(null)
+    setCodeStatus(q ? `Code removed. New total ${formatMoney(q.totalCents, workshop.currency)}.` : 'Code removed.')
+    setFocusNext('code')
   }
 
   /**
@@ -688,12 +729,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
       }
       if (sourceKind !== 'free') tr.trackAddPaymentInfo('workshop', shown.totalCents / 100, sourceKind)
 
-      let res: Response
-      try {
-        res = await fetch(door ? '/api/classes/book.json?door=1' : '/api/classes/book.json', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+      const requestBody = JSON.stringify({
             classId: own.classId,
             passId,
             sessionIds: choose ? picked : [],
@@ -714,7 +750,46 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
             attribution: readAttribution(),
             posthogId: posthogId(),
             sourceKind,
-          }),
+            ...(confirmRepeat.current ? { confirmRepeat: true } : {}),
+          })
+      await sendBooking(requestBody)
+    } catch (err) {
+      tr.trackPaymentFailed(err instanceof Error ? err.message : 'unknown')
+      setError(err instanceof Error ? err.message : workshopMessages.unavailable)
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  /** "Check again" after an unclear answer: the very same request, so the server answers with that try's result. */
+  async function checkAgain() {
+    if (!lastBody.current || processing) return
+    setChecking(true)
+    setProcessing(true)
+    setStuck(null)
+    try {
+      await sendBooking(lastBody.current)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : workshopMessages.unavailable)
+    } finally {
+      setChecking(false)
+      setProcessing(false)
+    }
+  }
+
+  /** Sends one booking request and shows what came of it. Throws the message for a plain "nothing charged". */
+  async function sendBooking(requestBody: string) {
+    if (!q || !shown) return
+    lastBody.current = requestBody
+    setRepeatAsk(null)
+    // Until a plain answer comes back, this attempt is going through (kept for this tab).
+    if (scope) rememberPendingAttempt(scope, attemptId.current, shape)
+      let res: Response
+      try {
+        res = await fetch(door ? '/api/classes/book.json?door=1' : '/api/classes/book.json', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: requestBody,
         })
       } catch {
         // The request left and nothing came back. It may have gone through.
@@ -727,9 +802,15 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
         const failure = { status: res.status, body }
         // Unclear, or the first try still running: the same attempt id, so a
         // retry can't charge twice. Anything definite: that attempt is over.
-        const keep = outcomeUnknown(failure) || body?.code === 'in_progress'
-        if (!keep) attemptId.current = newAttemptId()
+        // A "slow down" (429) never says how an earlier try ended: keep the attempt too.
+        const keep = outcomeUnknown(failure) || body?.code === 'in_progress' || res.status === 429
+        if (!keep) endAttempt()
         if (body?.code) tr.trackBookingProblem('workshop', String(body.code))
+        // C2: the same person booked this class minutes ago. Nothing was charged; they say whether to book again.
+        if (body?.code === 'recent_booking') {
+          setRepeatAsk(typeof body.detail === 'string' ? body.detail : CLASS_MESSAGES.already_booked)
+          return
+        }
         // The total went up (an early-bird or a code ended): show the new one and let them pay it. Nothing was charged.
         if (body?.code === 'price_changed' && body.quote && typeof body.quote.totalCents === 'number') {
           setRepriced({ quote: body.quote as Quote, shape, code: codeQ ? applied!.code : null, note: String(body.detail ?? '') })
@@ -744,7 +825,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           return
         }
         const message = messageForFailure(failure, CLASS_MESSAGES)
-        if (keep) {
+        if (keep && res.status !== 429) {
           setStuck(message)
           return
         }
@@ -757,6 +838,8 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
         setStuck(UNKNOWN_OUTCOME_MESSAGE)
         return
       }
+      endAttempt()
+      confirmRepeat.current = false
       const charged = typeof data.totalChargedCents === 'number' ? data.totalChargedCents : null
       setBooked({
         bookingId: data.bookingId ?? null,
@@ -780,12 +863,6 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
       })
       tr.trackWorkshopSeatBooked(workshop.name, paid)
       tr.trackBookingCompleted('workshop')
-    } catch (err) {
-      tr.trackPaymentFailed(err instanceof Error ? err.message : 'unknown')
-      setError(err instanceof Error ? err.message : workshopMessages.unavailable)
-    } finally {
-      setProcessing(false)
-    }
   }
 
   // ── Booked ────────────────────────────────────────────────────────────────
@@ -811,7 +888,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
         heading="You’re booked"
         what={
           <>
-            {b.ticketsLabel ?? ticketsLabel} for <strong>{workshop.name}</strong>, {paid === 0 ? 'free' : `${formatMoney(paid, workshop.currency)} paid${own.taxPercent > 0 ? ', tax included' : ''}`}.
+            {b.ticketsLabel ?? ticketsLabel} for <strong>{workshop.name}</strong>, {paid === 0 ? 'free' : `${formatMoney(paid, workshop.currency)} paid`}.
           </>
         }
         email={contact.email.trim()}
@@ -875,7 +952,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
       >
         <div style={{ marginTop: '1.25rem' }}>
           <ConfirmedBlock label="If a spot opens">
-            We add you, charge your card and send you a text and an email right away. If no spot opens, nothing is charged and your card comes off.
+            If a spot opens before the waitlist closes, we add you, charge your card, and text and email you. If no spot opens, nothing is charged and your card comes off.
           </ConfirmedBlock>
           <ConfirmedBlock label="Changed your mind?">
             The email we sent has a link to leave the waitlist.
@@ -957,7 +1034,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           <div style={{ display: 'grid', gap: '0.75rem' }}>
             {types.map((t) => {
               const n = counts[t.id] ?? 0
-              const word = own.ticketTypes.length <= 1 ? 'Seats' : `${t.label}s`
+              const word = own.ticketTypes.length <= 1 ? 'Seats' : pluralWord(t.label)
               return (
                 <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
                   <div>
@@ -969,8 +1046,9 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
                         if (now >= regular) return `${formatMoney(regular, workshop.currency)} each`
                         return (
                           <>
-                            <s aria-label={`was ${formatMoney(regular, workshop.currency)}`}>{formatMoney(regular, workshop.currency)}</s>{' '}
-                            {`${formatMoney(now, workshop.currency)} each, early-bird${own.earlyBird?.untilYmd ? ` until ${shortDay(own.earlyBird.untilYmd)}` : ''}`}
+                            <span style={visuallyHidden}>{`Was ${formatMoney(regular, workshop.currency)}, now `}</span>
+                            <s aria-hidden="true">{formatMoney(regular, workshop.currency)}</s>{' '}
+                            {`${formatMoney(now, workshop.currency)} each, early-bird${own.earlyBird?.untilYmd ? ` through ${shortDay(own.earlyBird.untilYmd)}` : ''}`}
                           </>
                         )
                       })()}
@@ -979,7 +1057,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
                   <Counter
                     label={word.toLowerCase()}
                     value={n}
-                    spoken={plural(n, own.ticketTypes.length <= 1 ? 'seat' : t.label)}
+                    spoken={own.ticketTypes.length <= 1 ? plural(n, 'seat') : `${n} ${n === 1 ? t.label : pluralWord(t.label)}`}
                     canLess={n > 0}
                     canMore={total < maxSeats}
                     onLess={() => { setProblem(null); setCounts((c) => ({ ...c, [t.id]: Math.max(0, (c[t.id] ?? 0) - 1) })) }}
@@ -1091,7 +1169,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           {[...groups.values()].map((g, i) => (
             <div key={i} style={row}>
               <span>
-                {g.seat && own.ticketTypes.length <= 1 ? plural(g.n, 'seat') : `${g.n} ${g.seat && g.n !== 1 ? `${g.label}s` : g.label}`} × {formatMoney(g.each, workshop.currency)}
+                {g.seat && own.ticketTypes.length <= 1 ? plural(g.n, 'seat') : `${g.n} ${g.seat && g.n !== 1 ? pluralWord(g.label) : g.label}`} × {formatMoney(g.each, workshop.currency)}
               </span>
               <span>{formatMoney(g.each * g.n, workshop.currency)}</span>
             </div>
@@ -1103,7 +1181,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
                 {d.kind === 'promo' && codeQ && (
                   <>
                     {' '}
-                    <button type="button" onClick={removeCode} disabled={processing} style={{ ...linkButton, minHeight: 0, padding: 0, fontSize: '0.875rem' }} aria-label={`Remove ${d.name}`}>
+                    <button type="button" onClick={removeCode} disabled={processing} style={{ ...linkButton, minHeight: '2.75rem', minWidth: '2.75rem', padding: '0 0.25rem', fontSize: '0.875rem' }} aria-label={`Remove ${d.name}`}>
                       Remove
                     </button>
                   </>
@@ -1123,8 +1201,9 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
 
         {/* Stage 4: "Have a code?" — on the pay step only, the field opens on a tap. */}
         <div style={{ marginBottom: '1rem' }}>
+          <p role="status" aria-live="polite" style={visuallyHidden}>{codeStatus}</p>
           {!codeQ && !codeOpen && (
-            <button type="button" style={linkButton} onClick={() => { setCodeOpen(true); setCodeError(null) }} disabled={processing}>
+            <button ref={haveCodeRef} type="button" style={linkButton} onClick={() => { setCodeOpen(true); setCodeError(null) }} disabled={processing}>
               Have a code?
             </button>
           )}
@@ -1205,6 +1284,17 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
         {ebEndedNote && (
           <p role="status" data-testid="early-bird-ended" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5, fontWeight: 600, color: 'var(--color-dark)' }}>{ebEndedNote}</p>
         )}
+        {earlierPending && (
+          <p role="status" data-testid="earlier-pending" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5, fontWeight: 600, color: 'var(--color-dark)' }}>{EARLIER_PENDING}</p>
+        )}
+        {repeatAsk && (
+          <div role="alert" data-testid="recent-booking" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5, color: 'var(--color-dark)' }}>
+            <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>{repeatAsk}</p>
+            <button type="button" className="btn btn-secondary" disabled={processing} onClick={() => { confirmRepeat.current = true; setRepeatAsk(null); void handlePay() }}>
+              Yes, book these seats too
+            </button>
+          </div>
+        )}
         {serverQ && repriced?.note && (
           <p role="alert" data-testid="price-changed" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5, fontWeight: 600, color: 'var(--color-dark)' }}>{repriced.note}</p>
         )}
@@ -1231,7 +1321,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
             {workshop.name}{own.passes.length > 1 && pass ? `, ${pass.label}` : ''} · {ticketsLabel}
           </p>
           <p style={{ margin: '0.125rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>
-            {`Up to ${formatMoney(most, workshop.currency)}${own.taxPercent > 0 ? ', tax included' : ''}, charged only if a spot opens.`}
+            {`Never more than ${formatMoney(most, workshop.currency)}, charged only if a spot opens.`}
           </p>
         </div>
 
@@ -1271,7 +1361,16 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   } else if (booked) {
     footer = <button type="button" className="btn btn-primary" onClick={finish}>Done</button>
   } else if (stuck) {
-    footer = <button type="button" className="btn btn-primary" onClick={onClose}>Close</button>
+    footer = (
+      <div style={{ display: 'grid', gap: '0.5rem' }}>
+        {lastBody.current && (
+          <button type="button" className="btn btn-primary" onClick={() => void checkAgain()} disabled={checking}>
+            {checking ? 'Checking…' : 'Check again'}
+          </button>
+        )}
+        <button type="button" className={lastBody.current ? 'btn btn-secondary' : 'btn btn-primary'} onClick={onClose} disabled={checking}>Close</button>
+      </div>
+    )
   } else if (step !== 'pay') {
     // The first step shows the seats' price before tax, once, on its button; tax only on the payment step
     // (Kaden, 1 Nov 2026: never "incl. tax" here). Later steps say just Continue; the Pay button carries the total.
@@ -1290,7 +1389,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   } else {
     footer = (
       <>
-        <button type="submit" form={formId} className="btn btn-primary" disabled={processing || applying || (!free && !paymentReady) || !shown}>
+        <button ref={payButtonRef} type="submit" form={formId} className="btn btn-primary" disabled={processing || applying || (!free && !paymentReady) || !shown}>
           {processing ? 'Processing…' : free ? 'Book it' : !paymentReady ? 'Loading payment form…' : `Pay ${formatMoney(shown?.totalCents ?? 0, workshop.currency)}`}
         </button>
         <p style={{ margin: '0.5rem 0 0', textAlign: 'center', fontSize: '0.8125rem', lineHeight: 1.4, color: 'var(--color-text)' }}>{workshopRefundLine()}</p>
@@ -1304,6 +1403,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     <BookingPanel
       title={workshop.name}
       onRequestClose={booked ? finish : stuck || joined ? onClose : requestClose}
+      busy={processing ? (step === 'pay' && waitlistMode ? SAVING_CARD : PAYMENT_GOING_THROUGH) : null}
       stepKey={booked ? 'confirmed' : joined ? 'joined' : step === 'pay' && waitlistMode ? 'waitlist' : step}
       stepName={booked || joined ? undefined : step === 'pay' && waitlistMode ? WAITLIST_STEP_NAME : STEP_NAMES[step]}
       stepNumber={steps.indexOf(step) + 1}
@@ -1330,8 +1430,8 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           : null
       }
     >
-      {joined ? renderJoined() : booked ? renderConfirmation() : stuck ? (
-        <p role="alert" style={{ margin: 0, fontSize: '0.9375rem', lineHeight: 1.6, color: 'var(--color-dark)' }}>{stuck}</p>
+      {joined ? renderJoined() : booked ? renderConfirmation() : stuck || checking ? (
+        <p role="alert" style={{ margin: 0, fontSize: '0.9375rem', lineHeight: 1.6, color: 'var(--color-dark)' }}>{checking ? 'Checking…' : stuck}</p>
       ) : step === 'details' ? renderDetails() : step === 'seats' ? renderSeats() : waitlistMode ? renderWaitlist() : renderPay()}
     </BookingPanel>
   )

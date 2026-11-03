@@ -29,6 +29,9 @@ import {
   HOLD_MINUTES,
   PRICE_MISMATCH_MESSAGE,
   priceChangedMessage,
+  recentSamePerson,
+  RECENT_CLASS_BOOKING_MESSAGE,
+  STILL_GOING_THROUGH_MESSAGE,
   publicQuote,
   UNCLEAR_HOLD_HOURS,
   cleanSeats,
@@ -147,8 +150,10 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   const bookingId = bookingIdFor(attemptId)
   const now = new Date()
   let mine: LedgerLine[]
+  let everyLine: LedgerLine[]
   try {
-    mine = (await getLedger(cls.id)).lines.filter((l) => l.bookingId === bookingId)
+    everyLine = (await getLedger(cls.id)).lines
+    mine = everyLine.filter((l) => l.bookingId === bookingId)
   } catch (err) {
     logger.error('Seat ledger unreadable before booking — refusing', { classId, error: String(err) })
     return fail(502, 'unavailable')
@@ -206,6 +211,19 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     const recovered = await paidEarlier(cls, lines)
     if (recovered && recovered !== 'unknown') return recovered
     return fail(409, 'in_progress')
+  }
+
+  // ── C2: the same person a few minutes ago, with another attempt (a closed panel, a reload) ──
+  if (!door) {
+    const recent = recentSamePerson(everyLine, bookingId, email, now)
+    if (recent === 'held') {
+      logger.info('Same person still has a payment going through on this class — nothing charged', { classId: cls.id, bookingId })
+      return fail(409, 'in_progress', STILL_GOING_THROUGH_MESSAGE)
+    }
+    if (recent === 'booked' && body.confirmRepeat !== true) {
+      logger.info('Same person booked this class minutes ago — asking before a second booking', { classId: cls.id, bookingId })
+      return fail(409, 'recent_booking', RECENT_CLASS_BOOKING_MESSAGE)
+    }
   }
 
   // ── 1. The class, the quote, the cutoff ─────────────────────────────────────

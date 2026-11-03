@@ -55,7 +55,19 @@ export interface BookingPanelProps {
     onKeep: () => void
     onLeave: () => void
   } | null
+  /**
+   * A payment is going through. Close requests (×, Escape, tapping outside)
+   * don't close the panel: they show this note with a single OK, and leaving
+   * or reloading the page asks the browser to confirm first.
+   */
+  busy?: { title: string; body: string } | null
   children: ReactNode
+}
+
+/** What the panel says when someone tries to leave while a payment is going through. */
+export const PAYMENT_GOING_THROUGH = {
+  title: 'Your payment is going through',
+  body: 'Stay on this page. It only takes a moment.',
 }
 
 const FOCUSABLE =
@@ -97,6 +109,7 @@ export default function BookingPanel({
   footer,
   width = 'narrow',
   leavePrompt,
+  busy = null,
   children,
 }: BookingPanelProps) {
   const titleId = useId()
@@ -105,12 +118,40 @@ export default function BookingPanel({
   const scrollRef = useRef<HTMLDivElement>(null)
   const stepHeadingRef = useRef<HTMLParagraphElement>(null)
   const keepRef = useRef<HTMLButtonElement>(null)
+  const promptRef = useRef<HTMLDivElement>(null)
+  const [busyNote, setBusyNote] = useState(false)
   const sheet = usePhoneSheet()
   const reducedMotion = useReducedMotion()
 
+  // While a payment is going through, a close request shows the "stay here" note instead.
+  const requestClose = () => {
+    if (busy) setBusyNote(true)
+    else onRequestClose()
+  }
+  useEffect(() => {
+    if (!busy) setBusyNote(false)
+  }, [!!busy])
+  // Leaving or reloading the page mid-payment: the browser asks first.
+  useEffect(() => {
+    if (!busy) return
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [!!busy])
+
+  // The prompt on screen: the busy note, else the leave prompt.
+  const shownPrompt = busyNote && busy
+    ? { title: busy.title, body: busy.body, keepLabel: 'OK', leaveLabel: undefined as string | undefined, onKeep: () => setBusyNote(false), onLeave: undefined as (() => void) | undefined }
+    : leavePrompt
+      ? { ...leavePrompt, leaveLabel: leavePrompt.leaveLabel ?? 'Close', onLeave: leavePrompt.onLeave as (() => void) | undefined }
+      : null
+
   // Latest handlers, so the key listener never goes stale.
-  const handlers = useRef({ onRequestClose, leavePrompt })
-  handlers.current = { onRequestClose, leavePrompt }
+  const handlers = useRef({ requestClose, shownPrompt })
+  handlers.current = { requestClose, shownPrompt }
 
   // Mount at the end of <body>, above everything, and make the rest inert.
   useEffect(() => {
@@ -155,15 +196,19 @@ export default function BookingPanel({
     ;(stepHeadingRef.current ?? panelRef.current)?.focus()
   }, [stepKey, host])
 
-  // The leave prompt takes focus on its safe choice.
-  const promptOpen = !!leavePrompt
+  // The leave prompt takes focus on its safe choice; closing it returns focus to the panel.
+  const promptOpen = !!shownPrompt
+  const hadPrompt = useRef(false)
   useEffect(() => {
-    if (promptOpen && host) keepRef.current?.focus()
+    if (!host) return
+    if (promptOpen) keepRef.current?.focus()
+    else if (hadPrompt.current) panelRef.current?.focus()
+    hadPrompt.current = promptOpen
   }, [promptOpen, host])
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      const { onRequestClose: close, leavePrompt: prompt } = handlers.current
+      const { requestClose: close, shownPrompt: prompt } = handlers.current
       if (e.key === 'Escape') {
         e.preventDefault()
         if (prompt) prompt.onKeep()
@@ -171,7 +216,8 @@ export default function BookingPanel({
         return
       }
       if (e.key !== 'Tab') return
-      const root = panelRef.current
+      // With a prompt up, Tab stays inside the prompt.
+      const root = prompt ? promptRef.current : panelRef.current
       if (!root) return
       const items = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
         (n) => n.offsetParent !== null || n === document.activeElement,
@@ -227,7 +273,7 @@ export default function BookingPanel({
         background: 'rgba(30, 22, 17, 0.5)',
       }}
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onRequestClose()
+        if (e.target === e.currentTarget) requestClose()
       }}
     >
       <div
@@ -274,7 +320,7 @@ export default function BookingPanel({
             >
               {title}
             </h2>
-            <button type="button" onClick={onRequestClose} aria-label="Close" style={{ ...iconButton, fontSize: '1.75rem', lineHeight: 1, marginRight: '-0.5rem', flexShrink: 0 }}>
+            <button type="button" onClick={requestClose} aria-label="Close" style={{ ...iconButton, fontSize: '1.75rem', lineHeight: 1, marginRight: '-0.5rem', flexShrink: 0 }}>
               <span aria-hidden="true">&times;</span>
             </button>
           </div>
@@ -350,18 +396,20 @@ export default function BookingPanel({
         )}
       </div>
 
-      {leavePrompt && (
+      {shownPrompt && (
         <div
           role="alertdialog"
           aria-modal="true"
-          aria-label={leavePrompt.title}
+          aria-labelledby={`${titleId}-prompt`}
+          aria-describedby={`${titleId}-prompt-body`}
           onMouseDown={(e) => {
             // Tapping outside keeps the booking: the safe choice.
-            if (e.target === e.currentTarget) leavePrompt.onKeep()
+            if (e.target === e.currentTarget) shownPrompt.onKeep()
           }}
           style={{ position: 'fixed', inset: 0, zIndex: 1010, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(30, 22, 17, 0.45)' }}
         >
           <div
+            ref={promptRef}
             style={{
               width: 'calc(100% - 3rem)',
               maxWidth: '22rem',
@@ -373,15 +421,17 @@ export default function BookingPanel({
               textAlign: 'center',
             }}
           >
-            <p style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 600, color: 'var(--color-dark)' }}>{leavePrompt.title}</p>
-            <p style={{ margin: '0.4rem 0 1.1rem', fontSize: '0.9375rem', color: 'var(--color-text)' }}>{leavePrompt.body}</p>
+            <p id={`${titleId}-prompt`} style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 600, color: 'var(--color-dark)' }}>{shownPrompt.title}</p>
+            <p id={`${titleId}-prompt-body`} style={{ margin: '0.4rem 0 1.1rem', fontSize: '0.9375rem', color: 'var(--color-text)' }}>{shownPrompt.body}</p>
             <div style={{ display: 'flex', gap: '0.6rem' }}>
-              <button ref={keepRef} type="button" className="btn btn-primary" style={{ flex: 1.4 }} onClick={leavePrompt.onKeep}>
-                {leavePrompt.keepLabel ?? 'Keep booking'}
+              <button ref={keepRef} type="button" className="btn btn-primary" style={{ flex: 1.4 }} onClick={shownPrompt.onKeep}>
+                {shownPrompt.keepLabel ?? 'Keep booking'}
               </button>
-              <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={leavePrompt.onLeave}>
-                {leavePrompt.leaveLabel ?? 'Close'}
-              </button>
+              {shownPrompt.onLeave && (
+                <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={shownPrompt.onLeave}>
+                  {shownPrompt.leaveLabel}
+                </button>
+              )}
             </div>
           </div>
         </div>
