@@ -899,6 +899,9 @@ export async function openItem(id: string, now = new Date()): Promise<ToDecideIt
 
 export const PNS_BUSY = 'Someone else is deciding this payment right now. Wait a moment, then look at it again. Nothing was changed.'
 
+/** The reader kinds: decided inside that sale's lease (I-4). */
+const READER_KINDS: ReadonlySet<ToDecideKind> = new Set(['reader-waiting', 'reader-extra', 'reader-late'])
+
 /** The party kinds: decided inside that party's lock. */
 const PARTY_KINDS: ReadonlySet<ToDecideKind> = new Set(['party-paid-unclear', 'party-payment-unclear', 'party-no-confirmation', 'party-hold-orphan', 'party-not-told'])
 
@@ -911,6 +914,20 @@ export async function decide(id: string, action: string, body: any, by: By, now 
     // Give them their seat and Refund it never both go through (two owners, or the iPad and the phone, M-2).
     try {
       return await withPartyLock(`pns-${safeKey(str(item.detail.paidId))}`, async () => {
+        const done = await decidedKv.get(`done-${item.id}`)
+        if (done) throw new DecideError(409, `Already done: ${(JSON.parse(done) as Decided).what}.`)
+        return decideItem(item, action, body, by, now)
+      })
+    } catch (e) {
+      if (e instanceof PartyBusyError) throw new DecideError(409, PNS_BUSY)
+      throw e
+    }
+  }
+  if (READER_KINDS.has(item.kind) && str(item.detail.bookingId)) {
+    // I-4: Keep it / Refund it (and Refund / Already sorted) on one reader sale never both go through:
+    // one decision per sale at a time, and the second one, inside the lease, sees the first's.
+    try {
+      return await withPartyLock(`rdr-${safeKey(str(item.detail.bookingId))}`, async () => {
         const done = await decidedKv.get(`done-${item.id}`)
         if (done) throw new DecideError(409, `Already done: ${(JSON.parse(done) as Decided).what}.`)
         return decideItem(item, action, body, by, now)
