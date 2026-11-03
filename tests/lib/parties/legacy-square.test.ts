@@ -2,17 +2,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const m = vi.hoisted(() => ({
   listBookings: vi.fn(),
+  getBooking: vi.fn(),
   catalogGet: vi.fn(),
   env: { environment: 'production' as 'production' | 'sandbox' },
 }))
-vi.mock('@config/providers', () => ({ providers: { booking: { listBookings: (...a: any[]) => m.listBookings(...a) } } }))
+vi.mock('@config/providers', () => ({ providers: { booking: { listBookings: (...a: any[]) => m.listBookings(...a), getBooking: (...a: any[]) => m.getBooking(...a) } } }))
 vi.mock('@config/site.config', () => ({
   siteConfig: { providers: { booking: { config: { locationId: 'LOC' } }, catalog: { type: 'square', config: m.env } } },
 }))
 vi.mock('@providers/square/client', () => ({ createSquareClient: () => ({ catalog: { object: { get: (...a: any[]) => m.catalogGet(...a) } } }) }))
 vi.mock('@lib/party-store', () => ({ getPartyRecord: async (id: string) => (id === 'bk_rivera' ? { hostName: 'Jamie Rivera' } : null) }))
 
-import { legacyPartyBusy, legacyRemaining, loadPartyVariationId, onSandbox, resetLegacySquareMemory } from '@lib/parties/legacy-square'
+import { legacyPartyBusy, legacyRemaining, legacyStaffParties, legacyStaffParty, loadPartyVariationId, onSandbox, resetLegacySquareMemory } from '@lib/parties/legacy-square'
 import * as openDates from '@lib/party-open-dates'
 import { getPartySettings, savePartySettings, resetPartySettingsCache } from '@lib/parties/settings-store'
 
@@ -139,5 +140,32 @@ describe('moved helpers', () => {
     m.env.environment = 'sandbox'
     m.catalogGet.mockRejectedValue(Object.assign(new Error('NOT_FOUND'), { statusCode: 404 }))
     expect(await loadPartyVariationId()).toBe('')
+  })
+})
+
+describe('the crew’s screens: Square-booked parties (read only)', () => {
+  it('lists booked parties whatever the read switch says; none on the sandbox', async () => {
+    m.listBookings.mockResolvedValue([booking('bk_rivera', '2027-02-07T19:00:00.000Z'), booking('bk_gone', '2027-02-07T21:30:00.000Z', { status: 'cancelled' })])
+    await setRead(false)
+    expect((await legacyStaffParties(FROM, TO)).map((b) => b.id)).toEqual(['bk_rivera'])
+    m.env.environment = 'sandbox'
+    m.listBookings.mockClear()
+    expect(await legacyStaffParties(FROM, TO)).toEqual([])
+    expect(m.listBookings).not.toHaveBeenCalled()
+    await setRead(true)
+  })
+
+  it('one party by its Square id: only a booked party-service booking; not found is null', async () => {
+    m.getBooking.mockResolvedValueOnce(booking('bk_rivera', '2027-02-07T19:00:00.000Z'))
+    expect(await legacyStaffParty('bk_rivera')).toMatchObject({ kind: 'party', id: 'bk_rivera', startIso: '2027-02-07T19:00:00.000Z', endIso: '2027-02-07T20:30:00.000Z' })
+    m.getBooking.mockResolvedValueOnce(booking('bk_x', '2027-02-07T19:00:00.000Z', { status: 'cancelled' }))
+    expect(await legacyStaffParty('bk_x')).toBeNull()
+    m.getBooking.mockResolvedValueOnce(booking('bk_c', '2027-02-07T19:00:00.000Z', { slot: { startAt: '2027-02-07T19:00:00.000Z', duration: 60, serviceVariationId: 'var-class' } }))
+    expect(await legacyStaffParty('bk_c')).toBeNull()
+    m.getBooking.mockRejectedValueOnce(Object.assign(new Error('NOT_FOUND'), { statusCode: 404 }))
+    expect(await legacyStaffParty('bk_none')).toBeNull()
+    m.getBooking.mockClear()
+    expect(await legacyStaffParty('pty_ours')).toBeNull()
+    expect(m.getBooking).not.toHaveBeenCalled()
   })
 })

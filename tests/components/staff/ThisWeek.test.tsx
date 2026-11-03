@@ -116,3 +116,42 @@ describe('This week: current at a class start (crew review I5, M10)', () => {
     expect(weekLoads()).toBe(2)
   })
 })
+
+describe('This week: Craft Café is an event (Kaden, 2 Nov 2026)', () => {
+  it('today’s café row says how many are here, and tapping it opens that day’s Craft Café list', async () => {
+    vi.setSystemTime(new Date('2026-11-07T16:00:00Z'))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/api/staff/open-studio.json')) {
+        return { ok: true, json: async () => ({ data: { date: '2026-11-07', count: 4, cafe: true, hours: { opens: '09:00', closes: '20:00' }, isToday: true, totals: { households: 2, people: 4, adults: 2, kids: 2 }, entries: [], waiting: [] } }) }
+      }
+      return { ok: true, json: async () => ({ data: { events: [], cafe: { '2026-11-07': { opens: '09:00', closes: '20:00', here: 4 }, '2026-11-08': { opens: '13:00', closes: '15:00' } } } }) }
+    }))
+    render(<ThisWeek staff={STAFF} onOpenRoster={() => {}} />)
+    const today = await screen.findByRole('region', { name: 'Today' })
+    expect(within(today).getByTestId('cafe-here')).toHaveTextContent('· 4 here')
+    // Another day: no count yet, still tappable.
+    expect(within(screen.getByRole('region', { name: 'Sun Nov 8' })).queryByTestId('cafe-here')).toBeNull()
+    fireEvent.click(within(today).getByRole('button', { name: /Craft Café 9 AM – 8 PM, 4 here/ }))
+    expect(await screen.findByRole('dialog', { name: 'Craft Café, Sat Nov 7' })).toBeInTheDocument()
+    expect(await screen.findByTestId('cafe-totals')).toHaveTextContent('Here today: 4 people')
+  })
+
+  it('the iPad coming back from a café waiver (?cafe=) lands on that day’s Craft Café list', async () => {
+    vi.setSystemTime(new Date('2026-11-07T16:00:00Z'))
+    history.replaceState(null, '', '/staff?cafe=2026-11-07')
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ data: { events: [], cafe: {}, date: '2026-11-07', count: 0, totals: { households: 0, people: 0, adults: 0, kids: 0 }, entries: [], waiting: [], isToday: true, hours: null } }) })))
+    render(<ThisWeek staff={STAFF} onOpenRoster={() => {}} />)
+    expect(await screen.findByRole('dialog', { name: 'Craft Café, Sat Nov 7' })).toBeInTheDocument()
+    expect(window.location.search).toBe('')
+  })
+
+  it('a party booked in Square shows on its day, tagged, and opens its roster', async () => {
+    serve([{ kind: 'party', id: 'sq_bk1', title: 'Rivera Party', startIso: '2026-10-17T18:30:00Z', endIso: '2026-10-17T20:00:00Z', days: ['2026-10-17'], dropOff: false, squareBooked: true }])
+    const open = vi.fn()
+    render(<ThisWeek staff={STAFF} onOpenRoster={open} />)
+    const sat = await screen.findByRole('region', { name: 'Sat Oct 17' })
+    expect(within(sat).getByText('Booked in Square')).toBeInTheDocument()
+    fireEvent.click(within(sat).getByRole('button', { name: /Rivera Party/ }))
+    expect(open).toHaveBeenCalledWith({ kind: 'party', id: 'sq_bk1', title: 'Rivera Party' })
+  })
+})

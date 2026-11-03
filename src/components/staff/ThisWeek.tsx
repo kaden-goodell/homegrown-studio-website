@@ -3,8 +3,8 @@ import StaffHeader from '@components/staff/StaffHeader'
 import { type HouseholdMatch } from '@components/staff/DoorSearch'
 import { card, btn, Badge } from '@components/staff/ui'
 import WarningsPanel from '@components/staff/WarningsPanel'
+import { CafeRow, CraftCafeSheet, readCafeParam } from '@components/staff/CraftCafe'
 import { cafeOn } from '@lib/cafe-days'
-import { formatRange } from '@config/hours'
 import { addDays } from '@lib/kit-dates'
 import { formatTime, formatTimeSpan, formatCalendarDay, studioDate, studioDayUtcRange } from '@lib/studio-time'
 import type { StaffMember } from '@lib/staff-auth'
@@ -28,6 +28,8 @@ export interface WeekRow {
   endIso?: string
   /** Parties of ours with something still to pay. */
   waitingOnPayment?: boolean
+  /** A party booked in Square before our own party book (read only). */
+  squareBooked?: boolean
   prep?: PrepOption[]
   /** Our own classes: each day of theirs this week, with that day's start, seats and prep. */
   byDay?: Record<string, { startIso: string; sold: number; capacity: number; prep?: PrepOption[] }>
@@ -54,7 +56,13 @@ export default function ThisWeek({
   const today = studioDate(new Date().toISOString())
   const [rows, setRows] = useState<WeekRow[] | null>(null)
   /** Craft Café hours by day, from the server (it knows the owners' hours and closed days). */
-  const [cafeDays, setCafeDays] = useState<Record<string, { opens: string; closes: string }> | null>(null)
+  const [cafeDays, setCafeDays] = useState<Record<string, { opens: string; closes: string; here?: number }> | null>(null)
+  /** The Craft Café sheet open for a day (also `?cafe=` when the iPad comes back from a café waiver). */
+  const [cafeOpen, setCafeOpen] = useState<string | null>(null)
+  useEffect(() => {
+    const d = readCafeParam() // StrictMode's second run finds it already stripped and leaves the sheet alone
+    if (d) setCafeOpen(d)
+  }, [])
   const [error, setError] = useState<string | null>(null)
   /** "kind:id:day" of everything the signed-in person is on this week (the Calendar tab's ✓ You're on). */
   const [mine, setMine] = useState<Set<string>>(new Set())
@@ -130,16 +138,14 @@ export default function ThisWeek({
           </p>
           {days.map((d) => {
             const list = onDay(d)
-            const cafe = cafeDays ? cafeDays[d] ?? null : cafeOn(d)
+            const cafe: { opens: string; closes: string; here?: number } | null = cafeDays ? cafeDays[d] ?? null : cafeOn(d)
             if (list.length === 0 && !cafe && d !== today) return null
             return (
               <section key={d} aria-label={d === today ? 'Today' : formatCalendarDay(d)} style={{ marginBottom: '1.25rem' }}>
                 <h2 style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--color-primary)' }}>
                   {d === today ? `Today · ${formatCalendarDay(d)}` : formatCalendarDay(d)}
                 </h2>
-                {cafe && (
-                  <p style={{ margin: '0 0 0.5rem', fontSize: '0.9rem', color: 'var(--color-dark)' }}>☕ Craft Café {formatRange(cafe.opens, cafe.closes)}</p>
-                )}
+                {cafe && <CafeRow date={d} hours={cafe} here={d === today ? cafe.here ?? null : null} onOpen={() => setCafeOpen(d)} />}
                 {list.length === 0 && !cafe && <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--color-muted)' }}>Nothing scheduled</p>}
                 {list.map((e) => (
                   <button
@@ -155,6 +161,7 @@ export default function ThisWeek({
                         {e.dropOff && <Badge tone="alert">DROP-OFF</Badge>}
                         {mine.has(`${e.kind}:${e.id}:${d}`) && <Badge tone="muted">✓ You’re on</Badge>}
                         {e.waitingOnPayment && <Badge tone="warn">Waiting on payment</Badge>}
+                        {e.squareBooked && <Badge tone="muted">Booked in Square</Badge>}
                       </span>
                       <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{e.kind === 'party' && e.endIso ? formatTimeSpan(e.startIso, e.endIso) : formatTime(e.startIso)}</span>
                     </span>
@@ -180,6 +187,7 @@ export default function ThisWeek({
           })}
         </>
       )}
+      {cafeOpen && <CraftCafeSheet date={cafeOpen} onClose={() => { setCafeOpen(null); load(true) }} />}
     </div>
   )
 }

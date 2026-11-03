@@ -64,3 +64,24 @@ describe('GET /api/staff/week.json', () => {
     expect(row.byDay['2026-10-17']).toMatchObject({ startIso: sessions[1].startIso, sold: 9, capacity: 8, prep: [{ counts: [{ n: 9 }] }] })
   })
 })
+
+describe('GET /api/staff/week.json: Craft Café and parties (2 Nov 2026)', () => {
+  it('today’s café carries how many are checked in; other café days don’t', async () => {
+    vi.setSystemTime(new Date('2026-11-07T16:00:00Z'))
+    const store = await import('@lib/open-studio-store')
+    vi.spyOn(store, 'hereNowCount').mockResolvedValue(6)
+    mockListEvents.mockResolvedValue({ events: [], sources: { parties: 'ok', workshops: 'ok', classes: 'ok' } })
+    const { data } = await (await GET(req())).json()
+    expect(data.cafe['2026-11-07']).toMatchObject({ here: 6 })
+    expect(Object.entries(data.cafe).filter(([d]) => d !== '2026-11-07').every(([, v]: any) => v.here === undefined)).toBe(true)
+    vi.restoreAllMocks()
+  })
+
+  it('a party booked in Square comes through tagged', async () => {
+    mockListEvents.mockResolvedValue({ events: [
+      { kind: 'party', id: 'sq_1', title: 'Rivera Party', startIso: '2026-10-17T18:30:00Z', endIso: '2026-10-17T20:00:00Z', days: ['2026-10-17'], dropOff: false, squareBooked: true },
+    ], sources: { parties: 'ok', workshops: 'ok', classes: 'ok' } })
+    const { data } = await (await GET(req())).json()
+    expect(data.events[0]).toMatchObject({ id: 'sq_1', squareBooked: true, endIso: '2026-10-17T20:00:00Z' })
+  })
+})

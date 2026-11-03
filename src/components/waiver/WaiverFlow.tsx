@@ -33,6 +33,8 @@ interface Props {
   /** Same-origin path to auto-return to after signing in kiosk mode.
    *  Pre-validated server-side (`@lib/safe-return`) — trusted as-is here. */
   returnTo?: string
+  /** Kiosk Craft Café walk-in: their "Waiting on a waiver" entry, cleared when they're checked in. */
+  cafeWaitingId?: string
 }
 
 interface MinorRow {
@@ -91,7 +93,7 @@ function PartyLabelChip({ label }: { label: string }) {
   )
 }
 
-export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle, dropOff, booking, kiosk = false, returnTo = '/staff' }: Props) {
+export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle, dropOff, booking, kiosk = false, returnTo = '/staff', cafeWaitingId }: Props) {
   const { form, confirmation, legalSections } = waiverContent
 
   // Analytics: which agreement this is — counts only, never names.
@@ -143,7 +145,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
       const res = await fetch(event ? '/api/staff/rsvp.json' : '/api/staff/open-studio.json', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(event ? { kind: event.kind, id: event.id, recordId, attending: people } : { recordId, personIds: people }),
+        body: JSON.stringify(event ? { kind: event.kind, id: event.id, recordId, attending: people } : { recordId, personIds: people, ...(cafeWaitingId ? { waitingId: cafeWaitingId } : {}) }),
       })
       const json = await res.json().catch(() => null)
       setArrival(res.ok ? { marked: true, code: json?.data?.oneTimeCode, smsFailed: !!json?.data?.smsFailed } : { marked: false })

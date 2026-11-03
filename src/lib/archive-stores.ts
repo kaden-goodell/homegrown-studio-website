@@ -54,6 +54,7 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'checkins' },
   { name: 'incidents' },
   { name: 'event-meta' },
+  // Craft Café check-ins (who came each day, who checked them in) and each day's "Waiting on a waiver" list
   { name: 'open-studio' },
   // Craft Café hours, special days and closed days set on /admin, with who changed them
   { name: 'studio-settings' },

@@ -1,24 +1,14 @@
 import type { APIRoute } from 'astro'
-import { hasAllergy } from '@lib/allergy'
 import { staffAuthorized } from '@lib/staff-auth'
 import { lookupHouseholdEntry, lookupHouseholdsByName, type HouseholdOnFile } from '@lib/waiver-store'
 import { getOpenStudioDay, type OpenStudioDay } from '@lib/open-studio-store'
-import { agreementState, isCurrent } from '@lib/waiver-coverage'
+import { householdMatchOf } from '@lib/door-household'
 import { studioDate } from '@lib/studio-time'
 import { createLogger } from '@lib/logger'
 
 export const prerender = false
 
 const logger = createLogger('api:staff:coverage')
-
-/** "••• 0142" (phone last-4) or the email if there's no phone — a
- *  disambiguator for the multi-match picker when a last-name search returns
- *  two different households that happen to share a full name. */
-function contactHint(h: HouseholdOnFile): string {
-  const digits = h.phone.replace(/\D/g, '')
-  if (digits.length >= 4) return `••• ${digits.slice(-4)}`
-  return h.email || ''
-}
 
 /**
  * GET ?q=phone|email|last-name → { households: [...] } — the door check for
@@ -52,25 +42,7 @@ export const GET: APIRoute = async ({ request, url }) => {
   const openStudioDay = await getOpenStudioDay(today).catch((): OpenStudioDay => ({}))
 
   const now = new Date()
-  const data = households.map((h) => ({
-    recordId: h.recordId,
-    firstName: h.firstName,
-    lastName: h.lastName,
-    contactHint: contactHint(h),
-    signedAt: h.signedAt,
-    agreementVersion: h.agreementVersion,
-    validUntil: h.validUntil,
-    // An unexpired signature older than the current agreement is NOT covered:
-    // they never agreed to the current terms (drop-off terms live in v3+).
-    outdated: agreementState(h, now) === 'outdated',
-    covered: isCurrent(h, now),
-    // "None"/"n/a" are not allergies — the door flags only real ones.
-    kids: h.minors.map((m) => ({ name: m.name, allergies: hasAllergy(m.allergies) ? m.allergies : '' })),
-    adultAllergies: hasAllergy(h.adultAllergies) ? h.adultAllergies : '',
-    photoConsent: h.photoConsent,
-    openStudioToday: !!openStudioDay[h.recordId],
-    openStudioAt: openStudioDay[h.recordId]?.at ?? null,
-  }))
+  const data = households.map((h) => householdMatchOf(h, openStudioDay, now))
 
   return new Response(JSON.stringify({ data: { households: data } }), {
     status: 200,

@@ -13,7 +13,7 @@ export interface EventRow extends StudioEvent {
   rsvpWaiverIds?: string[]
 }
 
-const SOURCE_LABEL: Record<keyof EventSources, string> = { parties: 'Parties', workshops: 'Square classes', classes: 'Classes' }
+const SOURCE_LABEL: Record<keyof EventSources, string> = { parties: 'Parties', workshops: 'Square classes', classes: 'Classes', squareParties: 'Parties booked in Square' }
 
 const ICON: Record<EventKind, string> = { party: '🎉', workshop: '🧵', program: '🌙' }
 
@@ -162,6 +162,7 @@ export default function EventList({
                 {e.dropOff && <Badge tone="alert">DROP-OFF</Badge>}
                 {multiDay && <Badge tone="muted">Day {dayIndex + 1} of {e.days.length}</Badge>}
                 {e.waitingOnPayment && <Badge tone="warn">Waiting on payment</Badge>}
+                {e.squareBooked && <Badge tone="muted">Booked in Square</Badge>}
               </span>
               <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{e.kind === 'party' && e.endIso ? formatTimeSpan(e.startIso, e.endIso) : formatTime(e.startIso)}</span>
             </div>

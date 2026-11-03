@@ -126,3 +126,34 @@ export async function legacyRemaining(now: Date = new Date()): Promise<Busy[]> {
   const to = new Date(now.getTime() + REMAINING_DAYS * 86_400_000)
   return squareParties(now.toISOString(), to.toISOString())
 }
+
+/**
+ * Square-booked parties for the crew's screens (This week, Today, the door
+ * list): every booked, not-cancelled party at the location overlapping the
+ * range, whatever the owners' read switch says (a party Square still holds
+ * is still coming through the door). [] on the sandbox and the mock
+ * providers. Throws when Square can't be read; the caller says so in one line.
+ */
+export async function legacyStaffParties(fromIso: string, toIso: string): Promise<Busy[]> {
+  if (onSandbox() || onMockProviders()) return []
+  return squareParties(fromIso, toIso)
+}
+
+/**
+ * One Square-booked party by its Square booking id (its roster on /staff), or
+ * null: not a party, cancelled, not found, or no Square here. Read only.
+ */
+export async function legacyStaffParty(id: string): Promise<Busy | null> {
+  if (onSandbox() || onMockProviders() || id.startsWith('pty_')) return null
+  let b
+  try {
+    b = await providers.booking.getBooking(id)
+  } catch (err) {
+    if (isNotFound(err)) return null
+    throw err
+  }
+  if (!b || b.status === 'cancelled') return null
+  if (b.slot?.serviceVariationId !== (await partyVariationId())) return null
+  const p = partySpanOf(b)
+  return { kind: 'party', id: p.id, label: partyName(p), startIso: p.startIso, endIso: p.endIso }
+}

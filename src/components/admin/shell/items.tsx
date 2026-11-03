@@ -53,7 +53,7 @@ export function itemSub(i: CalendarItem): string {
       const money = i.pay === 'waiting' ? 'Waiting on payment' : i.pay === 'partly' ? 'Part paid' : ''
       return money ? `${guests} · ${money}` : guests
     }
-    case 'cafe': return 'Walk-in · pay per craft'
+    case 'cafe': return i.visits ? `${i.visits} at Craft Café` : 'Walk-in · pay per craft'
     default: return 'Nothing can be booked'
   }
 }

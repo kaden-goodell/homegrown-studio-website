@@ -53,3 +53,51 @@ describe('hereNowCount', () => {
     expect(await hereNowCount('2099-02-02')).toBe(0)
   })
 })
+
+import { addCafeWaiting, dayTotals, getCafeWaiting, removeCafeWaiting, undoOpenStudio, waitingMatches, entryCounts } from '@lib/open-studio-store'
+
+const freshDay = () => `${2100 + Math.floor(Math.random() * 800)}-0${1 + Math.floor(Math.random() * 9)}-1${Math.floor(Math.random() * 9)}`
+
+describe('Craft Café: names, Undo and totals', () => {
+  it('keeps the family’s name and who came; Undo takes them off and says what it removed', async () => {
+    const date = freshDay()
+    await checkInOpenStudio(date, 'wvr_n', ['adult', 'child:0'], BY, { name: 'Jane Doe', people: ['Jane Doe', 'Mia'] })
+    expect((await getOpenStudioDay(date)).wvr_n).toMatchObject({ name: 'Jane Doe', people: ['Jane Doe', 'Mia'] })
+    expect(await undoOpenStudio(date, 'wvr_n')).toMatchObject({ name: 'Jane Doe' })
+    expect(await getOpenStudioDay(date)).toEqual({})
+    expect(await undoOpenStudio(date, 'wvr_n')).toBeNull()
+  })
+
+  it('counts adults (the signer) and kids (child:N) per family and per day', () => {
+    expect(entryCounts({ personIds: ['adult', 'child:0', 'child:2'] })).toEqual({ people: 3, adults: 1, kids: 2 })
+    expect(dayTotals({
+      a: { personIds: ['adult', 'child:0'], at: '', by: BY },
+      b: { personIds: ['child:0'], at: '', by: BY },
+    })).toEqual({ households: 2, people: 3, adults: 1, kids: 2 })
+  })
+})
+
+describe('Craft Café: Waiting on a waiver', () => {
+  it('adds, never doubles a texted family (same phone), and removes', async () => {
+    const date = freshDay()
+    const a = await addCafeWaiting(date, { name: 'Kim', how: 'text', by: BY, phone: '2565550199' })
+    const again = await addCafeWaiting(date, { name: 'Kim Lee', how: 'text', by: BY, phone: '2565550199' })
+    expect(again).toEqual({ entry: a.entry, existing: true })
+    const b = await addCafeWaiting(date, { name: 'New family', how: 'ipad', by: BY })
+    expect((await getCafeWaiting(date)).map((w) => w.id)).toEqual([a.entry.id, b.entry.id])
+    expect((await removeCafeWaiting(date, [a.entry.id])).map((w) => w.name)).toEqual(['Kim'])
+    expect((await getCafeWaiting(date)).map((w) => w.id)).toEqual([b.entry.id])
+    expect(await removeCafeWaiting(date, ['cw_gone'])).toEqual([])
+  })
+
+  it('a signed waiver matches by phone, or by the name typed, and only when signed after they were started', () => {
+    const at = '2026-11-07T15:00:00.000Z'
+    const signed = { firstName: 'Kim', lastName: 'Lee', phone: '(256) 555-0199', signedAt: '2026-11-07T15:05:00.000Z' }
+    expect(waitingMatches({ name: 'K', phone: '2565550199', at }, signed)).toBe(true)
+    expect(waitingMatches({ name: 'kim  lee', at }, signed)).toBe(true)
+    expect(waitingMatches({ name: 'Lee', at }, signed)).toBe(true)
+    expect(waitingMatches({ name: 'Kim', at }, signed)).toBe(false) // a first name alone is too loose
+    expect(waitingMatches({ name: 'New family', at }, signed)).toBe(false)
+    expect(waitingMatches({ name: 'Kim Lee', at }, { ...signed, signedAt: '2026-10-01T00:00:00.000Z' })).toBe(false) // an old waiver
+  })
+})

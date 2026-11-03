@@ -22,6 +22,8 @@ import { studioDayUtcRange } from '@lib/studio-time'
 import type { ScheduledClass } from '@lib/classes/types'
 import type { Ledger } from '@lib/classes/seat-ledger'
 import { isOwnClassId, lowestSeatCents, onStaffConsole, questionsAsOptions, sessionViews, type OwnSessionView } from '@lib/classes/staff-view'
+import { legacyStaffParties, legacyStaffParty } from '@lib/parties/legacy-square'
+import type { Busy } from '@lib/classes/studio-schedule'
 
 const logger = createLogger('events')
 
@@ -63,6 +65,8 @@ export interface StudioEvent {
   own?: true
   /** Our own classes: every session with its own seats (a multi-day class shows each day's). */
   sessions?: OwnSessionView[]
+  /** A party booked in Square before our own party book, with no record here: read only. */
+  squareBooked?: true
 }
 
 // Square's Classes API is slow — cache the active list for a minute so
@@ -122,6 +126,42 @@ function partyEvent(id: string, p: PartyRecord, meta: EventMeta | null): StudioE
     ...(p.status === 'cancelled' ? { cancelled: true as const } : {}),
     ...(meta ? { updatedAt: meta.updatedAt, by: meta.by } : {}),
   }
+}
+
+/** A Square-booked party with no record of ours: its time from Square, the host's last name when known. */
+function legacyPartyEvent(b: Busy, meta: EventMeta | null): StudioEvent {
+  const last = (b.hostName ?? '').trim().split(/\s+/).filter(Boolean).pop()
+  return {
+    kind: 'party',
+    id: b.id,
+    title: last ? `${last} Party` : 'Party',
+    startIso: b.startIso,
+    days: meta?.days ?? [studioDate(b.startIso)],
+    dropOff: meta?.dropOff ?? false,
+    options: [],
+    signupCutoffHours: null,
+    endIso: b.endIso,
+    squareBooked: true,
+    ...(meta ? { updatedAt: meta.updatedAt, by: meta.by } : {}),
+  }
+}
+
+// Square's bookings list is slow too: each window is remembered for a minute (This week reloads every minute on each device).
+const legacyPartyCache = new Map<string, { at: number; list: Busy[] }>()
+async function cachedLegacyParties(fromIso: string, toIso: string): Promise<Busy[]> {
+  const key = `${fromIso}|${toIso}`
+  const hit = legacyPartyCache.get(key)
+  if (hit && Date.now() - hit.at < WORKSHOP_CACHE_MS) return hit.list
+  const list = await legacyStaffParties(fromIso, toIso)
+  if (legacyPartyCache.size > 20) legacyPartyCache.clear()
+  legacyPartyCache.set(key, { at: Date.now(), list })
+  return list
+}
+
+/** Forget remembered Square lists (tests). */
+export function resetEventCaches(): void {
+  legacyPartyCache.clear()
+  workshopCache = null
 }
 
 function workshopEvent(id: string, w: Workshop, meta: EventMeta | null): StudioEvent {
@@ -192,8 +232,10 @@ export async function getEvent(kind: EventKind, id: string, opts: { now?: Date }
   if (kind === 'workshop' && isOwnClassId(id)) return getOwnEvent(id, opts.now ?? new Date())
   if (kind === 'party') {
     const p = await getPartyRecord(id)
-    if (!p) return null
-    return partyEvent(id, p, await getEventMeta('party', id))
+    if (p) return partyEvent(id, p, await getEventMeta('party', id))
+    // No record of ours: a party booked in Square (its roster still opens; read only).
+    const legacy = await legacyStaffParty(id)
+    return legacy ? legacyPartyEvent(legacy, await getEventMeta('party', id)) : null
   }
   if (kind === 'workshop') {
     const w = await findWorkshop(id)
@@ -210,6 +252,8 @@ export interface EventSources {
   workshops: 'ok' | 'error'
   /** our own classes (the class store and seat ledger) */
   classes: 'ok' | 'error'
+  /** parties booked in Square before our own party book (absent where there's no Square to ask) */
+  squareParties?: 'ok' | 'error'
 }
 
 export interface EventListing {
@@ -229,7 +273,10 @@ export interface EventListing {
  */
 export async function listEvents({ from, to }: { from: string; to: string }, opts: { now?: Date } = {}): Promise<EventListing> {
   const now = opts.now ?? new Date()
-  const [partiesResult, workshopsResult, classesResult] = await Promise.allSettled([listParties(), cachedWorkshopList(), ownClassEvents(from, to, now)])
+  const [partiesResult, workshopsResult, classesResult, legacyResult] = await Promise.allSettled([
+    listParties(), cachedWorkshopList(), ownClassEvents(from, to, now),
+    cachedLegacyParties(studioDayUtcRange(from).startIso, studioDayUtcRange(to).endIso),
+  ])
 
   if (partiesResult.status === 'rejected') {
     logger.error('Party source unavailable', { error: String(partiesResult.reason) })
@@ -240,15 +287,22 @@ export async function listEvents({ from, to }: { from: string; to: string }, opt
   if (classesResult.status === 'rejected') {
     logger.error('Class store unavailable', { error: String(classesResult.reason) })
   }
+  if (legacyResult.status === 'rejected') {
+    logger.error('Square-booked parties unavailable', { error: String(legacyResult.reason) })
+  }
 
   // A cancelled party leaves This week, the door list and every day's list (its record stays for refunds).
   const parties = partiesResult.status === 'fulfilled' ? partiesResult.value.filter((p) => p.status !== 'cancelled') : []
   const workshops = workshopsResult.status === 'fulfilled' ? workshopsResult.value : []
   const own = classesResult.status === 'fulfilled' ? classesResult.value : []
+  // Square-booked parties we hold a record for are already listed (or were cancelled here): only the rest are added.
+  const known = new Set(partiesResult.status === 'fulfilled' ? partiesResult.value.map((p) => p.bookingId) : [])
+  const legacy = legacyResult.status === 'fulfilled' && partiesResult.status === 'fulfilled' ? legacyResult.value.filter((b) => !known.has(b.id)) : []
 
   const events = await Promise.all([
     ...parties.map(async (p) => partyEvent(p.bookingId, p, await getEventMeta('party', p.bookingId))),
     ...workshops.map(async (w) => workshopEvent(w.scheduleId, w, await getEventMeta('workshop', w.scheduleId))),
+    ...legacy.map(async (b) => legacyPartyEvent(b, await getEventMeta('party', b.id))),
   ])
 
   return {
@@ -259,6 +313,7 @@ export async function listEvents({ from, to }: { from: string; to: string }, opt
       parties: partiesResult.status === 'fulfilled' ? 'ok' : 'error',
       workshops: workshopsResult.status === 'fulfilled' ? 'ok' : 'error',
       classes: classesResult.status === 'fulfilled' ? 'ok' : 'error',
+      ...(legacyResult.status === 'rejected' ? { squareParties: 'error' as const } : {}),
     },
   }
 }

@@ -27,6 +27,9 @@ const subline = rawPartyId ? page.partySubline : page.subline
 const rawId = rawPartyId ?? rawWorkshopId
 const eventKind = rawPartyId ? 'party' as const : rawWorkshopId ? 'workshop' as const : null
 const outcome = await waiverEventOutcome(eventKind, rawId)
+// A Craft Café walk-in the crew put on "Waiting on a waiver" (kiosk only): checking them in clears it.
+const rawCafeWaiting = kiosk && !eventKind ? Astro.url.searchParams.get('cafeWaiting') : null
+const cafeWaitingId = rawCafeWaiting && /^cw_[0-9a-f-]{1,16}$/.test(rawCafeWaiting) ? rawCafeWaiting : undefined
 
 const flow = flowPropsFor(eventKind, outcome)
 const noticeText = flow.notice
@@ -70,6 +73,6 @@ const noticeText = flow.notice
       </div>
     )}
 
-    {flow.showForm && <WaiverFlow client:load partyId={flow.partyId} partyLabel={flow.partyLabel} workshopId={flow.workshopId} eventTitle={flow.eventTitle} dropOff={flow.dropOff} booking={rawBooking} kiosk={kiosk} returnTo={returnTo} />}
+    {flow.showForm && <WaiverFlow client:load partyId={flow.partyId} partyLabel={flow.partyLabel} workshopId={flow.workshopId} eventTitle={flow.eventTitle} dropOff={flow.dropOff} booking={rawBooking} kiosk={kiosk} returnTo={returnTo} cafeWaitingId={cafeWaitingId} />}
   </section>
 </Layout>

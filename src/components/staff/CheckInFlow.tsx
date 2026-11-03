@@ -2,7 +2,8 @@ import { useState } from 'react'
 import DoorSearch, { type AddedResult, type HouseholdMatch, type TodayEvent } from '@components/staff/DoorSearch'
 import NewFamilyButton from '@components/staff/NewFamilyButton'
 import { btn } from '@components/staff/ui'
-import { formatTime } from '@lib/studio-time'
+import { formatTime, studioDate } from '@lib/studio-time'
+import { CafeAddPanel } from '@components/staff/CraftCafe'
 
 type Choice = { type: 'cafe' } | { type: 'event'; event: TodayEvent }
 const ICON: Record<string, string> = { party: '🎉', workshop: '🧵', program: '🌙' }
@@ -99,8 +100,8 @@ export default function CheckInFlow({
     return (
       <div key={round}>
         {back}
-        <NewFamilyButton />
-        <DoorSearch onCheckedIn={onCheckedIn} />
+        {/* Find them and check them in, or start a new family on the waiver (iPad, text or QR). */}
+        <CafeAddPanel date={studioDate(new Date().toISOString())} onChanged={onCheckedIn} />
       </div>
     )
   }

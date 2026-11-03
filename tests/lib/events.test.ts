@@ -10,6 +10,17 @@ vi.mock('@lib/party-store', async (orig) => ({
   listParties: (...a: any[]) => (mockListParties as any)(...a),
 }))
 
+// Parties booked in Square (no record of ours): what the read-only Square reader answers.
+const legacy = vi.hoisted(() => ({ list: [] as any[], fail: false, byId: new Map<string, any>(), asked: [] as string[][] }))
+vi.mock('@lib/parties/legacy-square', () => ({
+  legacyStaffParties: async (fromIso: string, toIso: string) => {
+    legacy.asked.push([fromIso, toIso])
+    if (legacy.fail) throw new Error('Square down')
+    return legacy.list
+  },
+  legacyStaffParty: async (id: string) => legacy.byId.get(id) ?? null,
+}))
+
 // A fixed clock (Thu Oct 15 2026, noon in the studio): nothing here depends on
 // the real date. The lists below are built from it, and each test pins Date to it.
 const { NOW, TODAY, STARTED_2H_AGO_ISO, CAMP_STARTED_3D_AGO_ISO } = vi.hoisted(() => {
@@ -82,6 +93,7 @@ beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
   own.classes = []; own.ledgers.clear(); own.fail = false
+  legacy.list = []; legacy.fail = false; legacy.byId.clear(); legacy.asked = []
   // The module caches the workshop list for a minute — reset it between tests
   // so one test's list doesn't leak into the next.
   vi.resetModules()
@@ -310,5 +322,58 @@ describe('our party records (stage 2 Task 13)', () => {
   it('getEvent still finds a cancelled party (staff and refunds) and marks it', async () => {
     partyById.set('pty_c', ours('pty_c', { status: 'cancelled' }))
     expect(await getEvent('party', 'pty_c')).toMatchObject({ cancelled: true })
+  })
+})
+
+describe('booked parties on the staff lists (2 Nov 2026)', () => {
+  const sq = (id: string, startIso: string, hostName?: string) => ({ kind: 'party', id, label: 'a party', startIso, endIso: new Date(Date.parse(startIso) + 90 * 60_000).toISOString(), ...(hostName ? { hostName } : {}) })
+
+  it('a party booked in Square with no record of ours is listed on its day, tagged, by the host’s last name', async () => {
+    legacy.list = [sq('sq_bk1', '2026-10-20T19:00:00.000Z', 'Jamie Rivera'), sq('sq_bk2', '2026-10-20T22:00:00.000Z')]
+    const { events, sources } = await listEvents({ from: '2026-10-20', to: '2026-10-20' })
+    expect(events.filter((e) => e.kind === 'party').map((e) => [e.id, e.title, !!e.squareBooked])).toEqual([
+      ['p1', 'Rivera Party', false], ['sq_bk1', 'Rivera Party', true], ['sq_bk2', 'Party', true],
+    ])
+    expect(events.find((e) => e.id === 'sq_bk1')).toMatchObject({ days: ['2026-10-20'], endIso: '2026-10-20T20:30:00.000Z', dropOff: false })
+    expect(sources.squareParties).toBeUndefined()
+    // Asked for the whole studio day (CDT).
+    expect(legacy.asked[0]).toEqual(['2026-10-20T05:00:00.000Z', expect.stringMatching(/^2026-10-21T0[45]:/)])
+  })
+
+  it('a Square party we hold a record for shows once (ours), and one cancelled here never shows', async () => {
+    const cancelled = { bookingId: 'sq_gone', title: 'Gone Party', craftName: 'Slime', startIso: '2026-10-20T21:00:00.000Z', dropOff: false, source: 'ours', status: 'cancelled' }
+    mockListParties.mockResolvedValue([partyFixture, cancelled] as any)
+    legacy.list = [sq('p1', '2026-10-20T15:00:00.000Z'), sq('sq_gone', '2026-10-20T21:00:00.000Z')]
+    const { events } = await listEvents({ from: '2026-10-20', to: '2026-10-20' })
+    expect(events.filter((e) => e.kind === 'party').map((e) => e.id)).toEqual(['p1'])
+  })
+
+  it('Square down: our parties and classes still list, and the console is told in one line', async () => {
+    legacy.fail = true
+    const { events, sources } = await listEvents({ from: '2026-10-20', to: '2026-10-20' })
+    expect(events.map((e) => e.id).sort()).toEqual(['cs1', 'p1'])
+    expect(sources).toEqual({ parties: 'ok', workshops: 'ok', classes: 'ok', squareParties: 'error' })
+  })
+
+  it('our party list down: Square parties are left out too (they could double up with ours)', async () => {
+    mockListParties.mockRejectedValue(new Error('blobs down'))
+    legacy.list = [sq('sq_bk1', '2026-10-20T19:00:00.000Z')]
+    const { events } = await listEvents({ from: '2026-10-20', to: '2026-10-20' })
+    expect(events.some((e) => e.kind === 'party')).toBe(false)
+  })
+
+  it('Square is asked once a minute per window, not on every reload', async () => {
+    await listEvents({ from: '2026-10-20', to: '2026-10-20' })
+    await listEvents({ from: '2026-10-20', to: '2026-10-20' })
+    expect(legacy.asked).toHaveLength(1)
+    vi.setSystemTime(new Date(NOW.getTime() + 61_000))
+    await listEvents({ from: '2026-10-20', to: '2026-10-20' })
+    expect(legacy.asked).toHaveLength(2)
+  })
+
+  it('a Square-booked party’s roster opens by its Square id; anything else unknown is null', async () => {
+    legacy.byId.set('sq_bk1', sq('sq_bk1', '2026-10-20T19:00:00.000Z', 'Jamie Rivera'))
+    expect(await getEvent('party', 'sq_bk1')).toMatchObject({ kind: 'party', id: 'sq_bk1', title: 'Rivera Party', squareBooked: true, days: ['2026-10-20'] })
+    expect(await getEvent('party', 'sq_nope')).toBeNull()
   })
 })

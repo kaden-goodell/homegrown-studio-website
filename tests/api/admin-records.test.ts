@@ -69,12 +69,34 @@ describe('which records are in the range', () => {
 })
 
 describe('buildRecordsDownload', () => {
+  it('Craft Café check-ins: only the range’s days are read, and the families’ waivers come along', async () => {
+    const stores: Record<string, Record<string, unknown>> = {
+      ...STORES,
+      'open-studio': {
+        'open-studio-2026-10-24': { w_old: { personIds: ['adult', 'child:0'], at: '2026-10-24T15:00:00Z', by: { id: 's', name: 'Jess' }, name: 'Ann Lee', people: ['Ann Lee', 'Bo'] } },
+        'open-studio-waiting-2026-10-24': [{ id: 'cw_1', name: 'Kim', how: 'qr', at: '2026-10-24T15:05:00Z', by: { id: 's', name: 'Jess' } }],
+        'open-studio-2025-05-01': { w_x: { personIds: ['adult'], at: '2025-05-01T15:00:00Z', by: { id: 's', name: 'Jess' } } },
+      },
+    }
+    const read: string[] = []
+    const out = await buildRecordsDownload({
+      range: { from: '2026-10-01', to: '2026-10-31' }, by: 'Catherine', now: new Date('2026-11-02T15:00:00Z'),
+      storeFor: (name) => { const m = memory(stores[name] ?? {}); return { ...m, get: async (k) => { read.push(`${name}/${k}`); return m.get(k) } } },
+    })
+    const files = unzipSync(out.bytes)
+    expect(Object.keys(JSON.parse(strFromU8(files['open-studio.json']))).sort()).toEqual(['open-studio-2026-10-24', 'open-studio-waiting-2026-10-24'])
+    expect(read).not.toContain('open-studio/open-studio-2025-05-01')
+    // Ann signed in 2025, but came to Craft Café in the range: her waiver is in the download.
+    expect(Object.keys(JSON.parse(strFromU8(files['waivers.json']))).sort()).toEqual(['w_new', 'w_old'])
+    expect(strFromU8(files['README.txt'])).toContain('open-studio.json: Craft Café check-ins')
+  })
+
   const storeFor = (name: string) => memory(STORES[name] ?? {})
   it('one zip: the range’s records, custody.csv, audit.csv, a README in plain words and a manifest', async () => {
     const out = await buildRecordsDownload({ range: { from: '2026-10-01', to: '2026-10-31' }, by: 'Catherine', now: new Date('2026-11-02T15:00:00Z'), storeFor })
     expect(out.filename).toBe('hometown-records-2026-10-01-to-2026-10-31.zip')
     const files = unzipSync(out.bytes)
-    expect(Object.keys(files).sort()).toEqual(['README.txt', 'audit.csv', 'audit.json', 'checkins.json', 'custody.csv', 'event-meta.json', 'incidents.json', 'manifest.json', 'rsvps.json', 'waivers.json'])
+    expect(Object.keys(files).sort()).toEqual(['README.txt', 'audit.csv', 'audit.json', 'checkins.json', 'custody.csv', 'event-meta.json', 'incidents.json', 'manifest.json', 'open-studio.json', 'rsvps.json', 'waivers.json'])
     expect(Object.keys(JSON.parse(strFromU8(files['waivers.json'])))).toEqual(['w_new'])
     expect(Object.keys(JSON.parse(strFromU8(files['checkins.json'])))).toEqual(['pty_1__wvr_1'])
     expect(Object.keys(JSON.parse(strFromU8(files['audit.json'])))).toEqual(['audit:2026-10-24T20:00:00.000Z-au_1'])

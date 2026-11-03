@@ -10,6 +10,7 @@ export const RECORD_SECTIONS: { store: string; file: string; what: string }[] = 
   { store: 'checkins', file: 'custody.csv', what: 'The same check-ins and pickups as a spreadsheet, one line each (the file to hand a lawyer).' },
   { store: 'incidents', file: 'incidents.json', what: 'Incident reports: what happened, to whom, when, and who wrote it up.' },
   { store: 'event-meta', file: 'event-meta.json', what: 'Each class and party’s door settings (drop-off or not, capacity).' },
+  { store: 'open-studio', file: 'open-studio.json', what: 'Craft Café check-ins, one entry per day: each family checked in, who came with them, when, and who checked them in; and anyone still waiting on a waiver that day.' },
   { store: 'audit', file: 'audit.json', what: 'Who did what on /admin and /staff: refunds, comps, check-ins, changes, with the time and the person.' },
   { store: 'audit', file: 'audit.csv', what: 'The same list of who did what, as a spreadsheet.' },
 ]

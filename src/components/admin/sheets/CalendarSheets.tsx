@@ -8,7 +8,7 @@ import { cafeHoursEntries, cafeHoursOn } from '@config/hours'
 import { useStudio } from '../shell/studio'
 import { timeSpan as formatTimeSpan, clockRange } from '../shell/time'
 import { localDate } from '@lib/party-slots'
-import { api, BLOCKED } from '../classes/api'
+import { api, BLOCKED, CAFE_VISITS } from '../classes/api'
 import { addDays, dayLabel, weekday } from '../classes/dates'
 import { useCalendar, useRefresh } from '../shell/data'
 import { StaffRow } from '../staffing/StaffRow'
@@ -166,7 +166,56 @@ export function CafeSheet({ day }: { day: string }) {
       <p className="adm-note" style={{ marginTop: '0.75rem' }}>
         {special ? 'A special day: these hours replace the usual hours for that day.' : weekly}
       </p>
+      <CafeWhoCame day={day} />
     </SheetFrame>
+  )
+}
+
+interface CafeDayVisits {
+  totals: { households: number; people: number; adults: number; kids: number }
+  entries: { name: string; people: string[]; at: string; by: string; adults: number; kids: number }[]
+}
+
+/** Who the crew checked in at Craft Café that day (today or before). */
+function CafeWhoCame({ day }: { day: string }) {
+  const [r, setR] = useState<CafeDayVisits | null>(null)
+  const [error, setError] = useState('')
+  const [tries, setTries] = useState(0)
+  const todayYmd = localDate(new Date().toISOString())
+  useEffect(() => {
+    if (day > todayYmd) return
+    let live = true
+    setR(null)
+    setError('')
+    api<CafeDayVisits>(`${CAFE_VISITS}?date=${day}`).then((x) => {
+      if (!live) return
+      if (x.ok && x.data) setR(x.data)
+      else setError(x.error ?? '')
+    })
+    return () => { live = false }
+  }, [day, tries])
+  if (day > todayYmd) return null
+  const time = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit' })
+  return (
+    <section aria-label="Who came">
+      <p className="adm-lbl adm-gap-top">Who came</p>
+      {error && <Failed message={error} onRetry={() => setTries((n) => n + 1)} />}
+      {!error && !r && <Skeleton rows={2} label="Loading who came" />}
+      {r && (r.entries.length === 0
+        ? <p className="adm-empty">No one was checked in at Craft Café this day.</p>
+        : (
+          <>
+            <p>{`${r.totals.people} ${r.totals.people === 1 ? 'person' : 'people'} · ${r.totals.adults} ${r.totals.adults === 1 ? 'adult' : 'adults'} · ${r.totals.kids} ${r.totals.kids === 1 ? 'kid' : 'kids'} · ${r.totals.households} ${r.totals.households === 1 ? 'family' : 'families'}`}</p>
+            {r.entries.map((e, n) => (
+              <div key={n} className="adm-kv">
+                <span>{e.name}{e.people.length ? ` (${e.people.join(', ')})` : ''}</span>
+                <span>{`${time(e.at)}${e.by ? ` · ${e.by}` : ''}`}</span>
+              </div>
+            ))}
+          </>
+        ))}
+      <p className="adm-note">The crew check people in on /staff (This week or Today › Craft Café).</p>
+    </section>
   )
 }
 

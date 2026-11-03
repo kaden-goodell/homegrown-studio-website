@@ -276,6 +276,16 @@ describe('WaiverFlow — kiosk mode (HOM-209)', () => {
       expect(JSON.parse((call[1] as RequestInit).body as string)).toEqual({ recordId: 'wvr_new', personIds: ['adult'] })
     })
 
+    it('a family the crew put on Craft Café’s “Waiting on a waiver”: checking them in clears that entry', async () => {
+      const f = mockFetch(true)
+      const { container } = render(<WaiverFlow kiosk returnTo="/staff?cafe=2026-11-07" cafeWaitingId="cw_1234abcd" />)
+      fillMinimalForm(container)
+      await submit()
+      await screen.findByTestId('kiosk-arrived')
+      const call = f.mock.calls.find((c) => String(c[0]) === '/api/staff/open-studio.json')!
+      expect(JSON.parse((call[1] as RequestInit).body as string)).toEqual({ recordId: 'wvr_new', personIds: ['adult'], waitingId: 'cw_1234abcd' })
+    })
+
     it('shows the pickup code a drop-off check-in issues', async () => {
       mockFetch(true, { oneTimeCode: '4821' })
       const { container } = render(<WaiverFlow kiosk workshopId="clssch_a" eventTitle="Camp" returnTo="/staff" />)

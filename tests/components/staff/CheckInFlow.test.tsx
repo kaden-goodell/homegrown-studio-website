@@ -47,4 +47,20 @@ describe('CheckInFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Check in someone else' }))
     expect(screen.getByText('What are they here for?')).toBeTruthy()
   })
+
+  it('Craft Café: find a family and check them in, or start a new family on the waiver (no waiver, no check-in)', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).startsWith('/api/staff/open-studio.json')) return { ok: true, json: async () => ({ data: { ok: true } }) }
+      return { ok: true, json: async () => ({ data: { households: [{ recordId: 'wvr_1', firstName: 'Jane', lastName: 'Doe', contactHint: '0142', signedAt: '2026-10-09T00:00:00Z', agreementVersion: 'v3', validUntil: '2027-10-09T00:00:00Z', covered: true, kids: [{ name: 'Mia Doe', allergies: '' }], adultAllergies: '', photoConsent: true, openStudioToday: false }] } }) }
+    })
+    const onCheckedIn = vi.fn()
+    render(<CheckInFlow todayEvents={[party]} cafeOpen onCheckedIn={onCheckedIn} />)
+    fireEvent.click(screen.getByRole('button', { name: /Craft Café \(walk-in\)/ }))
+    expect(screen.getByRole('button', { name: '✍️ New family? Get them signed' })).toBeTruthy()
+    fireEvent.change(screen.getByPlaceholderText(/Phone, email or last name/), { target: { value: 'Doe' } })
+    fireEvent.click(await screen.findByRole('button', { name: '✓ Here for Craft Café' }))
+    await waitFor(() => expect(onCheckedIn).toHaveBeenCalled())
+    const post = fetchMock.mock.calls.find((c) => String(c[0]).startsWith('/api/staff/open-studio.json'))!
+    expect(JSON.parse(post[1].body)).toEqual({ recordId: 'wvr_1', personIds: ['adult', 'child:0'] })
+  })
 })

@@ -71,13 +71,24 @@ export function signOnIpad(event?: DoorEvent) {
   location.replace(`/waiver?kiosk=1&${event.kind}=${encodeURIComponent(event.id)}&return=${encodeURIComponent(`/staff?open=${event.kind}:${event.id}`)}`)
 }
 
+/**
+ * Craft Café: a new family signs on the iPad. They're already on "Waiting on
+ * a waiver" (`waitingId`); signing checks them in and clears it, and the iPad
+ * comes back to that day's Craft Café sheet.
+ */
+export function signOnIpadForCafe(waitingId: string, date: string) {
+  markKioskOut()
+  location.replace(`/waiver?kiosk=1&cafeWaiting=${encodeURIComponent(waitingId)}&return=${encodeURIComponent(`/staff?cafe=${date}`)}`)
+}
+
 /** One household's result — GOOD TO GO / EXPIRED, with the exact wording
  *  from HOM-208 §3. Words, not colors — a first-shift crew member reads the
  *  headline and knows the answer without interpreting anything. */
 function ResultCard({
-  h, event, todayEvents, onCheckedIn, onAdded, onAddToEvent, onShowQr,
+  h, event, todayEvents, onCheckedIn, onAdded, onAddToEvent, onShowQr, onNewFamily,
 }: {
   h: HouseholdMatch
+  onNewFamily?: (typed: string) => void
   event?: DoorEvent
   todayEvents?: TodayEvent[]
   onCheckedIn?: () => void
@@ -216,10 +227,14 @@ function ResultCard({
       <p style={{ margin: '0.35rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
         Signed {formatMonthDayYear(h.signedAt)} · {h.outdated ? `${h.agreementVersion} is out of date` : `expired ${formatMonthDayYear(h.validUntil)}`}
       </p>
-      <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.8rem', flexWrap: 'wrap' }}>
-        <button type="button" onClick={onShowQr} style={{ ...btn(), minHeight: '2.75rem', flex: '1 1 8rem' }}>Show QR</button>
-        <button type="button" onClick={() => signOnIpad(event)} style={{ ...btn(true), minHeight: '2.75rem', flex: '1 1 8rem' }}>Sign on this iPad</button>
-      </div>
+      {onNewFamily ? (
+        <button type="button" onClick={() => onNewFamily(`${h.firstName} ${h.lastName}`)} style={{ ...btn(true), minHeight: '2.75rem', width: '100%', marginTop: '0.8rem' }}>Get them signed again</button>
+      ) : (
+        <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.8rem', flexWrap: 'wrap' }}>
+          <button type="button" onClick={onShowQr} style={{ ...btn(), minHeight: '2.75rem', flex: '1 1 8rem' }}>Show QR</button>
+          <button type="button" onClick={() => signOnIpad(event)} style={{ ...btn(true), minHeight: '2.75rem', flex: '1 1 8rem' }}>Sign on this iPad</button>
+        </div>
+      )}
     </div>
   )
 }
@@ -243,8 +258,10 @@ export default function DoorSearch(props: {
   onCheckedIn?: () => void
   onAdded?: (r: AddedResult) => void
   onAddToEvent?: (e: TodayEvent, h: HouseholdMatch) => void
+  /** Craft Café: "not on file" and "sign again" go to the café's new-family steps (so they show as Waiting on a waiver). */
+  onNewFamily?: (typed: string) => void
 } & ({ mode?: 'walk-in'; event?: undefined } | { mode: 'event'; event: DoorEvent })) {
-  const { mode = 'walk-in', todayEvents, initialHousehold, onCheckedIn, onAdded, onAddToEvent } = props
+  const { mode = 'walk-in', todayEvents, initialHousehold, onCheckedIn, onAdded, onAddToEvent, onNewFamily } = props
   const doorEvent = props.mode === 'event' ? props.event : undefined
   const [query, setQuery] = useState(props.initialQuery ?? '')
   const [results, setResults] = useState<HouseholdMatch[] | null>(initialHousehold ? [initialHousehold] : null)
@@ -328,10 +345,14 @@ export default function DoorSearch(props: {
             <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: '1.0625rem', color: 'var(--color-dark)' }}>
               NOT ON FILE for “{query.trim()}”
             </h3>
-            <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.8rem', flexWrap: 'wrap' }}>
-              <button type="button" onClick={() => setQrOpen(true)} style={{ ...btn(), minHeight: '2.75rem', flex: '1 1 8rem' }}>Show QR</button>
-              <button type="button" onClick={() => signOnIpad(doorEvent)} style={{ ...btn(true), minHeight: '2.75rem', flex: '1 1 8rem' }}>Sign on this iPad</button>
-            </div>
+            {onNewFamily ? (
+              <button type="button" onClick={() => onNewFamily(query.trim())} style={{ ...btn(true), minHeight: '2.75rem', width: '100%', marginTop: '0.8rem' }}>New family — get them signed</button>
+            ) : (
+              <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.8rem', flexWrap: 'wrap' }}>
+                <button type="button" onClick={() => setQrOpen(true)} style={{ ...btn(), minHeight: '2.75rem', flex: '1 1 8rem' }}>Show QR</button>
+                <button type="button" onClick={() => signOnIpad(doorEvent)} style={{ ...btn(true), minHeight: '2.75rem', flex: '1 1 8rem' }}>Sign on this iPad</button>
+              </div>
+            )}
             <p style={{ margin: '0.7rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
               Under 19? A parent signs from their phone — the QR works for that too.
             </p>
@@ -364,7 +385,7 @@ export default function DoorSearch(props: {
           {results && results.length > 1 && (
             <button type="button" onClick={() => setSelectedId(null)} style={{ ...btn(), marginBottom: '0.6rem' }}>← Back to matches</button>
           )}
-          <ResultCard h={selected} event={doorEvent} todayEvents={todayEvents} onCheckedIn={onCheckedIn} onAdded={onAdded} onAddToEvent={onAddToEvent} onShowQr={() => setQrOpen(true)} />
+          <ResultCard h={selected} event={doorEvent} todayEvents={todayEvents} onCheckedIn={onCheckedIn} onAdded={onAdded} onAddToEvent={onAddToEvent} onShowQr={() => setQrOpen(true)} onNewFamily={onNewFamily} />
         </div>
       )}
 

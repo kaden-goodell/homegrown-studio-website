@@ -4,7 +4,8 @@ import type { TaxMonth, TaxSent } from '@lib/tax-report-store'
 import { addTaxSummaries, BUCKET_LABEL, BUCKET_TAX, taxReportCsv, taxTotals, type Bucket, type TaxSummary } from '@lib/tax-report'
 import { localDate } from '@lib/parties/party-times'
 import { formatMoney } from '@lib/money'
-import { api, REPORTS, TAX_REPORT } from '../classes/api'
+import { api, CAFE_VISITS, REPORTS, TAX_REPORT } from '../classes/api'
+import type { CafeMonth } from '@lib/cafe-visits'
 import { monthLabel } from '../classes/dates'
 import { Failed, Skeleton } from '../shell/items'
 import { SheetFrame } from '../shell/Sheet'
@@ -190,6 +191,52 @@ function YearTax({ year, months }: { year: string; months: string[] }) {
   )
 }
 
+const n = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
+
+/** "Mon Nov 2" */
+const shortDay = (ymd: string) => new Date(`${ymd}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' })
+
+/** A month's Craft Café visits: the crew's check-ins on /staff, each day and the month's total. */
+export function CafeVisits({ month }: { month: string }) {
+  const [r, setR] = useState<CafeMonth | null>(null)
+  const [error, setError] = useState('')
+  const [tries, setTries] = useState(0)
+  useEffect(() => {
+    let live = true
+    setR(null)
+    setError('')
+    api<CafeMonth>(`${CAFE_VISITS}?month=${month}`).then((x) => {
+      if (!live) return
+      if (x.ok && x.data) setR(x.data)
+      else setError(x.error ?? '')
+    })
+    return () => { live = false }
+  }, [month, tries])
+  return (
+    <section aria-label="Craft Café visits">
+      <p className="adm-lbl adm-gap-top">{`Craft Café visits, ${monthLabel(`${month}-01`)}`}</p>
+      {error && <Failed message={error} onRetry={() => setTries((x) => x + 1)} />}
+      {!error && !r && <Skeleton rows={2} label="Loading Craft Café visits" />}
+      {r && (
+        <>
+          <div className="adm-sum">
+            <div><b>{r.totals.people}</b><small>{`people (${n(r.totals.adults, 'adult', 'adults')}, ${n(r.totals.kids, 'kid', 'kids')})`}</small></div>
+            <div><b>{r.totals.households}</b><small>families</small></div>
+          </div>
+          {r.days.length === 0 && <p className="adm-empty">No one was checked in at Craft Café this month.</p>}
+          {r.days.map((d) => (
+            <div key={d.date} className="adm-kv">
+              <span>{shortDay(d.date)}</span>
+              <span>{`${n(d.people, 'person', 'people')} · ${n(d.adults, 'adult', 'adults')} · ${n(d.kids, 'kid', 'kids')} · ${n(d.households, 'family', 'families')}`}</span>
+            </div>
+          ))}
+          <p className="adm-note">Everyone the crew checked in at Craft Café on /staff. Someone checked in twice in a day counts once. What they bought is in the tax split below.</p>
+        </>
+      )}
+    </section>
+  )
+}
+
 /** More › Reports: any month or year from our own records, and the tax split from Square. */
 export function ReportsSheet() {
   const { months, years } = reportPeriods()
@@ -252,6 +299,9 @@ export function ReportsSheet() {
           </p>
         </>
       )}
+      {year
+        ? <p className="adm-note adm-gap-top">Pick a month under Show to see its Craft Café visits.</p>
+        : <CafeVisits key={`cafe-${period}`} month={period} />}
       {year ? <YearTax key={period} year={period} months={months} /> : <MonthTax key={period} month={period} />}
     </SheetFrame>
   )

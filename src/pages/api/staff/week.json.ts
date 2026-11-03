@@ -7,6 +7,7 @@ import { addDays } from '@lib/kit-dates'
 import { createLogger } from '@lib/logger'
 import { cafeOn } from '@lib/cafe-days'
 import { getStudioDays } from '@lib/studio-settings'
+import { hereNowCount } from '@lib/open-studio-store'
 
 export const prerender = false
 const logger = createLogger('api:staff:week')
@@ -56,17 +57,23 @@ export const GET: APIRoute = async ({ request }) => {
         ...(typeof e.guests === 'number' ? { guests: e.guests } : {}),
         ...(e.endIso ? { endIso: e.endIso } : {}),
         ...(e.waitingOnPayment ? { waitingOnPayment: true } : {}),
+        ...(e.squareBooked ? { squareBooked: true } : {}),
         ...(byDay ? { byDay } : await prepForEvent(e)),
       }
     }))
     rows.sort((a, b) => a.startIso.localeCompare(b.startIso))
     // Craft Café hours on each day it runs (the owners' hours and closed days).
     const days = await getStudioDays()
-    const cafe: Record<string, { opens: string; closes: string }> = {}
+    const cafe: Record<string, { opens: string; closes: string; here?: number }> = {}
     for (let i = 0; i < WEEK_DAYS; i++) {
       const d = addDays(from, i)
       const h = cafeOn(d, days)
       if (h) cafe[d] = h
+    }
+    // Today's café row says how many are checked in ("· 6 here"); a miss just leaves it off.
+    if (cafe[from]) {
+      const here = await hereNowCount(from).catch(() => null)
+      if (typeof here === 'number') cafe[from] = { ...cafe[from], here }
     }
     return new Response(JSON.stringify({ data: { from, to, events: rows, sources, cafe } }), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
   } catch (err) {

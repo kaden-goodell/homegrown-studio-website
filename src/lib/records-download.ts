@@ -40,7 +40,13 @@ export interface RecordsRange { from: string; to: string }
 
 export { RECORD_SECTIONS } from '@lib/records-sections'
 
-const LEGAL_STORES = ['waivers', 'rsvps', 'checkins', 'incidents', 'event-meta', 'audit']
+const LEGAL_STORES = ['waivers', 'rsvps', 'checkins', 'incidents', 'event-meta', 'audit', 'open-studio']
+
+/** A Craft Café document's day: its key ends with it (open-studio-YYYY-MM-DD, open-studio-waiting-YYYY-MM-DD). */
+function cafeKeyDay(k: string): string | null {
+  const d = k.slice(-10)
+  return DAY_RE.test(d) ? d : null
+}
 
 /**
  * Never more than this in one download. The site's reply limit is about 6 MB
@@ -153,6 +159,11 @@ export function withWhatTheyRestOn(all: Record<string, Record<string, unknown>>,
   for (const r of Object.values(kept.rsvps ?? {}) as any[]) {
     const ev = eventOf(r?.event)
     if (ev) events.add(ev)
+  }
+  // Craft Café check-ins name the waivers of the families who came.
+  for (const [k, day] of Object.entries(kept['open-studio'] ?? {})) {
+    if (k.startsWith('open-studio-waiting-') || !day || typeof day !== 'object' || Array.isArray(day)) continue
+    for (const id of Object.keys(day)) waiverIds.add(id)
   }
   kept.rsvps ??= {}
   for (const [k, r] of Object.entries(all.rsvps ?? {}) as [string, any][]) {
@@ -278,6 +289,13 @@ export async function buildRecordsDownload(input: {
     if (name === 'audit' && range) {
       keys = keys.filter((k) => {
         const day = auditKeyDay(k)
+        return day === null || (day >= range.from && day <= range.to)
+      })
+    }
+    // Craft Café: one document per day, so only the days in the range are read.
+    if (name === 'open-studio' && range) {
+      keys = keys.filter((k) => {
+        const day = cafeKeyDay(k)
         return day === null || (day >= range.from && day <= range.to)
       })
     }

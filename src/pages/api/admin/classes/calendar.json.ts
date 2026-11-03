@@ -9,6 +9,8 @@ import type { ClassStatus } from '@lib/classes/types'
 import { getPartyRecord } from '@lib/party-store'
 import { listBlocked } from '@lib/classes/blocked-time'
 import { paymentState } from '@lib/parties/money'
+import { hereNowCount } from '@lib/open-studio-store'
+import { localDate } from '@lib/party-slots'
 
 export const prerender = false
 
@@ -23,6 +25,8 @@ export type CalendarItem = Busy & {
   pay?: 'paid' | 'waiting' | 'partly' | 'legacy' | 'cancelled'
   /** Blocked time: the owners' note (only on /admin). */
   note?: string
+  /** Craft Café, today or before: people the crew checked in ("12 at Craft Café"). */
+  visits?: number
 }
 
 /**
@@ -60,6 +64,13 @@ export const GET: APIRoute = async ({ request, url }) => {
           ...(session ? { capacity: session.capacity } : {}),
           ...(ledger && b.sessionId ? { booked: seatsTaken(ledger, b.sessionId, now) } : {}),
         }
+      }
+      if (b.kind === 'cafe') {
+        // Check-ins only exist for today and before: a day still to come is never read.
+        const day = localDate(b.startIso)
+        if (day > localDate(now.toISOString())) return b
+        const visits = await hereNowCount(day).catch(() => 0)
+        return visits > 0 ? { ...b, visits } : b
       }
       if (b.kind === 'blocked') {
         const note = (await notes)[b.id]

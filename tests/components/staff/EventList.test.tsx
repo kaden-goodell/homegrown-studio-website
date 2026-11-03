@@ -95,3 +95,17 @@ describe('EventList day in the address', () => {
     expect(screen.queryByTestId('prep-line')).toBeNull()
   })
 })
+
+describe('EventList: booked parties (2 Nov 2026)', () => {
+  it('a party booked in Square is tagged and opens its roster; Square being down is one quiet line', async () => {
+    fetchMock.mockImplementation(async () => ({ ok: true, json: async () => ({ data: { events: [
+      { kind: 'party', id: 'sq_bk1', title: 'Rivera Party', startIso: '2026-10-16T19:00:00Z', endIso: '2026-10-16T20:30:00Z', days: ['2026-10-16'], dropOff: false, squareBooked: true, rsvpCount: 2, hereNow: 0 },
+    ], sources: { parties: 'ok', workshops: 'ok', classes: 'ok', squareParties: 'error' } } }) }))
+    const open = vi.fn()
+    render(<EventList date={TODAY} stepper={false} onOpenRoster={open} />)
+    expect(await screen.findByText('Booked in Square')).toBeTruthy()
+    expect(screen.getByText(/Parties booked in Square unavailable right now/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Rivera Party/ }))
+    expect(open).toHaveBeenCalledWith({ kind: 'party', id: 'sq_bk1', title: 'Rivera Party' })
+  })
+})
