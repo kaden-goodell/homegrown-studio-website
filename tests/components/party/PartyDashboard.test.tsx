@@ -107,8 +107,9 @@ describe('PartyDashboard wording', () => {
         attending: ['adult', 'child:0'],
       },
     ])
-    expect(screen.getByText('Allergy: Dana: wool')).toBeInTheDocument()
-    expect(screen.getByText('Allergy: Ava: latex')).toBeInTheDocument()
+    // No colons in customer copy: "Allergy · Dana, wool".
+    expect(screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === 'Allergy · Dana, wool')).toBeInTheDocument()
+    expect(screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === 'Allergy · Ava, latex')).toBeInTheDocument()
   })
 
   it('uses plain words on its buttons: no emoji or symbols', async () => {
@@ -177,5 +178,35 @@ describe('PartyDashboard: our party records', () => {
     expect(a).toContain('SEQUENCE:0')
     expect(b).toContain('SEQUENCE:1')
     expect(b).toContain('DTSTART:20261018T190000Z')
+  })
+})
+
+describe('PartyDashboard — Need to move or cancel? (final review I4, request-only)', () => {
+  it('shows the policy for the date and sends a request; nothing else changes on the page', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).startsWith('/api/party/change-request.json')) return { ok: true, status: 200, json: async () => ({ data: { at: 'x', want: 'move' } }) }
+      return { ok: true, status: 200, json: async () => roster([], { refundLine: 'Full refund until Oct 3. After that, studio credit.', canAskToChange: true, changeRequest: null }) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<PartyDashboard bookingId="bk-1" hostKey="key-1" />)
+    const section = await screen.findByTestId('party-change')
+    expect(section).toHaveTextContent('Need to move or cancel?')
+    expect(section).toHaveTextContent('Full refund until Oct 3. After that, studio credit.')
+    expect(section).toHaveTextContent('Nothing changes until we do.')
+    const { fireEvent } = await import('@testing-library/react')
+    fireEvent.click(screen.getByRole('button', { name: 'Send the request' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Choose whether you want to move it, cancel it or something else.')
+    fireEvent.click(screen.getByRole('button', { name: 'Move it' }))
+    fireEvent.change(screen.getByLabelText(/Which days or times work for you/), { target: { value: 'Any Sunday in December' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send the request' }))
+    expect(await screen.findByText(/We got your request to move your party\./)).toBeInTheDocument()
+    const sent = fetchMock.mock.calls.find(([u]) => String(u).startsWith('/api/party/change-request.json'))!
+    expect(JSON.parse(String((sent[1] as RequestInit).body))).toEqual({ bookingId: 'bk-1', key: 'key-1', want: 'move', note: 'Any Sunday in December' })
+  })
+
+  it('a request already sent shows as sent, with a way to send another', async () => {
+    await show([], { canAskToChange: true, changeRequest: { at: 'x', want: 'cancel' } })
+    expect(screen.getByText(/We got your request to cancel your party\./)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send another request' })).toBeInTheDocument()
   })
 })

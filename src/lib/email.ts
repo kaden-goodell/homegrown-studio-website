@@ -182,6 +182,10 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
    */
   hostPageUrl: string | null
   inviteUrl: string; totalChargedCents: number; receiptUrl: string | null
+  /** The studio fee part of today's charge (final review I8): equal → "for the studio fee"; less (extras in) → just "You paid $X today". */
+  feeCents?: number
+  /** A themed table booked with it, said on its own line (never glued onto the date). */
+  themeName?: string
   /** Add-to-calendar: a Google Calendar link for the body + ICS content attached for Apple/Outlook. */
   googleCalendarUrl?: string; icsContent?: string
   /** Booking id — shown as a footer reference (also keeps repeated test emails from Gmail-trimming). */
@@ -207,7 +211,9 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
   const fee = dollars(input.totalChargedCents)
   const updated = input.updated ?? null
-  const feeSentence = updated ? updated.costNote : `Studio fee paid today: ${fee}.`
+  const feeOnly = input.feeCents === undefined || input.feeCents >= input.totalChargedCents
+  const feeSentence = updated ? updated.costNote : feeOnly ? `You paid ${fee} today for the studio fee.` : `You paid ${fee} today.`
+  const themeLine = input.themeName ? `With the ${input.themeName}.` : ''
   const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
   const phone = siteConfig.contactPhone
   // "$25" or "$30–$40" per person, matching the booking panel's label.
@@ -220,7 +226,7 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
   const description = (input.craftDescription ?? '').replace(/\r/g, '').trim()
   const costLine = perPerson
     ? `${feeSentence} ${input.craftName} is ${perPerson} per person, paid at the studio for whoever crafts.`.trim()
-    : `${feeSentence} Crafts are paid at the studio based on who comes.`.trim()
+    : `${feeSentence} Crafts are paid at the studio for whoever comes.`.trim()
   const moved = updated?.moved ?? null
   const pay = updated?.pay && updated.costNote ? updated.pay : null
   const updatedLine = moved
@@ -230,32 +236,37 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
       : 'If you added the party to your calendar before, use the new invite in this email.'
   const heading = moved ? 'Your party has a new time' : 'Your party details'
   const arriveLine = input.arriveEarlyMinutes ? `Arrive up to ${input.arriveEarlyMinutes} minutes early to set up.` : ''
-  const headcountLine = `About a week before, we'll text you to check your headcount. It's for our prep only: you pay for who comes${input.minGuests ? `, minimum ${input.minGuests}` : ''}.`
+  // Final review I6: nothing sends a headcount text, so the email promises none; the host tells us.
+  const headcountLine = `Know your headcount closer to the day? Text us so we can prep. You pay for who comes${input.minGuests ? `, with a minimum of ${input.minGuests}` : ''}.`
+  // Final review I4 (request-only): how to ask to move or cancel, with the policy for this date.
+  const changeLine = `${input.refundLine ? `${input.refundLine} ` : ''}${input.hostPageUrl ? 'Ask from your party page, or text us, and we’ll sort it out with you.' : `Text us${phone ? ` at ${phone}` : ''} and we’ll sort it out with you.`}`
   const noPageLine = `Your party page is being set up. ${phone ? `Text us at ${phone} and we'll send you the link.` : "We'll send you the link."}`
 
   const text = [
     updated ? `${heading}. ${input.craftName} · ${input.slotLabel}` : `You're booked! ${input.craftName} · ${input.slotLabel}`,
     ...(updated ? [``, updatedLine] : []),
     ``,
-    `Where: Hometown Studio, ${address}`,
-    ...(input.directionsUrl ? [`Directions: ${input.directionsUrl}`] : []),
+    `We're at Hometown Studio, ${address}`,
+    ...(input.directionsUrl ? [`Get directions ${input.directionsUrl}`] : []),
     ...(arriveLine ? [arriveLine] : []),
     ``,
-    ...(description ? [`About your craft:`, ...description.split('\n'), ``] : []),
+    ...(description ? [`About your craft`, ...description.split('\n'), ``] : []),
+    ...(themeLine ? [themeLine] : []),
     costLine,
     ...(pay ? [`${pay.label} here`, pay.url] : []),
     ``,
     ...(input.hostPageUrl
-      ? [`Your party page (see who's coming and manage the details; keep this link):`, input.hostPageUrl]
+      ? [`Your party page. See who's coming and manage the details. Keep this link.`, input.hostPageUrl]
       : [noPageLine]),
     ``,
-    `Invitation link to share with your guests:`,
+    `Share this invitation link with your guests`,
     input.inviteUrl,
     ``,
     headcountLine,
-    ...(input.refundLine ? [``, `Changing plans: ${input.refundLine}`] : []),
-    ...(input.googleCalendarUrl ? [``, `Add to Google Calendar: ${input.googleCalendarUrl}`, `Apple or Outlook: open the attached invite (.ics)`] : []),
-    ...(input.receiptUrl ? [``, `Receipt: ${input.receiptUrl}`] : []),
+    ``,
+    `Need to move or cancel? ${changeLine}`,
+    ...(input.googleCalendarUrl ? [``, `Add it to Google Calendar ${input.googleCalendarUrl}`, `On Apple or Outlook, open the attached invite (.ics).`] : []),
+    ...(input.receiptUrl ? [``, `See your receipt ${input.receiptUrl}`] : []),
     ...(input.agreementLine ? [``, input.agreementLine] : []),
     ...(phone ? [``, `Questions? Text us at ${phone}.`] : []),
     ``,
@@ -288,7 +299,8 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
   ${arriveLine ? `<p style="${P}">${esc(arriveLine)}</p>` : ''}
   <div style="height:10px;"></div>
   ${descriptionHtml ? `<p style="${LABEL}">About your craft</p>${descriptionHtml}<div style="height:10px;"></div>` : ''}
-  <p style="${P}">${feeSentence ? `<strong>${esc(feeSentence)}</strong>` : ''}${perPerson ? ` ${esc(input.craftName)} is <strong>${esc(perPerson)} per person</strong>, paid at the studio for whoever crafts.` : ' Crafts are paid at the studio based on who comes.'}</p>
+  ${themeLine ? `<p style="${P}">${esc(themeLine)}</p>` : ''}
+  <p style="${P}">${feeSentence ? `<strong>${esc(feeSentence)}</strong>` : ''}${perPerson ? ` ${esc(input.craftName)} is <strong>${esc(perPerson)} per person</strong>, paid at the studio for whoever crafts.` : ' Crafts are paid at the studio for whoever comes.'}</p>
   ${pay ? `<div style="margin:10px 0 6px;"><a href="${esc(pay.url)}" style="display:inline-block;padding:11px 22px;background:#7a4a2e;color:#ffffff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">${esc(pay.label)}</a></div>` : ''}
   ${
     input.hostPageUrl
@@ -298,14 +310,14 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
   <p style="${MUTED}">See who&rsquo;s coming and manage the details. Keep this link.</p>`
       : `<p style="${P}margin-top:14px;">${esc(noPageLine)}</p>`
   }
-  <p style="margin:14px 0 2px;font-size:14px;color:#3d3630;">Invitation link to share with your guests:</p>
+  <p style="margin:14px 0 2px;font-size:14px;color:#3d3630;">Share this invitation link with your guests</p>
   <p style="margin:0 0 6px;"><a href="${esc(input.inviteUrl)}" style="color:#7a4a2e;font-size:13px;word-break:break-all;">${esc(input.inviteUrl)}</a></p>
   <p style="margin:6px 0 2px;"><a href="${esc(partyInviteMailto({ craftName: input.craftName, slotLabel: input.slotLabel, inviteUrl: input.inviteUrl, icsUrl: input.bookingRef ? partyInviteIcsUrl(input.bookingRef, new URL(input.inviteUrl).origin) : undefined }))}" style="${LINK}font-size:14px;">Email your guests</a></p>
   <p style="${MUTED}">Opens a ready-to-send invitation. Just add addresses.</p>
   <p style="${LABEL}margin-top:14px;">Before the party</p>
   <p style="${P}">${esc(headcountLine)}</p>
-  ${input.refundLine ? `<p style="${LABEL}margin-top:10px;">Changing plans</p><p style="${P}">${esc(input.refundLine)}</p>` : ''}
-  ${input.googleCalendarUrl ? `<p style="margin:14px 0 2px;"><a href="${esc(input.googleCalendarUrl)}" style="${LINK}font-size:14px;">Add to Google Calendar</a></p><p style="${MUTED}">Apple or Outlook: open the attached invite.</p>` : ''}
+  <p style="${LABEL}margin-top:10px;">Need to move or cancel?</p><p style="${P}">${esc(changeLine)}</p>
+  ${input.googleCalendarUrl ? `<p style="margin:14px 0 2px;"><a href="${esc(input.googleCalendarUrl)}" style="${LINK}font-size:14px;">Add to Google Calendar</a></p><p style="${MUTED}">On Apple or Outlook, open the attached invite.</p>` : ''}
   ${input.receiptUrl ? `<p style="margin:10px 0 0;"><a href="${esc(input.receiptUrl)}" style="color:#7a4a2e;font-size:13px;">View your receipt</a></p>` : ''}
   ${input.agreementLine ? `<p style="${MUTED}">${esc(input.agreementLine)}</p>` : ''}
   ${phone ? `<p style="${P}margin-top:14px;">Questions? Text us at <strong>${esc(phone)}</strong>.</p>` : ''}

@@ -415,10 +415,14 @@ export async function sendPartyBookedEmail(input: {
       craftDescription: String(craft?.description ?? '').slice(0, 2000),
       craftImageUrl: craftImage(craft?.imageUrl, origin),
       ...(craft ? { perHeadCents: craft.perHeadCents, perHeadMaxCents: craft.perHeadMaxCents } : {}),
-      slotLabel: input.themeName ? `${slotLabel} — with ${input.themeName}` : slotLabel,
+      // The table on its own line, never glued onto the date (subject, heading, guest invite).
+      slotLabel,
+      ...(input.themeName ? { themeName: input.themeName } : {}),
       hostPageUrl,
       inviteUrl,
       totalChargedCents: input.chargedCents,
+      // I8: what of today's charge is the studio fee, so the email never calls extras "studio fee".
+      feeCents: studioFeeCents(draft),
       receiptUrl: input.receiptUrl,
       googleCalendarUrl: googleCalendarUrl(calEvent),
       // One calendar event per booking (UID from the booking id), its SEQUENCE bumped by every move or edit: a re-sent invite replaces the old one.
@@ -429,7 +433,8 @@ export async function sendPartyBookedEmail(input: {
       agreementLine: await agreementLineFor(input.email),
       arriveEarlyMinutes: partyConfig.hostArrivalMinutesEarly,
       minGuests: input.minGuests ?? partyConfig.minGuests,
-      refundLine: partyRefundLine(draft.startIso, new Date(), input.chargedCents > 0 ? input.chargedCents : undefined),
+      // The policy names the studio fee only (how extras are refunded is the owners' call, never promised here).
+      refundLine: partyRefundLine(draft.startIso, new Date(), studioFeeCents(draft) || (input.chargedCents > 0 ? input.chargedCents : undefined)),
       directionsUrl: STUDIO_DIRECTIONS_URL,
       ...(input.updated ? { updated: input.updated } : {}),
     })
@@ -438,6 +443,11 @@ export async function sendPartyBookedEmail(input: {
     logger.error('Party confirmation email failed (party still booked)', { partyId, error: String(err) })
     return false
   }
+}
+
+/** The package line(s) of a party: its studio fee, without extras or a themed table. */
+function studioFeeCents(r: Pick<PartyRecord, 'items'>): number {
+  return (r.items ?? []).filter((it) => it.kind === 'package').reduce((t, it) => t + it.cents, 0)
 }
 
 /** Absolute http(s) only; a site-relative path resolves against the site. */

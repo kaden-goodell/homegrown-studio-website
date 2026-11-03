@@ -4,6 +4,7 @@
  * request to /api/admin/to-decide.json, recorded with who made it. Afterwards
  * the sheet shows "Done · what was done".
  */
+import { policyWindows } from '@config/policy-content'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { AskAnswer, ToDecideItem } from '@pages/api/admin/to-decide.json'
 import type { ClassBooking } from '@lib/classes/admin-actions'
@@ -131,6 +132,7 @@ export function ToDecideSheet({ id }: { id: string }) {
     case 'reader-late': return <ReaderLate item={t} />
     case 'cancel-request': return <CancelRequest item={t} />
     case 'cancel-unclear': return <CancelUnclear item={t} />
+    case 'party-change-request': return <PartyChangeRequest item={t} />
   }
 }
 
@@ -497,6 +499,22 @@ function PartyNoConfirmation({ item }: { item: ToDecideItem }) {
     <SheetFrame title={item.title} subtitle="To decide" footer={<button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'sorted' })}>{label(busy, 'sorted', 'Done', 'Saving…')}</button>}>
       <Head item={item} />
       <p className="adm-note adm-gap-top">The party is paid and on the calendar. Open the party and tap the button that emails the host the details, so they get their host page, invite link and calendar. Then tap Done here.</p>
+      <OpenParty item={item} />
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}
+
+/** The host asked from their party page to move or cancel (request-only, D2). */
+function PartyChangeRequest({ item }: { item: ToDecideItem }) {
+  const { send, busy, error } = useDecide(item)
+  const d = item.detail as Detail
+  const phone = typeof d.phone === 'string' ? d.phone : ''
+  return (
+    <SheetFrame title={item.title} subtitle="To decide" footer={<button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'sorted' })}>{label(busy, 'sorted', 'Done', 'Saving…')}</button>}>
+      <Head item={item} />
+      <p className="adm-note adm-gap-top">Nothing has changed on the party. Call or text them, then open the party to move it, cancel it or refund it by the party policy (full refund {policyWindows.partyFullRefundDays} or more days before, studio credit after that). Tap Done once it’s sorted.</p>
+      {phone && <a className="adm-btn is-ghost is-sm adm-gap-top" href={`tel:${phone.replace(/[^+\d]/g, '')}`}>Call {phone}</a>}
       <OpenParty item={item} />
       <ErrorLine text={error} />
     </SheetFrame>
