@@ -107,7 +107,7 @@ export const partyContent = {
     },
     {
       q: 'Can we bring wine or other alcohol?',
-      a: 'No outside alcohol, please — Alabama law doesn’t allow it in our studio. We’re pursuing a beer & wine license so guests can enjoy a drink here once it’s issued.',
+      a: 'Usually not. Outside alcohol isn’t allowed at parties, but occasionally we allow BYOB at special events, and we’ll say so on the event. We’re pursuing a beer & wine license so guests can enjoy a drink here once it’s issued.',
     },
     {
       q: 'Can you do a theme?',
