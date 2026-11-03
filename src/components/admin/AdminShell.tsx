@@ -28,6 +28,7 @@ import { LibraryEditSheet, LibraryItemSheet } from './sheets/LibrarySheets'
 import { NewClassSheet, RunAgainSheet, ScheduleFromLibrarySheet } from './sheets/NewClassSheet'
 import { StaffSheet } from './sheets/StaffSheet'
 import { PreviewMessagesSheet, ReportsSheet, SandboxSheet, WhoContext, WhoSheet } from './sheets/MoreSheets'
+import { ActivitySheet } from './sheets/ActivitySheet'
 import { RecordsSheet } from './sheets/RecordsSheet'
 import { CraftsSheet } from './sheets/CraftsSheet'
 import { HelpSheet } from './sheets/HelpSheet'
@@ -505,6 +506,7 @@ function SheetContent({ sheet: s }: { sheet: Sheet }) {
         case 'notify': return <NotifySheet />
         case 'connections': return <ConnectionsSheet />
         case 'help': return <HelpSheet />
+        case 'activity': return <ActivitySheet />
       }
   }
 }
