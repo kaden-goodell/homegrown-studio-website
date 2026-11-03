@@ -999,3 +999,26 @@ describe('money rules: never charge after close or leave, reuse keys until a fin
     expect((await entries(cls))[0].attempts[0].told).toEqual({ text: false, email: true })
   })
 })
+
+describe('I-6: the sweep is fair and stops reading finished waitlists', () => {
+  it('a waitlist whose class is over with no work left goes on the finished list and is never read again', async () => {
+    const { mutateWaitlist, inactiveWaitlists } = await import('@lib/classes/waitlist-store')
+    const old = makeClass({ startIso: '2026-10-01T15:00:00.000Z' })
+    await mutateWaitlist(old.id, (cur) => ({ next: { ...cur, entries: [] }, result: null }))
+    const live = makeClass()
+    await mutateWaitlist(live.id, (cur) => ({ next: { ...cur, entries: [] }, result: null }))
+    await sweepWaitlists(NOW)
+    const done = await inactiveWaitlists()
+    expect(done.has(old.id)).toBe(true)
+    expect(done.has(live.id)).toBe(false) // its dates haven't passed: people may still join
+  })
+
+  it('starts at a different class each run, so a slow run never starves the same tail', async () => {
+    const { sweepOrder } = await import('@lib/classes/waitlist-runner')
+    const ids = ['a', 'b', 'c']
+    const firsts = new Set([0, 1, 2].map((n) => sweepOrder(ids, new Date(NOW.getTime() + n * 600_000))[0]))
+    expect(firsts).toEqual(new Set(ids)) // over three runs each class goes first once
+    expect(sweepOrder(ids, NOW).sort()).toEqual(ids) // nobody dropped
+    expect(sweepOrder([], NOW)).toEqual([])
+  })
+})
