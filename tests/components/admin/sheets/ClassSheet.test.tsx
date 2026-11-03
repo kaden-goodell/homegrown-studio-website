@@ -433,10 +433,10 @@ describe('class sheet › Dates', () => {
     expect(within(moved).getByRole('link', { name: 'Text everyone' })).toHaveAttribute('href', 'sms:2565550100')
     expect(within(moved).getByRole('button', { name: 'Copy the numbers' })).toBeInTheDocument()
     // Nothing is emailed until she taps it.
-    expect(posts(f, CLASSES).some((p) => p.body.action === 'email-moved')).toBe(false)
+    expect(posts(f, CLASSES).some((p: any) => p.body.action === 'email-moved')).toBe(false)
     fireEvent.click(within(moved).getByRole('button', { name: 'Email everyone the new details' }))
-    await waitFor(() => expect(posts(f, CLASSES).filter((p) => p.body.action === 'email-moved')).toHaveLength(1))
-    expect(posts(f, CLASSES).find((p) => p.body.action === 'email-moved')!.body).toEqual({ action: 'email-moved', id: 'cls_1', movedFrom: { ses_1: at('2031-03-12', '10:00') } })
+    await waitFor(() => expect(posts(f, CLASSES).filter((p: any) => p.body.action === 'email-moved')).toHaveLength(1))
+    expect(posts(f, CLASSES).find((p: any) => p.body.action === 'email-moved')!.body).toEqual({ action: 'email-moved', id: 'cls_1', movedFrom: { ses_1: at('2031-03-12', '10:00') } })
     expect(await within(moved).findByText('Emailed: Ada Lovelace.')).toBeInTheDocument()
     expect(within(moved).queryByRole('button', { name: 'Email everyone the new details' })).toBeNull()
   })
