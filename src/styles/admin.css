@@ -1491,10 +1491,13 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
 .adm-need button {
   min-width: 0;
 }
+/* UI review (3 Nov): labels never break inside a word ("Message / s"). */
 .adm-need small {
-  overflow-wrap: break-word;
+  overflow-wrap: normal;
+  word-break: normal;
 }
-@media (min-width: 768px) and (max-width: 1023px) {
+/* iPad and up: Home's right column is narrow, so the tiles go 2 by 2 (portrait and landscape). */
+@media (min-width: 768px) {
   .adm-need {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2834,4 +2837,9 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
 }
 .adm-promo-pick {
   margin: 0.5rem 0;
+}
+/* Home on an iPad: the buttons open the right column, level with Today. */
+.adm-cols > div > .adm-home-actions:first-child {
+  margin-top: 0;
+  margin-bottom: 1rem;
 }

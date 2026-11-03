@@ -149,9 +149,10 @@ export default function Home({ who, onOpen, onInbox }: {
       <h1>{greeting()}{who ? `, ${who}` : ''}</h1>
       <p className="adm-muted adm-small">{longDay(day)}</p>
       <div className="adm-cols">
-        {/* Phone: the week, the buttons, then Needs you. iPad: the week | Needs you and the buttons. */}
+        {/* Phone: the week, the buttons, then Needs you. iPad: the week | the buttons, then Needs you
+            (UI review: her most-used buttons first, never under the warnings). */}
         <div>{agenda}{!wide && actions}</div>
-        <div>{need}{wide && actions}</div>
+        <div>{wide && actions}{need}</div>
       </div>
     </>
   )

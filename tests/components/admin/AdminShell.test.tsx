@@ -441,6 +441,16 @@ describe('Home', () => {
     expect(screen.getByRole('button', { name: 'Messages 1' })).toHaveAttribute('aria-pressed', 'true')
   })
 
+  it('UI review: on an iPad Home puts New class / Book a party / Find a booking first in the right column, above Needs you', async () => {
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('min-width: 768px'), media: q, addEventListener: () => {}, removeEventListener: () => {} }))
+    await signedIn(server())
+    const add = await screen.findByRole('button', { name: '+ New class' })
+    const requests = await screen.findByRole('button', { name: /^Requests:/ })
+    expect(add.compareDocumentPosition(requests) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByRole('button', { name: '+ Book a party' }).compareDocumentPosition(requests) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Find a booking' }).compareDocumentPosition(requests) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('Needs you counts classes and parties in the next two weeks with nobody (or too few) on, and opens More › Staff', async () => {
     const row = (state: string, needed: number, status = 'on', endIso = at('2026-10-22', '20:00')) => ({ event: { status, endIso }, state, needed })
     const f = await signedIn(server({ staffRows: [row('none', 1), row('short', 2), row('staffed', 1), row('none', 0), row('none', 1, 'cancelled'), row('none', 1, 'on', at('2026-10-18', '12:00'))] }))
