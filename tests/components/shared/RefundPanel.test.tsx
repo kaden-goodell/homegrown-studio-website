@@ -292,6 +292,24 @@ describe('RefundPanel — crew wording (crew review M3, M4)', () => {
     expect(screen.queryByRole('button', { name: 'Confirm refund' })).toBeNull()
   })
 
+  it('crew I6: inside the 48-hour window, Refund first shows a plain hint naming the owners, then Continue opens the refund (no limit)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ok({ data: { cents: 6540, emailed: false } })))
+    render(<RefundPanel classId="cls_1" booking={booking} endpoint={STAFF_REFUND} reasonRequired crew insidePolicy />)
+    fireEvent.click(screen.getByRole('button', { name: 'Refund' }))
+    expect(screen.getByTestId('refund-policy-hint')).toHaveTextContent('This is inside the 48-hour window — check with Catherine or Kaden first.')
+    expect(screen.queryByLabelText('Reason')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'sick kid' } })
+    expect(screen.getByRole('button', { name: 'Refund $65.40 to Ada Lovelace' })).toBeEnabled()
+  })
+
+  it('crew I6: outside the window (and owners always) go straight to the refund', () => {
+    render(<RefundPanel classId="cls_1" booking={booking} endpoint={STAFF_REFUND} reasonRequired crew />)
+    fireEvent.click(screen.getByRole('button', { name: 'Refund' }))
+    expect(screen.queryByTestId('refund-policy-hint')).toBeNull()
+    expect(screen.getByLabelText('Reason')).toBeInTheDocument()
+  })
+
   it('paid in Square: says who to ask, not "in Square"', () => {
     render(<RefundPanel classId="cls_1" booking={{ ...booking, paidHere: false }} endpoint={STAFF_REFUND} reasonRequired crew />)
     expect(screen.getByText('This one was paid in Square. Ask Catherine or Kaden to refund it.')).toBeInTheDocument()

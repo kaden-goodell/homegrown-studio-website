@@ -20,7 +20,8 @@ const kv = makeKvStore('audit', 'audit')
 export interface AuditEntry {
   id: string
   at: string
-  by: { id: string; name: string; role: 'owner' | 'crew' }
+  /** 'customer': something a customer did online (a self-cancel, a party change request), N9. */
+  by: { id: string; name: string; role: 'owner' | 'crew' | 'customer' }
   action: string
   target: { kind: string; id: string; label?: string }
   details?: Record<string, string | number | boolean | null>

@@ -35,6 +35,8 @@ describe('which actions', () => {
     expect(headsUpLine(entry({}))).toBe('Sam: refunded $85.00 on Pottery Sat: “no-show, asked nicely”')
     expect(headsUpLine(entry({ action: 'party-refund', target: { kind: 'party', id: 'p', label: 'the Justice party' }, details: { cents: 1000, reason: 'sick' } }))).toBe('Sam: refunded $10.00 on the Justice party: “sick”')
     expect(headsUpLine(entry({ action: 'seat.comped', target: { kind: 'workshop', id: 'c', label: 'Candles' }, details: { seats: 2, name: 'Jo Friend' } }))).toBe('Sam: comped 2 seats for Jo Friend on Candles')
+    // Crew I6: the comp's reason rides along, the same as a refund's.
+    expect(headsUpLine(entry({ action: 'seat.comped', target: { kind: 'workshop', id: 'c', label: 'Candles' }, details: { seats: 1, name: 'Jo Friend', reason: 'make-up class' } }))).toBe('Sam: comped a seat for Jo Friend on Candles: “make-up class”')
     expect(headsUpLine(entry({ action: 'gift-card.minted', target: { kind: 'gift-card', id: 'gc', label: 'Megan' }, details: { amountCents: 20000, forWhom: 'Megan', note: 'giveaway' } }))).toBe('Sam: made a $200.00 gift card for Megan: “giveaway”')
     expect(headsUpLine(entry({ by: { id: 'k', name: 'Kaden', role: 'owner' } }))).toBeNull()
     expect(headsUpLine(entry({ simulated: true }))).toBeNull()
@@ -71,7 +73,7 @@ describe('batched per hour', () => {
     expect(r).toEqual({ sent: 2, text: true, email: true })
     expect(m.text).toHaveBeenCalledTimes(2)
     expect(m.text.mock.calls[1][0]).toMatch(/^Crew heads-up, 2 things: Sam: comped a seat for Jo on Pottery Sat; Sam: made a \$50\.00 gift card for Ann/)
-    expect(m.email.mock.calls[1][0].subject).toBe('Crew heads-up: 2 refunds, comps or gift cards')
+    expect(m.email.mock.calls[1][0].subject).toBe('Crew heads-up: 2 things to know')
     expect(await pendingHeadsUp()).toEqual([])
   })
 

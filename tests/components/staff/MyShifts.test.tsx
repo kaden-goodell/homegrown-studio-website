@@ -275,7 +275,7 @@ describe('calendar link', () => {
     expect(dialog).toHaveTextContent('Open calendar.google.com in Chrome. On a phone, tap ⋮ and tick Desktop site first. Use the same Google account as your phone.')
     expect(dialog).toHaveTextContent('Next to Other calendars, tap +, then From URL. Paste and tap Add calendar.')
     expect(dialog).toHaveTextContent('On your phone, open the Google Calendar app › Settings › Hometown Studio · my shifts, and turn on Sync.')
-    expect(dialog).toHaveTextContent('Google can take up to a day to show changes. Your text from Catherine or Kaden is the quick way to hear.')
+    expect(dialog).toHaveTextContent('Google can take up to a day to show changes. The text from the studio is the quick way to hear.')
     expect(dialog).not.toHaveTextContent('On a computer')
     expect(dialog).toHaveTextContent('This link is only shown now.')
     const writeText = vi.fn().mockResolvedValue(undefined)

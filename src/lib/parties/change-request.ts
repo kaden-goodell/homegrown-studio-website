@@ -82,7 +82,7 @@ export async function askToChangeParty(
       .catch((err) => logger.error('Owner text for a party change request failed', { bookingId: saved.bookingId, error: String(err) }))
   }
   await recordAudit({
-    by: { id: 'customer-online', name: `${saved.hostName || 'Host'} (online)`, role: 'owner' },
+    by: { id: 'customer-online', name: `${saved.hostName || 'Host'} (online)`, role: 'customer' },
     action: 'party-change-request',
     target: { kind: 'party', id: saved.bookingId, label: `${saved.craftName} party, ${when}` },
     details: { want, note: note.slice(0, 200), ...(text ? {} : { texted: false }) },

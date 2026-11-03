@@ -13,6 +13,7 @@ import { isWaiting, listRefundRequests } from './refund-requests'
 import { getLedger, setNames, takesSeat, type Ledger, type LedgerLine } from './seat-ledger'
 import { COUNTER_SALE_NO_NAME, holdsSeat, ownRosterChoices, sessionsOn } from './staff-view'
 import { waitlistOrNull, isOnList } from './waitlist-store'
+import { policyWindows } from '@config/policy-content'
 
 export type WaitingRefund = ReturnType<typeof describeRequest>
 
@@ -23,6 +24,12 @@ export interface RosterBooking extends BookingView {
   seatsToday: number
   /** a refund on this booking still waiting for someone to check Square (R29) */
   waiting: WaitingRefund | null
+  /**
+   * Crew I6: the booking's first session starts within the refund policy
+   * window (48 hours) or already started. A crew refund then shows a hint to
+   * check with an owner first, with Continue (a hint, never a limit: DV19).
+   */
+  insidePolicy: boolean
 }
 
 export interface OwnRoster {
@@ -33,6 +40,13 @@ export interface OwnRoster {
   ticketLabels: Record<string, string>
   /** Stage 4: people on the waitlist for this day (0 when none or it can't be read) */
   waitlistWaiting: number
+}
+
+/** True when the first of these sessions starts within the refund policy window (or has started). */
+export function insidePolicyWindow(sessions: { id: string; startIso: string }[], ids: string[], now = new Date()): boolean {
+  const starts = sessions.filter((s) => ids.includes(s.id)).map((s) => Date.parse(s.startIso)).filter(Number.isFinite)
+  if (!starts.length) return false
+  return Math.min(...starts) - now.getTime() < policyWindows.workshopRefundHours * 3_600_000
 }
 
 const fullName = (c: LedgerLine['customer']) => (c ? `${c.givenName} ${c.familyName}`.trim() : '')
@@ -53,6 +67,7 @@ export async function ownRoster(event: StudioEvent, day: string, signerEmails: s
       // A reader sale still waiting on the Square app shows the seats it holds.
       seatsToday: lines.filter((l) => onDay(l) && (holdsSeat(l) || (l.source === 'door-reader' && takesSeat(l, now)))).length,
       waiting: waitingReq ? describeRequest(waitingReq, ledger, cls) : null,
+      insidePolicy: insidePolicyWindow(cls.sessions, b.sessionIds, now),
     }
   }))
   return {

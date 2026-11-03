@@ -1190,3 +1190,21 @@ describe('fix round 2 (Task 13 re-review 1)', () => {
     })
   })
 })
+
+describe('N5: the 10-minute sweep pages through every stuck party checkout', () => {
+  it('sweepPage carries on after the last one checked, wraps round, and is bounded', async () => {
+    const { sweepPage } = await import('@lib/parties/square-orders')
+    const stuck = Array.from({ length: 25 }, (_, i) => ({ partyId: `pty_${String(i).padStart(2, '0')}` }))
+    const first = sweepPage(stuck, null)
+    expect(first.map((c) => c.partyId)).toEqual(stuck.slice(0, 10).map((c) => c.partyId))
+    const second = sweepPage(stuck, first[9].partyId)
+    expect(second[0].partyId).toBe('pty_10')
+    const third = sweepPage(stuck, sweepPage(stuck, second[9].partyId)[4].partyId)
+    expect(third.map((c) => c.partyId)).toEqual(['pty_00', 'pty_01', 'pty_02', 'pty_03', 'pty_04', 'pty_05', 'pty_06', 'pty_07', 'pty_08', 'pty_09'])
+    // Every one is reached within three runs.
+    const seen = new Set([...first, ...second, ...sweepPage(stuck, second[9].partyId)].map((c) => c.partyId))
+    expect(seen.size).toBe(25)
+    // The one last checked was removed meanwhile: carry on with the next id after it.
+    expect(sweepPage(stuck.filter((c) => c.partyId !== 'pty_09'), 'pty_09')[0].partyId).toBe('pty_10')
+  })
+})

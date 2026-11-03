@@ -6,6 +6,7 @@
  * Server only.
  */
 import { idFor } from '@lib/booking-core/ids'
+import { formatMoney } from '@lib/money'
 import type { CheckoutErrorCode } from '@lib/checkout-attempt'
 import { workshopMessages } from '@lib/checkout-messages'
 import { cutoffClosedMessage } from '@lib/seat-options'
@@ -41,18 +42,35 @@ export const STILL_GOING_THROUGH_MESSAGE =
 export const RECENT_CLASS_BOOKING_MESSAGE =
   'You booked this class a few minutes ago. Check your email for the confirmation. Nothing was charged this time. Book more seats only if you meant to.'
 
-export function recentSamePerson(lines: LedgerLine[], bookingId: string, email: string, now: Date): 'held' | 'booked' | null {
+/**
+ * N4: a hold of theirs younger than this is a payment going through right
+ * now. An older live hold is one kept after an unclear answer (a day, R15):
+ * then Square is asked about it (`unclear`) instead of refusing for a day.
+ */
+export const LIVE_HOLD_MINUTES = 30
+
+export type SamePersonAnswer = 'held' | 'booked' | { unclear: { bookingId: string; orderId: string | null } } | null
+
+export function recentSamePerson(lines: LedgerLine[], bookingId: string, email: string, now: Date): SamePersonAnswer {
   const who = email.trim().toLowerCase()
   if (!who) return null
   const since = now.getTime() - RECENT_BOOKING_MINUTES * 60_000
-  let found: 'held' | 'booked' | null = null
+  let found: SamePersonAnswer = null
   for (const l of lines) {
     if (l.bookingId === bookingId || l.customer?.email?.trim().toLowerCase() !== who) continue
-    if (l.state === 'held' && l.holdExpiresAt && Date.parse(l.holdExpiresAt) > now.getTime()) return 'held'
-    if (l.state === 'confirmed' && Date.parse(l.at) >= since) found = 'booked'
+    if (l.state === 'held' && l.holdExpiresAt && Date.parse(l.holdExpiresAt) > now.getTime()) {
+      if (now.getTime() - Date.parse(l.at) < LIVE_HOLD_MINUTES * 60_000) return 'held'
+      if (!found || typeof found === 'string') found = { unclear: { bookingId: l.bookingId, orderId: l.square?.orderId ?? null } }
+      continue
+    }
+    if (l.state === 'confirmed' && Date.parse(l.at) >= since && found === null) found = 'booked'
   }
   return found
 }
+
+/** N4: Square shows their earlier unclear payment went through: never a second charge. */
+export const LAST_PAYMENT_WENT_THROUGH =
+  'Square shows your last payment for this class went through. Check your email for your confirmation. Nothing was charged this time.'
 
 /**
  * More answers than the shared codes: a try with this attempt is still
@@ -75,7 +93,7 @@ export const classMessages: Record<ClassCheckoutCode, string> = {
 
 /** I-5: what the panel says when the payment landed on a class cancelled meanwhile. */
 export function cancelledAsBookedMessage(cents: number, emailed: boolean): string {
-  return `We’re sorry. This class was cancelled just as you booked it. You’ll be refunded the full $${(cents / 100).toFixed(2)}${emailed ? ', and we’ve emailed you about it' : ''}. You don’t need to do anything.`
+  return `We’re sorry. This class was cancelled just as you booked it. You’ll be refunded the full ${formatMoney(cents)}${emailed ? ', and we’ve emailed you about it' : ''}. You don’t need to do anything.`
 }
 
 /**

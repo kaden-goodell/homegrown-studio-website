@@ -816,7 +816,7 @@ export async function sendClassCancelledAsBookedEmail(input: { to: string; given
   const hi = input.givenName ? `Hi ${input.givenName},` : 'Hi,'
   const lines = [
     `We’re sorry. ${input.className}${input.whenLabel ? ` (${input.whenLabel})` : ''} was cancelled just as you booked it, so it isn’t going ahead.`,
-    `We’ll refund the full $${(input.cents / 100).toFixed(2)} to the card you paid with. You don’t need to do anything.`,
+    `We’ll refund the full ${formatMoney(input.cents)} to the card you paid with. You don’t need to do anything.`,
     phone ? `Questions? Text us at ${phone}.` : 'Questions? Reply to this email.',
   ]
   const text = [hi, ``, ...lines.flatMap((l) => [l, ``]), `Hometown Studio · ${address}`].join('\n')
@@ -830,7 +830,7 @@ export async function sendClassCancelledAsBookedEmail(input: { to: string; given
   <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
   <p style="margin:0;font-size:12px;color:#6f635b;">Hometown Studio &middot; ${esc(address)}</p>
 </div>`
-  return sendEmail({ to: input.to, subject: `${input.className} was cancelled: you’ll be refunded`, html, text })
+  return sendEmail({ to: input.to, subject: `${input.className} was cancelled, and you’ll be refunded`, html, text })
 }
 
 /** "Your 1 seat is" / "Your other 2 seats are". */
@@ -1069,9 +1069,12 @@ export async function sendWaitlistOffEmail(input: {
  * (`gone`, M1). Nothing was charged; the card comes off file.
  */
 export async function sendWaitlistMissedEmail(input: {
-  to: string; givenName: string; className: string; whenLabel: string; why: 'declined' | 'closed' | 'price' | 'gone'; last4: string; classUrl: string; cardOff?: boolean
+  to: string; givenName: string; className: string; whenLabel: string; why: 'declined' | 'closed' | 'closed-open' | 'price' | 'gone'; last4: string; classUrl: string; cardOff?: boolean
 }): Promise<{ sent: boolean }> {
-  const first = input.why === 'declined'
+  const first = input.why === 'closed-open'
+    // N6: a spot WAS free when the waitlist closed (overnight, when no card is charged, or online booking paused).
+    ? `A spot opened in ${input.className} on ${input.whenLabel}, but we couldn’t add you before the waitlist closed, so nothing was charged. The spot may still be open, and you can book it on our site.`
+    : input.why === 'declined'
     ? `A spot opened in ${input.className} on ${input.whenLabel}, but your card ending ${input.last4} didn’t go through, so it went to the next person.`
     : input.why === 'price'
       ? `A spot opened in ${input.className} on ${input.whenLabel}, but the price is now higher than when you joined, so we didn’t charge you.`
@@ -1080,12 +1083,12 @@ export async function sendWaitlistMissedEmail(input: {
         : `No spot opened in ${input.className} on ${input.whenLabel} before the waitlist closed.`
   return partyMoneyEmail({
     to: input.to,
-    subject: input.why === 'closed' ? 'The waitlist has closed' : 'We couldn’t add you to the class',
+    subject: input.why === 'closed' || input.why === 'closed-open' ? 'The waitlist has closed' : 'We couldn’t add you to the class',
     givenName: input.givenName,
     lines: [
       first,
       waitlistCardLine(input.cardOff !== false),
-      input.why === 'closed' ? 'We hope to see you at another class soon.' : 'You can book or join the waitlist again on our site.',
+      input.why === 'closed' ? 'We hope to see you at another class soon.' : input.why === 'closed-open' ? 'We hope to see you there.' : 'You can book or join the waitlist again on our site.',
     ],
     link: { label: input.why === 'closed' ? 'See our classes' : 'Open the class', url: input.classUrl },
   })

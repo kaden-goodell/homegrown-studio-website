@@ -5,6 +5,7 @@ import { formatCents } from '@lib/utils'
 import type { StaffMember } from '@lib/staff-auth'
 import { trackGiftCardCreated } from '@lib/analytics'
 import { posthogOperationalLogger } from '@lib/posthog-logger'
+import { ownersOr } from '@lib/owner-names-client'
 
 /** One id per card being made (M9): a double tap or a retry sends the same one. */
 const newPressId = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`)
@@ -188,7 +189,7 @@ export default function GiftCards({ staff }: { staff: StaffMember }) {
 
       <div style={card}>
         {cards.some((c) => c.masked) && (
-          <p style={{ margin: '0 0 0.5rem', fontSize: '0.875rem', color: 'var(--color-muted)' }}>Only the last 4 digits show here. Lost a number? Ask Catherine or Kaden.</p>
+          <p style={{ margin: '0 0 0.5rem', fontSize: '0.875rem', color: 'var(--color-muted)' }}>{`Only the last 4 digits show here. Lost a number? Ask ${ownersOr()}.`}</p>
         )}
         {cards.length === 0 ? (
           <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-muted)' }}>No gift cards made yet.</p>

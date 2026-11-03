@@ -353,12 +353,13 @@ export async function confirmBooking(
  * the customer may have paid). Only that booking's held lines change; a hold
  * already swept is not brought back (confirm's fallback does that if paid).
  */
-export async function extendHold(classId: string, bookingId: string, untilIso: string): Promise<number> {
+export async function extendHold(classId: string, bookingId: string, untilIso: string, orderId: string | null = null): Promise<number> {
   return mutate(classId, (cur) => {
     const mine = (l: LedgerLine) => l.bookingId === bookingId && l.state === 'held'
     const n = cur.lines.filter(mine).length
     if (!n) return { next: null, result: 0 }
-    const lines = cur.lines.map((l) => (mine(l) ? { ...l, holdExpiresAt: untilIso } : l))
+    // N4: the order the unclear charge was on, so a later try by the same person can ask Square about it.
+    const lines = cur.lines.map((l) => (mine(l) ? { ...l, holdExpiresAt: untilIso, ...(orderId && !l.square.orderId ? { square: { ...l.square, orderId } } : {}) } : l))
     return { next: { ...cur, lines }, result: n }
   })
 }

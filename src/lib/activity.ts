@@ -46,7 +46,7 @@ export function activityWhat(e: Pick<AuditEntry, 'action' | 'target' | 'details'
     case 'seat.comped': {
       const seats = typeof d.seats === 'number' ? d.seats : 1
       const who = str(d.name)
-      return `Comped ${seats === 1 ? 'a seat' : `${seats} seats`}${who ? ` for ${who}` : ''} on ${label || 'a class'}`
+      return withReason(`Comped ${seats === 1 ? 'a seat' : `${seats} seats`}${who ? ` for ${who}` : ''} on ${label || 'a class'}`)
     }
     case 'seat.sold-at-door': {
       const who = str(d.name)
@@ -72,7 +72,7 @@ export interface ActivityRow {
   id: string
   at: string
   who: string
-  role: 'owner' | 'crew'
+  role: 'owner' | 'crew' | 'customer'
   byId: string
   area: ActivityArea
   what: string
@@ -81,7 +81,7 @@ export interface ActivityRow {
 
 export function toActivityRow(e: AuditEntry): ActivityRow {
   return {
-    id: e.id, at: e.at, who: e.by?.name ?? 'Someone', role: e.by?.role === 'owner' ? 'owner' : 'crew', byId: e.by?.id ?? '',
+    id: e.id, at: e.at, who: e.by?.name ?? 'Someone', role: e.by?.role === 'owner' || e.by?.role === 'customer' ? e.by.role : 'crew', byId: e.by?.id ?? '',
     area: areaOf(e.action), what: activityWhat(e), action: e.action,
   }
 }

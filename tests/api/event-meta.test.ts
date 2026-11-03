@@ -198,6 +198,16 @@ describe('POST /api/staff/event-meta.json — drop-off locked mid-event (crew re
     expect(res.status).toBe(200)
   })
 
+  it('N3: setting drop-off to what it already is logs nothing (no crew heads-up)', async () => {
+    vi.setSystemTime(new Date('2026-10-19T15:00:00.000Z'))
+    mockAudit.mockClear()
+    const off = { ...underway, dropOff: false }
+    mockGetEvent.mockResolvedValueOnce(off).mockResolvedValueOnce(off)
+    const res = await POST(postCtx({ kind: 'workshop', id: 'cs1', dropOff: false }))
+    expect(res.status).toBe(200)
+    expect(mockAudit).not.toHaveBeenCalled()
+  })
+
   it('before the event the crew can change it as before', async () => {
     vi.setSystemTime(new Date('2026-10-19T15:00:00.000Z'))
     mockGetEvent.mockResolvedValueOnce(underway)

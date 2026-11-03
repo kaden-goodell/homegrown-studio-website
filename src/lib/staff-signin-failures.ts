@@ -12,7 +12,9 @@
  *
  * Server only.
  */
+import { randomBytes } from 'node:crypto'
 import { makeKvStore } from '@lib/blob-store'
+import { rateLimited, rateLimitFull } from '@lib/rate-limit'
 import { classWritesRefusal } from '@lib/classes/test-site-guard'
 import { createLogger } from '@lib/logger'
 import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
@@ -25,10 +27,59 @@ export const MANY_FAILED_SIGNINS = 20
 /** The count stops here (it only has to say "lots"). */
 const CAP = 10_000
 
-/** One per-address bucket of WRONG passcodes for both sign-in steps (login and pick both check it): 5 per 5 minutes. In memory, per server. */
+/** One per-address bucket of WRONG passcodes for both sign-in steps (login and pick both check it). In memory, per server. */
 export const SIGNIN_BUCKET = (ip: unknown) => `staff-login:${String(ip ?? 'unknown')}`
+/** Wrong staff passcodes per DEVICE (N2): 5 per 5 minutes. */
 export const SIGNIN_MAX = 5
 export const SIGNIN_WINDOW_MS = 5 * 60_000
+/**
+ * Wrong staff passcodes per ADDRESS (N2). Every studio device shares the
+ * wifi's one address, so this is looser than the per-device cap: one person
+ * mistyping never locks the other iPads out, but a script that throws away
+ * its device cookie is still slowed down.
+ */
+export const SIGNIN_IP_MAX = 30
+
+/** Wrong ADMIN passcodes typed on /staff to become an owner (N1): their own buckets, apart from the staff passcode's. */
+export const OWNER_SIGNIN_BUCKET = (ip: unknown) => `staff-owner:${String(ip ?? 'unknown')}`
+export const OWNER_SIGNIN_MAX = 5
+export const OWNER_SIGNIN_IP_MAX = 15
+export const OWNER_SIGNIN_WINDOW_MS = 15 * 60_000
+
+/** The device cookie: a random id per browser, only used to count wrong passcodes per device. Not a secret, proves nothing. */
+const DEVICE_COOKIE = 'hg_device'
+const DEVICE_RE = /^[A-Za-z0-9_-]{16,64}$/
+const isProd = () => !!((typeof import.meta !== 'undefined' && (import.meta as any).env) || {}).PROD
+
+function deviceOf(request: Request): { id: string; cookie?: string } {
+  const m = (request.headers.get('cookie') || '').match(new RegExp(`(?:^|; )${DEVICE_COOKIE}=([^;]+)`))
+  if (m && DEVICE_RE.test(m[1])) return { id: m[1] }
+  const id = randomBytes(16).toString('base64url')
+  return { id, cookie: `${DEVICE_COOKIE}=${id}; Path=/; HttpOnly;${isProd() ? ' Secure;' : ''} SameSite=Lax; Max-Age=${400 * 24 * 60 * 60}` }
+}
+
+/**
+ * The wrong-passcode limits for one /staff request (N1, N2): a bucket for
+ * this device (by its cookie) and a looser one for its address. `full()`
+ * looks only; `miss()` counts one wrong passcode in both. `cookie` is the
+ * device cookie to send back when this browser didn't have one yet (only
+ * sent with a refusal, the only time it matters).
+ */
+export interface SignInThrottle { full(): boolean; miss(): void; cookie?: string }
+
+export function signInThrottle(request: Request, ip: unknown, kind: 'staff' | 'owner'): SignInThrottle {
+  const dev = deviceOf(request)
+  const [bucket, max, ipMax, win] = kind === 'owner'
+    ? [OWNER_SIGNIN_BUCKET, OWNER_SIGNIN_MAX, OWNER_SIGNIN_IP_MAX, OWNER_SIGNIN_WINDOW_MS]
+    : [SIGNIN_BUCKET, SIGNIN_MAX, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS]
+  const devKey = `${bucket('device')}:${dev.id}`
+  const ipKey = bucket(ip)
+  return {
+    full: () => rateLimitFull(devKey, max, win) || rateLimitFull(ipKey, ipMax, win),
+    miss: () => { rateLimited(devKey, max, win); rateLimited(ipKey, ipMax, win) },
+    ...(dev.cookie ? { cookie: dev.cookie } : {}),
+  }
+}
 
 interface Failures { day: string; count: number }
 

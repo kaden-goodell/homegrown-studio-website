@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { BookingView } from '@lib/classes/admin-actions'
 import { formatMoney } from '@lib/money'
 import type { AskAnswer } from '@lib/booking-core/ask-square'
+import { ownersOr } from '@lib/owner-names-client'
+import { policyWindows } from '@config/policy-content'
 
 /** A fresh token for one refund ask (kept across its retries). */
 function newAttempt(): string {
@@ -135,6 +137,9 @@ function WaitingOnSquare({ text, endpoint, ids, send, onSettled }: {
   )
 }
 
+/** Crew I6: what a crew refund inside the policy window shows first (a hint, never a limit). */
+export const insidePolicyHint = () => `This is inside the ${policyWindows.workshopRefundHours}-hour window — check with ${ownersOr()} first.`
+
 export const ADMIN_REFUND = '/api/admin/classes/refund.json'
 export const STAFF_REFUND = '/api/staff/class-refund.json'
 
@@ -152,7 +157,7 @@ type Kind = 'booking' | 'person' | 'session' | 'custom'
  * one token per "Already refunded" answer, reused across retries (R31); when
  * a retry finds its own repeat already finished, it shows as refunded.
  */
-export default function RefundPanel({ classId, booking, ticketLabel, endpoint = ADMIN_REFUND, reasonRequired = false, last4, waiting: waitingProp = null, counterSalesAtRegister = false, crew = false, send = api, onDone }: {
+export default function RefundPanel({ classId, booking, ticketLabel, endpoint = ADMIN_REFUND, reasonRequired = false, last4, waiting: waitingProp = null, counterSalesAtRegister = false, crew = false, insidePolicy = false, send = api, onDone }: {
   classId: string
   booking: BookingView
   ticketLabel?: (ticketTypeId: string) => string
@@ -166,6 +171,8 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   counterSalesAtRegister?: boolean
   /** /staff: crew wording (who to ask instead of "in Square"; the button names the amount and the person) */
   crew?: boolean
+  /** /staff (crew I6): the class starts inside the refund policy window, so Refund first shows a hint to check with an owner, then Continue */
+  insidePolicy?: boolean
   send?: Send
   onDone?: () => void
 }) {
@@ -174,6 +181,8 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   const multi = seats.filter((s) => s.sessionCents > 0)
   const holding = all.filter((s) => !s.freed)
   const [open, setOpen] = useState(false)
+  /** crew I6: the policy hint was read and Continue tapped */
+  const [policyOk, setPolicyOk] = useState(false)
   const [freeing, setFreeing] = useState(false)
   const [freeWho, setFreeWho] = useState('all')
   const [kind, setKind] = useState<Kind>('booking')
@@ -345,8 +354,20 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
             ? <span style={{ ...muted, fontSize: '0.9rem' }}>Refund this at the register, where it was rung up.</span>
             : booking.free
               ? <span style={{ ...muted, fontSize: '0.9rem' }}>This booking was free, so there’s nothing to refund. Free the seat instead.</span>
-            : !booking.paidHere && booking.source !== 'comp' && <span style={{ ...muted, fontSize: '0.9rem' }}>{crew ? 'This one was paid in Square. Ask Catherine or Kaden to refund it.' : 'Refund this one in Square, where it was paid.'}</span>}
+            : !booking.paidHere && booking.source !== 'comp' && <span style={{ ...muted, fontSize: '0.9rem' }}>{crew ? `This one was paid in Square. Ask ${ownersOr()} to refund it.` : 'Refund this one in Square, where it was paid.'}</span>}
         {done && <span role="status" style={{ fontWeight: 600 }}>{done}</span>}
+      </div>
+    )
+  }
+
+  if (crew && insidePolicy && !policyOk) {
+    return (
+      <div role="group" aria-label="Refund" style={{ ...box, borderColor: '#b45309' }}>
+        <p data-testid="refund-policy-hint" style={{ margin: 0, fontWeight: 600 }}>{insidePolicyHint()}</p>
+        <div style={row}>
+          <button type="button" className="btn btn-primary" onClick={() => setPolicyOk(true)}>Continue</button>
+          <button type="button" className="btn btn-secondary" onClick={() => setOpen(false)}>Back</button>
+        </div>
       </div>
     )
   }

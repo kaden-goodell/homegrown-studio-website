@@ -30,6 +30,7 @@ import {
   PRICE_MISMATCH_MESSAGE,
   priceChangedMessage,
   recentSamePerson,
+  LAST_PAYMENT_WENT_THROUGH,
   RECENT_CLASS_BOOKING_MESSAGE,
   STILL_GOING_THROUGH_MESSAGE,
   publicQuote,
@@ -227,6 +228,20 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   // ── C2: the same person a few minutes ago, with another attempt (a closed panel, a reload) ──
   if (!door) {
     const recent = recentSamePerson(everyLine, bookingId, email, now)
+    if (recent && typeof recent === 'object') {
+      // N4: an earlier try of theirs ended unclear and its seats are kept a day. Ask Square about it
+      // instead of refusing for a day: went through → never charge again; failed or no payment → this try goes on.
+      const asked = await askAboutUnclear(recent.unclear.orderId)
+      if (asked === 'paid') {
+        logger.info('Same person: Square shows the earlier unclear payment went through — nothing charged', { classId: cls.id, bookingId, earlier: recent.unclear.bookingId })
+        return fail(409, 'in_progress', LAST_PAYMENT_WENT_THROUGH)
+      }
+      if (asked !== 'none') {
+        logger.info('Same person: an earlier unclear payment is still going through or Square can’t be asked — nothing charged', { classId: cls.id, bookingId, asked })
+        return fail(409, 'in_progress', STILL_GOING_THROUGH_MESSAGE)
+      }
+      logger.info('Same person: Square shows the earlier unclear try was not paid — this try goes on', { classId: cls.id, bookingId, earlier: recent.unclear.bookingId })
+    }
     if (recent === 'held') {
       logger.info('Same person still has a payment going through on this class — nothing charged', { classId: cls.id, bookingId })
       return fail(409, 'in_progress', STILL_GOING_THROUGH_MESSAGE)
@@ -553,22 +568,39 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     return fail(409, 'class_cancelled', cancelledAsBookedMessage(charged, emailed))
   }
 
+  /**
+   * N4: what Square shows for an earlier unclear try's order. 'none' = no payment, or one that failed
+   * (also when the try never got an order: no payment can exist without one); 'pending' = still going
+   * through; 'unknown' = Square couldn't be asked.
+   */
+  async function askAboutUnclear(orderId: string | null): Promise<'paid' | 'pending' | 'none' | 'unknown'> {
+    if (!orderId) return 'none'
+    try {
+      const found = await providers.payment.findOrderPayment(orderId)
+      if (!found || found.status === 'failed') return 'none'
+      return found.status === 'completed' ? 'paid' : 'pending'
+    } catch (err) {
+      logger.error('Could not ask Square about an earlier unclear payment', { bookingId, orderId, error: String(err) })
+      return 'unknown'
+    }
+  }
+
   /** The charge may have gone through: keep the seats a day, tell a person, say we're not sure. */
   async function unknownOutcome(c: ScheduledClass, order: { orderId: string; totalCents: number } | null, err: unknown): Promise<Response> {
     logger.error('CLASS PAYMENT OUTCOME UNKNOWN — seats kept, needs a person', {
       bookingId, attemptId, orderId: order?.orderId ?? null, codes: squareErrorCodes(err), error: err instanceof Error ? err.message : String(err),
     })
-    await keepHeld()
+    await keepHeld(order?.orderId ?? null)
     await alertOwners(
       `Class payment unclear: ${who}, ${seatsLabel}, ${c.content.name}, ${formatSlotLabel(firstStart)}. Seats held a day; if Square shows it paid they're booked for you and you get a text. Check Square for a${order ? ` ${dollars(order.totalCents)}` : ''} payment${order ? ` on order ${order.orderId}` : ''}. Booking ${bookingId}, attempt ${attemptId}.`,
     ).catch(() => undefined)
     return fail(502, 'unknown_outcome')
   }
 
-  async function keepHeld() {
+  async function keepHeld(orderId: string | null = null) {
     const until = new Date(Date.now() + UNCLEAR_HOLD_HOURS * 3_600_000).toISOString()
     try {
-      await extendHold(cls!.id, bookingId, until)
+      await extendHold(cls!.id, bookingId, until, orderId)
     } catch (err) {
       logger.error('Could not extend the hold on an unclear payment', { bookingId, error: String(err) })
     }
@@ -622,7 +654,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
       // M-g: a free booking has no Square order, so no payment notice will ever count its code. The booking is
       // real, so count the use now (exactly once: confirmUse is keyed by the booking id).
       if (!square.orderId) await useThePromo(c)
-      await keepHeld()
+      await keepHeld(square.orderId)
       await alertOwners(
         `${simulated ? '(test booking, no action needed) ' : ''}Class paid, seats not recorded yet: ${who}, ${seatsLabel}, ${c.content.name}, ${formatSlotLabel(firstStart)}. Held a day; ${square.orderId ? `Square's payment notice books them, or it shows in /admin › To decide. Order ${square.orderId}` : `Nothing was charged (a free booking). To give them their seats for good: on /staff, open the class › Comp a seat › their name, email and seats › Comp${q!.promo ? ` (code ${q!.promo.code}: its use is already counted)` : ''}. The held seats let go by themselves after a day`}, booking ${bookingId}.`,
       ).catch(() => undefined)

@@ -12,6 +12,7 @@ import type { StaffMember } from '@lib/staff-auth'
 import type { EventKind } from '@lib/events'
 import type { Availability, StaffableEvent, Verdict } from '@lib/staffing/types'
 import type { OpenEvent, StaffingRow } from '@lib/staffing/events'
+import { ownersOr, ownersAnd, oneOwner } from '@lib/owner-names-client'
 
 /**
  * /staff › My shifts (stage 3), for crew on a phone or the shared iPad:
@@ -71,7 +72,7 @@ function ShiftCard({ row, myId, onOpenRoster }: { row: StaffingRow; myId: string
       </span>
       <span style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--color-dark)' }}><span aria-hidden="true">{icon(ev)} </span>{ev.title}</span>
       {cancelled
-        ? <span style={{ fontSize: '0.95rem', color: '#991b1b' }}>This was cancelled. Catherine or Kaden will take you off it.</span>
+        ? <span style={{ fontSize: '0.95rem', color: '#991b1b' }}>{`This was cancelled. ${ownersOr()} will take you off it.`}</span>
         : <span style={{ fontSize: '0.95rem', color: 'var(--color-muted)' }}>{withLine(row, myId)}</span>}
       {!cancelled && !worked && ev.kind === 'party' && PARTY_ARRIVAL && <span style={{ fontSize: '0.95rem', color: 'var(--color-dark)' }}>{PARTY_ARRIVAL}</span>}
     </button>
@@ -132,7 +133,7 @@ function AskCard({ ev, mark, onAsk, onUnask }: {
         <button
           type="button"
           disabled={busy}
-          onClick={async () => { if (await run(() => onAsk(ev, ''), 'Asked. Catherine and Kaden can see it.')) setFocusNote(true) }}
+          onClick={async () => { if (await run(() => onAsk(ev, ''), `Asked. ${ownersAnd()} can see it.`)) setFocusNote(true) }}
           aria-label={`I'd like to work ${ev.title}, ${when(ev)}`}
           style={{ ...btn(true), minHeight: '3rem', fontSize: '1rem' }}
         >
@@ -143,7 +144,7 @@ function AskCard({ ev, mark, onAsk, onUnask }: {
           {ev.askNote && !noteOpen && <span style={{ fontSize: '0.95rem', color: 'var(--color-muted)' }}>{`You wrote “${ev.askNote}”`}</span>}
           {noteOpen ? (
             <div style={{ display: 'grid', gap: '0.45rem' }}>
-              <label htmlFor={noteId} style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-dark)' }}>Note for Catherine and Kaden (optional)</label>
+              <label htmlFor={noteId} style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-dark)' }}>{`Note for ${ownersAnd()} (optional)`}</label>
               <textarea id={noteId} value={note} maxLength={MAX_NOTE} rows={2} onChange={(e) => setNote(e.target.value)} style={{ ...field, width: '100%', boxSizing: 'border-box', resize: 'vertical' }} />
               <span style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                 <button type="button" disabled={busy} onClick={async () => { if (await run(() => onAsk(ev, note.trim()), 'Note saved.')) setNoteOpen(false) }} style={{ ...btn(true), flex: '1 1 8rem' }}>{busy ? 'Saving…' : 'Save note'}</button>
@@ -255,14 +256,14 @@ export default function MyShifts({ staff, onOpenRoster }: { staff: StaffMember; 
           <section aria-labelledby="ms-on">
             <h2 id="ms-on" style={h2}>You’re on</h2>
             {data.mine.length === 0
-              ? <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--color-dark)' }}>Nothing yet in the next 8 weeks. Catherine or Kaden will text you when they put you on something.</p>
+              ? <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--color-dark)' }}>{`Nothing yet in the next 8 weeks. ${ownersOr()} will text you when they put you on something.`}</p>
               : data.mine.map((row) => <ShiftCard key={row.event.key} row={row} myId={data.me.id} onOpenRoster={onOpenRoster} />)}
           </section>
 
           <section aria-labelledby="ms-ask">
             <h2 id="ms-ask" style={h2}>Ask to work</h2>
             <p style={{ margin: '0 0 0.6rem', fontSize: '0.95rem', color: 'var(--color-muted)', lineHeight: 1.45 }}>
-              Tap “I’d like to work this” and Catherine and Kaden will see it. Asking doesn’t put you on. They’ll text you if they do.
+              {`Tap “I’d like to work this” and ${ownersAnd()} will see it. Asking doesn’t put you on. ${oneOwner() ? 'You’ll get a text' : 'They’ll text you'} if they do.`}
             </p>
             <div role="group" aria-label="Which ones to show" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.7rem' }}>
               <button type="button" aria-pressed={onlyNeeded} onClick={() => setOnlyNeeded(true)} style={{ ...btn(onlyNeeded), flex: '1 1 9rem' }}>{`Need someone (${neededCount})`}</button>

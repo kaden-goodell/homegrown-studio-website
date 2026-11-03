@@ -366,9 +366,12 @@ export async function removeFromWaitlist(classId: string, id: string, by: By, no
  * The waitlist for these dates has closed (cutoff passed) or the class was
  * cancelled: everyone still waiting comes off, cards off file. `tell`: email
  * them ("No spot opened…"); a cancelled class doesn't (the owners contact
- * everyone about a cancel). Returns how many came off.
+ * everyone about a cancel). `spotWasOpen`: entries a free seat fitted at
+ * closing (it opened overnight or while online booking was paused, so no card
+ * was charged): they're told a spot opened and may still be bookable (N6).
+ * Returns how many came off.
  */
-export async function closeEntries(cls: ScheduledClass, ids: string[], why: 'cutoff' | 'cancelled', now = new Date(), origin = siteOrigin()): Promise<number> {
+export async function closeEntries(cls: ScheduledClass, ids: string[], why: 'cutoff' | 'cancelled', now = new Date(), origin = siteOrigin(), spotWasOpen: ReadonlySet<string> = new Set()): Promise<number> {
   let n = 0
   const list = await getWaitlist(cls.id)
   for (const id of ids) {
@@ -378,9 +381,11 @@ export async function closeEntries(cls: ScheduledClass, ids: string[], why: 'cut
     if (!off) continue
     n++
     if (why === 'cutoff') {
+      // N6: "No spot opened" only when none did; a spot free at closing (quiet hours, paused) says so, with the class link.
+      const open = spotWasOpen.has(entry.id)
       await sendWaitlistMissedEmail({
         to: entry.customer.email, givenName: entry.customer.givenName, className: cls.content.name, whenLabel: whenOf(cls, entry.sessionIds),
-        why: 'closed', last4: entry.square.last4, classUrl: `${origin}/workshops`, cardOff: off.cardOff,
+        why: open ? 'closed-open' : 'closed', last4: entry.square.last4, classUrl: open ? `${origin}/classes/${cls.id}` : `${origin}/workshops`, cardOff: off.cardOff,
       }).catch(() => undefined)
     }
   }

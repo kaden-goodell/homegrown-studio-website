@@ -59,8 +59,10 @@ const sessions = () => [
 ]
 const person = { givenName: 'Gia', familyName: 'Winner', email: 'gia@example.com' }
 
+/** Crew I6: every comp carries a reason; tests about something else get one by default (ignored by other routes). */
+const withReason = (body: any) => (body && typeof body === 'object' && !('reason' in body) && body.payAtRegister !== true ? { ...body, reason: 'Birthday guest' } : body)
 async function post(route: any, body: unknown) {
-  const request = new Request('https://x.test/api/staff/x', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const request = new Request('https://x.test/api/staff/x', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withReason(body)) })
   const res: Response = await route.POST({ request, url: new URL(request.url) } as any)
   return { status: res.status, body: await res.json() }
 }

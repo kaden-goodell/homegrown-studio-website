@@ -11,6 +11,13 @@ function fill() {
   fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'ada@x.com' } })
 }
 
+/** Crew I6: a comp says why. Types one (unless already typed), then taps Add comped seat. */
+function addComped() {
+  const r = screen.queryByLabelText('Why is it comped?') as HTMLInputElement | null
+  if (r && !r.value) fireEvent.change(r, { target: { value: 'Birthday guest' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+}
+
 describe('CompSeatSheet', () => {
   const fetchMock = vi.fn()
   beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock) })
@@ -29,7 +36,7 @@ describe('CompSeatSheet', () => {
     const onRecorded = vi.fn()
     render(<CompSeatSheet event={event} options={[]} onRecorded={onRecorded} onClose={() => {}} />)
     fill()
-    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    addComped()
     const a = await screen.findByRole('link', { name: 'Open this class in Square' })
     expect(a.getAttribute('href')).toBe('https://app.squareup.com/dashboard/appointments/calendar/classes/SCHED123?date=2026-10-20&view=week')
     expect(a.getAttribute('target')).toBe('_blank')
@@ -45,7 +52,7 @@ describe('CompSeatSheet', () => {
     fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ data: { bookingId: 'clsbk_1', emailSent: true, seats: 1, warning: 'Square added 1 of 2 seats, then stopped.' } }) })
     render(<CompSeatSheet event={event} options={[]} onRecorded={() => {}} onClose={() => {}} />)
     fill()
-    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    addComped()
     expect((await screen.findByRole('alert')).textContent).toMatch(/added 1 of 2 seats/)
   })
 
@@ -54,7 +61,7 @@ describe('CompSeatSheet', () => {
     const onRecorded = vi.fn()
     render(<CompSeatSheet event={event} options={options} onRecorded={onRecorded} onClose={() => {}} />)
     fill()
-    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    addComped()
     expect((await screen.findByRole('alert')).textContent).toBe('Pick a Pumpkin color for seat 1.')
     expect(onRecorded).not.toHaveBeenCalled()
   })
@@ -65,7 +72,7 @@ describe('CompSeatSheet', () => {
     render(<CompSeatSheet event={event} options={options} onRecorded={onRecorded} onClose={() => {}} />)
     fill()
     fireEvent.change(screen.getByLabelText('Seat 1 · Pumpkin color'), { target: { value: 'Orange' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    addComped()
     await waitFor(() => expect(onRecorded).toHaveBeenCalled())
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
     expect(body).toMatchObject({ scheduleId: 'SCHED123', email: 'ada@x.com', seats: 1, picks: [{ seat: 1, optionId: 'color', choice: 'Orange' }] })
@@ -164,7 +171,7 @@ describe('CompSeatSheet — find a customer, then who’s coming', () => {
     fireEvent.change(screen.getByLabelText('Flynn · Pumpkin color'), { target: { value: 'White' } })
     fireEvent.change(screen.getByLabelText('Rowan · Pumpkin color'), { target: { value: 'Orange' } })
     fireEvent.change(screen.getByLabelText('Sam Lee · Pumpkin color'), { target: { value: 'Orange' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    addComped()
     await waitFor(() => expect(onRecorded).toHaveBeenCalled())
     const sent = JSON.parse(fetchMock.mock.calls.find((c) => c[1]?.method === 'POST')![1].body)
     expect(sent).toMatchObject({
@@ -193,7 +200,7 @@ describe('CompSeatSheet — find a customer, then who’s coming', () => {
     routes(HOUSE)
     const { unmount } = render(<CompSeatSheet event={event} options={[]} onRecorded={() => {}} onClose={() => {}} />)
     await findAshley()
-    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    addComped()
     expect(await screen.findByText('Pick who’s coming.')).toBeInTheDocument()
     expect(fetchMock.mock.calls.some((c) => c[1]?.method === 'POST')).toBe(false)
     unmount()
@@ -224,7 +231,7 @@ describe('CompSeatSheet — the confirmation email', () => {
     render(<CompSeatSheet event={event} options={[]} onRecorded={() => {}} onClose={() => {}} />)
     expect(screen.getByLabelText('Email them a confirmation')).not.toBeChecked()
     fill()
-    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    addComped()
     expect(await screen.findByText(/Added in Square, no charge\. No email sent\./)).toBeTruthy()
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).sendEmail).toBe(false)
   })
@@ -234,7 +241,7 @@ describe('CompSeatSheet — the confirmation email', () => {
     render(<CompSeatSheet event={event} options={[]} onRecorded={() => {}} onClose={() => {}} />)
     fill()
     fireEvent.click(screen.getByLabelText('Email them a confirmation'))
-    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    addComped()
     await waitFor(() => expect(JSON.parse(fetchMock.mock.calls[0][1].body).sendEmail).toBe(true))
   })
 })
@@ -295,7 +302,7 @@ describe('CompSeatSheet on our own classes (Task 14)', () => {
     fireEvent.change(screen.getByLabelText('Adult seats'), { target: { value: '0' } })
     fireEvent.change(screen.getByLabelText('Kid seats'), { target: { value: '1' } })
     fireEvent.change(screen.getByLabelText(/Kid 1 · Glaze/), { target: { value: 'Green' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    addComped()
     await waitFor(() => expect(onRecorded).toHaveBeenCalled())
     expect(JSON.parse(compCalls()[0][1].body)).toMatchObject({
       scheduleId: 'cls_camp', passId: 'day', sessionIds: ['ses_wed'], tickets: { adult: 0, kid: 1 },
@@ -316,6 +323,7 @@ describe('CompSeatSheet on our own classes (Task 14)', () => {
     expect(screen.getByTestId('comp-hint')).toHaveTextContent('That day is full. Tick Add over capacity to seat them anyway.')
     fireEvent.click(screen.getByLabelText('Add over capacity'))
     expect(add).not.toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Why is it comped?'), { target: { value: 'Birthday guest' } })
     fireEvent.click(add)
     expect(await screen.findByText(/^Added over capacity \(3 of 2\)\. Added, no charge\./)).toBeTruthy()
     expect(JSON.parse(compCalls()[0][1].body).overCapacity).toBe(true)
@@ -329,7 +337,7 @@ describe('CompSeatSheet on our own classes (Task 14)', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /Wed, Oct 21/ }))
     fill()
     fireEvent.change(screen.getByLabelText(/Adult 1 · Glaze/), { target: { value: 'Blue' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    addComped()
     expect(await screen.findByText('That class is full on Wed, Oct 21.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Add comped seat' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy()
@@ -359,7 +367,7 @@ describe('CompSeatSheet on our own classes (Task 14)', () => {
     // seats in ticket order: the adult first, then the kid
     fireEvent.change(screen.getByLabelText(/Ada Lovelace \(Adult\) · Glaze/), { target: { value: 'Blue' } })
     fireEvent.change(screen.getByLabelText(/Byron \(Kid\) · Glaze/), { target: { value: 'Green' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    addComped()
     await waitFor(() => expect(compCalls()).toHaveLength(1))
     expect(JSON.parse(compCalls()[0][1].body)).toMatchObject({
       tickets: { adult: 1, kid: 1 }, people: ['adult', 'child:0'],
@@ -476,17 +484,17 @@ describe('CompSeatSheet on our own classes (Task 14)', () => {
     await screen.findByTestId('own-pickers')
     fireEvent.click(screen.getByRole('checkbox', { name: /Wed, Oct 21/ }))
     fill()
-    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    addComped()
     await screen.findByText(/please try again/)
-    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    addComped()
     await waitFor(() => expect(compCalls()).toHaveLength(2))
     fireEvent.change(screen.getByLabelText('First name'), { target: { value: 'Grace' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    addComped()
     await waitFor(() => expect(compCalls()).toHaveLength(3))
     fireEvent.click(screen.getByRole('checkbox', { name: /Wed, Oct 21/ }))
     fireEvent.click(screen.getByRole('checkbox', { name: /Tue, Oct 20/ }))
     fireEvent.click(screen.getByLabelText('Add over capacity'))
-    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    addComped()
     await waitFor(() => expect(compCalls()).toHaveLength(4))
     const tokens = compCalls().map((c) => JSON.parse(c[1].body).attempt)
     expect(tokens[1]).toBe(tokens[0])

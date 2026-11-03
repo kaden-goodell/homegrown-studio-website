@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import { useState, type CSSProperties } from 'react'
 import type { StaffMember } from '@lib/staff-auth'
 
 const card: CSSProperties = {
@@ -23,7 +23,9 @@ const tile: CSSProperties = {
  *  from the studio's own staff list (/admin › More › Staff) so every custody action can be stamped with a
  *  real name. The passcode was already verified by `login.json`; picking a
  *  name re-sends it (kept in a ref by the caller) to `pick.json`, which sets
- *  the signed identity cookie. */
+ *  the signed identity cookie. An owner's name also asks for the ADMIN
+ *  passcode right here (N1): the shared staff passcode alone never makes
+ *  someone an owner. */
 export default function PickStaff({
   staff,
   busy,
@@ -39,10 +41,14 @@ export default function PickStaff({
    *  passcode). A rate limit (429) or a storage hiccup (503) isn't an auth
    *  problem, so re-entering the passcode wouldn't help — don't offer it. */
   showBack: boolean
-  onPick: (staffId: string) => void
+  /** `adminPasscode` is sent only for an owner. */
+  onPick: (staffId: string, adminPasscode?: string) => void
   /** Re-enter the passcode — the escape hatch when a pick attempt 401s. */
   onBack: () => void
 }) {
+  /** The owner picked, waiting for the admin passcode. */
+  const [asking, setAsking] = useState<StaffMember | null>(null)
+  const [code, setCode] = useState('')
   return (
     <div style={{ ...card, background: 'rgba(255,255,255,0.85)', maxWidth: '28rem', margin: '0 auto', textAlign: 'center' }}>
       <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '0.35rem' }}>
@@ -50,7 +56,7 @@ export default function PickStaff({
       </h2>
       <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', marginBottom: '1rem' }}>Pick your name to sign in.</p>
       {error && (
-        <p style={{ color: '#b91c1c', fontSize: '0.875rem', marginBottom: '0.6rem' }}>
+        <p role="alert" style={{ color: '#b91c1c', fontSize: '0.875rem', marginBottom: '0.6rem' }}>
           {error}
           {showBack && (
             <>
@@ -62,19 +68,41 @@ export default function PickStaff({
           )}
         </p>
       )}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(8rem, 1fr))', gap: '0.6rem' }}>
-        {staff.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            disabled={busy}
-            onClick={() => onPick(m.id)}
-            style={{ ...tile, opacity: busy ? 0.6 : 1, cursor: busy ? 'default' : 'pointer' }}
-          >
-            {m.name}
+      {asking ? (
+        <form
+          onSubmit={(e) => { e.preventDefault(); if (code && !busy) onPick(asking.id, code) }}
+          style={{ display: 'grid', gap: '0.5rem', textAlign: 'left' }}
+        >
+          <label htmlFor="pick-admin-passcode" style={{ color: 'var(--color-dark)' }}>{`To sign in as ${asking.name}, enter the admin passcode.`}</label>
+          <input
+            id="pick-admin-passcode"
+            type="password"
+            autoComplete="current-password"
+            autoFocus
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            style={{ minHeight: '3rem', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', border: '1px solid rgba(var(--color-primary-rgb),0.3)' }}
+          />
+          <button type="submit" disabled={!code || busy} style={{ ...tile, opacity: !code || busy ? 0.6 : 1 }}>
+            {busy ? 'Checking…' : `Sign in as ${asking.name}`}
           </button>
-        ))}
-      </div>
+          <button type="button" onClick={() => { setAsking(null); setCode('') }} style={{ ...tile, fontWeight: 600, border: 'none', background: 'none' }}>Back to the team</button>
+        </form>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(8rem, 1fr))', gap: '0.6rem' }}>
+          {staff.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              disabled={busy}
+              onClick={() => { if (m.role === 'owner') { setAsking(m); setCode('') } else onPick(m.id) }}
+              style={{ ...tile, opacity: busy ? 0.6 : 1, cursor: busy ? 'default' : 'pointer' }}
+            >
+              {m.name}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -19,6 +19,7 @@ import type { CrewPartyMoney } from '@lib/parties/staff-money'
 import { formatMoney } from '@lib/money'
 import type { BookingView } from '@lib/classes/admin-actions'
 import { overCapacityNote, paidWay } from '@lib/classes/booking-words'
+import { ownersOr } from '@lib/owner-names-client'
 
 const ICON: Record<EventKind, string> = { party: '🎉', workshop: '🧵', program: '🌙' }
 
@@ -30,7 +31,7 @@ interface RosterData {
   /** Seat picks (classes with questions only); null = no questions, undefined = the read failed. */
   choices?: RosterChoices | null
   /** Our own classes: the day's bookings from the seat ledger. */
-  bookings?: (BookingView & { name: string; seatsToday: number; waiting: WaitingRefund | null })[]
+  bookings?: (BookingView & { name: string; seatsToday: number; waiting: WaitingRefund | null; insidePolicy?: boolean })[]
   /** Our own classes: ticket type id → label. */
   ticketLabels?: Record<string, string>
   /** Our own parties: payments the crew can refund (reason required), and what is still to pay. */
@@ -139,7 +140,7 @@ function OwnBooking({ b, classId, households, taken, ticketLabels, onChanged }: 
       {readerMsg && <p role="status" style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: 'var(--color-dark)', fontWeight: 600 }}>{readerMsg}</p>}
       {error && <p role="alert" style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: '#b91c1c', fontWeight: 600 }}>{error}</p>}
       {!readerWaiting && <div style={{ marginTop: '0.4rem' }}>
-        <RefundPanel classId={classId} booking={b} endpoint={STAFF_REFUND} reasonRequired counterSalesAtRegister crew waiting={b.waiting} ticketLabel={(t) => ticketLabels[t] ?? t} onDone={onChanged} />
+        <RefundPanel classId={classId} booking={b} endpoint={STAFF_REFUND} reasonRequired counterSalesAtRegister crew insidePolicy={b.insidePolicy === true} waiting={b.waiting} ticketLabel={(t) => ticketLabels[t] ?? t} onDone={onChanged} />
       </div>}
     </li>
   )
@@ -647,7 +648,7 @@ export default function Roster({
               {`Still to pay: ${formatMoney(data.partyMoney.dueCents)}. `}
               <span style={{ fontWeight: 400 }}>
                 {data.partyMoney.stillToPayBy === 'link'
-                  ? 'Catherine or Kaden sent them a payment link. If they’d rather pay now, take it at the register.'
+                  ? `${ownersOr()} sent them a payment link. If they’d rather pay now, take it at the register.`
                   : 'Take it at the register.'}
               </span>
             </p>

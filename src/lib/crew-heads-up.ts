@@ -103,7 +103,8 @@ export function headsUpMessage(lines: HeadsUpLine[]): { text: string; subject: s
   const text = one
     ? `Crew heads-up: ${lines[0].line}. Admin › More › Activity has the details.`
     : `Crew heads-up, ${lines.length} things: ${lines.map((l) => l.line).join('; ')}. Admin › More › Activity has the details.`
-  const subject = one ? 'Crew heads-up: 1 refund, comp or gift card' : `Crew heads-up: ${lines.length} refunds, comps or gift cards`
+  // N3: neutral (a line can be a drop-off change too).
+  const subject = one ? 'Crew heads-up: 1 thing to know' : `Crew heads-up: ${lines.length} things to know`
   const rows = lines.map((l) => `${when(l.at)}: ${l.line}`)
   const body = `What the crew did:\n\n${rows.join('\n')}\n\nAll of it is in /admin › More › Activity.`
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')

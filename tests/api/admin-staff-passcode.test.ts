@@ -40,7 +40,7 @@ async function signIn(passcode: string, staffId: string): Promise<{ status: numb
   const address = `10.0.0.${++ip}` // each sign-in its own address, clear of the rate limit
   const login = await loginRoute.POST({ request: new Request('https://x.test/api/staff/login.json', { method: 'POST', body: JSON.stringify({ passcode }) }), clientAddress: address } as any)
   if (login.status !== 200) return { status: login.status, cookie: null }
-  const pick = await pickRoute.POST({ request: new Request('https://x.test/api/staff/pick.json', { method: 'POST', body: JSON.stringify({ passcode, staffId }) }), clientAddress: address } as any)
+  const pick = await pickRoute.POST({ request: new Request('https://x.test/api/staff/pick.json', { method: 'POST', body: JSON.stringify({ passcode, staffId, adminPasscode: 'owner-secret' }) }), clientAddress: address } as any)
   return { status: pick.status, cookie: pick.headers.get('Set-Cookie')?.split(';')[0] ?? null }
 }
 const me = async (cookie: string) => (await meRoute.GET({ request: new Request('https://x.test/api/staff/me.json', { headers: { cookie } }) } as any)).status
@@ -130,8 +130,10 @@ describe('someone who left is locked out of /staff at once', () => {
   })
 })
 
-const login = (passcode: string, address: string) => loginRoute.POST({ request: new Request('https://x.test/api/staff/login.json', { method: 'POST', body: JSON.stringify({ passcode }) }), clientAddress: address } as any)
-const pick = (passcode: string, address: string, staffId = 'TM2') => pickRoute.POST({ request: new Request('https://x.test/api/staff/pick.json', { method: 'POST', body: JSON.stringify({ passcode, staffId }) }), clientAddress: address } as any)
+// Each address is one device (N2: the limit is per device cookie, with a looser per-address cap).
+const dev = (address: string) => ({ cookie: `hg_device=dev-${address.replace(/\./g, '-')}-aaaaaaaaaa` })
+const login = (passcode: string, address: string) => loginRoute.POST({ request: new Request('https://x.test/api/staff/login.json', { method: 'POST', body: JSON.stringify({ passcode }), headers: dev(address) }), clientAddress: address } as any)
+const pick = (passcode: string, address: string, staffId = 'TM2') => pickRoute.POST({ request: new Request('https://x.test/api/staff/pick.json', { method: 'POST', body: JSON.stringify({ passcode, staffId }), headers: dev(address) }), clientAddress: address } as any)
 
 describe('S1: guessing the staff passcode', () => {
   it('pick shares the sign-in limit: wrong passcodes at either step use up the same 5 tries', async () => {

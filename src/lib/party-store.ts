@@ -28,6 +28,7 @@ import { assertClassWritesAllowed } from '@lib/classes/test-site-guard'
 import type { By } from '@lib/staff-auth'
 import type { Cents } from '@lib/parties/types'
 import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
+import { indexPartyHost } from '@lib/parties/host-index'
 
 const logger = createLogger('party-store')
 const kv = makeKvStore('parties', 'parties')
@@ -259,6 +260,7 @@ export async function createPartyRecord(r: PartyRecord): Promise<{ kind: 'create
   needId(r.bookingId)
   if (await kv.setIfMatch(r.bookingId, JSON.stringify(r, null, 2), null, false)) {
     logger.info('Party created', { bookingId: r.bookingId })
+    await indexPartyHost(r.hostEmail, { id: r.bookingId, startIso: r.startIso, createdAt: r.createdAt })
     return { kind: 'created', rec: r }
   }
   const json = await kv.get(r.bookingId)
@@ -297,6 +299,10 @@ export async function updatePartyRecord(
     }
     if (await kv.setIfMatch(id, JSON.stringify(next, null, 2), etag, true)) {
       logger.info('Party updated', { bookingId: id, change })
+      // A new host email (or a moved time): the same-person check finds the party under it (N7/N8).
+      if (next.hostEmail !== cur.hostEmail || next.startIso !== cur.startIso) {
+        await indexPartyHost(next.hostEmail, { id, startIso: next.startIso, createdAt: next.createdAt })
+      }
       return next
     }
   }

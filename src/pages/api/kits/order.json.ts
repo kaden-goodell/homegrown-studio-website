@@ -128,7 +128,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   try {
     body = await request.json()
   } catch {
-    return errorResponse('Invalid request body', 400)
+    return errorResponse('Something in the order was missing. Please check your details and try again.', 400)
   }
 
   // --- Validation ---
@@ -390,7 +390,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       logger.error('Kit order total mismatch', { orderId: order.id, orderTotal: order.totalAmount, expectedTotal })
       await cancelOrderSafe(order)
       await releaseIfClaimed()
-      return errorResponse('Pricing mismatch — your card was not charged. Please try again or text us.', 500)
+      return errorResponse('We couldn’t price your kit. Nothing was charged. Please try again in a few minutes, or text us.', 500)
     }
 
     let payment: Awaited<ReturnType<typeof providers.payment.processPayment>>

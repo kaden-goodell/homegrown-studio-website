@@ -802,12 +802,12 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                 }}
               >
                 <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 600, color: '#92400e' }}>
-                  Heads up — this craft is made to order
+                  This craft is made to order
                 </p>
                 <p style={{ margin: '0.35rem 0 0.75rem', fontSize: '0.8125rem', lineHeight: 1.5, color: '#92400e' }}>
                   This craft is personalized and made to order for your group. Once your items are made, they can&rsquo;t
-                  be changed or refunded. We&rsquo;ll email you after booking to collect names and personalization
-                  details before your kit is assembled.
+                  be changed or refunded. Text us the names and personalization details after you order, before your
+                  kit is put together.
                 </p>
                 <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
                   <input

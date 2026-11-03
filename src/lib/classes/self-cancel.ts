@@ -419,7 +419,7 @@ async function tellDone(base: Omit<CancelRecord, 'tries' | 'asks' | 'updatedAt'>
     : `${who} cancelled ${seatsText(t.lineIds.length)} of ${cls.content.name} (${when}) online and got ${formatMoney(t.cents)} back. The seat is back on sale.`
   await alertOwners(text).catch(() => undefined)
   await recordAudit({
-    by: { id: 'customer-online', name: `${who} (online)`, role: 'owner' },
+    by: { id: 'customer-online', name: `${who} (online)`, role: 'customer' },
     action: 'class-self-cancel',
     target: { kind: 'class', id: cls.id, label: cls.content.name },
     details: { bookingId: base.bookingId, lines: t.lineIds.join(','), cents: t.free ? 0 : t.cents, free: t.free, attempt: t.attempt },
@@ -510,7 +510,7 @@ export async function askToCancel(input: { token: unknown; note: unknown; lineId
     const short = note.length > NOTE_IN_TEXT_MAX ? `${note.slice(0, NOTE_IN_TEXT_MAX - 1).trimEnd()}…` : note
     if (text) await alertOwners(`${nameOf(base.customer)} asked to cancel ${seatsText(lineIds.length)} of ${first.cls.content.name} (${when})${inside ? `, inside ${policyWindows.workshopRefundHours} hours` : ''}${short ? `: “${short}”` : ''}. Open /admin › To decide to refund, free the seat or keep their booking.`).catch(() => undefined)
     await recordAudit({
-      by: { id: 'customer-online', name: `${nameOf(base.customer)} (online)`, role: 'owner' },
+      by: { id: 'customer-online', name: `${nameOf(base.customer)} (online)`, role: 'customer' },
       action: 'class-cancel-request',
       target: { kind: 'class', id: first.cls.id, label: first.cls.content.name },
       details: { bookingId: first.bookingId, lines: lineIds.join(','), note: note.slice(0, 200), ...(text ? {} : { texted: false }) },

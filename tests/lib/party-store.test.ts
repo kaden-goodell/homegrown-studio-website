@@ -32,6 +32,8 @@ const fake = vi.hoisted(() => {
   return { data, state, store, put }
 })
 vi.mock('@lib/blob-store', () => ({ makeKvStore: (name: string) => { fake.state.names.push(name); return fake.store } }))
+// The host index (N8) has its own store and tests; here only the party records' own writes are counted.
+vi.mock('@lib/parties/host-index', () => ({ indexPartyHost: async () => undefined, partiesOfHost: async () => [] }))
 
 import {
   savePartyRecord, getPartyRecord, listParties, createPartyRecord, updatePartyRecord, isOurs, PartyNotFoundError,

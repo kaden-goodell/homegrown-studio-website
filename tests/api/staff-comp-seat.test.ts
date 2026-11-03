@@ -49,8 +49,10 @@ vi.mock('@lib/dev-flags', () => ({ paymentBypassEnabled: () => bypass }))
 const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Lavender', 'Black'] }
 const WORKSHOP = { id: 'inst_1', scheduleId: 'clssch_pails', name: 'Pumpkin Pails', startAt: '2026-10-18T18:00:00.000Z', durationMinutes: 90, priceCents: 2500 }
 
+/** Crew I6: every comp carries a reason; tests that are about something else get one by default. */
+const withReason = (body: any) => (body && typeof body === 'object' && !('reason' in body) && body.payAtRegister !== true ? { ...body, reason: 'Birthday guest' } : body)
 function req(body: unknown) {
-  return { request: new Request('http://localhost/api/staff/comp-seat.json', { method: 'POST', body: JSON.stringify(body) }) } as any
+  return { request: new Request('http://localhost/api/staff/comp-seat.json', { method: 'POST', body: JSON.stringify(withReason(body)) }) } as any
 }
 const good = {
   sendEmail: true,
@@ -210,6 +212,23 @@ describe('POST /api/staff/comp-seat.json', () => {
     expect(res.status).toBe(503)
     expect(mockSave).not.toHaveBeenCalled()
     expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it('crew I6: a comp with no reason (or a too-short one) is refused before anything is added; the reason goes in the audit', async () => {
+    for (const reason of ['', '  ', 'ok']) {
+      const res = await POST(req({ ...good, reason }))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toBe('Add a short reason for the comp (for example “Make-up for a missed class”).')
+    }
+    expect(mockAdd).not.toHaveBeenCalled()
+    expect(mockSave).not.toHaveBeenCalled()
+    const ok = await POST(req({ ...good, reason: '  Make-up   for a missed class ' }))
+    expect(ok.status).toBe(200)
+    expect(mockAudit.mock.calls[0][0]).toMatchObject({ action: 'seat.comped', details: expect.objectContaining({ reason: 'Make-up for a missed class' }) })
+  })
+
+  it('crew I6: Sell a seat needs no reason', async () => {
+    expect((await POST(req({ ...good, payAtRegister: true }))).status).toBe(200)
   })
 
   it('Sell a seat: adds in Square, records pay-at-register (not comped), emails what is due', async () => {

@@ -72,7 +72,7 @@ export const STAGE4_HELP_SECTIONS: HelpSection[] = [
     comingWith: 'extras',
     points: [
       'A full class shows **Join the waitlist** to customers. They save a card with Square and tick that we may charge it, up to the price they saw, if a seat opens before the waitlist closes.',
-      'The waitlist closes 48 hours before the class starts (when refunds stop), so nobody’s saved card is ever charged when they could no longer cancel for a refund. After that a freed seat is open to anyone who books it, and the people still waiting get an email that it closed (their cards come off).',
+      'The waitlist closes 48 hours before the class starts (when refunds stop), so nobody’s saved card is ever charged when they could no longer cancel for a refund. After that a freed seat is open to anyone who books it, and the people still waiting get an email that it closed (their cards come off). If a seat was free when it closed (it opened overnight, when nobody is charged, or while booking was paused), their email says a spot opened and links to the class instead of saying none did.',
       'When a seat frees up (a refund that frees the seat, a customer cancelling, more seats on the class), the next person whose group fits is added and charged by themselves, and gets a text and an email. Nobody else is ever charged or moved.',
       'On the class’s Bookings, **Waitlist** shows who’s waiting, in order. **Run the waitlist now** does the same run straight away. **Remove** takes someone off (their card comes off and they get an email).',
       'If the waitlist has stopped, a line says why with the button that fixes it (**Put it on the register**, **Update the register** or **Try the waitlist again**). Until then anyone can book the free seat normally.',

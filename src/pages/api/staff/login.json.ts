@@ -1,9 +1,8 @@
 import type { APIRoute } from 'astro'
 import { checkPasscode, passcodeConfigured, clearStaffCookie } from '@lib/staff-auth'
 import { listStaff } from '@lib/staff-directory'
-import { rateLimited, rateLimitFull } from '@lib/rate-limit'
 import { recordAudit } from '@lib/audit'
-import { noteFailedSignIn, SIGNIN_BUCKET, SIGNIN_MAX, SIGNIN_WINDOW_MS } from '@lib/staff-signin-failures'
+import { noteFailedSignIn, signInThrottle } from '@lib/staff-signin-failures'
 
 export const prerender = false
 
@@ -13,8 +12,9 @@ export const prerender = false
  * once a specific staff member is chosen.
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
-  // One bucket of wrong passcodes per address, shared with pick.json (S1): 5 per 5 minutes; right ones don't count.
-  if (rateLimitFull(SIGNIN_BUCKET(clientAddress), SIGNIN_MAX, SIGNIN_WINDOW_MS)) {
+  // Wrong passcodes are counted per device (5 per 5 minutes) and, more loosely, per address (N2), shared with pick.json (S1); right ones don't count.
+  const throttle = signInThrottle(request, clientAddress, 'staff')
+  if (throttle.full()) {
     return new Response(JSON.stringify({ error: 'Too many attempts — wait a few minutes.' }), { status: 429 })
   }
   if (!(await passcodeConfigured())) {
@@ -26,14 +26,14 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     // A wrong passcode has no staff identity yet; log where it came from.
     // (A good one is logged at pick.json, once a person is chosen. Rate-limited
     // requests return above, so this can't be used to flood the log.)
-    rateLimited(SIGNIN_BUCKET(clientAddress), SIGNIN_MAX, SIGNIN_WINDOW_MS)
+    throttle.miss()
     await noteFailedSignIn()
     await recordAudit({
       by: { id: 'unknown', name: 'Unknown (wrong passcode)', role: 'crew' },
       action: 'staff.login-refused',
       target: { kind: 'staff-login', id: String(clientAddress ?? 'unknown') },
     })
-    return new Response(JSON.stringify({ error: 'Incorrect passcode.' }), { status: 401 })
+    return new Response(JSON.stringify({ error: 'Incorrect passcode.' }), { status: 401, headers: throttle.cookie ? { 'Set-Cookie': throttle.cookie } : {} })
   }
   return new Response(JSON.stringify({ data: { staff: await listStaff() } }), {
     status: 200,

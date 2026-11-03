@@ -473,13 +473,13 @@ describe('party booking — the same host minutes later, with a new attempt (fin
   const SUN2_1PM = at('2027-03-28', '15:30')
   const sameHost = { firstName: 'Bea', lastName: 'Jones', email: 'bea@example.com', phone: '256-555-9876' }
 
-  it('their own party at that time: "You just booked this party", not "taken, nothing charged"; no second charge', async () => {
+  it('their own party at that time: "You already booked a party at this time", not "taken, nothing charged"; no second charge', async () => {
     const first = await post(body(SUN_1PM, { customer: sameHost }))
     expect(first.status).toBe(200)
     m.processPayment.mockClear()
     const again = await post(body(SUN_1PM, { customer: { ...sameHost, email: 'BEA@example.com' } }))
     expect(again.status).toBe(409)
-    expect(again.json).toMatchObject({ code: 'already_booked', detail: 'You just booked this party. Check your email for your confirmation. Nothing was charged this time.' })
+    expect(again.json).toMatchObject({ code: 'already_booked', detail: 'You already booked a party at this time. Check your email for your confirmation. Nothing was charged this time.' })
     expect(m.processPayment).not.toHaveBeenCalled()
   })
 
@@ -491,6 +491,27 @@ describe('party booking — the same host minutes later, with a new attempt (fin
     expect(asked.json.code).toBe('recent_booking')
     expect(asked.json.detail).toMatch(/^You booked a party for .+ a few minutes ago\. .*Nothing was charged this time\./)
     expect((await post(body(OTHER_B, { customer: host, confirmRepeat: true }))).status).toBe(200)
+  })
+
+  it('N7: their own party at that time is recognised long after the 10 minutes (any later attempt, any device)', async () => {
+    const host = { ...sameHost, email: 'bea4@example.com' }
+    const SAT = at('2027-04-03', '14:00')
+    expect((await post(body(SAT, { customer: host }))).status).toBe(200)
+    vi.setSystemTime(new Date(NOW.getTime() + 3 * 3_600_000))
+    m.processPayment.mockClear()
+    const later = await post(body(SAT, { customer: host }))
+    expect(later.status).toBe(409)
+    expect(later.json.code).toBe('already_booked')
+    expect(m.processPayment).not.toHaveBeenCalled()
+  })
+
+  it('N8: the check reads only that host’s parties (the host index), never the whole party store', async () => {
+    const store = await import('@lib/party-store')
+    const spy = vi.spyOn(store, 'listParties')
+    const host = { ...sameHost, email: 'bea5@example.com' }
+    expect((await post(body(at('2027-04-10', '14:00'), { customer: host }))).status).toBe(200)
+    expect(spy).not.toHaveBeenCalled()
+    spy.mockRestore()
   })
 
   it('a retry of the very same attempt still gets its stored answer (the check skips its own party)', async () => {

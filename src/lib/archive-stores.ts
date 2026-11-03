@@ -68,6 +68,10 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'party-locks' },
   // Party charges in flight or unclear (what's needed to record a party Square says is paid)
   { name: 'party-checkouts' },
+  // Which parties each host email has (a hash of the email, the party ids), for the booking's same-person check
+  { name: 'party-by-host' },
+  // Where the 10-minute sweep of stuck party checkouts carries on from (one party id)
+  { name: 'party-sweep' },
   // our own classes
   { name: 'classes' },
   { name: 'class-library' },

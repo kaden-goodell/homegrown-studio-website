@@ -25,6 +25,7 @@
 import { providers } from '@config/providers'
 import { squareErrorCodes } from '@lib/checkout-attempt'
 import { createLogger } from '@lib/logger'
+import { makeKvStore } from '@lib/blob-store'
 import { alertOwners } from '@lib/owner-alert'
 import { formatSlotLabel } from '@lib/studio-time'
 import { getPartyRecord } from '@lib/party-store'
@@ -123,6 +124,23 @@ async function handle(order: any, now: Date, opts: { paymentId?: string }): Prom
   return { action: 'flagged', why }
 }
 
+/** N5: checkouts asked about per run (each is a Square read); the next run carries on after the last one. */
+export const SWEEP_BATCH = 10
+const sweepKv = makeKvStore('party-sweep', 'party-sweep')
+const CURSOR_KEY = 'cursor'
+
+/**
+ * N5: the stuck checkouts in a fair order, at most SWEEP_BATCH: those after
+ * the last one checked (by party id) first, then from the start again, so
+ * over a few runs every one is asked about, however many there are.
+ */
+export function sweepPage<T extends { partyId: string }>(stuck: T[], after: string | null, max = SWEEP_BATCH): T[] {
+  const sorted = [...stuck].sort((a, b) => a.partyId.localeCompare(b.partyId))
+  const start = after ? sorted.findIndex((c) => c.partyId > after) : 0
+  const from = start < 0 ? 0 : start
+  return [...sorted.slice(from), ...sorted.slice(0, from)].slice(0, max)
+}
+
 /**
  * I-1: party checkouts left "charging" for IN_FLIGHT_MS or longer (the request
  * stopped after the charge, and Square's payment event came while it still
@@ -131,6 +149,9 @@ async function handle(order: any, now: Date, opts: { paymentId?: string }): Prom
  * paid one is recorded exactly as the webhook would (time booked, host told
  * once). Unpaid or unreadable ones are left: To decide shows a stale charging
  * checkout. Never throws.
+ *
+ * N5: at most SWEEP_BATCH a run, in a fair order that carries on where the
+ * last run stopped (sweepPage), so a pile of unpaid ones never starves the rest.
  */
 export async function settleStuckPartyCheckouts(now: Date = new Date()): Promise<{ checked: number; recorded: number }> {
   const out = { checked: 0, recorded: 0 }
@@ -142,7 +163,10 @@ export async function settleStuckPartyCheckouts(now: Date = new Date()): Promise
     return out
   }
   const stuck = list.filter((c) => c.state === 'charging' && !!c.draft && now.getTime() - Date.parse(c.updatedAt) >= IN_FLIGHT_MS)
-  for (const c of stuck.slice(0, 10)) {
+  if (!stuck.length) return out
+  const after = await sweepKv.get(CURSOR_KEY).catch(() => null)
+  const page = sweepPage(stuck, after)
+  for (const c of page) {
     out.checked++
     try {
       const orderId = c.orderId || (await orderByReference(c))
@@ -158,6 +182,8 @@ export async function settleStuckPartyCheckouts(now: Date = new Date()): Promise
       logger.error('Sweep could not check a party left mid-charge', { partyId: c.partyId, error: String(err) })
     }
   }
+  // Where the next run carries on. Best effort: losing it only means starting from the top again.
+  await sweepKv.set(CURSOR_KEY, page[page.length - 1].partyId).catch(() => undefined)
   return out
 }
 

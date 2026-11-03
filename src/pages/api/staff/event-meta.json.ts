@@ -110,13 +110,17 @@ export const POST: APIRoute = async ({ request }) => {
     await setEventMeta(kind, id, patch, byOf(staff))
     const event = await getEvent(kind, id)
     if (!event) return bad("We couldn't find that event.", 404)
+    // N3: drop-off is logged (and a crew "off" heads-up sent) only when it actually changed.
+    const dropOffChanged = patch.dropOff !== undefined && before.dropOff !== patch.dropOff
+    const others = Object.keys(patch).filter((k) => k !== 'dropOff')
+    if (!dropOffChanged && !others.length) return new Response(JSON.stringify({ data: event }), { status: 200, headers: { 'Content-Type': 'application/json' } })
     await recordAudit({
       by: staff,
       action: 'event.settings',
       target: { kind, id, label: (event as { title?: string }).title },
       details: {
-        changed: Object.keys(patch).join(','),
-        ...(patch.dropOff !== undefined ? { dropOff: patch.dropOff } : {}),
+        changed: [...(dropOffChanged ? ['dropOff'] : []), ...others].join(','),
+        ...(dropOffChanged ? { dropOff: patch.dropOff } : {}),
         ...(patch.capacity !== undefined ? { capacity: patch.capacity ?? null } : {}),
         ...(patch.signupCutoffHours !== undefined ? { signupCutoffHours: patch.signupCutoffHours ?? null } : {}),
         ...(patch.madeToOrder !== undefined ? { madeToOrder: patch.madeToOrder } : {}),

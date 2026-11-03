@@ -104,7 +104,8 @@ async function signIn(secrets: Secrets, ctx: Pick<RunCtx, 'admin' | 'staff'>): P
   const staff: { id: string; name: string; role: string }[] = s.body?.data?.staff ?? []
   const who = staff.find((m) => m.role === 'owner') ?? staff[0]
   check(who, 'The staff list is empty')
-  const p = await ctx.staff.post('/api/staff/pick.json', { passcode: secrets.staffPasscode, staffId: who.id })
+  // An owner on /staff also needs the admin passcode (N1).
+  const p = await ctx.staff.post('/api/staff/pick.json', { passcode: secrets.staffPasscode, staffId: who.id, ...(who.role === 'owner' ? { adminPasscode: secrets.adminPasscode } : {}) })
   checkStatus(p, 200, 'Pick who is on the iPad')
 }
 

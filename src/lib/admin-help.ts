@@ -329,10 +329,10 @@ export const HELP_SECTIONS: HelpSection[] = [
   {
     id: 'on-staff',
     title: 'Things you do on /staff',
-    intro: 'A few owner jobs live on /staff, the crew’s screen: open the studio website with /staff at the end, on the iPad or your phone, and sign in with the staff passcode.',
+    intro: 'A few owner jobs live on /staff, the crew’s screen: open the studio website with /staff at the end, on the iPad or your phone, sign in with the staff passcode, tap your name, then type the admin passcode.',
     points: [
       'Make a gift card: /staff › **Gift cards** › pick an amount (or type one under Other amount), who it’s for and a note › **Make card**. The card number shows: tap **Copy** and paste it into a text or email to them. The list below shows every card made here with what’s left on it; **Number** shows a card’s number again. A gift card pays for a party online or at the register; class seats online can’t be paid with one.',
-      'Give someone a free seat (a giveaway, a make-good, or a booking the site couldn’t finish): /staff › open the class (This week, Today or Upcoming) › **Comp a seat** › **Find a customer**, or type their first name, last name and email › the day and how many seats › tick **Email them a confirmation** if they should get one › **Add comped seat**.',
+      'Give someone a free seat (a giveaway, a make-good, or a booking the site couldn’t finish): /staff › open the class (This week, Today or Upcoming) › **Comp a seat** › **Find a customer**, or type their first name, last name and email › the day and how many seats › type why it’s comped › tick **Email them a confirmation** if they should get one › **Add comped seat**.',
       'Book a class seat for someone on the phone or at the door: /staff › open the class › **Sell a seat** › who’s coming and how many › how they pay: **Pay on the iPad** (their card or Apple Pay, right there; they get the usual confirmation), **Pay at the counter** (**Add seat, pay at the counter**, then ring it up on the register) or **Charge on the reader** (when it’s turned on in More › Register setup).',
       'Check-in, waivers and pickup at the door are the crew’s screens too; everything there is the same for you.',
     ],
@@ -356,7 +356,9 @@ export const HELP_SECTIONS: HelpSection[] = [
       'Every refund, comp and gift card a crew member makes sends you a heads-up: a text and an email to the owners picked in More › **Notifications**. So does a crew member turning an event’s drop-off off before it starts (kids then leave without a pickup code; during the event only an owner can turn it off). The first one comes right away; anything else in the next hour comes together in one message, so a busy Saturday doesn’t fill your phone.',
       'More › **Activity** lists who did what, newest first: refunds, comps, gift cards, check-ins, sign-ins and setup changes. Pick how far back (today, 7, 30 or 90 days), what kind of thing, and who.',
       'Only owners can see Activity. Crew see gift card numbers as the last 4 digits only, and customer search shows them part of an email or phone. If a crew member lost a gift card number, sign in to /staff yourself: owners see the whole number in Gift cards.',
-      'Switching the shared iPad to an owner’s name needs the staff passcode, so nobody can refund as you by tapping your name. Crew to crew is still one tap.',
+      'Signing in to /staff as an owner, or switching the shared iPad to an owner’s name, needs the **admin passcode** (the one you use for /admin), not the staff passcode. So nobody who only knows the staff passcode can refund or see gift card numbers as you. Crew to crew is still one tap. Wrong tries lock only that device for a few minutes, never every iPad on the studio wifi.',
+      'Comp a seat asks for a short reason (for example “Make-up for a missed class”). It shows in Activity and in your heads-up.',
+      'When the crew refund a class booking less than 48 hours before it starts, /staff first says it’s inside the 48-hour window and to check with an owner. They can still go ahead with **Continue**.',
     ],
   },
   {

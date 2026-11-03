@@ -1435,6 +1435,46 @@ describe('class booking — the same person minutes later, with a new attempt (f
     expect(mockProcessPayment).not.toHaveBeenCalled()
   })
 
+  describe('N4: an earlier try that ended unclear (seats kept a day)', () => {
+    async function unclearThenLater(minutes = 45) {
+      const cls = makeClass()
+      mockProcessPayment.mockRejectedValueOnce(new Error('socket hang up'))
+      expect((await POST(ctx(body(cls)))).status).toBe(502)
+      // The order Square made for that try is kept on the held seats, to ask about later.
+      expect((await linesOf(cls)).filter((l) => l.state === 'held').every((l) => l.square.orderId === 'ORDER1')).toBe(true)
+      vi.setSystemTime(new Date(NOW.getTime() + minutes * 60_000))
+      newAttempt()
+      mockProcessPayment.mockClear()
+      mockFindOrderPayment.mockClear()
+      return cls
+    }
+    it('Square shows the first one failed or never paid: a fresh try goes through (no day-long block)', async () => {
+      const cls = await unclearThenLater()
+      mockFindOrderPayment.mockResolvedValueOnce({ id: 'PAYX', status: 'failed', amount: TOTAL })
+      const res = await POST(ctx(body(cls, { attemptId: ATTEMPT })))
+      expect(res.status).toBe(200)
+      expect(mockFindOrderPayment).toHaveBeenCalledWith('ORDER1')
+      expect(mockProcessPayment).toHaveBeenCalledTimes(1)
+    })
+    it('Square shows the first one went through: never charged again', async () => {
+      const cls = await unclearThenLater()
+      mockFindOrderPayment.mockResolvedValueOnce({ id: 'PAY1', status: 'completed', amount: TOTAL })
+      const res = await POST(ctx(body(cls, { attemptId: ATTEMPT })))
+      expect(res.status).toBe(409)
+      expect(await res.json()).toMatchObject({ code: 'in_progress', detail: expect.stringContaining('went through') })
+      expect(mockProcessPayment).not.toHaveBeenCalled()
+    })
+    it('still going through, or Square can’t be asked: "still going through" (Check again asks again)', async () => {
+      const cls = await unclearThenLater()
+      mockFindOrderPayment.mockResolvedValueOnce({ id: 'PAY1', status: 'pending', amount: TOTAL })
+      const res = await POST(ctx(body(cls, { attemptId: ATTEMPT })))
+      expect(await res.json()).toMatchObject({ code: 'in_progress', detail: expect.stringContaining('still going through') })
+      mockFindOrderPayment.mockRejectedValueOnce(new Error('Square down'))
+      expect((await POST(ctx(body(cls, { attemptId: ATTEMPT })))).status).toBe(409)
+      expect(mockProcessPayment).not.toHaveBeenCalled()
+    })
+  })
+
   it('booked minutes ago: asks first (recent_booking, nothing charged); confirmRepeat books the second', async () => {
     const cls = makeClass()
     expect((await POST(ctx(body(cls)))).status).toBe(200)

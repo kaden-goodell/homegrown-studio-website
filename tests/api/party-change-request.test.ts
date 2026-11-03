@@ -10,6 +10,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 const alertOwners = vi.hoisted(() => vi.fn(async () => ({ attempted: 1, sent: 1 })))
 vi.mock('@lib/owner-alert', () => ({ alertOwners }))
 vi.mock('@lib/rate-limit', () => ({ rateLimited: () => false }))
+const auditSpy = vi.hoisted(() => vi.fn())
+vi.mock('@lib/audit', async (orig) => {
+  const real = await orig<typeof import('@lib/audit')>()
+  return { ...real, recordAudit: async (e: any) => { auditSpy(e); return real.recordAudit(e) } }
+})
 
 import { createPartyRecord, getPartyRecord, type PartyRecord } from '@lib/party-store'
 import { POST } from '@pages/api/party/change-request.json'
@@ -48,6 +53,8 @@ describe('party move/cancel requests (request-only)', () => {
     expect(res.status).toBe(200)
     const rec = (await getPartyRecord(p.bookingId))!
     expect(rec.changeRequests).toEqual([{ at: NOW.toISOString(), want: 'cancel', note: 'Family emergency', told: true }])
+    // N9: a customer's request is logged as the customer, never as an owner.
+    expect(auditSpy).toHaveBeenCalledWith(expect.objectContaining({ by: expect.objectContaining({ id: 'customer-online', role: 'customer' }) }))
     expect(rec.status).toBe('booked')
     expect(rec.startIso).toBe(p.startIso)
     expect(alertOwners).toHaveBeenCalledTimes(1)

@@ -7,6 +7,7 @@ import { quote } from '@lib/classes/pricing'
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 import { formatDayAndSpan, studioDate } from '@lib/studio-time'
 import { signOnIpad } from '@components/staff/DoorSearch'
+import { ownersOr } from '@lib/owner-names-client'
 
 const formatDayKey = (iso: string) => studioDate(iso)
 
@@ -66,6 +67,8 @@ export default function CompSeatSheet({
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<null | { warning: string | null; byHand: boolean; dueCents: number | null; name: string; emailed: boolean; over: { sold: number; capacity: number } | null; ringUp: string; needsWaiver: boolean }>(null)
   const [notify, setNotify] = useState(false)
+  /** Crew I6: why it's comped (shown in Activity and the owners' heads-up). */
+  const [reason, setReason] = useState('')
   const sell = mode === 'sell'
   const money = (c: number) => `$${(c / 100).toFixed(c % 100 === 0 ? 0 : 2)}`
   const [signedOut, setSignedOut] = useState(false)
@@ -252,6 +255,7 @@ export default function CompSeatSheet({
     setBusy(true)
     setError(null)
     if (household && seatCount === 0) { setError('Pick who’s coming.'); setBusy(false); return }
+    if (!sell && reason.trim().length < 3) { setError('Add a short reason for the comp.'); setBusy(false); return }
     if (household && guestNames.some((g) => !g)) { setError('Add a name for everyone not on the waiver, or remove the empty line.'); setBusy(false); return }
     if (own) {
       if (!pass) { setError('Pick an option.'); setBusy(false); return }
@@ -284,7 +288,7 @@ export default function CompSeatSheet({
           ...(picked ? { customerId: picked.customer.id } : {}),
           ...(household ? { waiverId: household.recordId, people: chosenInOrder.map((p) => p.id), guests: guestNames } : {}),
           ...(alreadyInSquare ? { alreadyInSquare: true } : {}),
-          ...(sell ? { payAtRegister: true } : {}),
+          ...(sell ? { payAtRegister: true } : { reason: reason.trim() }),
           sendEmail: notify,
         }),
       })
@@ -505,7 +509,7 @@ export default function CompSeatSheet({
               <li>Pick or create the person</li>
               <li>Add to class, then {sell ? 'Take payment' : 'Skip payment'}</li>
             </ol>
-            <p style={{ margin: '0.5rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>No Square sign-in on this iPad? Ask Catherine or Kaden.</p>
+            <p style={{ margin: '0.5rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>{`No Square sign-in on this iPad? Ask ${ownersOr()}.`}</p>
           </div>
         )}
         {own && (readerSale || readerPaid) ? (
@@ -585,7 +589,7 @@ export default function CompSeatSheet({
             <p style={{ margin: '0 0 0.6rem', fontWeight: 600, color: 'var(--color-dark)' }}>
               {ownData.rules.joinPartway
                 ? 'Sign-ups for this class have closed.'
-                : 'Sign-ups for this class closed when it started. Ask Catherine or Kaden to turn on joining partway.'}
+                : `Sign-ups for this class closed when it started. Ask ${ownersOr()} to turn on joining partway.`}
             </p>
             <button type="button" onClick={onClose} style={btn()}>Close</button>
           </div>
@@ -750,6 +754,13 @@ export default function CompSeatSheet({
                   </div>
                 )
               }),
+            )}
+
+            {!sell && (
+              <div style={{ marginBottom: '0.6rem' }}>
+                <label htmlFor="comp-reason" style={label}>Why is it comped?</label>
+                <input id="comp-reason" value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} placeholder="For example: make-up for a missed class" style={input} />
+              </div>
             )}
 
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0.2rem 0 0.8rem', fontSize: '0.9rem', color: 'var(--color-dark)', cursor: 'pointer' }}>

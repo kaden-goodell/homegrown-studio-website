@@ -6,6 +6,7 @@ import { addDays } from '@lib/kit-dates'
 import { formatCalendarDay, studioDate } from '@lib/studio-time'
 import { MAX_MARKS_PER_DAY, MAX_NOTE } from '@lib/staffing/rules'
 import type { Availability, DayMark } from '@lib/staffing/types'
+import { ownersAnd, oneOwner } from '@lib/owner-names-client'
 
 /**
  * "When I can work" on My shifts (stage 3, OWNER-1): a usual week of the
@@ -242,7 +243,7 @@ export default function AvailabilityEditor({ initial, onSaved, studioHours }: { 
       const saved = json.data.availability as Availability
       setBase(saved); setWeekly(saved.weekly); setDates(saved.dates)
       clearForm()
-      setStatus({ tone: 'ok', text: 'Saved. Catherine and Kaden can see this now.' })
+      setStatus({ tone: 'ok', text: `Saved. ${ownersAnd()} can see this now.` })
       onSaved?.(saved)
       return true
     } catch {
@@ -270,7 +271,7 @@ export default function AvailabilityEditor({ initial, onSaved, studioHours }: { 
   return (
     <div>
       <p style={{ margin: '0 0 0.9rem', fontSize: '0.95rem', color: 'var(--color-muted)', lineHeight: 1.45 }}>
-        Your usual week first. Then add any dates that are different. Catherine and Kaden use this when they put people on.
+        Your usual week first. Then add any dates that are different. {ownersAnd()} {oneOwner() ? 'uses' : 'use'} this when they put people on.
       </p>
 
       <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', color: 'var(--color-dark)' }}>My usual week</h3>

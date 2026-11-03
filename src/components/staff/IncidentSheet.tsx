@@ -197,7 +197,7 @@ export default function IncidentSheet({
           <div style={{ marginTop: '1.2rem' }}>
             <p style={{ fontSize: '0.9375rem', color: 'var(--color-dark)', lineHeight: 1.5 }}>
               {emailed
-                ? 'Saved and emailed to Kaden & Catherine. Give the parent a written note before they leave.'
+                ? 'Saved and emailed to the owners. Give the parent a written note before they leave.'
                 : 'Saved. Give the parent a written note before they leave. (The email didn’t go through — check Gmail sent items.)'}
             </p>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '1rem' }}>

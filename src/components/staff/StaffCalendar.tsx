@@ -8,6 +8,7 @@ import type { EventKind } from '@lib/events'
 import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
 import { eventKeyOf } from '@lib/staffing/rules'
 import type { OpenEvent, StaffingRow } from '@lib/staffing/events'
+import { ownersAnd } from '@lib/owner-names-client'
 
 /** What My shifts knows about this week: what I'm on (key → already ended), and what I could ask for (with whether I asked). */
 interface WeekShifts { mine: Map<string, boolean>; open: Map<string, OpenEvent> }
@@ -93,7 +94,7 @@ export default function StaffCalendar({
       const json = await res.json().catch(() => null)
       if (!res.ok) { setAskMsg({ key: ev.key, text: json?.error ?? 'That didn’t go through. Try again.', ok: false }); return }
       setShifts((s) => s && { ...s, open: new Map(s.open).set(ev.key, { ...ev, asked: true }) })
-      setAskMsg({ key: ev.key, text: 'Asked. Catherine and Kaden can see it. Add a note in My shifts.', ok: true })
+      setAskMsg({ key: ev.key, text: `Asked. ${ownersAnd()} can see it. Add a note in My shifts.`, ok: true })
     } catch {
       setAskMsg({ key: ev.key, text: 'Couldn’t reach the studio server. Check wifi and try again.', ok: false })
     } finally {

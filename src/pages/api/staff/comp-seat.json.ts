@@ -32,6 +32,10 @@ const reply = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 const bad = (error: string, status = 400) => reply(status, { error })
 const alreadyInSquareOf = (body: any) => body.alreadyInSquare === true
+/** Crew I6: every comp carries a short reason ("Birthday guest", "Make-up for a cancelled class"). */
+export const COMP_REASON_MIN = 3
+export const COMP_REASON_MAX = 200
+export const COMP_REASON_NEEDED = 'Add a short reason for the comp (for example “Make-up for a missed class”).'
 
 /**
  * Staff-only: give someone a free workshop seat.
@@ -50,6 +54,9 @@ const alreadyInSquareOf = (body: any) => body.alreadyInSquare === true
  * on the waiver) seat the people picked from that household's waiver, one
  * seat each, named in Square, and add them to the roster as attending (only
  * ever widening who's attending).
+ *
+ * A comp needs a short `reason` (crew I6): it's shown in Activity and the
+ * owners' crew heads-up. "Sell a seat" (`payAtRegister`) doesn't.
  *
  * Never cancels anything. If Square adds some seats and then refuses one, the
  * seats it added are kept and recorded, and the reply says how many.
@@ -70,13 +77,17 @@ export const POST: APIRoute = async ({ request }) => {
   if (givenName.length < 1 || givenName.length > 60) return bad('Add a first name (60 characters or fewer).')
   if (familyName.length < 1 || familyName.length > 60) return bad('Add a last name (60 characters or fewer).')
   if (!EMAIL_RE.test(email)) return bad('That email doesn’t look right.')
+  // Crew I6: a comp says why, for Activity and the owners' heads-up. A sold seat ("Sell a seat") doesn't need one.
+  const reason = String(body.reason ?? '').trim().replace(/\s+/g, ' ')
+  if (body.payAtRegister !== true && reason.length < COMP_REASON_MIN) return bad(COMP_REASON_NEEDED)
+  if (reason.length > COMP_REASON_MAX) return bad(`Keep the reason to ${COMP_REASON_MAX} characters or fewer.`)
   // Our own classes: straight to the seat ledger (no Square dashboard).
   if (isOwnClassId(scheduleId)) {
     // R41: a test site with no store of its own never seats anyone in the live ledger.
     const testSite = classWritesRefusal(request)
     if (testSite) return bad(testSite, 503)
   }
-  if (isOwnClassId(scheduleId)) return ownClassSeat(request, member, body, { givenName, familyName, email, phone })
+  if (isOwnClassId(scheduleId)) return ownClassSeat(request, member, body, { givenName, familyName, email, phone }, reason)
 
   const customerId = typeof body.customerId === 'string' && body.customerId.trim() ? body.customerId.trim() : null
   const waiverId = typeof body.waiverId === 'string' && body.waiverId.trim() ? body.waiverId.trim() : null
@@ -224,6 +235,7 @@ export const POST: APIRoute = async ({ request }) => {
       target: { kind: 'workshop', id: scheduleId, label: workshop.name },
       details: {
         bookingId, seats: seatsAdded, requested: seats, ...(payAtRegister ? { dueCents } : {}), email, name: `${givenName} ${familyName}`, emailSent,
+        ...(reason ? { reason } : {}),
         addedInSquare: alreadyInSquare ? 'by hand' : simulated ? 'simulated' : 'by the site',
         ...(squareBookingIds.length ? { squareBookingIds: squareBookingIds.join(',') } : {}),
         ...(refusal ? { squareRefusal: refusal } : {}),
@@ -252,6 +264,7 @@ async function ownClassSeat(
   member: StaffMember,
   body: any,
   person: { givenName: string; familyName: string; email: string; phone: string },
+  reason: string,
 ): Promise<Response> {
   const classId = String(body.scheduleId).trim()
   const payAtRegister = body.payAtRegister === true
@@ -341,6 +354,7 @@ async function ownClassSeat(
       details: {
         bookingId: added.bookingId, seats: added.lines.length, ...(payAtRegister ? { dueCents: added.dueCents } : {}),
         email: person.email, name: `${person.givenName} ${person.familyName}`, emailSent, sessions: added.quote.sessionIds.join(','),
+        ...(reason ? { reason } : {}),
         ...(over ? { overCapacity: true } : {}), ...(waiverId ? { waiverId, attending: people.join(',') } : {}),
       },
     })

@@ -369,8 +369,19 @@ describe('runWaitlist', () => {
     expect(h.square.chargeSavedCardCalls).toHaveLength(0)
     expect((await entries(cls))[0].state).toBe('closed')
     expect(h.square.disableCardCalls).toHaveLength(1)
-    expect(mail.missed).toHaveBeenCalledWith(expect.objectContaining({ why: 'closed' }))
+    // N6: a seat WAS free when it closed, so never "No spot opened": they're told it may still be open, with the class link.
+    expect(mail.missed).toHaveBeenCalledWith(expect.objectContaining({ why: 'closed-open', classUrl: expect.stringContaining(`/classes/${cls.id}`) }))
     expect((await getLedger(cls.id)).lines.filter((l) => l.state === 'held' || l.state === 'confirmed')).toHaveLength(0)
+  })
+
+  it('N6: closing with no free seat says "No spot opened" (why closed)', async () => {
+    const cls = makeClass({ startIso: '2026-10-12T18:00:00.000Z' })
+    await fill(cls)
+    await join(cls, 'Jane')
+    const late = new Date('2026-10-10T18:30:00.000Z')
+    const r = await runWaitlist(cls.id, { reason: 'sweep' }, late)
+    expect(r).toMatchObject({ added: 0, closed: 1 })
+    expect(mail.missed).toHaveBeenCalledWith(expect.objectContaining({ why: 'closed' }))
   })
 
   it('OWNER-S4-1: a group that doesn\'t fit keeps its place; a later smaller group takes the one seat', async () => {

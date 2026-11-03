@@ -4,6 +4,7 @@ import { kitConfig } from '@config/kit.config'
 import { kitThemes } from '@config/kit-content'
 import { addDays } from '@lib/kit-dates'
 import PickStaff from '@components/staff/PickStaff'
+import { setOwnerNames } from '@lib/owner-names-client'
 import StaffHeader from '@components/staff/StaffHeader'
 import Today from '@components/staff/Today'
 import Upcoming from '@components/staff/Upcoming'
@@ -325,6 +326,7 @@ export default function StaffConsole() {
         if (res.ok) {
           const json = await res.json()
           identifyStaff(json.data.staff)
+          setOwnerNames(json.data.owners)
           setMe(json.data.staff)
           // `/staff?open=party:abc` (the kiosk's return path after signing for an
           // event) goes straight to that roster, then drops the param so a
@@ -372,6 +374,7 @@ export default function StaffConsole() {
         const json = await res.json()
         const staff: StaffMember = json.data.staff
         if (me && me.id !== staff.id) { window.posthog?.reset(); identifyStaff(staff) }
+        setOwnerNames(json.data.owners)
         setMe(staff)
         clearKioskOut()
         lastActive.current = Date.now()
@@ -401,6 +404,7 @@ export default function StaffConsole() {
       const json = await res.json()
       passcodeRef.current = passcode
       setStaffRoster(json.data.staff)
+      setOwnerNames((json.data.staff as StaffMember[]).filter((m) => m.role === 'owner').map((m) => m.name))
       setPasscode('')
       setPickError(null)
       // A fresh passcode sign-in is the crew taking the iPad back.
@@ -415,7 +419,7 @@ export default function StaffConsole() {
     }
   }
 
-  async function doPick(staffId: string) {
+  async function doPick(staffId: string, adminPasscode?: string) {
     setPickBusy(true)
     setPickError(null)
     setPickAuthFailed(false)
@@ -423,7 +427,7 @@ export default function StaffConsole() {
       const res = await fetch('/api/staff/pick.json', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ passcode: passcodeRef.current, staffId }),
+        body: JSON.stringify({ passcode: passcodeRef.current, staffId, ...(adminPasscode !== undefined ? { adminPasscode } : {}) }),
       })
       const json = await res.json().catch(() => null)
       if (!res.ok) {
@@ -436,6 +440,7 @@ export default function StaffConsole() {
       }
       if (me && me.id !== json.data.staff.id) window.posthog?.reset()
       identifyStaff(json.data.staff)
+      setOwnerNames(json.data.owners)
       setMe(json.data.staff)
       lastActive.current = Date.now()
       setCover(null)

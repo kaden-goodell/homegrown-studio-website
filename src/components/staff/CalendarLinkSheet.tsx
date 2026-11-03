@@ -43,13 +43,13 @@ export interface LinkCopy {
 export const CREW_COPY: LinkCopy = {
   title: 'My shifts on my phone',
   linksTitle: 'Your calendar link',
-  intro: 'Get a private link that puts your shifts in your phone’s calendar. When Catherine or Kaden put you on something, or a time changes, your phone updates by itself.',
+  intro: 'Get a private link that puts your shifts in your phone’s calendar. When you’re put on something, or a time changes, your phone updates by itself.',
   has: 'You already have a calendar link. For your privacy it was only shown once, when it was made.',
   calendarName: 'Hometown Studio · my shifts',
   privacy: 'This link is only shown now. Keep it private: anyone with it can see your shifts.',
   iphoneShows: 'Tap it, tap Subscribe, then tap Add. Your shifts show in the Calendar app.',
   androidOnIpad: 'Do these steps on your own phone. On the iPad? Open ourhometownstudio.com/staff on your phone and make your link there.',
-  googleSlow: 'Google can take up to a day to show changes. Your text from Catherine or Kaden is the quick way to hear.',
+  googleSlow: 'Google can take up to a day to show changes. The text from the studio is the quick way to hear.',
   confirmStop: 'Your shifts stop updating on any phone that has it. You can make a new one any time.',
   startButton: 'Get my calendar link',
 }

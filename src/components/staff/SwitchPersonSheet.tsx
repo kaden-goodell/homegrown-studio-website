@@ -5,7 +5,7 @@ import type { StaffMember } from '@lib/staff-auth'
 /**
  * Flyout for "Switch person": tap a teammate's name and the iPad is theirs.
  * No passcode screen (Kaden, 15 Oct 2026), except to switch to an owner:
- * then the staff passcode is asked for right here (DV19). If this device has
+ * then the ADMIN passcode (the one /admin uses) is asked for right here (DV19, N1). If this device has
  * been signed out meanwhile, `onSignedOut` sends it to the passcode screen.
  */
 export default function SwitchPersonSheet({
@@ -25,7 +25,7 @@ export default function SwitchPersonSheet({
   const [team, setTeam] = useState<StaffMember[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  /** The owner picked, waiting for the staff passcode. */
+  /** The owner picked, waiting for the admin passcode. */
   const [asking, setAsking] = useState<StaffMember | null>(null)
   const [passcode, setPasscode] = useState('')
 
@@ -49,11 +49,11 @@ export default function SwitchPersonSheet({
     setBusy(m.id)
     setError(null)
     try {
-      const res = await fetch('/api/staff/switch.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ staffId: m.id, ...(code !== undefined ? { passcode: code } : {}) }) })
+      const res = await fetch('/api/staff/switch.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ staffId: m.id, ...(code !== undefined ? { adminPasscode: code } : {}) }) })
       if (res.status === 401) return onSignedOut()
       const json = await res.json().catch(() => null)
       if (!res.ok) {
-        if (json?.needsPasscode) { setAsking(m); setPasscode('') }
+        if (json?.needsAdminPasscode) { setAsking(m); setPasscode('') }
         setError(json?.error ?? 'Couldn’t switch — try again.')
         return
       }
@@ -75,7 +75,7 @@ export default function SwitchPersonSheet({
             onSubmit={(e) => { e.preventDefault(); if (passcode && busy === null) pick(asking, passcode) }}
             style={{ display: 'grid', gap: '0.5rem' }}
           >
-            <label htmlFor="switch-passcode" style={{ color: 'var(--color-dark)' }}>{`To switch to ${asking.name}, enter the staff passcode.`}</label>
+            <label htmlFor="switch-passcode" style={{ color: 'var(--color-dark)' }}>{`To switch to ${asking.name}, enter the admin passcode.`}</label>
             <input
               id="switch-passcode"
               type="password"

@@ -305,7 +305,12 @@ async function run(ctx: Ctx, reason: RunReason): Promise<void> {
   // 2. Entries whose waitlist closed: off the list, cards off, a kind email. A seat freed after the cutoff stays open.
   list = await getWaitlist(cls.id)
   const passed = list.entries.filter((e) => e.state === 'waiting' && timeIsUp(cls, e, now))
-  if (passed.length) result.closed += await closeEntries(cls, passed.map((e) => e.id), 'cutoff', now, ctx.origin)
+  if (passed.length) {
+    // N6: a seat that fits them is free right now (it opened after 8 PM, or while charges were paused): not "No spot opened".
+    const ledger = await getLedger(cls.id).catch(() => null)
+    const spotWasOpen = new Set(ledger ? passed.filter((e) => fitsNow(cls, ledger, e.sessionIds, e.seats, now)).map((e) => e.id) : [])
+    result.closed += await closeEntries(cls, passed.map((e) => e.id), 'cutoff', now, ctx.origin, spotWasOpen)
+  }
 
   // 3. Add the next people who fit (OWNER-S4-1: the first whose whole group fits; earlier ones keep their place).
   if (cls.status !== 'open') return
