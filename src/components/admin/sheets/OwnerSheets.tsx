@@ -4,6 +4,7 @@
  *   - Notifications (G5): which owners get which alerts and reports.
  *   - Email, texts and Square (G2): is each getting through, a test for each, and what to do.
  */
+import { ForgotPasscode } from '../shell/ForgotPasscode'
 import { useEffect, useRef, useState } from 'react'
 import { boldParts, HELP_SECTIONS } from '@lib/admin-help'
 import type { Service } from '@lib/outbound-health'
@@ -85,6 +86,7 @@ export function AdminPasscodeForm({ expectedUpdatedAt, min, onDone, onCancel, on
       <span className="adm-small">Every other phone or iPad signed in to /admin is signed out and needs the new one. This one stays signed in.</span>
       <span className="adm-small">{`Use at least ${min} letters or numbers, with no space at the start or end, and not the staff passcode. Write it somewhere safe: nobody can look it up later.`}</span>
       <label className="adm-fld"><span>Passcode you use now</span><input type={show ? 'text' : 'password'} value={current} autoComplete="current-password" maxLength={64} onChange={(e) => { setCurrent(e.target.value); setFormError('') }} /></label>
+      <ForgotPasscode label="Forgot the one you use now?" />
       <label className="adm-fld"><span>New passcode</span><input type={show ? 'text' : 'password'} value={code} autoComplete="new-password" maxLength={64} onChange={(e) => { setCode(e.target.value); setFormError('') }} /></label>
       <label className="adm-fld"><span>New passcode again</span><input type={show ? 'text' : 'password'} value={again} autoComplete="new-password" maxLength={64} onChange={(e) => { setAgain(e.target.value); setFormError('') }} /></label>
       <button type="button" className="adm-btn is-ghost is-sm" aria-pressed={show} onClick={() => setShow(!show)}>{show ? 'Hide passcodes' : 'Show passcodes'}</button>

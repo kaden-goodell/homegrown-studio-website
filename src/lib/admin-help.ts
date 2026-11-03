@@ -61,11 +61,11 @@ export interface HelpRow {
 
 // ── Square, only where it is the only place ───────────────────────────────
 
-const SQ_LEGACY_PARTY: HelpSquare = {
+export const SQ_LEGACY_PARTY: HelpSquare = {
   why: 'Only for a party booked in Square before the switch (it says “Booked in Square”). The site can’t change those.',
   steps: 'Square Dashboard (squareup.com, signed in) › Appointments › Calendar › go to the party’s day › tap the booking › Reschedule (to move it) or Cancel. Refunds for it: Square Dashboard › Transactions › search the host’s name › open the payment › Issue refund.',
 }
-const SQ_LEGACY_CLASS: HelpSquare = {
+export const SQ_LEGACY_CLASS: HelpSquare = {
   why: 'Only for a class that still runs in Square (it opens as “Square class”). The site can’t change those.',
   steps: 'Square Dashboard (squareup.com, signed in) › Appointments › Calendar › go to the class’s day › tap the class › Edit (to move it or change its seats) or Add attendee (to add someone).',
 }
@@ -169,7 +169,7 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'Book a party for someone on the phone',
     points: [
       'Home › **+ Book a party**, or a day on the Calendar › **+ Book a party on this day**.',
-      'Pick the day and a free time. If they want a time that isn’t a party time, tap **Another time** (any day, 8 AM to 8 PM; it still checks nothing else is on).',
+      'Pick the day and a free time. If they want a time that isn’t a party time, tap **Another time on this day** (8 AM to 8 PM on the day you picked, any day of the week; it still checks nothing else is on). Moving a booked party has the same thing: **Move** › **Another time**.',
       'Pick the package, the craft, the number of guests, any extras, and type the host’s name, phone and email.',
       'How they pay: **Send payment link** (the party is booked and its time held now; the host gets an email and a text with a link for the studio fee) or **Take card now** (type their card into Square’s card box).',
       'Crafts are always paid at the studio after the party, never online.',
@@ -186,7 +186,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       '**+ Add an extra** after booking: it shows as due. Then **Send payment link** (it asks only for what’s due), **Send it again**, **Copy payment link** or **Take card now**.',
       '**Cancel party**: frees the time. It never gives money back; use **Refund** on Payments for that.',
       'After a move, a cancel or a change, “Not told yet” stays on the party (and in To decide) until you tap **Email <name> the details** or, if you called or texted, **I told them**.',
-      'A party that says **Booked in Square** was booked before the switch. You can see it here but only change it in Square, until it has run.',
+      'A party that says **Booked in Square** was booked before the switch. You can see it here but only change it in Square, until it has run. **How** under that line shows the steps in Square.',
     ],
     square: [SQ_LEGACY_PARTY],
   },
@@ -393,7 +393,7 @@ export const HELP_SECTIONS: HelpSection[] = [
     points: [
       'More › **Admin access** shows who the owners are and when the /admin passcode was last changed.',
       'The owners are the people marked **Owner** in More › Staff › People. To add an owner, add them (or edit them) as Owner. To take someone off, edit them to **Crew** or tap **No longer working here**. **Change who’s an owner** opens that list. There’s always at least one owner. Each owner picks their name under “Who’s using this?”, and gets the alerts picked for them in More › **Notifications**.',
-      '**Change the admin passcode**: type the one you use now, then the new one twice (at least 8 letters or numbers, no space at the start or end, and not the staff passcode), then **Save new admin passcode**. Every other phone or iPad signed in to /admin is signed out. The one you’re on stays signed in. Change it when an owner leaves, a phone is lost, or someone else saw it, and write it somewhere safe. Every owner (you too) gets an email and a text saying it was changed.',
+      '**Change the admin passcode**: type the one you use now, then the new one twice (at least 8 letters or numbers, no space at the start or end, and not the staff passcode), then **Save new admin passcode**. Every other phone or iPad signed in to /admin is signed out. The one you’re on stays signed in. Change it when an owner leaves, a phone is lost, or someone else saw it, and write it somewhere safe. Forgot the one you use now? Tap **Forgot the one you use now?** in that form › **Email the owners a link**. Every owner (you too) gets an email and a text saying it was changed.',
       'Taking an owner off in Staff › People (made **Crew**, or **No longer working here**) asks **Change the admin passcode now?** right there, because their phone may still be signed in to /admin. **Change it now** shows the form; **Not now** leaves it.',
       'When someone is made an owner, an owner is taken off, or an owner’s email or mobile changes, every owner gets an email and a text at the email and mobile they had before (the one taken off or changed too, and you, even if you made the change). It says it came from a signed-in /admin device and which name that device picked, since anyone holding a signed-in phone can pick any name. If you get one you didn’t expect, check Staff › People and **Notifications**, and change the admin passcode.',
       'After 8 wrong passcodes from one place, /admin makes that place wait 15 minutes before trying again. After 20 wrong ones in a day from anywhere, the owners get a text and an email, and **Admin access** says so. After 50 in a day, every try has to wait a few seconds after the last wrong one (never more than 30 seconds), so sign-in slows down but never closes. The email link under **Forgot the passcode?** works too.',

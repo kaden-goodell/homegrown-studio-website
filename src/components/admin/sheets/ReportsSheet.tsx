@@ -118,7 +118,7 @@ function MonthTax({ month }: { month: string }) {
       {r && (
         <>
           <TaxTable summary={r.summary} />
-          <p className="adm-note">{`From Square: ${r.orders} completed ${r.orders === 1 ? 'sale' : 'sales'} in ${name}, refunds taken off. Sales are before tax.${r.partial ? ' The month isn’t over, so these are the numbers so far.' : ''}`}</p>
+          <p className="adm-note">{`From Square: ${r.orders} completed ${r.orders === 1 ? 'sale' : 'sales'} in ${name}, refunds taken off. Sales are before tax.${r.partial ? ' The month isn’t over, so these are the numbers so far.' : ''} Use tax and sales tax are the two totals your accountant files.`}</p>
           {r.classesCategoryMissing && <p className="adm-note">Classes may be counted under Craft Café here. Both are use tax, so the use-tax total is right.</p>}
           {r.lastSent && <p className="adm-small adm-muted">{sentLine(r.lastSent)}</p>}
           {sendError && <p className="adm-error" role="alert">{sendError}</p>}

@@ -680,7 +680,7 @@ describe('Inbox', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Teachers/ }))
     expect(screen.getByText(/ourhometownstudio.com\/teach/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /^To decide/ }))
-    expect(await screen.findByText('Nothing to decide. Things that happen in Square without you land here.')).toBeInTheDocument()
+    expect(await screen.findByText('Nothing to decide. Things only an owner should settle land here.')).toBeInTheDocument()
   })
 })
 

@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { SQ_LEGACY_CLASS } from '@lib/admin-help'
+import { SquareHow } from '../shell/SquareHow'
 import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
 import { closureOn } from '@config/closures'
 import { isStudioOpenOn } from '@config/studio-days'
@@ -84,7 +86,7 @@ export function LegacySheet({ day, id }: { day: string; id: string }) {
   if (!item) return <Gone title="Square class" />
   return (
     <SheetFrame title={item.label} subtitle={whenOf(item)}>
-      <div className="adm-card"><p>This class lives in Square. Change it there.</p></div>
+      <div className="adm-card"><p>This class lives in Square. Change it there.</p><SquareHow how={SQ_LEGACY_CLASS} /></div>
       <StaffRow eventKey={`legacy:${item.id}`} startIso={item.startIso} />
     </SheetFrame>
   )

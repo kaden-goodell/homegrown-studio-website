@@ -492,7 +492,7 @@ describe('To decide sheets', () => {
     const t = item({ id: 'td_po', kind: 'party-payment-unclear', title: 'Party payment unclear', detail: { partyId: 'pty_abc123', partyDay: '2026-11-14', cents: 30000, via: 'link', orderId: 'ORD_123' } })
     show([t], {}, 'td_po')
     expect(await screen.findByText('ORD_123')).toBeInTheDocument()
-    expect(screen.getByText('Square order')).toBeInTheDocument()
+    expect(screen.getByText(/^Square order number/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument()
   })
 

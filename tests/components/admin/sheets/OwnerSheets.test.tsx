@@ -60,6 +60,20 @@ describe('More › Admin access', () => {
     await waitFor(() => expect(screen.queryByLabelText('New passcode')).toBeNull())
   })
 
+  it('M10: forgot the one in use? the change form offers the emailed link right there', async () => {
+    fetchMock.mockImplementation(async (url: string, init: RequestInit = {}) => {
+      const path = String(url).split('?')[0]
+      if (path === '/api/admin/recover.json') return ok({ data: { message: 'A link is on its way to the owners’ email.' } })
+      return ok({ data: current })
+    })
+    renderSheet(<AdminAccessSheet />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Change the admin passcode' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Forgot the one you use now?' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Email the owners a link' }))
+    expect(await screen.findByText('A link is on its way to the owners’ email.')).toBeInTheDocument()
+    expect(posts(fetchMock, '/api/admin/recover.json')[0].body).toEqual({ action: 'request' })
+  })
+
   it('a refusal shows in plain words and keeps what was typed', async () => {
     fetchMock.mockImplementation(async (url: string, init: RequestInit = {}) => {
       if ((init.method ?? 'GET') === 'GET') return ok({ data: current })

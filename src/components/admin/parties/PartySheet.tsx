@@ -19,6 +19,8 @@
  * Staff (stage 3): who's on the party, on both kinds; a staffing line opens
  * the sheet on Staff.
  */
+import { SQ_LEGACY_PARTY } from '@lib/admin-help'
+import { SquareHow } from '../shell/SquareHow'
 import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import PaymentForm, { type PaymentFormRef } from '@components/checkout/PaymentForm'
 import { AmountRefundPanel, type AmountCharge, type WaitingAmountRefund } from '@components/shared/RefundPanel'
@@ -109,7 +111,7 @@ function SquareParty({ id, party: p, item, guests, day, staffFirst }: { id: stri
   const when = p ? (p.endIso ? dayAndSpan(p.startIso, p.endIso) : dayAndClock(p.startIso)) : item ? dayAndSpan(item.startIso, item.endIso) : dayLabel(day)
   return (
     <SheetFrame tall title={title} subtitle={<>{when} <span className="adm-tag is-grey">Booked in Square</span></>} footer={p ? <CallText phone={p.hostPhone} /> : undefined}>
-      <div className="adm-panel adm-gap-bottom"><b>Booked in Square. Change it there.</b><span className="adm-small">Moving, cancelling and refunds for this party happen in Square, as before.</span></div>
+      <div className="adm-panel adm-gap-bottom"><b>Booked in Square. Change it there.</b><span className="adm-small">Moving, cancelling and refunds for this party happen in Square, as before.</span><SquareHow how={SQ_LEGACY_PARTY} /></div>
       <Seg label="Party" value={tab} onChange={setTab} options={[['details', 'Details'], ['guests', 'Guests'], ['staff', 'Staff']]} />
       {tab === 'details' && (p
         ? (

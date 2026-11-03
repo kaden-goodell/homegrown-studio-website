@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { ForgotPasscode } from './shell/ForgotPasscode'
 import '../../styles/booking-panel.css'
 import '../../styles/admin.css'
 import { ownerOf, type Owner } from '@lib/admin-who'
@@ -161,42 +162,12 @@ function SignIn({ who: remembered, owners, onSignedIn }: { who: Owner | null; ow
         <WhoPicker value={who} owners={owners} onChange={setWho} />
         {error && <p role="alert" className="field-error">{error}</p>}
         <button type="submit" className="adm-btn is-pri" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
-        <Forgot />
+        <ForgotPasscode />
       </form>
     </div>
   )
 }
 
-/**
- * "Forgot the passcode?" (M3): emails a one-time link to every owner's email
- * on the staff list. Nothing to type, so nobody can point it anywhere else.
- */
-function Forgot() {
-  const [open, setOpen] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
-  async function send() {
-    if (busy) return
-    setBusy(true)
-    const r = await api<{ message: string }>(RECOVER, { action: 'request' })
-    setBusy(false)
-    setResult(r.ok ? { ok: true, text: r.data?.message ?? 'A link is on its way.' } : { ok: false, text: r.error ?? 'That didn’t work. Try again.' })
-  }
-  if (!open) return <button type="button" className="adm-quiet" onClick={() => setOpen(true)}>Forgot the passcode?</button>
-  return (
-    <div className="adm-panel" role="group" aria-label="Forgot the passcode?">
-      <b>Forgot the passcode?</b>
-      <span className="adm-small">We’ll email a link to every owner’s email in Staff › People (an owner added or changed in the last 3 days isn’t sent one). It works once, for 15 minutes, and lets you set a new admin passcode. Every other phone or iPad is signed out when you do.</span>
-      {result && <p role={result.ok ? 'status' : 'alert'} className={result.ok ? 'adm-small' : 'field-error'}>{result.text}</p>}
-      {!result?.ok && (
-        <div className="adm-two">
-          <button type="button" className="adm-btn is-ghost" onClick={() => { setOpen(false); setResult(null) }}>Cancel</button>
-          <button type="button" className="adm-btn is-pri" disabled={busy} onClick={send}>{busy ? 'Sending…' : 'Email the owners a link'}</button>
-        </div>
-      )}
-    </div>
-  )
-}
 
 /** Signed in, but nobody picked on this device (or the one picked is no longer an owner): ask once. */
 function PickWho({ owners, onPick }: { owners: Owner[]; onPick: (o: Owner) => void }) {

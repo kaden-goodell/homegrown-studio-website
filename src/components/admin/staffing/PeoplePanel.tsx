@@ -170,7 +170,7 @@ export function PeoplePanel({ focusPasscode = false }: { focusPasscode?: boolean
         {canStartFresh && (
           <div className="adm-panel adm-gap-top">
             <b>Still not working?</b>
-            <span className="adm-small">You can start the staff list with just Catherine and Kaden, then add everyone else by hand. Anything already saved for your team, like who’s on a shift or a calendar link, won’t carry over to the new list.</span>
+            <span className="adm-small">You can start the staff list with just the owners, then add everyone else by hand. Anything already saved for your team, like who’s on a shift or a calendar link, won’t carry over to the new list.</span>
             {!freshAsk
               ? <button type="button" className="adm-btn is-ghost" onClick={() => setFreshAsk(true)}>Start the list with just the owners</button>
               : (

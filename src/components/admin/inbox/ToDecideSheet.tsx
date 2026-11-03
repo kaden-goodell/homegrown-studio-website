@@ -449,7 +449,7 @@ function SquareOrder({ id }: { id: string }) {
   const toast = useToast()
   return (
     <div className="adm-kv">
-      <span>Square order</span>
+      <span>Square order number <span className="adm-muted">(only if Square asks)</span></span>
       <span>
         <span className="adm-small" style={{ wordBreak: 'break-all' }}>{id}</span>{' '}
         <button type="button" className="adm-quiet" onClick={() => navigator.clipboard?.writeText(id).then(() => toast('Copied the order number.'), () => toast('Couldn’t copy. Press and hold the number to copy it.'))}>Copy</button>

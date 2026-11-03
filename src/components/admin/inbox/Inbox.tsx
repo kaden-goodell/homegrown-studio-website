@@ -100,11 +100,11 @@ function ToDecide({ onOpen }: { onOpen: (s: Sheet) => void }) {
   const { todo } = useInbox()
   if (todo.error && !todo.items) return <Failed message={todo.error} onRetry={todo.retry} />
   if (!todo.items) return <Skeleton rows={2} label="Loading To decide" />
-  if (!todo.items.length) return <p className="adm-empty">Nothing to decide. Things that happen in Square without you land here.</p>
+  if (!todo.items.length) return <p className="adm-empty">Nothing to decide. Things only an owner should settle land here.</p>
   const list = [...todo.items.filter((t) => !t.done), ...todo.items.filter((t) => t.done)]
   return (
     <>
-      <p className="adm-note">Things that happened in Square without you. Nothing changes until you pick.</p>
+      <p className="adm-note">Things only an owner should settle: a payment or refund to check, a customer asking to cancel, a class short of its minimum, a host not told yet. Nothing changes until you pick.</p>
       {list.map((t: ToDecideItem) => (
         <button key={t.id} type="button" className="adm-ibx" onClick={() => onOpen({ kind: 'todo', id: t.id })}>
           <span className="adm-tp">
