@@ -132,3 +132,31 @@ describe('every public booking path respects the switch', () => {
     expect(await bookingsOpenNow(new Request('https://x.test/api/calendar.json'), 'parties')).toBe(false)
   })
 })
+
+describe('M2: a pause that opens again by itself', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('stays paused until the start of the day picked, then reads open with nothing saved; a past or far day is refused', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-02T15:00:00.000Z'))
+    const v = await loaded()
+    const r = await call('POST', { open: { ...v.open, parties: false }, pauseNote: '', reopenOn: { parties: '2026-11-05' }, expectedUpdatedAt: v.updatedAt }, { who: 'Catherine' })
+    expect(r.status).toBe(200)
+    expect(r.body.data.open.parties).toBe(false)
+    expect(r.body.data.reopenOn).toEqual({ parties: '2026-11-05' })
+    expect(r.body.data.changed).toContain('Parties open again by themselves Thu Nov 5')
+    vi.setSystemTime(new Date('2026-11-05T05:59:00.000Z')) // 11:59 PM Nov 4 in Chicago
+    expect((await loaded()).open.parties).toBe(false)
+    vi.setSystemTime(new Date('2026-11-05T06:01:00.000Z')) // just after midnight Nov 5
+    const after = await loaded()
+    expect(after.open.parties).toBe(true)
+    expect(after.reopenOn).toEqual({})
+
+    vi.setSystemTime(new Date('2026-11-06T15:00:00.000Z'))
+    const now = await loaded()
+    for (const day of ['2026-11-06', '2026-01-01', '2027-06-01', 'soon']) {
+      const bad = await call('POST', { open: { ...now.open, parties: false }, pauseNote: '', reopenOn: { parties: day }, expectedUpdatedAt: now.updatedAt })
+      expect(bad.status, day).toBe(400)
+    }
+  })
+})

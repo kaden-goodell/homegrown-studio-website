@@ -23,6 +23,7 @@ import { createLogger } from '@lib/logger'
 import { SettingsError } from '@lib/settings-error'
 import type { By } from '@lib/staff-auth'
 import { siteConfig } from '@config/site.config'
+import { chicagoYmd, isYmd, shortDay } from '@lib/classes/chicago-day'
 
 const logger = createLogger('booking-switch')
 const kv = makeKvStore('site-switches', 'site-switches')
@@ -56,6 +57,8 @@ export interface SwitchDoc {
   pauseNote: string
   /** The test link's secret; '' = none made yet. */
   previewToken: string
+  /** M2: a paused kind opens again by itself from the start of this studio day (YYYY-MM-DD). */
+  reopenOn?: Partial<Record<SwitchKind, string>>
   updatedAt: string
   by: By
   history: SwitchChange[]
@@ -68,6 +71,8 @@ export interface SwitchState {
   pauseNote: string
   /** The note as written ('' = the default is showing). */
   pauseNoteWritten: string
+  /** M2: paused kinds that open again by themselves, and the day (YYYY-MM-DD). */
+  reopenOn: Partial<Record<SwitchKind, string>>
   previewToken: string
   /**
    * 'saved' once an owner saved here; 'setup' = still the site's hosting
@@ -114,12 +119,13 @@ export function envPreviewToken(): string {
 }
 
 /** The state from a document, or from the env when there is none. */
-export function stateOf(doc: SwitchDoc | null): SwitchState {
+export function stateOf(doc: SwitchDoc | null, now: Date = new Date()): SwitchState {
   if (!doc) {
     return {
       open: { parties: envKindOpen('parties'), workshops: envKindOpen('workshops'), kits: envKindOpen('kits') },
       pauseNote: defaultPauseNote(),
       pauseNoteWritten: '',
+      reopenOn: {},
       previewToken: envPreviewToken(),
       source: 'setup',
       updatedAt: null,
@@ -127,10 +133,21 @@ export function stateOf(doc: SwitchDoc | null): SwitchState {
       history: [],
     }
   }
+  // M2: a pause with an open-again day is open from the start of that studio day, with no save needed.
+  const today = chicagoYmd(now)
+  const open = { ...doc.open }
+  const reopenOn: Partial<Record<SwitchKind, string>> = {}
+  for (const k of SWITCH_KINDS) {
+    const day = doc.reopenOn?.[k]
+    if (open[k] || !day) continue
+    if (day <= today) open[k] = true
+    else reopenOn[k] = day
+  }
   return {
-    open: { ...doc.open },
+    open,
     pauseNote: doc.pauseNote || defaultPauseNote(),
     pauseNoteWritten: doc.pauseNote,
+    reopenOn,
     // A saved document without a test link of its own keeps the old one working.
     previewToken: doc.previewToken || envPreviewToken(),
     source: 'saved',
@@ -157,6 +174,7 @@ export function unreadableState(): SwitchState {
     open: { parties: false, workshops: false, kits: false },
     pauseNote: note,
     pauseNoteWritten: '',
+    reopenOn: {},
     previewToken: '',
     source: 'unreadable',
     updatedAt: null,
@@ -192,6 +210,9 @@ function parse(json: string | null): SwitchDoc | null {
     open: { parties: d.open.parties === true, workshops: d.open.workshops === true, kits: d.open.kits === true },
     pauseNote: typeof d.pauseNote === 'string' ? d.pauseNote : '',
     previewToken: typeof d.previewToken === 'string' ? d.previewToken : '',
+    ...(d.reopenOn && typeof d.reopenOn === 'object'
+      ? { reopenOn: Object.fromEntries(SWITCH_KINDS.filter((k) => isYmd(d.reopenOn[k])).map((k) => [k, d.reopenOn[k]])) }
+      : {}),
     updatedAt: d.updatedAt,
     by: d.by ?? { id: 'admin', name: 'Owner' },
     history: Array.isArray(d.history) ? d.history : [],
@@ -255,7 +276,12 @@ export interface SwitchInput {
   pauseNote: string
   /** true: make a new test link (old ones stop working). */
   newTestLink?: boolean
+  /** M2: per paused kind, the day it opens again by itself; null clears it. Left out = unchanged. */
+  reopenOn?: Partial<Record<SwitchKind, string | null>>
 }
+
+/** How far ahead an open-again day may be. */
+export const REOPEN_MAX_DAYS = 90
 
 /** Checks and tidies what an owner sent. */
 export function validateSwitchInput(body: any): SwitchInput {
@@ -268,13 +294,29 @@ export function validateSwitchInput(body: any): SwitchInput {
   const note = (typeof body.pauseNote === 'string' ? body.pauseNote : '').replace(/\s+/g, ' ').trim()
   if (note.length > PAUSE_NOTE_MAX) throw new SettingsError(400, `Keep the note to ${PAUSE_NOTE_MAX} characters.`, 'pauseNote')
   if (/[<>]/.test(note)) throw new SettingsError(400, 'Leave out < and > in the note.', 'pauseNote')
-  return { open, pauseNote: note, newTestLink: body.newTestLink === true }
+  let reopenOn: SwitchInput['reopenOn']
+  if (body.reopenOn && typeof body.reopenOn === 'object') {
+    reopenOn = {}
+    const today = chicagoYmd(new Date())
+    const last = chicagoYmd(new Date(Date.now() + REOPEN_MAX_DAYS * 86_400_000))
+    for (const k of SWITCH_KINDS) {
+      const v = body.reopenOn[k]
+      if (v === undefined) continue
+      if (v === null || v === '') { reopenOn[k] = null; continue }
+      if (!isYmd(v) || v <= today) throw new SettingsError(400, 'Pick a day after today to open it again, or leave it blank.', `reopenOn.${k}`)
+      if (v > last) throw new SettingsError(400, `Pick a day in the next ${REOPEN_MAX_DAYS} days, or leave it blank.`, `reopenOn.${k}`)
+      reopenOn[k] = v
+    }
+  }
+  return { open, pauseNote: note, newTestLink: body.newTestLink === true, ...(reopenOn ? { reopenOn } : {}) }
 }
 
-export function describeSwitchChanges(before: SwitchState, after: { open: Record<SwitchKind, boolean>; pauseNoteWritten: string; newTestLink: boolean }): string[] {
+export function describeSwitchChanges(before: SwitchState, after: { open: Record<SwitchKind, boolean>; pauseNoteWritten: string; newTestLink: boolean; reopenOn?: Partial<Record<SwitchKind, string>> }): string[] {
   const out: string[] = []
   for (const k of SWITCH_KINDS) {
     if (before.open[k] !== after.open[k]) out.push(`${after.open[k] ? 'Opened' : 'Paused'} ${KIND_NAME[k].toLowerCase()}`)
+    const was = before.reopenOn?.[k], now = after.reopenOn?.[k]
+    if (!after.open[k] && was !== now) out.push(now ? `${KIND_NAME[k]} open again by themselves ${shortDay(now)}` : `${KIND_NAME[k]} stay paused until opened`)
   }
   if (before.pauseNoteWritten !== after.pauseNoteWritten) out.push(after.pauseNoteWritten ? 'Changed the pause note' : 'Went back to the usual pause note')
   if (after.newTestLink) out.push('Made a new test link')
@@ -319,11 +361,19 @@ export async function saveSwitches(
     // on request, or when there was none.
     const carried = cur ? cur.previewToken : damaged ? '' : envPreviewToken()
     const token = input.newTestLink || !carried ? newToken() : carried
-    const changed = describeSwitchChanges(before, { open: input.open, pauseNoteWritten: input.pauseNote, newTestLink: !!input.newTestLink })
+    // M2: open-again days kept unless changed; dropped for a kind that's open (or whose day came).
+    const reopen: Partial<Record<SwitchKind, string>> = {}
+    for (const k of SWITCH_KINDS) {
+      if (input.open[k]) continue
+      const asked = input.reopenOn?.[k]
+      const day = asked === undefined ? before.reopenOn[k] : asked
+      if (day) reopen[k] = day
+    }
+    const changed = describeSwitchChanges(before, { open: input.open, pauseNoteWritten: input.pauseNote, newTestLink: !!input.newTestLink, reopenOn: reopen })
     const now = opts.now ?? new Date()
     const stamp = cur && now.toISOString() <= cur.updatedAt ? new Date(Date.parse(cur.updatedAt) + 1).toISOString() : now.toISOString()
     const history = [{ at: stamp, by: opts.by, changed }, ...(cur?.history ?? [])].slice(0, SWITCH_HISTORY_CAP)
-    const doc: SwitchDoc = { v: 1, open: input.open, pauseNote: input.pauseNote, previewToken: token, updatedAt: stamp, by: opts.by, history }
+    const doc: SwitchDoc = { v: 1, open: input.open, pauseNote: input.pauseNote, previewToken: token, ...(Object.keys(reopen).length ? { reopenOn: reopen } : {}), updatedAt: stamp, by: opts.by, history }
     if (await kv.setIfMatch(KEY, JSON.stringify(doc), etag, value !== null)) {
       cached = { at: Date.now(), doc }
       return { saved: stateOf(doc), before, changed }

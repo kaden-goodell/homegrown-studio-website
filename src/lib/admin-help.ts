@@ -234,7 +234,8 @@ export const HELP_SECTIONS: HelpSection[] = [
       'Write a short note for customers (up to 140 letters) and tap **Save note**. Left blank, it says booking is paused and to call or text the studio.',
       'To try booking while it’s paused, tap **Copy party test link** or **Copy class test link** and open it on your phone or iPad. That device can book for 30 days. Bookings made with it are real.',
       '**Make a new test link** stops every test link you gave out before.',
-      'While anything is paused, Home says so, with **Open online booking**.',
+      'Pausing asks **Open again by itself on** (optional): pick a day and it opens again at the start of that day with nothing to press. Left blank, it stays paused until you open it. **Don’t open it by itself** takes the day off. To close the whole studio for a day, use Closed days instead.',
+      'While anything is paused, Home says so, with **Go to Online booking** (it opens this screen; nothing changes until you choose).',
     ],
   },
   {
