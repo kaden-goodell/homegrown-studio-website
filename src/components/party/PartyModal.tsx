@@ -1870,6 +1870,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   }
 
   const showSummary = !completed && (selectedCraft || selectedSlot)
+  const showPackageChip = packageChoice && stepIdx > stepIndex('package', steps)
   return (
     <BookingPanel
       title="Book a party"
@@ -1882,16 +1883,23 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       width={!completed && currentStep === 'craft' ? 'wide' : 'narrow'}
       summary={
         showSummary ? (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+          // Phones: chips wrap onto a second line rather than being cut off
+          // mid-word. The craft (and package) names are the only long ones;
+          // they end in "…" if they must. booking-panel.css has the rules.
+          <div className={showPackageChip ? 'summary-chips two-long' : 'summary-chips'} style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem 0.5rem' }}>
             {selectedCraft && (
-              <span style={{ ...chipStyle, paddingLeft: selectedCraft.imageUrl ? '0.3rem' : '0.75rem' }}>
+              <span className="chip-long" style={{ ...chipStyle, paddingLeft: selectedCraft.imageUrl ? '0.3rem' : '0.75rem' }}>
                 {selectedCraft.imageUrl && (
                   <img src={selectedCraft.imageUrl} alt="" style={{ width: '1.5rem', height: '1.5rem', borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
                 )}
                 <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedCraft.name}</span>
               </span>
             )}
-            {packageChoice && stepIdx > stepIndex('package', steps) && <span style={chipStyle}>{pkg.name}</span>}
+            {showPackageChip && (
+              <span className="chip-long" style={chipStyle}>
+                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{pkg.name}</span>
+              </span>
+            )}
             {selectedSlot && !(currentStep === 'when' && whenMode === 'later') && (
               <span style={chipStyle}>{formatSlotLabel(selectedSlot.startAt)}</span>
             )}

@@ -399,6 +399,21 @@ describe('PartyModal — dates and times', () => {
   })
 })
 
+describe('PartyModal — what you chose so far', () => {
+  // 390px phones cut "Fri, Nov 13 · 4:30 PM C" mid-word when the chips were
+  // forced onto one line. They now sit in a wrapping row (booking-panel.css),
+  // each chip whole; only the craft name may end in "…".
+  it('shows craft, time and guests as whole chips in a row that can wrap', async () => {
+    open()
+    await toPay()
+    const time = screen.getByText('Sat, Nov 7 · 1:30 PM CT')
+    const row = time.parentElement!
+    expect(row).toHaveClass('summary-chips')
+    expect(row.style.flexWrap).toBe('wrap')
+    expect(Array.from(row.children).map((c) => c.textContent)).toEqual(['Bubble Letter Keychains', 'Sat, Nov 7 · 1:30 PM CT', 'About 10 guests'])
+  })
+})
+
 describe('PartyModal — the price', () => {
   it('splits it into pay today, pay at the studio, and one estimated total', async () => {
     open()

@@ -70,23 +70,29 @@
   }
 }
 
-/* UI review (3 Nov): on phones what's been chosen so far stays on ONE line,
-   so the step itself gets most of the screen. Long names are cut with "…". */
-.booking-panel-summary-compact > * {
-  flex-wrap: nowrap !important;
-  overflow: hidden;
-}
-.booking-panel-summary-compact > * > span {
+/* Phones: what's been chosen so far stays compact. Chips wrap onto a second
+   line instead of being cut off mid-word (3 Nov, 390px). Only the long names
+   (craft, package) shrink, and they end in "…". With a package chip as well,
+   craft + package share line one and date + guests take line two. */
+.booking-panel-summary-compact > .summary-chips > span {
   min-width: 0;
-  flex-shrink: 1;
+  max-width: 100%;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+}
+.booking-panel-summary-compact > .summary-chips.two-long > .chip-long {
+  max-width: calc(50% - 0.25rem);
+}
+.booking-panel-summary-compact > .summary-chips > span > span {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 0.8125rem;
 }
-.booking-panel-summary-compact > * > span img {
+.booking-panel-summary-compact > .summary-chips img {
   flex-shrink: 0;
 }
+/* A one-line text summary (classes, workshops) still ends in "…". */
 .booking-panel-summary-compact > p {
   white-space: nowrap;
   overflow: hidden;
