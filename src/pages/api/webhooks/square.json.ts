@@ -23,6 +23,29 @@ const HANDLED_EVENTS = new Set([
   'refund.updated',
 ])
 
+/**
+ * Money M14: Square signs each notice with the address it was sent to. When
+ * SQUARE_WEBHOOK_URL doesn't match Square's subscription exactly (a domain
+ * move, a trailing slash, http vs https), every notice used to be refused
+ * with a silent 403 and refunds made in Square only arrived with the 3 AM
+ * reconcile (48 h window). Now the signature is also checked against the
+ * address the notice actually came to: it still needs the secret signature
+ * key, so it is just as trustworthy. When that is what matched, the notice is
+ * taken, logged distinctly, and owners get a Home line to fix the setting.
+ */
+async function signedForWhereItCame(request: Request, body: string, signature: string): Promise<boolean> {
+  const u = new URL(request.url)
+  const host = request.headers.get('x-forwarded-host') ?? u.host
+  const path = u.pathname
+  const candidates = [...new Set([request.url, `https://${host}${path}`, `https://${host}${path}${u.search}`])].filter((c) => c !== WEBHOOK_URL)
+  const match = candidates.find((c) => verifySquareSignature(body, signature, SIGNATURE_KEY, c))
+  if (!match) return false
+  logger.error('WEBHOOK URL MISMATCH — Square signs for another address than SQUARE_WEBHOOK_URL; notice accepted', { configured: WEBHOOK_URL, cameTo: match })
+  const { noteWebhookUrlMismatch } = await import('@lib/system-checks')
+  await noteWebhookUrlMismatch(match)
+  return true
+}
+
 export const POST: APIRoute = async ({ request, locals }) => {
   const startTime = Date.now()
   const body = await request.text()
@@ -40,7 +63,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     })
   }
 
-  if (!verifySquareSignature(body, signature, SIGNATURE_KEY, WEBHOOK_URL)) {
+  if (!verifySquareSignature(body, signature, SIGNATURE_KEY, WEBHOOK_URL) && !(await signedForWhereItCame(request, body, signature))) {
     logger.warn('Webhook signature verification failed', {
       duration_ms: Date.now() - startTime,
     })

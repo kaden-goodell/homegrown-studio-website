@@ -81,6 +81,8 @@ export const WARNING_CODES = [
   'unstaffed', 'assigned-cant', 'assigned-cancelled', 'staffing-unreadable',
   // our own parties (stage 2 Task 13, ./parties/warnings.ts)
   'party-waiting-payment', 'party-hold-no-party', 'party-no-hold', 'two-parties', 'party-paid-after-cancel', 'parties-unreadable',
+  // background jobs (owners only, ./system-checks.ts): the weekly records backup stopped; Square's notices come to another address
+  'archive-stale', 'webhook-url-mismatch',
 ] as const
 export type WarningCode = (typeof WARNING_CODES)[number]
 
@@ -106,11 +108,11 @@ export interface Warning {
 export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>([
   'pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'paid-not-seated', 'waitlist-unknown', 'waitlist-declined',
   'waitlist-refund', 'waitlist-card-on', 'reader-waiting', 'register-setup-missing', 'promo-free-unlimited', 'cancel-request', 'cancel-unclear',
-  'party-paid-after-cancel', 'assigned-cancelled',
+  'party-paid-after-cancel', 'assigned-cancelled', 'archive-stale', 'webhook-url-mismatch',
 ])
 
 /** Lines for the owners only (the daily email): never on the /staff panel, which the crew read. */
-export const OWNER_ONLY_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['unstaffed', 'assigned-cant', 'assigned-cancelled', 'staffing-unreadable'])
+export const OWNER_ONLY_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['unstaffed', 'assigned-cant', 'assigned-cancelled', 'staffing-unreadable', 'archive-stale', 'webhook-url-mismatch'])
 
 /** Days ahead the panel and the daily email look. */
 export const WARNING_WINDOW_DAYS = 60
@@ -554,14 +556,16 @@ export async function listWarnings({ from, to }: { from: string; to: string }, o
   // The owners' closed days (config until they first save on /admin). Staffing
   // lines never fail the scan: a staffing read that fails is one line of its own.
   const staffingOrNone = opts.staffing === false ? Promise.resolve([] as Warning[]) : staffingWarnings(from, to, now)
-  const [s, own, parties, closed, staffing] = await Promise.all([scanOrNull, ownOrError, partiesOrError, getStudioDays(), staffingOrNone])
+  // Owner-only background-job lines (the crew's panel skips them with the staffing scan).
+  const systemOrNone = opts.staffing === false ? Promise.resolve([] as Warning[]) : import('./system-checks').then((m) => m.systemWarnings(now))
+  const [s, own, parties, closed, staffing, system] = await Promise.all([scanOrNull, ownOrError, partiesOrError, getStudioDays(), staffingOrNone, systemOrNone])
   const squareLines: Warning[] = s
     ? [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s, closed), ...(await seatCounts(s))]
     : [{
       code: 'classes-unreadable', eventKind: 'workshop', eventId: '', when: now.toISOString(), title: 'Classes in Square',
       detail: 'Classes booked in Square couldn’t be checked for problems just now.', action: 'Refresh to try again.',
     }]
-  return [...squareLines, ...own, ...parties, ...staffing].sort((a, b) =>
+  return [...squareLines, ...own, ...parties, ...staffing, ...system].sort((a, b) =>
     a.when.localeCompare(b.when),
   )
 }

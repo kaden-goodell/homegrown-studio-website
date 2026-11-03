@@ -64,32 +64,59 @@ export interface ExportResult {
  *  surface it anyway (see the same defensive filter in `incident-store.ts`). */
 const PROBE_KEY = '__probe__'
 
+/** How many stores, and keys within one store, are read at once (I-9: the run must end inside the function's time limit). */
+export const STORES_AT_ONCE = 4
+export const KEYS_AT_ONCE = 16
+
+async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length)
+  let next = 0
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
+}
+
 /**
  * Export every key of every given store — no filtering, no date range. The
  * archive's completeness is the whole point (HOM-217 / Audit finding H3):
  * "the site got deleted" must never take the evidence with it.
+ *
+ * I-9: stores and keys are read in parallel batches (it used to read ~50
+ * stores one key at a time and outgrew the scheduled function's 30 s). The
+ * result is the same, in the same key order. `onStore` reports each store as
+ * it finishes (the function writes progress with it).
  */
-export async function exportAll(stores: ArchiveStoreSpec[]): Promise<ExportResult> {
+export async function exportAll(stores: ArchiveStoreSpec[], opts: { onStore?: (name: string, count: number) => void } = {}): Promise<ExportResult> {
   const generatedAt = new Date().toISOString()
   const counts: Record<string, number> = {}
   const files: Record<string, Record<string, unknown>> = {}
 
-  for (const { name, store, maxValueBytes } of stores) {
+  const done = await mapLimit(stores, STORES_AT_ONCE, async ({ name, store, maxValueBytes }) => {
     const keys = (await store.list()).filter((k) => k !== PROBE_KEY)
+    const raw = await mapLimit(keys, KEYS_AT_ONCE, (key) => store.get(key))
     const values: Record<string, unknown> = {}
-    for (const key of keys) {
-      const json = await store.get(key)
-      if (json === null) continue // vanished between list() and get() — skip, don't fabricate
+    keys.forEach((key, i) => {
+      const json = raw[i]
+      if (json === null) return // vanished between list() and get() — skip, don't fabricate
       if (maxValueBytes !== undefined && json.length > maxValueBytes) {
         values[key] = { notIncluded: 'too large for the archive email', bytes: json.length }
-        continue
+        return
       }
       try {
         values[key] = redactSecrets(JSON.parse(json))
       } catch {
         values[key] = json // not JSON (shouldn't happen) — keep the raw text rather than drop it
       }
-    }
+    })
+    opts.onStore?.(name, Object.keys(values).length)
+    return { name, values }
+  })
+  for (const { name, values } of done) {
     files[name] = values
     counts[name] = Object.keys(values).length
   }

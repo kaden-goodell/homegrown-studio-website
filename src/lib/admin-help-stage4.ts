@@ -119,6 +119,8 @@ export const STAGE4_HELP_ROWS: HelpRow[] = [
   { id: 'reader-waiting', see: 'Reader payment didn’t come back / Reader payment didn’t match', where: `${TODO}, ${HOME}`, means: 'A “Charge on the reader” sale never came back from the Square app, or Square showed a payment for it that doesn’t match. The seat isn’t marked paid.', tap: 'Didn’t come back: **Ask Square**; if it shows the payment, they get their seat. If not, and they didn’t pay (or paid another way), **Let the seat go**. Didn’t match: **Keep it, they paid $X** (if it’s less than the seat, it asks you to confirm the amount) or **Refund it and let the seat go** (the whole payment goes back to their card). Square is checked first every time.', buttons: ['Ask Square', 'Let the seat go', 'Keep it, they paid $X', 'Refund it and let the seat go'], comingWith: 'extras' },
   { id: 'reader-extra', see: 'Second reader payment / Reader payment with no seat', where: `${TODO}, ${HOME}`, means: 'The card was run twice for one sale (the seat is paid once), or a payment that doesn’t match came in after the seat was let go. Nothing was refunded.', tap: '**Refund it** sends that payment back to their card (Square never refunds it twice). Already settled it with them another way? **It’s already sorted**. Each asks first.', buttons: ['Refund it', 'It’s already sorted'], comingWith: 'extras' },
   { id: 'reader-late', see: 'Reader payment came in late', where: `${TODO}, ${HOME}`, means: 'A reader payment came in after its seat was let go, or after its 30-minute hold ran out and the class filled. They have their seat (maybe over capacity).', tap: '**Keep them**, or **Refund and free the seat** (it asks first; the money goes back to their card).', buttons: ['Keep them', 'Refund and free the seat'], comingWith: 'extras' },
+  { id: 'archive-stale', see: 'Records backup: the weekly records backup hasn’t finished since …', where: HOME, means: 'Every Sunday the site emails the owners a copy of every waiver, RSVP, check-in and incident record. The last one didn’t finish. Nothing was deleted; the records are all still on the site.', tap: 'Save a copy yourself now: More › Records › **Everything** › **Download records**. The weekly backup tries again on Sunday and emails you if it fails again.', buttons: ['Everything', 'Download records'], comingWith: 'extras' },
+  { id: 'webhook-url-mismatch', see: 'Square notices: Square’s notices come to …, not the address the site was set up with', where: HOME, means: 'Square tells the site about payments and refunds made in Square. Those notices come to a slightly different web address than the site was set up with. The site checks they’re really from Square and takes them anyway, so nothing is lost.', tap: 'Nothing to do day to day. To clear the line, the hosting setting called SQUARE_WEBHOOK_URL should be the address the line shows (the same hosting settings as the Square key steps in this Help). The line goes away by itself a week after the last such notice.', buttons: [], comingWith: 'extras' },
   { id: 'paid-on-cancelled', see: 'Paid just as the class was cancelled', where: `${TODO}, ${HOME}`, means: 'Someone finished paying for a class in the same moment you cancelled it, so they weren’t on the booked list you saw. They’re booked on the cancelled class. Nothing was refunded.', tap: '**Refund them** (it asks first; the money goes back to their card and they get the refund email), or **It’s already sorted** if you refunded them from the class already. Then call or text them if you like.', buttons: ['Refund them', 'It’s already sorted'], comingWith: 'extras' },
   { id: 'waitlist-refund', see: 'Waitlist charge on a cancelled class', where: `${TODO}, ${HOME}`, means: 'The waitlist charged someone just as you cancelled the class. They weren’t told they’re in. Nothing was refunded.', tap: '**Refund them** (it asks first; the money goes back to their card and they get the refund email), or **It’s already sorted** if you refunded them from the class already.', buttons: ['Refund them', 'It’s already sorted'], comingWith: 'extras' },
 ]
@@ -126,7 +128,8 @@ export const STAGE4_HELP_ROWS: HelpRow[] = [
 /** The stage 4 warning codes (the merge adds each to admin-help's WARNING_HELP). */
 export type Stage4WarningCode = Extract<WarningCode,
   'not-on-register' | 'pos-price-stale' | 'register-old-setup' | 'register-setup-missing' | 'promo-free-unlimited'
-  | 'waitlist-unknown' | 'waitlist-declined' | 'waitlist-refund' | 'waitlist-stopped' | 'waitlist-card-on' | 'reader-waiting' | 'cancel-request' | 'cancel-unclear'>
+  | 'waitlist-unknown' | 'waitlist-declined' | 'waitlist-refund' | 'waitlist-stopped' | 'waitlist-card-on' | 'reader-waiting' | 'cancel-request' | 'cancel-unclear'
+  | 'archive-stale' | 'webhook-url-mismatch'>
 
 export const STAGE4_WARNING_HELP: Record<Stage4WarningCode, string[]> = {
   'not-on-register': ['not-on-register'],
@@ -142,6 +145,8 @@ export const STAGE4_WARNING_HELP: Record<Stage4WarningCode, string[]> = {
   'reader-waiting': ['reader-waiting', 'reader-extra', 'reader-late'],
   'cancel-request': ['cancel-request'],
   'cancel-unclear': ['cancel-unclear'],
+  'archive-stale': ['archive-stale'],
+  'webhook-url-mismatch': ['webhook-url-mismatch'],
 }
 
 /** The stage 4 To decide kinds (the merge adds each to admin-help's TO_DECIDE_HELP). */

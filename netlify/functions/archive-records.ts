@@ -118,20 +118,76 @@ async function readStoreKey(store: string, key: string): Promise<string | null> 
   return (await s.get(key, { type: 'text' })) ?? null
 }
 
-export default async () => {
+/**
+ * I-9: Netlify stops a scheduled function at 30 s, and a stopped run never
+ * reaches its own catch: no snapshot and no "Archive FAILED" email, so the
+ * legal-records backup could stop silently. Three guards:
+ *   - the exporter reads in parallel batches (archive-export.ts);
+ *   - a watchdog: if the run isn't done by ARCHIVE_WATCHDOG_MS, the FAILED
+ *     email goes out while there's still time to send it;
+ *   - progress is written (`progress/last.json` in the archive store: started,
+ *     stores done, finished). The next run sees one that started and never
+ *     finished and emails about it; /admin Home shows a line when the newest
+ *     snapshot is more than 8 days old (archive-stale).
+ */
+export const ARCHIVE_WATCHDOG_MS = 22_000
+export const PROGRESS_KEY = 'progress/last.json'
+
+class WatchdogFired extends Error {}
+
+export default async (opts: { watchdogMs?: number } = {}) => {
+  const watchdogMs = typeof opts === 'object' && opts && typeof (opts as any).watchdogMs === 'number' ? (opts as any).watchdogMs : ARCHIVE_WATCHDOG_MS
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const watchdog = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new WatchdogFired(`the archive didn't finish within ${Math.round(watchdogMs / 1000)} seconds (Netlify stops it at 30)`)), watchdogMs)
+  })
+  try {
+    return await Promise.race([archiveRun(), watchdog])
+  } catch (err) {
+    // Only the watchdog lands here (archiveRun answers every failure itself): send the FAILED email now.
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[archive-records] Archive FAILED (watchdog)', message)
+    const to = await archiveTo().catch(() => process.env.ARCHIVE_TO || ARCHIVE_FALLBACK.join(', '))
+    try {
+      const sent = await sendMail({ to, subject: `Archive FAILED — ${message}`, text: `The weekly records archive failed:\n\n${message}\n\nNothing was deleted. The next weekly run tries again.` })
+      if (!sent) console.error(`[archive] SEND FAILED: couldn’t notify ${to} — email not configured. Original archive error: ${message}`)
+    } catch (mailErr) {
+      console.error(`[archive] SEND FAILED: the "Archive FAILED" email itself failed to send — ${mailErr instanceof Error ? mailErr.message : String(mailErr)}. Original archive error: ${message}`)
+    }
+    return new Response(JSON.stringify({ ok: false, error: message }), { status: 500 })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function archiveRun(): Promise<Response> {
   const to = await archiveTo()
   const dryRun = process.env.ARCHIVE_DRY_RUN === '1'
   const dateStr = new Date().toISOString().slice(0, 10)
 
   try {
+    const archiveStore = getStore({ name: blobStoreName('archive', process.env), consistency: 'strong' })
+    // The last run started and never finished (Netlify stopped it): say so, once, before trying again.
+    const last = await archiveStore.get(PROGRESS_KEY, { type: 'text' }).then((j: string | null) => (j ? JSON.parse(j) : null), () => null)
+    if (last?.startedAt && !last.finishedAt && !dryRun) {
+      await sendMail({
+        to, subject: `Archive FAILED — the run of ${String(last.startedAt).slice(0, 10)} never finished`,
+        text: `The weekly records archive started on ${last.startedAt} and was stopped before it finished (${(last.storesDone ?? []).length} of ${ARCHIVE_STORES.length} record stores done). This week's run is trying again now.`,
+      }).catch((e: unknown) => console.error('[archive] SEND FAILED: unfinished-run email', e instanceof Error ? e.message : String(e)))
+    }
+    const progress = { startedAt: new Date().toISOString(), storesDone: [] as string[], finishedAt: null as string | null }
+    const saveProgress = () => archiveStore.set(PROGRESS_KEY, JSON.stringify(progress)).catch(() => undefined)
+    if (!dryRun) await saveProgress()
+
     const stores = ARCHIVE_STORES.map(({ name, maxValueBytes }) => ({ name, store: blobKvStore(name), maxValueBytes }))
-    const result = await exportAll(stores)
+    const result = await exportAll(stores, { onStore: (name) => { progress.storesDone.push(name) } })
 
     // Snapshot the full export into its own blob store, independent of email
     // delivery — the off-platform email copy and the on-platform snapshot
     // are each a complete backup on their own.
-    const archiveStore = getStore({ name: blobStoreName('archive', process.env), consistency: 'strong' })
     await archiveStore.set(`archive/${dateStr}.json`, JSON.stringify(result, null, 2))
+    progress.finishedAt = new Date().toISOString()
+    if (!dryRun) await saveProgress()
 
     const attachments = buildArchiveAttachments(result, [...STORE_NAMES])
     const subject =
