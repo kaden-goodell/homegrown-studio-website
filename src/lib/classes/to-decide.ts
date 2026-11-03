@@ -714,7 +714,7 @@ async function paidOnCancelledItems(skip: Set<string>): Promise<ToDecideItem[]> 
   return (await listPaidOnCancelled()).filter((p) => !skip.has(p.id)).map((p) => ({
     id: p.id, kind: 'paid-on-cancelled' as const, at: p.at, classId: p.classId, className: p.className,
     title: 'Paid just as the class was cancelled',
-    head: `${`${p.customer.givenName} ${p.customer.familyName}`.trim()} paid ${money(p.chargedCents)} for ${p.className} just as you cancelled it. They’re on its booked list. Nothing was refunded.`,
+    head: `${`${p.customer.givenName} ${p.customer.familyName}`.trim()} paid ${money(p.chargedCents)} for ${p.className} just as you cancelled it. They’re on its booked list. Nothing was refunded yet: they were told the class was cancelled and they’ll get it all back.`,
     hint: 'Refund them',
     detail: {
       bookingId: p.bookingId, orderId: p.orderId, name: `${p.customer.givenName} ${p.customer.familyName}`.trim(),

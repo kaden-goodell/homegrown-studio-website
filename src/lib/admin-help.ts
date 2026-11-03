@@ -353,7 +353,7 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'What the crew did',
     intro: 'Crew can refund (with a reason), comp seats and make giveaway gift cards from /staff. You always hear about it, and you can look back any time.',
     points: [
-      'Every refund, comp and gift card a crew member makes sends you a heads-up: a text and an email to the owners picked in More › **Notifications**. The first one comes right away; anything else in the next hour comes together in one message, so a busy Saturday doesn’t fill your phone.',
+      'Every refund, comp and gift card a crew member makes sends you a heads-up: a text and an email to the owners picked in More › **Notifications**. So does a crew member turning an event’s drop-off off before it starts (kids then leave without a pickup code; during the event only an owner can turn it off). The first one comes right away; anything else in the next hour comes together in one message, so a busy Saturday doesn’t fill your phone.',
       'More › **Activity** lists who did what, newest first: refunds, comps, gift cards, check-ins, sign-ins and setup changes. Pick how far back (today, 7, 30 or 90 days), what kind of thing, and who.',
       'Only owners can see Activity. Crew see gift card numbers as the last 4 digits only, and customer search shows them part of an email or phone. If a crew member lost a gift card number, sign in to /staff yourself: owners see the whole number in Gift cards.',
       'Switching the shared iPad to an owner’s name needs the staff passcode, so nobody can refund as you by tapping your name. Crew to crew is still one tap.',

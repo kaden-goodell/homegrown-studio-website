@@ -35,6 +35,7 @@ import {
   publicQuote,
   UNCLEAR_HOLD_HOURS,
   cleanSeats,
+  cancelledAsBookedMessage,
   type ClassCheckoutCode,
   type OrderLine,
   type OrderLineDiscount,
@@ -51,6 +52,7 @@ import { getWaitlist } from '@lib/classes/waitlist-store'
 import { waitlistGoesFirst } from '@lib/classes/waitlist-rules'
 import type { PromoCode } from '@lib/promos/types'
 import { notePaidOnCancelled } from '@lib/classes/paid-on-cancelled'
+import { sendClassCancelledAsBookedEmail } from '@lib/email'
 import { giftCardRefusal } from '@lib/parties/checkout'
 
 /** Square's smallest card charge. */
@@ -417,7 +419,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
 
   // ── Paid. Nothing below may turn this into a failure. ───────────────────────
   const lines = await confirmPaid(cls, { orderId: order.orderId, paymentId: payment.id, chargedCents: charged, lineTotals: order.lineTotals })
-  await cancelledMeanwhile(cls, { orderId: order.orderId, paymentId: payment.id, chargedCents: charged })
+  if (await cancelledMeanwhile(cls, { orderId: order.orderId, paymentId: payment.id, chargedCents: charged })) return cancelledAsBooked(cls, charged)
   return finish({ cls, q: q!, lines, charged, receiptUrl: payment.receiptUrl ?? null, simulated: false, onFile })
 
   // ── helpers (closures over this request) ────────────────────────────────────
@@ -490,7 +492,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     logger.warn('An earlier try of this attempt was paid — recording the seats', { bookingId, orderId: order.orderId })
     const charged = found.amount || order.totalCents
     const confirmed = await confirmPaid(c, { orderId: order.orderId, paymentId: found.id, chargedCents: charged, lineTotals: order.lineTotals })
-    await cancelledMeanwhile(c, { orderId: order.orderId, paymentId: found.id, chargedCents: charged })
+    if (await cancelledMeanwhile(c, { orderId: order.orderId, paymentId: found.id, chargedCents: charged })) return cancelledAsBooked(c, charged)
     return finish({ cls: c, q: q!, lines: confirmed, charged, receiptUrl: found.receiptUrl ?? null, simulated: false, onFile })
   }
 
@@ -498,29 +500,57 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
    * I-5: paid and confirmed, but an owner may have cancelled the class between this booking's hold and its
    * charge (the cancel listed who was booked before this seat landed). Read the class again; cancelled →
    * one To decide item (Refund them / It's already sorted) and one owners' text. Never refunds by itself.
+   * True when it was cancelled: the customer then gets the apology (cancelledAsBooked), not the confirmation.
    */
-  async function cancelledMeanwhile(c: ScheduledClass, square: { orderId: string | null; paymentId: string | null; chargedCents: number }): Promise<void> {
+  async function cancelledMeanwhile(c: ScheduledClass, square: { orderId: string | null; paymentId: string | null; chargedCents: number }): Promise<boolean> {
     let fresh: ScheduledClass | null
     try {
       fresh = await getClass(c.id)
     } catch (err) {
       logger.error('Class unreadable after a paid booking (cancel check skipped)', { bookingId, error: String(err) })
-      return
+      return false
     }
-    if (fresh && fresh.status !== 'cancelled') return
+    if (fresh && fresh.status !== 'cancelled') return false
     logger.error('PAID ONTO A CLASS CANCELLED MEANWHILE', { classId: c.id, bookingId, orderId: square.orderId })
     try {
       const first = await notePaidOnCancelled({
         classId: c.id, className: c.content.name, bookingId, orderId: square.orderId, paymentId: square.paymentId,
         chargedCents: square.chargedCents, customer: person, last4: '', at: new Date().toISOString(),
       })
-      if (!first) return
+      if (!first) return true
     } catch (err) {
       logger.error('Paid-on-cancelled item not saved — texting the owners anyway', { bookingId, error: String(err) })
     }
     await alertOwners(
       `${who} paid ${dollars(square.chargedCents)} for ${seatsLabel}, ${c.content.name}, just as it was cancelled. Nothing was refunded. Open /admin › To decide › Paid just as the class was cancelled to refund them.`,
     ).catch(() => undefined)
+    return true
+  }
+
+  /**
+   * I-5, controller decision: no confirmation for a class that was cancelled as they paid. One short apology
+   * email instead (the confirmation marker makes it once per booking, and stops a later normal confirmation),
+   * and the panel says the same. The owners refund them from To decide; nothing here refunds.
+   */
+  async function cancelledAsBooked(c: ScheduledClass, charged: number): Promise<Response> {
+    let emailed = false
+    try {
+      const mine = await claimConfirmation(bookingId)
+      if (mine) {
+        emailed = (await sendClassCancelledAsBookedEmail({
+          to: email, givenName, className: c.content.name, whenLabel: formatSlotLabel(firstStart), cents: charged,
+        })).sent
+        if (!emailed) await releaseConfirmation(bookingId)
+      }
+    } catch (err) {
+      logger.error('Cancelled-class apology email failed', { bookingId, error: String(err) })
+    }
+    if (!emailed) {
+      await alertOwners(
+        `The "class was cancelled, you'll be refunded" email didn't go to ${who} (${c.content.name}). Please call or text them when you refund.`,
+      ).catch(() => undefined)
+    }
+    return fail(409, 'class_cancelled', cancelledAsBookedMessage(charged, emailed))
   }
 
   /** The charge may have gone through: keep the seats a day, tell a person, say we're not sure. */

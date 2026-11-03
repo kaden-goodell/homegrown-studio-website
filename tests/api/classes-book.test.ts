@@ -22,8 +22,10 @@ const mockAlertOwners = vi.fn()
 vi.mock('@lib/owner-alert', () => ({ alertOwners: (...a: any[]) => mockAlertOwners(...a) }))
 const mockSendEmail = vi.fn()
 const mockOwnerEmail = vi.fn()
+const mockApology = vi.fn(async (_i: any) => ({ sent: true }))
 vi.mock('@lib/email', () => ({
   sendWorkshopConfirmationEmail: (...a: any[]) => mockSendEmail(...a),
+  sendClassCancelledAsBookedEmail: (i: any) => mockApology(i),
   sendEmail: (...a: any[]) => mockOwnerEmail(...a),
 }))
 const mockAnnounce = vi.fn()
@@ -189,14 +191,22 @@ describe('POST /api/classes/book.json', () => {
     expect(mockReport).toHaveBeenCalledWith(expect.objectContaining({ bookingId, amountCents: TOTAL }))
   })
 
-  it('I-5: an owner cancels the class while the customer is paying → booked, owners told once, a To decide item; nothing refunded', async () => {
+  it('I-5: an owner cancels the class while the customer is paying → seats recorded, an apology (not the confirmation), owners told once, a To decide item; nothing refunded', async () => {
     const cls = makeClass()
+    mockApology.mockClear()
     mockProcessPayment.mockImplementationOnce(async () => {
       classes.set(cls.id, { ...cls, status: 'cancelled' }) // the cancel lands between the hold and the charge
       return { id: 'PAY1', orderId: 'ORDER1', amount: TOTAL, status: 'completed', receiptUrl: null }
     })
     const res = await POST(ctx(body(cls)))
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(409)
+    const answer = await res.json()
+    expect(answer.code).toBe('class_cancelled')
+    expect(answer.detail).toBe(`We’re sorry. This class was cancelled just as you booked it. You’ll be refunded the full $${(TOTAL / 100).toFixed(2)}, and we’ve emailed you about it. You don’t need to do anything.`)
+    expect(mockApology).toHaveBeenCalledTimes(1)
+    expect(mockApology.mock.calls[0][0]).toMatchObject({ to: 'ada@example.com', givenName: 'Ada', className: cls.content.name, cents: TOTAL })
+    expect(mockSendEmail).not.toHaveBeenCalled()
+    expect(mockAnnounce).not.toHaveBeenCalled()
     expect((await linesOf(cls)).every((l) => l.state === 'confirmed')).toBe(true)
     const texts = mockAlertOwners.mock.calls.map(([t]) => String(t)).filter((t) => /just as it was cancelled/.test(t))
     expect(texts).toHaveLength(1)
@@ -209,8 +219,24 @@ describe('POST /api/classes/book.json', () => {
 
   it('I-5: a class still open after the charge files nothing', async () => {
     const cls = makeClass()
+    mockApology.mockClear()
     expect((await POST(ctx(body(cls)))).status).toBe(200)
     expect(mockAlertOwners.mock.calls.some(([t]) => /just as it was cancelled/.test(String(t)))).toBe(false)
+    expect(mockApology).not.toHaveBeenCalled()
+  })
+
+  it('I-5: the apology email fails → the panel doesn’t claim it was emailed, and the owners are told to call', async () => {
+    const cls = makeClass()
+    mockApology.mockClear()
+    mockApology.mockImplementationOnce(async () => ({ sent: false }))
+    mockProcessPayment.mockImplementationOnce(async () => {
+      classes.set(cls.id, { ...cls, status: 'cancelled' })
+      return { id: 'PAY1', orderId: 'ORDER1', amount: TOTAL, status: 'completed', receiptUrl: null }
+    })
+    const res = await POST(ctx(body(cls)))
+    expect(res.status).toBe(409)
+    expect((await res.json()).detail).not.toMatch(/emailed/)
+    expect(mockAlertOwners.mock.calls.some(([t]) => /email didn't go to .*call or text them/.test(String(t)))).toBe(true)
   })
 
   it('M5: the bank’s 3-D Secure answer from the page goes with the charge', async () => {

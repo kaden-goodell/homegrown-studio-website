@@ -9,8 +9,10 @@ vi.mock('@lib/warnings', () => ({
   listWarnings: (...a: any[]) => mockListWarnings(...a),
   warningLine: (w: any) => `LINE ${w.detail}`,
   WARNING_WINDOW_DAYS: 60,
-  OWNER_ONLY_CODES: new Set(['unstaffed', 'assigned-cant', 'assigned-cancelled', 'staffing-unreadable']),
+  OWNER_ONLY_CODES: new Set(['unstaffed', 'assigned-cant', 'assigned-cancelled', 'staffing-unreadable', 'archive-stale', 'webhook-url-mismatch']),
 }))
+const mockSystem = vi.fn(async () => [] as any[])
+vi.mock('@lib/system-checks', () => ({ systemWarnings: () => mockSystem() }))
 
 import { GET, HOME_SKIP_CODES, openFor } from '@pages/api/admin/warnings.json'
 
@@ -49,6 +51,18 @@ describe('GET /api/admin/warnings.json', () => {
     expect(data.warnings.map((w: any) => w.code)).toEqual(['register-setup-missing', 'oversold'])
     expect(data.warnings[0]).toEqual({ code: 'register-setup-missing', line: 'LINE No tax', open: { kind: 'more', page: 'register' }, button: 'Open Register setup' })
     expect(HOME_SKIP_CODES.has('cancel-request')).toBe(true)
+  })
+
+  it('shows the owner-only system lines (records backup with its Records button; Square notices with no button)', async () => {
+    mockSystem.mockResolvedValueOnce([
+      { ...base, code: 'archive-stale', eventId: '', detail: 'backup' },
+      { ...base, code: 'webhook-url-mismatch', eventId: '', detail: 'notices' },
+    ])
+    const { data } = await (await GET(ctx())).json()
+    expect(data.warnings.map((w: any) => [w.code, w.button])).toEqual([['archive-stale', 'Open Records'], ['webhook-url-mismatch', null]])
+    expect(data.warnings[0].open).toEqual({ kind: 'more', page: 'records' })
+    expect(HOME_SKIP_CODES.has('archive-stale')).toBe(false)
+    expect(HOME_SKIP_CODES.has('unstaffed')).toBe(true)
   })
 
   it('a failed scan is a 503, never an empty list', async () => {

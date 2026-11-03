@@ -40,6 +40,14 @@ describe('which actions', () => {
     expect(headsUpLine(entry({ simulated: true }))).toBeNull()
     expect(headsUpLine(entry({ action: 'checkin.here' }))).toBeNull()
   })
+
+  it('crew turning drop-off off (before the event; /staff refuses it during) is a heads-up; on, or other settings, are not', () => {
+    const off = entry({ action: 'event.settings', target: { kind: 'party', id: 'p1', label: 'Glow Night' }, details: { changed: 'dropOff', dropOff: false } })
+    expect(headsUpLine(off)).toBe('Sam: turned drop-off off for Glow Night (kids leave without a pickup code)')
+    expect(headsUpLine({ ...off, details: { changed: 'dropOff', dropOff: true } })).toBeNull()
+    expect(headsUpLine({ ...off, details: { changed: 'capacity', capacity: 12 } })).toBeNull()
+    expect(headsUpLine({ ...off, by: { id: 'k', name: 'Kaden', role: 'owner' } })).toBeNull()
+  })
 })
 
 describe('batched per hour', () => {

@@ -21,6 +21,7 @@ import { emailsFor } from '@lib/notify-settings'
 import { sendEmail } from '@lib/email'
 import { activityWhat } from '@lib/activity'
 import type { AuditEntry } from '@lib/audit'
+import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 
 const logger = createLogger('crew-heads-up')
 const kv = makeKvStore('crew-heads-up', 'crew-heads-up')
@@ -40,11 +41,18 @@ export const HEADS_UP_ACTIONS: ReadonlySet<string> = new Set([
 export interface HeadsUpLine { at: string; line: string }
 interface Queue { pending: HeadsUpLine[]; lastSentAt: string | null }
 
+/**
+ * Crew turning an event's drop-off off (kids then leave without a pickup code). /staff refuses it from the
+ * event's first day to its last (fix-5 M10), so this is a crew change made before the event; the owners hear
+ * about it the same way as a crew refund (merge of the final fixes).
+ */
+const isDropOffOff = (e: AuditEntry) => e.action === 'event.settings' && e.details?.dropOff === false
+
 /** The line for an entry, or null when the owners aren't told about it. */
 export function headsUpLine(e: AuditEntry): string | null {
   if (e.simulated === true) return null
   if (e.by?.role !== 'crew') return null
-  if (!HEADS_UP_ACTIONS.has(e.action)) return null
+  if (!HEADS_UP_ACTIONS.has(e.action) && !isDropOffOff(e)) return null
   const what = activityWhat(e)
   return `${e.by.name}: ${what[0].toLowerCase()}${what.slice(1)}`
 }
@@ -60,7 +68,8 @@ function parse(value: string | null): Queue {
 }
 
 async function change<T>(fn: (q: Queue) => { next: Queue | null; result: T }): Promise<T> {
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+    await casPause(attempt)
     const { value, etag } = await kv.getWithMeta(KEY)
     const { next, result } = fn(parse(value))
     if (!next) return result

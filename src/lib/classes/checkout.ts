@@ -59,7 +59,7 @@ export function recentSamePerson(lines: LedgerLine[], bookingId: string, email: 
  * running; a code that doesn't work (stage 4); the total went up since the
  * page showed it (stage 4, review I2: nothing charged, the new total sent).
  */
-export type ClassCheckoutCode = CheckoutErrorCode | 'in_progress' | 'promo' | 'price_changed' | 'recent_booking'
+export type ClassCheckoutCode = CheckoutErrorCode | 'in_progress' | 'promo' | 'price_changed' | 'recent_booking' | 'class_cancelled'
 
 export const classMessages: Record<ClassCheckoutCode, string> = {
   ...workshopMessages,
@@ -69,6 +69,13 @@ export const classMessages: Record<ClassCheckoutCode, string> = {
   promo: 'That code isn\'t valid. Nothing was charged.',
   price_changed: 'The price changed. Nothing was charged. Check the new total, then try again.',
   recent_booking: 'You booked this class a few minutes ago. Check your email for the confirmation. Nothing was charged this time. Book more seats only if you meant to.',
+  // I-5: paid in the same moment an owner cancelled the class. The owners refund it from To decide.
+  class_cancelled: 'We’re sorry. This class was cancelled just as you booked it. You’ll be refunded in full, and we’ll be in touch.',
+}
+
+/** I-5: what the panel says when the payment landed on a class cancelled meanwhile. */
+export function cancelledAsBookedMessage(cents: number, emailed: boolean): string {
+  return `We’re sorry. This class was cancelled just as you booked it. You’ll be refunded the full $${(cents / 100).toFixed(2)}${emailed ? ', and we’ve emailed you about it' : ''}. You don’t need to do anything.`
 }
 
 /**

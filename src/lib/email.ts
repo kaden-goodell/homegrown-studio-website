@@ -805,6 +805,34 @@ export async function sendCancelNotFinishedEmail(input: { to: string; givenName:
   return sendEmail({ to: input.to, subject: 'About your cancel at Hometown Studio', html, text })
 }
 
+/**
+ * Final concurrency review I-5, controller decision (merge of the final fixes): a customer whose payment landed
+ * just after an owner cancelled their class gets this instead of the normal confirmation. The owners refund them
+ * from /admin › To decide › Paid just as the class was cancelled (nothing refunds by itself).
+ */
+export async function sendClassCancelledAsBookedEmail(input: { to: string; givenName: string; className: string; whenLabel: string; cents: number }): Promise<{ sent: boolean }> {
+  const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
+  const phone = siteConfig.contactPhone
+  const hi = input.givenName ? `Hi ${input.givenName},` : 'Hi,'
+  const lines = [
+    `We’re sorry. ${input.className}${input.whenLabel ? ` (${input.whenLabel})` : ''} was cancelled just as you booked it, so it isn’t going ahead.`,
+    `We’ll refund the full $${(input.cents / 100).toFixed(2)} to the card you paid with. You don’t need to do anything.`,
+    phone ? `Questions? Text us at ${phone}.` : 'Questions? Reply to this email.',
+  ]
+  const text = [hi, ``, ...lines.flatMap((l) => [l, ``]), `Hometown Studio · ${address}`].join('\n')
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const P = 'margin:0 0 10px;font-size:15px;color:#3d3630;line-height:1.55'
+  const html = `
+<div style="max-width:560px;margin:0 auto;padding:8px 4px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <p style="margin:0 0 12px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#7a4a2e;font-weight:700;">Hometown Studio</p>
+  <p style="${P}">${esc(hi)}</p>
+  ${lines.map((l) => `<p style="${P}">${esc(l)}</p>`).join('\n  ')}
+  <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
+  <p style="margin:0;font-size:12px;color:#6f635b;">Hometown Studio &middot; ${esc(address)}</p>
+</div>`
+  return sendEmail({ to: input.to, subject: `${input.className} was cancelled: you’ll be refunded`, html, text })
+}
+
 /** "Your 1 seat is" / "Your other 2 seats are". */
 function seatCount(n: number, lead: string): string {
   return `${lead} ${n === 1 ? '1 seat is' : `${n} seats are`}`

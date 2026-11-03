@@ -5,6 +5,7 @@ import { listWarnings, OWNER_ONLY_CODES, warningLine, WARNING_WINDOW_DAYS, type 
 import { addDays } from '@lib/kit-dates'
 import { studioDate } from '@lib/studio-time'
 import { createLogger } from '@lib/logger'
+import { systemWarnings } from '@lib/system-checks'
 
 export const prerender = false
 
@@ -15,10 +16,13 @@ const logger = createLogger('api:admin:warnings')
  * another way: the To decide items (counted in "Needs you", each settled in
  * Inbox › To decide) and the staffing lines (Home › Staffing).
  */
+/** The owner-only background-job lines (./system-checks): owners read this list, so they DO show here. */
+const SYSTEM_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['archive-stale', 'webhook-url-mismatch'])
+
 export const HOME_SKIP_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>([
   'refund-flag', 'pos-unmatched', 'pos-needs-days', 'below-minimum', 'door-unpaid', 'counter-match-check', 'paid-not-seated',
   'waitlist-unknown', 'waitlist-declined', 'waitlist-refund', 'reader-waiting', 'cancel-request', 'cancel-unclear',
-  ...OWNER_ONLY_CODES,
+  ...[...OWNER_ONLY_CODES].filter((c) => !SYSTEM_CODES.has(c)),
 ])
 
 /** What each line's button opens on /admin (the same shapes as the /admin router's sheets). */
@@ -26,7 +30,7 @@ export type WarningOpen =
   | { kind: 'class'; id: string }
   | { kind: 'party'; day: string; id: string }
   | { kind: 'day'; day: string }
-  | { kind: 'more'; page: 'register' | 'promos' | 'closed' }
+  | { kind: 'more'; page: 'register' | 'promos' | 'closed' | 'records' }
   | { kind: 'promo'; id: string }
   | { kind: 'todo-list' }
   | { kind: 'retry' }
@@ -43,6 +47,10 @@ export function openFor(w: Warning): { open: WarningOpen | null; button: string 
       return code ? { open: { kind: 'promo', id: code }, button: 'Open the code' } : { open: { kind: 'more', page: 'promos' }, button: 'Open Promotions' }
     }
     case 'classes-unreadable': case 'parties-unreadable': return { open: { kind: 'retry' }, button: 'Try again' }
+    // Help: More › Records › Everything › Download records.
+    case 'archive-stale': return { open: { kind: 'more', page: 'records' }, button: 'Open Records' }
+    // A hosting setting only: the line says what to change (Help has the steps).
+    case 'webhook-url-mismatch': return { open: null, button: null }
     default: break
   }
   if (w.eventKind === 'party') {
@@ -58,7 +66,7 @@ export function openFor(w: Warning): { open: WarningOpen | null; button: string 
 /**
  * Owners only: Home › Warnings. The same scan as /staff › Warnings and the
  * morning email (today and the next 59 days), less what Home shows another
- * way (HOME_SKIP_CODES). Read-only. A scan that can't run is a 503, so Home
+ * way (HOME_SKIP_CODES), plus the owner-only system lines. Read-only. A scan that can't run is a 503, so Home
  * says it couldn't check instead of looking all clear.
  */
 export const GET: APIRoute = async ({ request }) => {
@@ -66,7 +74,10 @@ export const GET: APIRoute = async ({ request }) => {
   const from = studioDate(new Date().toISOString())
   const to = addDays(from, WARNING_WINDOW_DAYS - 1)
   try {
-    const warnings = await listWarnings({ from, to }, { staffing: false })
+    // The staffing scan stays off (Home › Staffing has it); the owner-only system lines (the weekly records
+    // backup, Square's notice address) come along, as Help says they show here (merge of the final fixes).
+    const [warnings, system] = await Promise.all([listWarnings({ from, to }, { staffing: false }), systemWarnings()])
+    warnings.push(...system)
     const shown: HomeWarning[] = warnings
       .filter((w) => !HOME_SKIP_CODES.has(w.code))
       .map((w) => ({ code: w.code, line: warningLine(w), ...openFor(w) }))

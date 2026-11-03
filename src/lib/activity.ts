@@ -53,6 +53,10 @@ export function activityWhat(e: Pick<AuditEntry, 'action' | 'target' | 'details'
       return `Sold a seat at the door${who ? ` to ${who}` : ''} on ${label || 'a class'}${money(d.dueCents) ? ` (${money(d.dueCents)} at the register)` : ''}`
     }
     case 'gift-card.minted': return `Made a ${money(d.amountCents)} gift card for ${str(d.forWhom) || label || 'someone'}${str(d.note) ? `: “${str(d.note)}”` : ''}`
+    case 'event.settings':
+      if (d.dropOff === false) return `Turned drop-off off for ${label || 'an event'} (kids leave without a pickup code)`
+      if (d.dropOff === true) return `Turned drop-off on for ${label || 'an event'}`
+      return `Changed the settings of ${label || 'an event'}`
     case 'staff.switched': return `Switched person (${label})`
     case 'staff.signed-in': return 'Signed in to /staff'
     case 'staff.login-refused': return 'Wrong staff passcode'
