@@ -25,7 +25,18 @@ vi.mock('@lib/booking-core/refund-runner', async (orig) => {
     },
   }
 })
-vi.mock('@config/providers', () => ({ providers: { payment: { refundPayment: m.refundPayment } } }))
+// Money I2: Ask Square reads Square's own list of refunds on the payment (PENDING counts as still going through).
+vi.mock('@config/providers', () => ({
+  providers: {
+    payment: {
+      refundPayment: m.refundPayment,
+      readPayment: async (id: string) => ({
+        id, orderId: null, status: 'COMPLETED', amountCents: 6540, refundedCents: 0, createdAt: null,
+        refunds: [...m.keys.values()].filter((r) => r.paymentId === id).map((r) => ({ id: r.id, paymentId: id, amountCents: r.amountCents, status: r.status, createdAt: null })),
+      }),
+    },
+  },
+}))
 vi.mock('@lib/audit', () => ({ recordAudit: m.audit }))
 vi.mock('@lib/email', () => ({ sendRefundEmail: m.email }))
 vi.mock('@lib/owner-alert', () => ({ alertOwners: m.alert }))
@@ -332,6 +343,20 @@ describe('F3: a refund Square never answers never leaves Catherine stuck', () =>
     expect(done.decided.what).toBe('The refund went through. They’re cancelled and got $32.70 back')
     expect(m.refundPayment).toHaveBeenCalledTimes(2)
     expect(m.refundPayment.mock.calls[1][0].idempotencyKey).toBe(firstKey)
+    expect((await byId(classId))[lines[0].id].refunds).toHaveLength(1)
+  })
+
+  it('money I2: Square shows the refund still PENDING → Ask Square says wait (nothing decided); Keep their booking is refused; once COMPLETED it finishes, once', async () => {
+    const { classId, lines, item } = await unanswered()
+    const sent = m.refundPayment.mock.calls[0][0]
+    m.keys.set('square-made-it', { id: 'rf_pending', paymentId: sent.paymentId, amountCents: sent.amountCents, status: 'PENDING' })
+    await expect(decide(item.id, 'ask', {}, cat)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/still going through/) })
+    await expect(decide(item.id, 'release', {}, cat)).rejects.toThrow(/Ask Square first|still going through/)
+    expect(m.refundPayment).toHaveBeenCalledTimes(1)
+    m.keys.get('square-made-it').status = 'COMPLETED'
+    m.refundPayment.mockImplementationOnce(async () => m.keys.get('square-made-it'))
+    const done = await decide(item.id, 'ask', {}, cat)
+    expect(done.decided.what).toMatch(/They’re cancelled and got \$32\.70 back/)
     expect((await byId(classId))[lines[0].id].refunds).toHaveLength(1)
   })
 

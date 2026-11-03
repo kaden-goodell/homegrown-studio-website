@@ -26,7 +26,7 @@ const bad = (error: string, status = 400, extra: Record<string, unknown> = {}) =
  * sheet shows when it's on but the website isn't linked to the Square app.
  */
 export const GET: APIRoute = async ({ request }) => {
-  if (!staffAuthorized(request)) return bad('Unauthorized', 401)
+  if (!(await staffAuthorized(request))) return bad('Unauthorized', 401)
   const s = await readerStatus()
   return reply(200, { data: { on: s.on, linked: s.linked, message: s.message } })
 }
