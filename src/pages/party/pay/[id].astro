@@ -10,7 +10,7 @@ const { id } = Astro.params
 const k = Astro.url.searchParams.get('k') ?? ''
 ---
 
-<Layout title="Pay for your party" description="Pay for your Hometown Studio party." noindex>
+<Layout title="Pay for your party" description="Pay for your Hometown Studio party." noindex noAnalytics noReferrer>
   <section class="max-w-xl mx-auto px-4 sm:px-6 py-24">
     <PartyPayPanel client:load partyId={id ?? ''} payKey={k} />
   </section>

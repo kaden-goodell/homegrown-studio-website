@@ -12,7 +12,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import PaymentForm from '@components/checkout/PaymentForm'
 import type { PaymentFormRef } from '@components/checkout/PaymentForm'
-import { newAttemptId } from '@lib/checkout-attempt'
+import { attemptIdFor, forgetPendingAttempt, newAttemptId, pendingAttempt, rememberPendingAttempt } from '@lib/checkout-attempt'
+import { POLICY_ANCHORS, POLICY_PATH } from '@config/policy-content'
+import { partyContent } from '@config/party-content'
 import { messageForFailure, outcomeUnknown, partyMessages, UNKNOWN_OUTCOME_MESSAGE, TEXT_US } from '@lib/checkout-messages'
 import { formatMoney } from '@lib/money'
 import { rememberedPageKey } from '@lib/page-key'
@@ -34,13 +36,19 @@ interface Balance {
   paying?: boolean
   /** the party is paid for; only extras added since are due */
   extrasOnly?: boolean
+  /** the party cancellation policy for this date, in one line */
+  refundLine?: string
 }
 
 export const PAY_HEADING = 'Pay for your party'
 export const CRAFTS_LINE = 'Crafts are paid at the studio for whoever comes.'
 export const LINK_BROKEN = `This payment link doesn’t work. Please ${TEXT_US} and we’ll send a new one.`
 export const LOAD_FAILED = 'We couldn’t load this payment. Please try again.'
-export const CANCELLED_LINE = 'This party was cancelled. Nothing is due.'
+export const CANCELLED_LINE = partyContent.textNumber
+  ? `This party was cancelled, so nothing is due. Questions about a payment? Text us at ${partyContent.textNumber}.`
+  : 'This party was cancelled, so nothing is due.'
+/** C2: an earlier payment from this tab never got a clear answer. */
+export const EARLIER_PENDING = 'Your last payment for this party may still be going through. Check your email for a receipt before you pay again.'
 export const BUSY_LINE = 'A payment for this party is already going through. Check back in a few minutes.'
 export const AMOUNT_CHANGED = 'The amount changed. Refresh to see what’s due. Nothing was charged.'
 
@@ -61,9 +69,26 @@ export default function PartyPayPanel({ partyId, payKey }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [paid, setPaid] = useState<{ cents: number; receiptUrl: string | null; stillDueCents: number } | null>(null)
   const paymentFormRef = useRef<PaymentFormRef>(null)
-  const attemptId = useRef(newAttemptId())
-  // The key left the address bar on load (src/lib/page-key.ts); after a refresh it is found in this tab.
+  // C2: a payment still going through is kept for this tab, so a reload resumes it instead of paying twice.
+  const scope = `party-pay:${partyId}`
+  const attemptId = useRef('')
+  const [earlierPending] = useState(() => pendingAttempt(scope))
+  // The key is in the link (and the address bar); a copy kept in this tab covers an address without it.
   const linkKey = () => payKey || rememberedPageKey()
+  useEffect(() => {
+    if (balance) attemptId.current = attemptIdFor(scope, String(balance.dueCents))
+  }, [balance?.dueCents])
+  // Leaving or reloading while a payment is going through: the browser asks first.
+  useEffect(() => {
+    if (!processing) return
+    const stay = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', stay)
+    return () => window.removeEventListener('beforeunload', stay)
+  }, [processing])
+  const endAttempt = () => {
+    forgetPendingAttempt(scope, attemptId.current)
+    attemptId.current = newAttemptId()
+  }
 
   const load = useCallback(async () => {
     setLoadError(null)
@@ -98,6 +123,8 @@ export default function PartyPayPanel({ partyId, payKey }: Props) {
           throw new Error('We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.')
         }
       }
+      if (!attemptId.current) attemptId.current = attemptIdFor(scope, String(balance.dueCents))
+      rememberPendingAttempt(scope, attemptId.current, String(balance.dueCents))
       let res: Response
       try {
         res = await fetch('/api/party/pay.json', {
@@ -112,8 +139,8 @@ export default function PartyPayPanel({ partyId, payKey }: Props) {
       if (!res.ok) {
         const body = await res.json().catch(() => null)
         const failure = { status: res.status, body }
-        // A plain answer ends this attempt; "not sure" and "another payment is going through" keep it.
-        if (!(outcomeUnknown(failure) || body?.code === 'in_progress')) attemptId.current = newAttemptId()
+        // A plain answer ends this attempt; "not sure", "another payment is going through" and "slow down" keep it.
+        if (!(outcomeUnknown(failure) || body?.code === 'in_progress' || res.status === 429)) endAttempt()
         if (res.status === 404) throw new Error(LINK_BROKEN)
         if (body?.code === 'amount_changed') {
           await load()
@@ -128,6 +155,7 @@ export default function PartyPayPanel({ partyId, payKey }: Props) {
       const json = await res.json().catch(() => null)
       if (!json) throw new Error(UNKNOWN_OUTCOME_MESSAGE)
       const d = json.data ?? {}
+      endAttempt()
       setPaid({
         cents: typeof d.paidCents === 'number' ? d.paidCents : 0,
         receiptUrl: typeof d.receiptUrl === 'string' ? d.receiptUrl : null,
@@ -218,7 +246,18 @@ export default function PartyPayPanel({ partyId, payKey }: Props) {
             <span>{amount}</span>
           </li>
         </ul>
-        <p style={{ ...helpText, marginBottom: '1.25rem' }}>{CRAFTS_LINE}</p>
+        <p style={{ ...helpText, marginBottom: '1rem' }}>{CRAFTS_LINE}</p>
+        {balance.refundLine && (
+          <p data-testid="pay-policy" style={{ ...helpText, marginBottom: '1.25rem' }}>
+            {balance.refundLine}{' '}
+            <a href={`${POLICY_PATH}#${POLICY_ANCHORS.parties}`} target="_blank" rel="noopener" style={{ color: 'var(--color-primary)', fontWeight: 600, textDecoration: 'underline' }}>
+              Read the party policy
+            </a>
+          </p>
+        )}
+        {earlierPending && (
+          <p role="status" data-testid="earlier-pending" style={{ ...helpText, fontWeight: 600, marginBottom: '1rem' }}>{EARLIER_PENDING}</p>
+        )}
 
         <PaymentForm
           bookingKind="party"
@@ -235,7 +274,7 @@ export default function PartyPayPanel({ partyId, payKey }: Props) {
         )}
 
         <button type="submit" className="btn btn-primary" disabled={!paymentReady || processing} style={{ marginTop: '1rem', minHeight: 44 }}>
-          {processing ? 'Paying…' : `Pay ${amount}`}
+          {processing ? 'Paying…' : !paymentReady ? 'Loading payment form…' : `Pay ${amount}`}
         </button>
       </form>
     )

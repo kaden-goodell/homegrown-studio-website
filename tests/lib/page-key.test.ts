@@ -25,21 +25,28 @@ describe('private party pages', () => {
 })
 
 describe('PAGE_KEY_SCRIPT', () => {
-  it('moves the payment key out of the address bar into this tab', () => {
+  it('keeps the payment key in the address bar (a saved link keeps working, final review I3) and a copy in this tab', () => {
     history.replaceState(null, '', '/party/pay/pty_1?k=secret-pay#top')
     run()
     expect(location.pathname).toBe('/party/pay/pty_1')
-    expect(location.search).toBe('')
+    expect(location.search).toBe('?k=secret-pay')
     expect(location.hash).toBe('#top')
     expect(rememberedPageKey('/party/pay/pty_1')).toBe('secret-pay')
   })
 
-  it('does the same for the host page key, and a refresh (no key) keeps the remembered one', () => {
+  it('does the same for the host page key, and opening it without the key in this tab keeps the remembered one', () => {
     history.replaceState(null, '', '/party/pty_2?key=secret-host')
     run()
-    expect(location.search).toBe('')
-    run() // a refresh: the address bar has no key now
+    expect(location.search).toBe('?key=secret-host')
+    history.replaceState(null, '', '/party/pty_2')
+    run()
     expect(rememberedPageKey('/party/pty_2')).toBe('secret-host')
+  })
+
+  it('both private pages run with no analytics and send no referrer, since the key stays in the address', () => {
+    const host = readFileSync(resolve(__dirname, '../../src/pages/party/[id].astro'), 'utf8')
+    const pay = readFileSync(resolve(__dirname, '../../src/pages/party/pay/[id].astro'), 'utf8')
+    for (const page of [host, pay]) expect(page).toMatch(/<Layout[^>]*\bnoAnalytics\b[^>]*\bnoReferrer\b/)
   })
 
   it('takes the booking test link out of the address bar on any page, before GA4 and the Meta Pixel load', () => {

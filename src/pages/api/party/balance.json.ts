@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro'
+import { partyRefundLine } from '@lib/refund-lines'
 import { rateLimited } from '@lib/rate-limit'
 import { partyForLink, LINK_NOT_FOUND_MESSAGE } from '@lib/parties/pay-balance'
 import { dueCents, paymentState } from '@lib/parties/money'
@@ -44,6 +45,8 @@ export const GET: APIRoute = async ({ request, clientAddress }) => {
       paying: !!rec.paying && Date.parse(rec.paying.until) > Date.now(),
       // Only extras added since are due (the party itself is paid).
       extrasOnly: rec.status !== 'cancelled' && (rec.items ?? []).some((it) => it.chargeId !== null),
+      // Final review I5: a host booked by phone sees the cancellation policy before paying.
+      refundLine: partyRefundLine(rec.startIso, new Date(), (rec.items ?? []).filter((it) => it.kind === 'package').reduce((t, it) => t + it.cents, 0) || undefined),
     },
   }, 200)
 }

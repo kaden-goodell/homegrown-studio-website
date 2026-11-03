@@ -13,7 +13,7 @@ import { dueCents } from '@lib/parties/money'
  * the bookings gate does not apply (S2-R16).
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
-  if (rateLimited(`party-pay:${clientAddress}`, 5, 60_000)) return errorResponse('Too many tries — give it a minute.', 429, 'unavailable')
+  if (rateLimited(`party-pay:${clientAddress}`, 5, 60_000)) return errorResponse('That’s a lot of tries in a row. Give it a minute, then try again.', 429, 'unavailable')
   let body: any
   try {
     body = await request.json()

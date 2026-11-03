@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import PartyPayPanel, { CRAFTS_LINE, LINK_BROKEN, PAY_HEADING, CANCELLED_LINE, BUSY_LINE, AMOUNT_CHANGED } from '@components/party/PartyPayPanel'
 import { UNKNOWN_OUTCOME_MESSAGE } from '@lib/checkout-messages'
 
@@ -42,7 +42,10 @@ beforeEach(() => {
   })
   vi.stubGlobal('fetch', fetchMock)
 })
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  sessionStorage.clear()
+})
 
 /** The Pay button turns on once the card field says it is ready. */
 async function clickPay() {
@@ -173,5 +176,36 @@ describe('PartyPayPanel', () => {
     render(<PartyPayPanel partyId="pty_1" payKey="key-1" />)
     await clickPay()
     expect(await screen.findByText(/still \$25 to pay/)).toBeInTheDocument()
+  })
+})
+
+describe('PartyPayPanel — policy and paying twice (final review I5, C2)', () => {
+  it('shows the cancellation policy for the date, with a link to the party policy, above Pay', async () => {
+    answers.balance = { body: { data: { ...BALANCE, refundLine: 'Full refund until Oct 25. After that, studio credit.' } } }
+    render(<PartyPayPanel partyId="pty_1" payKey="key-1" />)
+    const line = await screen.findByTestId('pay-policy')
+    expect(line).toHaveTextContent('Full refund until Oct 25. After that, studio credit.')
+    expect(screen.getByRole('link', { name: 'Read the party policy' })).toHaveAttribute('href', '/policies#parties')
+  })
+
+  it('a cancelled party says nothing is due and how to ask about a payment', async () => {
+    answers.balance = { body: { data: { ...BALANCE, state: 'cancelled', items: [], dueCents: 0 } } }
+    render(<PartyPayPanel partyId="pty_1" payKey="key-1" />)
+    expect(await screen.findByText(CANCELLED_LINE)).toBeInTheDocument()
+    expect(CANCELLED_LINE).toMatch(/^This party was cancelled, so nothing is due\./)
+  })
+
+  it('reloaded after an unclear answer: the next payment sends the same attempt, with a note to check email first', async () => {
+    answers.pay = [{ status: 502, body: { code: 'unknown_outcome', detail: UNKNOWN_OUTCOME_MESSAGE } }, { body: { data: { state: 'paid', paidCents: 32500, receiptUrl: null, stillDueCents: 0 } } }]
+    render(<PartyPayPanel partyId="pty_1" payKey="key-1" />)
+    await clickPay()
+    await screen.findByText(UNKNOWN_OUTCOME_MESSAGE)
+    cleanup()
+    render(<PartyPayPanel partyId="pty_1" payKey="key-1" />)
+    expect(await screen.findByTestId('earlier-pending')).toHaveTextContent('may still be going through')
+    await clickPay()
+    await screen.findByText('Thank you! You paid $325.')
+    const [a, b] = payCalls()
+    expect(b.attemptId).toBe(a.attemptId)
   })
 })
