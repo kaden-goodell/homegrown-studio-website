@@ -94,7 +94,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       'Tap anything on the Calendar or a list to open it. The **×** at the top closes it.',
       'Nothing is ever sent to a customer, cancelled or refunded on its own. The site tells you, and you press the button. Every button that sends money back or cancels asks first and says who and how much.',
       'More › **Using as** says whose name your changes are saved under. **Sign out** asks for the passcode next time.',
-      'The crew use /staff on the iPad: who’s coming, check-in, waivers, door seats. Anything only an owner should do is here.',
+      'The crew use /staff on the iPad: who’s coming, check-in, waivers, door seats. Anything only an owner should do is here, except three jobs done on /staff: gift cards, **Comp a seat** and **Sell a seat** (see “Things you do on /staff” below).',
     ],
   },
   {
@@ -326,6 +326,18 @@ export const HELP_SECTIONS: HelpSection[] = [
     ],
   },
   {
+    id: 'on-staff',
+    title: 'Things you do on /staff',
+    intro: 'A few owner jobs live on /staff, the crew’s screen: open the studio website with /staff at the end, on the iPad or your phone, and sign in with the staff passcode.',
+    points: [
+      'Make a gift card: /staff › **Gift cards** › pick an amount (or type one under Other amount), who it’s for and a note › **Make card**. The card number shows: tap **Copy** and paste it into a text or email to them. The list below shows every card made here with what’s left on it; **Number** shows a card’s number again. A gift card pays for a party online or at the register; class seats online can’t be paid with one.',
+      'Give someone a free seat (a giveaway, a make-good, or a booking the site couldn’t finish): /staff › open the class (This week, Today or Upcoming) › **Comp a seat** › **Find a customer**, or type their first name, last name and email › the day and how many seats › tick **Email them a confirmation** if they should get one › **Add comped seat**.',
+      'Book a class seat for someone on the phone or at the door: /staff › open the class › **Sell a seat** › who’s coming and how many › how they pay: **Pay on the iPad** (their card or Apple Pay, right there; they get the usual confirmation), **Pay at the counter** (**Add seat, pay at the counter**, then ring it up on the register) or **Charge on the reader** (when it’s turned on in More › Register setup).',
+      'Check-in, waivers and pickup at the door are the crew’s screens too; everything there is the same for you.',
+    ],
+    square: [{ why: 'Taking money back off a gift card, or clearing one, is only in Square.', steps: 'Square Dashboard (squareup.com, signed in) › Gift cards › find the card by its number › Refund or Clear balance.' }],
+  },
+  {
     id: 'connections',
     title: 'Emails, texts and Square',
     intro: 'The website sends emails through the studio’s Google account, texts through Quo, and takes payments through Square. If one stops, Home says so.',
@@ -469,6 +481,10 @@ export const HELP_ROWS: HelpRow[] = [
   { id: 'admin-reset-notice', see: 'The /admin passcode was reset / changed, or The studio’s owners changed', where: 'An email and a text to the owners', means: 'Someone reset the admin passcode (with the emailed link, the hosting settings, or in Admin access), or changed who the owners are, their emails or mobiles, or who gets alerts.', tap: 'If it was one of you, nothing to do. If not: on the /admin sign-in page tap **Forgot the passcode?**, set a new one, then check More › Staff › People and **Notifications**.', buttons: ['Forgot the passcode?'] },
   { id: 'admin-many-wrong', see: 'Lots of wrong /admin passcodes today', where: 'An email and a text to the owners, More › Admin access', means: 'Someone typed a wrong /admin passcode 20 times today.', tap: 'If it wasn’t one of you, **Change the admin passcode** in More › Admin access.', buttons: ['Change the admin passcode'] },
   { id: 'service-not-set', see: 'Emails / Texts / Square aren’t set up on this site', where: 'Home “Needs you”', means: 'The website has no password or key for it, so nothing goes out that way.', tap: '**What to do** has the steps for each.', buttons: ['What to do'] },
+
+  // Owner alerts that ask for a step (I9)
+  { id: 'free-not-recorded', see: 'Class paid, seats not recorded yet … Nothing was charged (a free booking)', where: 'A text to the owners', means: 'Someone booked a free seat (a 100% code) and the site couldn’t write it down. Their seats are held for a day.', tap: 'On /staff, open the class › **Comp a seat** › their name, email and seats › **Add comped seat**, so the seats are theirs for good. The held seats let go by themselves after a day.', buttons: ['Comp a seat', 'Add comped seat'] },
+  { id: 'signup-not-saved', see: 'Site sign-up: <email> wants to hear about … (not saved)', where: 'A text and an email to the owners', means: 'Someone asked to be told when booking opens. “Not saved” means that message is the only copy of their sign-up.', tap: 'Keep that email (or write the address down). When booking opens, email or text them.', buttons: [] },
 
   // Stage 4 (extras): admin-help-stage4.ts
   ...STAGE4_HELP_ROWS,

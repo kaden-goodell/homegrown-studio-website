@@ -513,7 +513,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
       if (!square.orderId) await useThePromo(c)
       await keepHeld()
       await alertOwners(
-        `${simulated ? '(test booking, no action needed) ' : ''}Class paid, seats not recorded yet: ${who}, ${seatsLabel}, ${c.content.name}, ${formatSlotLabel(firstStart)}. Held a day; ${square.orderId ? `Square's payment notice books them, or it shows in /admin › To decide. Order ${square.orderId}` : `Nothing was charged (a free booking); add them by hand in /admin${q!.promo ? ` (code ${q!.promo.code}: its use is already counted)` : ''}`}, booking ${bookingId}.`,
+        `${simulated ? '(test booking, no action needed) ' : ''}Class paid, seats not recorded yet: ${who}, ${seatsLabel}, ${c.content.name}, ${formatSlotLabel(firstStart)}. Held a day; ${square.orderId ? `Square's payment notice books them, or it shows in /admin › To decide. Order ${square.orderId}` : `Nothing was charged (a free booking). To give them their seats for good: on /staff, open the class › Comp a seat › their name, email and seats › Comp${q!.promo ? ` (code ${q!.promo.code}: its use is already counted)` : ''}. The held seats let go by themselves after a day`}, booking ${bookingId}.`,
       ).catch(() => undefined)
       // Answer from the quote: the customer has paid.
       return q!.lines.filter((l) => l.kind === 'seat').map((l) => ({
