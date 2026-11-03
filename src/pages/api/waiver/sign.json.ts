@@ -499,6 +499,8 @@ async function handleFresh(
   }))
   for (const m of minors) {
     if (!m.name || !DATE_RE.test(m.dob)) return bad('Each child needs a name and date of birth.')
+    // A birth date of today or later is a slip (the iPhone picker's Done fills in today): ask again.
+    if (m.dob >= now.toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })) return bad(`Check ${m.name}’s date of birth. It can’t be today or later.`)
     if (yearsBetween(m.dob, now) >= waiverContent.adultAge) {
       return bad(`${m.name} is ${waiverContent.adultAge} or older and needs to sign their own agreement.`)
     }

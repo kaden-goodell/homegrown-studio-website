@@ -836,6 +836,12 @@ describe('POST /api/waiver/sign.json', () => {
       expect((await res.json()).data.copyEmailed).toBe(false)
     })
 
+    it('a child birth date of today or later is refused plainly (the iPhone picker fills in today)', async () => {
+      const res = await POST(createMockContext(makeAdultBody({ partyId: null, minors: [{ name: 'Bobby', dob: '2026-09-01', allergies: '' }] })))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toBe('Check Bobby’s date of birth. It can’t be today or later.')
+    })
+
     it('a send that reports not sent: copyEmailed false', async () => {
       mockSendAgreementCopyEmail.mockResolvedValueOnce({ sent: false })
       const res = await POST(createMockContext(makeAdultBody({ partyId: null })))

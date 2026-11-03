@@ -1010,7 +1010,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
               </div>
               <div style={{ flex: '1 1 9rem' }}>
                 <label style={labelStyle} htmlFor={`wv-minor-dob-${i}`}>Date of birth</label>
-                <input id={`wv-minor-dob-${i}`} type="date" style={inputStyle} value={minor.dob} onChange={(e) => updateMinor(i, { dob: e.target.value })} />
+                <input id={`wv-minor-dob-${i}`} type="date" max={new Date(Date.now() - 86_400_000).toLocaleDateString('en-CA')} style={inputStyle} value={minor.dob} onChange={(e) => updateMinor(i, { dob: e.target.value })} />
               </div>
               <button
                 type="button"
