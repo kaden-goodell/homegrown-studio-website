@@ -174,11 +174,11 @@ export function partyContentFor(facts?: PartyFactsLike | PartyCopyFacts | null) 
       },
       {
         q: 'Can we bring wine or other alcohol?',
-        a: 'No outside alcohol, please — Alabama law doesn’t allow it in our studio. We’re pursuing a beer & wine license so guests can enjoy a drink here once it’s issued.',
+        a: 'Usually not. Outside alcohol isn’t allowed at parties, but occasionally we allow BYOB at special events, and we’ll say so on the event. We’re pursuing a beer & wine license so guests can enjoy a drink here once it’s issued.',
       },
       {
         q: 'Can you do a theme?',
-        a: 'Yes. We can match your party’s colors and vibe, whatever the occasion. The one thing we can’t do is put trademarked characters or logos on our crafts or decor, since those belong to their owners. You’re welcome to bring your own themed decorations for the tables.',
+        a: 'Maybe. With enough time and prep, we may be able to match your party’s colors and vibe for an additional fee, so ask us early. We can’t put trademarked characters or logos on our crafts or decor, since those belong to their owners. You’re welcome to bring your own themed decorations for the tables.',
       },
       {
         q: 'Can I decorate the studio for my party?',

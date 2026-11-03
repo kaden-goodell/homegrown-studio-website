@@ -126,9 +126,18 @@ describe('footer band', () => {
     expect(footer).toMatch(/\.footer-link:focus-visible[^{]*\{[^}]*outline-color:\s*var\(--color-on-dark\)/)
   })
 
-  it('has the three columns: visit, hours, contact', () => {
+  it('has the three columns: visit, walk-in hours, contact', () => {
     const headings = [...footer.matchAll(/<h2 class="footer-heading">([^<]+)<\/h2>/g)].map((m) => m[1])
-    expect(headings).toEqual(['Visit', 'Hours', 'Contact'])
+    expect(headings).toEqual(['Visit', 'Walk-in hours', 'Contact'])
+  })
+
+  it('lists only the Craft Café walk-in hours, never the party and workshop hours', () => {
+    // The saved café hours (Hours & Craft Café on /admin), the config's on a prerendered page.
+    expect(footer).toContain('siteConfig.cafeHours : formatCafeHours(cafeHoursEntries((await getStudioDays()).cafe))')
+    expect(footer).toContain('walkInHours.map')
+    expect(footer).toContain('data-walkin-hours')
+    expect(footer).not.toContain('siteConfig.hours')
+    expect(footer).not.toMatch(/getStudioDays\(\)\)\.studio/)
   })
 })
 

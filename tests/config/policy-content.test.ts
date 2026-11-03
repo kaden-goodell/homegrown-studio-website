@@ -88,7 +88,8 @@ describe('policy content (HOM-78 canonical spec)', () => {
 
   it('party FAQ covers the no-outside-alcohol and theme (no trademarked characters) questions', () => {
     const alcohol = partyContent.faq.find((f) => /alcohol/i.test(f.q))
-    expect(alcohol?.a).toMatch(/No outside alcohol/i)
+    expect(alcohol?.a).toMatch(/Outside alcohol isn’t allowed at parties/)
+    expect(alcohol?.a).toMatch(/occasionally we allow BYOB at special events/)
     const theme = partyContent.faq.find((f) => /theme/i.test(f.q))
     expect(theme?.a).toMatch(/trademarked/i)
   })

@@ -5,6 +5,8 @@ import {
   optionsChangeRefusal,
   validateCutoffHours,
   effectiveCutoffHours,
+  validateOptionsCloseHours,
+  openOptions,
   signupClosesAt,
   isSignupClosed,
   cutoffClosedMessage,
@@ -124,6 +126,31 @@ describe('cutoff', () => {
 
   it('keeps the one modal line exactly', () => {
     expect(PICKS_FINAL_LINE).toBe('Picks are made ahead for you, so they can’t be changed after you book.')
+  })
+})
+
+describe('questions that close early', () => {
+  // Christmas Embroidery 101, Sat 21 Nov 7 PM CST: shirt sizes close a week out (Kaden, 2 Nov 2026).
+  const SIZE = { id: 'kids-tee-size', label: 'Kids’ tee size', choices: ['2T', '3T'] }
+  const start = '2026-11-22T01:00:00.000Z'
+  const s = { options: [SIZE], signupCutoffHours: 24, optionsCloseHours: 168 }
+
+  it('accepts whole hours 0–336 and null (open until sign-ups close)', () => {
+    expect(validateOptionsCloseHours(null)).toEqual({ ok: true, value: null })
+    expect(validateOptionsCloseHours(168)).toEqual({ ok: true, value: 168 })
+    for (const bad of [-1, 337, 2.5, '168', undefined]) {
+      expect(validateOptionsCloseHours(bad)).toEqual({ ok: false, error: 'Questions close 0 to 336 hours before the class, in whole hours.' })
+    }
+  })
+
+  it('asks the questions until a week before, then none; sign-ups stay open', () => {
+    expect(openOptions(start, s, new Date('2026-11-15T00:59:59.000Z'))).toEqual([SIZE])
+    expect(openOptions(start, s, new Date('2026-11-15T01:00:00.000Z'))).toEqual([])
+    expect(isSignupClosed(start, s, new Date('2026-11-15T01:00:00.000Z'))).toBe(false)
+  })
+
+  it('without the setting the questions stay until sign-ups close', () => {
+    expect(openOptions(start, { options: [SIZE], signupCutoffHours: 24 }, new Date('2026-11-21T20:00:00.000Z'))).toEqual([SIZE])
   })
 })
 

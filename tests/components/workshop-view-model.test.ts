@@ -149,6 +149,11 @@ describe('withSignupInfo', () => {
     expect(d).toMatchObject({ options: [PAILS], signupClosesAt: '2026-10-17T18:00:00.000Z', signupClosed: true })
   })
 
+  it('drops questions that have closed but keeps selling seats', () => {
+    const d = withSignupInfo(base, { options: [PAILS], signupCutoffHours: null, optionsCloseHours: 168 }, new Date('2026-10-12T18:00:00.000Z'))
+    expect(d).toMatchObject({ options: [], signupClosesAt: '2026-10-17T18:00:00.000Z', signupClosed: false })
+  })
+
   it('a plain class is open until it starts', () => {
     const d = withSignupInfo(base, { options: [], signupCutoffHours: null }, new Date('2026-10-18T17:59:00.000Z'))
     expect(d).toMatchObject({ options: [], signupClosesAt: '2026-10-18T18:00:00.000Z', signupClosed: false })

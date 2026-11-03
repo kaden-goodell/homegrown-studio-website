@@ -1,6 +1,6 @@
 /**
  * Browser side of /api/cafe-hours.json for every page: the site is mostly
- * prerendered, so the footer's studio hours, Google's business details and
+ * prerendered, so the footer's walk-in hours, Google's business details and
  * the special-day bar and cards are built from the config, then corrected
  * here from what the owners saved on /admin (no deploy needed). Asked once
  * per page load (view transitions keep the answer). A failed request leaves
@@ -11,6 +11,8 @@
 import type { HoursEntry } from '@config/hours'
 
 export interface LiveSite {
+  /** Craft Café's weekly walk-in hours, as the footer lists them. */
+  weekly?: { days: string; time: string }[]
   studio?: { days: string; time: string }[]
   studioHours?: HoursEntry[]
   notices?: unknown[]
@@ -31,10 +33,13 @@ export function _forgetLiveSite(): void {
   live = null
 }
 
-/** The footer's hours list, from the studio hours in force. */
-export function applyStudioHours(doc: Document, rows: { days: string; time: string }[] | undefined): void {
+/**
+ * The footer's hours list: Craft Café's walk-in hours in force (never the
+ * party and workshop hours, Kaden 2 Nov 2026).
+ */
+export function applyWalkInHours(doc: Document, rows: { days: string; time: string }[] | undefined): void {
   if (!Array.isArray(rows) || !rows.length) return
-  for (const box of doc.querySelectorAll<HTMLElement>('[data-studio-hours]')) {
+  for (const box of doc.querySelectorAll<HTMLElement>('[data-walkin-hours]')) {
     box.replaceChildren(...rows.map((r) => {
       const row = doc.createElement('div')
       row.className = 'footer-hours-row'
@@ -70,10 +75,10 @@ export function applyBusinessHours(doc: Document, hours: HoursEntry[] | undefine
 }
 
 async function refresh(): Promise<void> {
-  if (!document.querySelector('[data-studio-hours], script[data-business-jsonld]')) return
+  if (!document.querySelector('[data-walkin-hours], script[data-business-jsonld]')) return
   const site = await liveSite()
   if (!site) return
-  applyStudioHours(document, site.studio)
+  applyWalkInHours(document, site.weekly)
   applyBusinessHours(document, site.studioHours)
 }
 

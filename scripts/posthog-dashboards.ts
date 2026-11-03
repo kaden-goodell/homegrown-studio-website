@@ -12,6 +12,7 @@ const PROJECT = process.env.POSTHOG_PROJECT_ID || '656173'
 const API = `https://us.posthog.com/api/projects/${PROJECT}`
 const KEY = process.env.POSTHOG_PERSONAL_API_KEY
 const DASHBOARD = 'Hometown — Bookings & Traffic'
+const OUR_ERRORS = 'Our errors (the site broke)'
 
 const ev = (event: string, props: Record<string, string> = {}, extra: Record<string, unknown> = {}) => ({
   kind: 'EventsNode', event, name: event,
@@ -76,12 +77,24 @@ const INSIGHTS: { name: string; description: string; query: unknown }[] = [
         round(sum(ifNull(toFloat(JSONExtractInt(toString(total_money), 'amount')), 0) - ifNull(toFloat(JSONExtractInt(toString(refunded_money), 'amount')), 0)) / 100, 2) AS net_revenue,
         count() AS payments
       FROM square_payments WHERE status = 'COMPLETED' GROUP BY week ORDER BY week` } } },
-  { name: 'Site errors', description: 'Crashes and errors visitors hit.',
-    query: trend([ev('$exception')], '$exception_message', table) },
+  { name: 'Site errors', description: 'Every error caught in visitors\' browsers, by who caused it (error_from): ours = the site broke; facebook_app / hidden / browser_extension / other_site = the visitor\'s browser or app, not us.',
+    query: trend([ev('$exception')], 'error_from', table) },
+  { name: OUR_ERRORS, description: 'Errors from our own code only (error_from = ours) for real visitors (team devices left out) — the site actually broke for someone. The email alert watches this.',
+    query: trend([ev('$exception', { error_from: 'ours' })], undefined, { interval: 'hour', dateRange: { date_from: '-7d' }, filterTestAccounts: true }) },
 ]
 
+/** Email (to the PostHog login) within the hour when our own code errors for anyone. */
+const OUR_ERRORS_ALERT = {
+  name: 'Site broke for a visitor (our code errored)',
+  config: { type: 'TrendsAlertConfig', series_index: 0, check_ongoing_interval: true },
+  condition: { type: 'absolute_value' },
+  threshold: { configuration: { type: 'absolute', bounds: { upper: 0 } } },
+  calculation_interval: 'hourly',
+  enabled: true,
+}
+
 async function api(path: string, init: RequestInit = {}): Promise<any> {
-  const res = await fetch(`${API}${path}`, { ...init, headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) } })
+  const res = await fetch(path.startsWith('https://') ? path : `${API}${path}`, { ...init, headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) } })
   const json = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(`${init.method ?? 'GET'} ${path} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`)
   return json
@@ -105,6 +118,16 @@ async function main() {
     await api('/insights/', { method: 'POST', body: JSON.stringify({ name: ins.name, description: ins.description, query: ins.query, dashboards: [dash.id], saved: true }) })
     console.log(`+ ${ins.name}`)
   }
+
+  const saved = await api(`/insights/?limit=500&saved=true`)
+  const ourErrors = saved.results.find((x: any) => x.name === OUR_ERRORS && !x.deleted)
+  const me = await api('https://us.posthog.com/api/users/@me/')
+  const alerts = await api('/alerts/')
+  const alert = alerts.results.find((a: any) => a.name === OUR_ERRORS_ALERT.name)
+  const body = JSON.stringify({ ...OUR_ERRORS_ALERT, insight: ourErrors.id, subscribed_users: [me.id] })
+  if (alert) await api(`/alerts/${alert.id}/`, { method: 'PATCH', body })
+  else await api('/alerts/', { method: 'POST', body })
+  console.log(`${alert ? '=' : '+'} alert "${OUR_ERRORS_ALERT.name}" → ${me.email}`)
 }
 
 main().catch((e) => { console.error(e.message ?? e); process.exit(1) })

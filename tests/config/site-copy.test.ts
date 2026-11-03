@@ -85,6 +85,11 @@ describe('site copy', () => {
       expect(theme?.a).toMatch(/bring your own/i)
     })
 
+    it('only promises colours as a maybe: with time, prep and an extra fee (Kaden, 2 Nov 2026)', () => {
+      expect(theme?.a).toMatch(/^Maybe\./)
+      expect(theme?.a).toMatch(/additional fee/i)
+    })
+
     it('quotes the studio fee from config, in whole dollars', () => {
       const cost = partyContent.faq.find((f) => /how much/i.test(f.q))!
       expect(cost.a).toContain(`${formatMoney(partyConfig.basePriceCents)} studio fee`)

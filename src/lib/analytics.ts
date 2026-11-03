@@ -121,6 +121,11 @@ export function trackWaitlistOpened(itemId: string, itemName: string, reason: 'c
   capture('waitlist_opened', { item_id: itemId, item_name: itemName, reason })
 }
 
+/** "Email me this class": the ask (tapped Send) and how it ended. */
+export function trackClassEmail(result: 'sent' | 'invalid' | 'rate_limited' | 'server' | 'network', itemId: string, itemName: string): void {
+  capture(result === 'sent' ? 'class_email_sent' : 'class_email_failed', { item_id: itemId, item_name: itemName, ...(result === 'sent' ? {} : { reason: result }) })
+}
+
 export function trackNewsletterFailed(reason: 'server' | 'network'): void {
   capture('newsletter_failed', { reason })
 }

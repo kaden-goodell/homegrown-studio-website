@@ -25,7 +25,7 @@ const logger = createLogger('api:workshops')
 async function settingsFor(scheduleId: string): Promise<{ ok: boolean; settings: CutoffSettings; tickets?: TicketType[] | null; error?: string }> {
   try {
     const meta = await getEventMeta('workshop', scheduleId)
-    return { ok: true, settings: { options: meta?.options ?? [], signupCutoffHours: meta?.signupCutoffHours ?? null, madeToOrder: meta?.madeToOrder ?? false }, tickets: meta?.tickets ?? null }
+    return { ok: true, settings: { options: meta?.options ?? [], signupCutoffHours: meta?.signupCutoffHours ?? null, optionsCloseHours: meta?.optionsCloseHours ?? null, madeToOrder: meta?.madeToOrder ?? false }, tickets: meta?.tickets ?? null }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
     logger.error('Event settings unreadable for the workshop list', { scheduleId, error })

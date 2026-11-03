@@ -1,4 +1,5 @@
 ---
+import { errorFrom } from '@lib/error-from'
 /** Staff tools (console, counter iPad), /admin, the agreement and the party
  *  pages show families' names, allergies and pickup people as page text,
  *  which input masking does not hide: those pages send pageviews but are never
@@ -10,7 +11,12 @@ const apiKey = import.meta.env.PUBLIC_POSTHOG_PROJECT_TOKEN
 const apiHost = import.meta.env.PUBLIC_POSTHOG_HOST
 const isDevelopment = import.meta.env.DEV
 const environment = import.meta.env.MODE
+// Labels every caught error with who caused it (src/lib/error-from.ts): only
+// error_from = "ours" means the site itself broke; the alert watches that.
+const errorFromScript = `window.__hsErrorFrom = (${errorFrom.toString()});`
 ---
+
+<script is:inline set:html={errorFromScript}></script>
 
 <script is:inline define:vars={{ apiKey, apiHost, isDevelopment, environment, privacyOptions }}>
   if (!apiKey || !apiHost) {
@@ -47,7 +53,15 @@ const environment = import.meta.env.MODE
       // disable_session_recording / autocapture / enable_heatmaps / mask_all_text / mask_all_element_attributes
       ...privacyOptions,
       // Party page keys never leave in an event: src/lib/page-key.ts strips key= / k= from every URL and clicked href.
-      before_send: function (event) { return window.__hsScrubKeys ? window.__hsScrubKeys(event) : event },
+      // Every caught error is labelled with who caused it (src/lib/error-from.ts).
+      before_send: function (event) {
+        try {
+          if (event && event.event === '$exception' && window.__hsErrorFrom) {
+            event.properties.error_from = window.__hsErrorFrom(event.properties.$exception_list, location.origin)
+          }
+        } catch (_) { /* labelling must never cost us the event */ }
+        return window.__hsScrubKeys ? window.__hsScrubKeys(event) : event
+      },
       logs: {
         serviceName: 'hometown-studio-staff-web',
         environment,

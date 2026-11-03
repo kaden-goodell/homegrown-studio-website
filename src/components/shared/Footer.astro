@@ -2,7 +2,7 @@
 import { siteConfig } from '@config/site.config'
 import { buildNav, flatNav } from '@lib/nav'
 import { OPEN_STUDIO_START_DATE } from '@config/opening'
-import { formatHours, weeklyEntries } from '@config/hours'
+import { cafeHoursEntries, formatCafeHours } from '@config/hours'
 import { getStudioDays } from '@lib/studio-settings'
 
 // Every page in the header's menu, groups opened up (see @lib/nav).
@@ -14,10 +14,11 @@ const navItems = flatNav(buildNav(siteConfig, { kitsVisible: siteConfig.features
 // corrects it on the day, so prerendered pages don't need a deploy to switch.
 const walkInOpen = new Date() >= new Date(OPEN_STUDIO_START_DATE + 'T00:00:00-06:00')
 
-// Studio hours as the owners set them on /admin (the config until they save).
-// A page rendered on request reads them now; a prerendered page ships the
-// config's and @lib/site-live swaps in the saved ones when it loads.
-const hours = Astro.isPrerendered ? siteConfig.hours : formatHours(weeklyEntries((await getStudioDays()).studio))
+// Craft Café's weekly walk-in hours as the owners set them on /admin (the
+// config until they save). A page rendered on request reads them now; a
+// prerendered page ships the config's and @lib/site-live swaps in the saved
+// ones when it loads.
+const walkInHours = Astro.isPrerendered ? siteConfig.cafeHours : formatCafeHours(cafeHoursEntries((await getStudioDays()).cafe))
 
 const currentYear = new Date().getFullYear()
 const { street, city, state, zip } = siteConfig.address
@@ -43,9 +44,12 @@ const phoneDigits = (siteConfig.contactPhone ?? '').replace(/[^+\d]/g, '')
       </div>
 
       <div class="footer-column footer-column-middle">
-        <h2 class="footer-heading">Hours</h2>
-        <dl class="footer-hours" data-studio-hours>
-          {hours.map((h) => (
+        <h2 class="footer-heading">Walk-in hours</h2>
+        {/* Walk-in (Craft Café) hours only, so nobody reads a party or workshop
+            slot as "open" (Kaden, 2 Nov 2026). Google still gets the full
+            studio hours (SeoHead + @lib/site-live). */}
+        <dl class="footer-hours" data-walkin-hours>
+          {walkInHours.map((h) => (
             <div class="footer-hours-row">
               <dt>{h.days}</dt>
               <dd>{h.time}</dd>
@@ -53,7 +57,10 @@ const phoneDigits = (siteConfig.contactPhone ?? '').replace(/[^+\d]/g, '')
           ))}
         </dl>
         <p class="footer-note" data-walkin="before" hidden={walkInOpen}>
-          Craft Café walk-ins are Saturday mornings from November 7. Parties and workshops by booking.
+          Craft Café walk-ins start November 7th. Parties and workshops by booking.
+        </p>
+        <p class="footer-note" data-walkin="after" hidden={!walkInOpen}>
+          Parties and workshops by booking.
         </p>
       </div>
 
@@ -220,29 +227,42 @@ const phoneDigits = (siteConfig.contactPhone ?? '').replace(/[^+\d]/g, '')
     }
   }
 
-  /* Hours */
+  /* Hours: each day sits just left of its time, the pair centred under the
+     heading (Kaden 2 Nov 2026: the old spread-out rows "look terrible"). */
   .footer-hours {
+    display: grid;
+    grid-template-columns: max-content max-content;
+    column-gap: 1.25rem;
+    justify-content: start;
     margin: 0;
-    width: 17rem;
-    max-width: 100%;
     text-align: left;
   }
 
   .footer-hours-row {
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
+    display: contents;
+  }
+  .footer-hours-row dt,
+  .footer-hours-row dd {
+    margin: 0;
     padding: 0.175rem 0;
     font-size: 0.9375rem;
     line-height: 1.5;
     color: var(--color-on-dark-muted);
   }
-  .footer-hours-row dt,
-  .footer-hours-row dd {
-    margin: 0;
+  .footer-hours-row dt {
+    color: var(--color-on-dark);
   }
   .footer-hours-row dd {
     white-space: nowrap;
+  }
+
+  @media (min-width: 720px) {
+    .footer-hours {
+      justify-content: center;
+    }
+    .footer-column-middle .footer-note {
+      margin-inline: auto;
+    }
   }
 
   /* The quiet part: one row of links across the bottom, then the small print. */

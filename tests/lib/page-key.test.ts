@@ -145,7 +145,12 @@ describe('PostHog key scrubber (window.__hsScrubKeys)', () => {
 
   it('PostHog runs it on every event', () => {
     const ph = readFileSync(resolve(__dirname, '../../src/components/posthog.astro'), 'utf8')
-    expect(ph).toMatch(/before_send: function \(event\) \{ return window\.__hsScrubKeys \? window\.__hsScrubKeys\(event\) : event \}/)
+    // One before_send: label who caused an error (src/lib/error-from.ts), then scrub the keys, always returning the event.
+    const send = ph.slice(ph.indexOf('before_send:'), ph.indexOf('logs:'))
+    expect(send).toMatch(/^before_send: function \(event\) \{/)
+    expect(send).toMatch(/return window\.__hsScrubKeys \? window\.__hsScrubKeys\(event\) : event\n/)
+    expect(send).toContain('event.properties.error_from = window.__hsErrorFrom(')
+    expect(ph.match(/before_send:/g)).toHaveLength(1)
   })
 })
 

@@ -1,24 +1,24 @@
-// The prerendered pages' footer hours and Google business details follow the hours saved on /admin.
+// The prerendered pages' footer walk-in hours and Google business details follow the hours saved on /admin.
 import { describe, it, expect } from 'vitest'
-import { applyBusinessHours, applyStudioHours } from '@lib/site-live'
+import { applyBusinessHours, applyWalkInHours } from '@lib/site-live'
 
 const page = (jsonLd: object, from = '2026-11-07T00:00:00-06:00') => {
   document.body.innerHTML = `
-    <dl class="footer-hours" data-studio-hours><div class="footer-hours-row"><dt>Thursday</dt><dd>6 – 8 PM</dd></div></dl>
+    <dl class="footer-hours" data-walkin-hours><div class="footer-hours-row"><dt>Thursday</dt><dd>6 – 8 PM</dd></div></dl>
     <script type="application/ld+json" data-business-jsonld data-hours-from="${from}">${JSON.stringify(jsonLd)}</script>`
 }
 const ld = () => JSON.parse(document.querySelector('script[data-business-jsonld]')!.textContent!)
 
 describe('site-live', () => {
-  it('the footer lists the saved studio hours', () => {
+  it('the footer lists the saved Craft Café walk-in hours', () => {
     page({})
-    applyStudioHours(document, [{ days: 'Wednesday & Friday', time: '4 – 9 PM' }, { days: 'Sunday', time: '10 AM – 8 PM' }])
+    applyWalkInHours(document, [{ days: 'Wednesday & Friday', time: '4 – 9 PM' }, { days: 'Sunday', time: '10 AM – 8 PM' }])
     expect([...document.querySelectorAll('.footer-hours-row')].map((r) => r.textContent)).toEqual(['Wednesday & Friday4 – 9 PM', 'Sunday10 AM – 8 PM'])
   })
 
   it('nothing sent: the footer keeps what it was built with', () => {
     page({})
-    applyStudioHours(document, [])
+    applyWalkInHours(document, [])
     expect(document.querySelector('.footer-hours-row')!.textContent).toBe('Thursday6 – 8 PM')
   })
 

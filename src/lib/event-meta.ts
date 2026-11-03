@@ -10,7 +10,7 @@
 import { createLogger } from '@lib/logger'
 import { makeKvStore } from '@lib/blob-store'
 import { hasSeatChoices } from '@lib/seat-choices'
-import { optionsChangeRefusal, validateCapacity, validateCutoffHours, validateOptions, SeatSettingsError, type SeatOption } from '@lib/seat-options'
+import { optionsChangeRefusal, validateCapacity, validateCutoffHours, validateOptions, validateOptionsCloseHours, SeatSettingsError, type SeatOption } from '@lib/seat-options'
 import type { By } from '@lib/staff-auth'
 import { validateTicketTypes, type TicketType } from '@lib/ticket-types'
 import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
@@ -28,6 +28,7 @@ export interface EventMetaHistoryEntry {
   /** Absent on entries written before seat questions existed. */
   options?: SeatOption[]
   signupCutoffHours?: number | null
+  optionsCloseHours?: number | null
   capacity?: number | null
   madeToOrder?: boolean
   tickets?: TicketType[] | null
@@ -41,6 +42,8 @@ export interface EventMeta {
   options: SeatOption[]
   /** null = the default (0 h, or 24 h once the class asks questions or is made to order). */
   signupCutoffHours: number | null
+  /** Questions close this many hours before the class while seats keep selling; null = with sign-ups. */
+  optionsCloseHours: number | null
   /** Made ahead for each person, so sign-ups close a day early (Kaden, 18 Oct 2026). */
   madeToOrder: boolean
   /** Seats the class holds; null = unknown (Square's buyer API never says). */
@@ -58,6 +61,7 @@ export interface EventMetaPatch {
   days?: string[] | null
   options?: SeatOption[]
   signupCutoffHours?: number | null
+  optionsCloseHours?: number | null
   capacity?: number | null
   madeToOrder?: boolean
   tickets?: TicketType[] | null
@@ -69,7 +73,7 @@ function key(kind: string, id: string): string {
 
 export function emptyEventMeta(): EventMeta {
   return {
-    dropOff: false, days: null, options: [], signupCutoffHours: null, capacity: null, madeToOrder: false, tickets: null,
+    dropOff: false, days: null, options: [], signupCutoffHours: null, optionsCloseHours: null, capacity: null, madeToOrder: false, tickets: null,
     updatedAt: new Date(0).toISOString(), by: { id: '', name: '' }, history: [],
   }
 }
@@ -78,11 +82,13 @@ export function normalizeEventMeta(raw: any): EventMeta {
   const options = validateOptions(raw?.options)
   const cutoff = validateCutoffHours(raw?.signupCutoffHours)
   const capacity = validateCapacity(raw?.capacity ?? null)
+  const optionsClose = validateOptionsCloseHours(raw?.optionsCloseHours ?? null)
   return {
     dropOff: !!raw?.dropOff,
     days: Array.isArray(raw?.days) ? raw.days.map(String) : null,
     options: options.ok ? options.value : [],
     signupCutoffHours: cutoff.ok ? cutoff.value : null,
+    optionsCloseHours: optionsClose.ok ? optionsClose.value : null,
     capacity: capacity.ok ? capacity.value : null,
     madeToOrder: raw?.madeToOrder === true,
     tickets: (() => { const t = validateTicketTypes(raw?.tickets ?? null); return t.ok ? t.value : null })(),
@@ -120,6 +126,12 @@ export function mergeEventMeta(current: EventMeta, patch: EventMetaPatch, by: By
     if (!checked.ok) throw new SeatSettingsError(checked.error)
     signupCutoffHours = checked.value
   }
+  let optionsCloseHours = current.optionsCloseHours
+  if (patch.optionsCloseHours !== undefined) {
+    const checked = validateOptionsCloseHours(patch.optionsCloseHours)
+    if (!checked.ok) throw new SeatSettingsError(checked.error)
+    optionsCloseHours = checked.value
+  }
   let capacity = current.capacity
   if (patch.capacity !== undefined) {
     const checked = validateCapacity(patch.capacity)
@@ -140,12 +152,13 @@ export function mergeEventMeta(current: EventMeta, patch: EventMetaPatch, by: By
     days,
     options,
     signupCutoffHours,
+    optionsCloseHours,
     capacity,
     madeToOrder,
     tickets,
     updatedAt: now,
     by,
-    history: [...current.history, { at: now, by, dropOff, days, options, signupCutoffHours, capacity, madeToOrder, tickets }].slice(-HISTORY_CAP),
+    history: [...current.history, { at: now, by, dropOff, days, options, signupCutoffHours, optionsCloseHours, capacity, madeToOrder, tickets }].slice(-HISTORY_CAP),
   }
 }
 
@@ -166,7 +179,7 @@ export async function setEventMeta(kind: string, id: string, patch: EventMetaPat
     const next = mergeEventMeta(current, patch, by, new Date().toISOString(), hasPicks)
     if (await kv.setIfMatch(k, JSON.stringify(next), etag, value !== null)) {
       logger.info('Event meta set', {
-        kind, id, dropOff: next.dropOff, days: next.days, options: next.options.length, signupCutoffHours: next.signupCutoffHours, capacity: next.capacity, madeToOrder: next.madeToOrder, tickets: next.tickets?.length ?? 0,
+        kind, id, dropOff: next.dropOff, days: next.days, options: next.options.length, signupCutoffHours: next.signupCutoffHours, optionsCloseHours: next.optionsCloseHours, capacity: next.capacity, madeToOrder: next.madeToOrder, tickets: next.tickets?.length ?? 0,
       })
       return next
     }

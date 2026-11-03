@@ -191,6 +191,22 @@ describe('event-meta — made to order', () => {
   })
 })
 
+describe('event-meta — questions that close early', () => {
+  it('is unset by default, saves, logs, keeps across other changes, and clears', async () => {
+    const id = 'w_optclose_' + Date.now()
+    expect((await setEventMeta('workshop', id, { capacity: 12 }, by)).optionsCloseHours).toBeNull()
+    const m = await setEventMeta('workshop', id, { optionsCloseHours: 168 }, by)
+    expect(m.optionsCloseHours).toBe(168)
+    expect(m.history.at(-1)).toMatchObject({ by, optionsCloseHours: 168 })
+    expect((await setEventMeta('workshop', id, { capacity: 10 }, by)).optionsCloseHours).toBe(168)
+    expect((await setEventMeta('workshop', id, { optionsCloseHours: null }, by)).optionsCloseHours).toBeNull()
+  })
+
+  it('refuses hours out of range', async () => {
+    await expect(setEventMeta('workshop', 'w_optclose_bad_' + Date.now(), { optionsCloseHours: 400 }, by)).rejects.toThrow('Questions close 0 to 336 hours')
+  })
+})
+
 describe('event-meta — ticket types', () => {
   it('saves, keeps across other changes, clears, and refuses bad ones', async () => {
     const id = 'w_tix_' + Date.now()

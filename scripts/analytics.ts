@@ -45,8 +45,9 @@ const REPORTS: Record<string, string> = {
     FROM events WHERE ${since} AND event = 'booking_paid' ORDER BY timestamp DESC`,
   quits: `SELECT properties.booking_kind AS kind, properties.last_step AS step, count() AS times
     FROM events WHERE ${since} AND event = 'booking_abandoned' GROUP BY kind, step ORDER BY times DESC`,
-  problems: `SELECT event, properties.booking_kind AS kind, properties.problem AS problem, properties.$exception_message AS error, count() AS times
-    FROM events WHERE ${since} AND event IN ('booking_problem', '$exception') GROUP BY event, kind, problem, error ORDER BY times DESC LIMIT 40`,
+  problems: `SELECT event, properties.booking_kind AS kind, properties.problem AS problem, properties.$exception_message AS error,
+      properties.error_from AS error_from, count() AS times
+    FROM events WHERE ${since} AND event IN ('booking_problem', '$exception') GROUP BY event, kind, problem, error, error_from ORDER BY times DESC LIMIT 40`,
   leads: `SELECT event, properties.method AS method, properties.label AS label, properties.where AS where_on_site, count() AS taps
     FROM events WHERE ${since} AND event IN ('contact_click', 'cta_click', 'notify_signup', 'share') GROUP BY event, method, label, where_on_site ORDER BY taps DESC LIMIT 50`,
   devices: `SELECT properties.$device_type AS device, properties.$os AS os, properties.$browser AS browser, properties.$geoip_city_name AS city, uniq(person_id) AS visitors
