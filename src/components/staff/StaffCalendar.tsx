@@ -169,6 +169,7 @@ export default function StaffCalendar({
                       <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{it.label}</span>
                       {it.status === 'cancelled' && <Badge tone="alert">Cancelled</Badge>}
                       {it.status === 'closed' && <Badge tone="muted">Sign-ups closed</Badge>}
+                      {(it.pay === 'waiting' || it.pay === 'partly') && <Badge tone="warn">Waiting on payment</Badge>}
                       {onIt && <Badge tone="muted">{worked ? 'Worked' : '✓ You’re on'}</Badge>}
                       {!onIt && openEv?.asked && <Badge tone="muted">★ You asked</Badge>}
                     </span>

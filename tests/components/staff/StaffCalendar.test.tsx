@@ -38,6 +38,19 @@ describe('StaffCalendar (crew, read-only)', () => {
     expect(open).toHaveBeenCalledWith({ kind: 'workshop', id: 'cls_camp', title: 'Clay Camp', day: '2026-10-17' })
   })
 
+  it('UI review: a party still waiting on its studio fee says "Waiting on payment"; a paid one doesn’t', async () => {
+    const two = [
+      { kind: 'party', id: 'pty_a', label: 'Tess’s party · Slime', startIso: '2026-10-17T19:00:00.000Z', endIso: '2026-10-17T20:30:00.000Z', pay: 'waiting' },
+      { kind: 'party', id: 'pty_b', label: 'Paige’s party · Pots', startIso: '2026-10-17T22:00:00.000Z', endIso: '2026-10-17T23:30:00.000Z', pay: 'paid' },
+    ]
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: { items: two } }) }))
+    render(<StaffCalendar staff={STAFF} onOpenRoster={() => {}} />)
+    const sat = await screen.findByRole('region', { name: 'Sat Oct 17' })
+    const [tess, paige] = within(sat).getAllByTestId('calendar-item')
+    expect(tess).toHaveTextContent('Waiting on payment')
+    expect(paige).not.toHaveTextContent('Waiting on payment')
+  })
+
   it('moves a week at a time and comes back to this week', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: { items: [] } }) })
     vi.stubGlobal('fetch', fetchMock)

@@ -4,6 +4,8 @@ import { toIso } from '@lib/classes/validate'
 import { json } from '@lib/classes/admin-actions'
 import { listClasses } from '@lib/classes/class-store'
 import { busyBetween } from '@lib/classes/studio-schedule'
+import { getPartyRecord } from '@lib/party-store'
+import { paymentState } from '@lib/parties/money'
 import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
 
 export const prerender = false
@@ -24,9 +26,15 @@ export const GET: APIRoute = async ({ request, url }) => {
   try {
     const [busy, classes] = await Promise.all([busyBetween(from, to), listClasses({ fromIso: from, toIso: to })])
     const status = new Map(classes.map((c) => [c.id, c.status]))
-    const items: CalendarItem[] = busy
+    const shown: CalendarItem[] = busy
       .map((b) => (b.kind === 'class' ? { ...b, status: status.get(b.id) } : b))
       .filter((b) => !(b.kind === 'class' && (b as CalendarItem).status === 'draft'))
+    // UI review (3 Nov): crew see which parties still owe the studio fee ("Waiting on payment"), as on /admin.
+    const items = await Promise.all(shown.map(async (b) => {
+      if (b.kind !== 'party' || !b.id.startsWith('pty_')) return b
+      const record = await getPartyRecord(b.id).catch(() => null)
+      return record ? { ...b, pay: paymentState(record) } : b
+    }))
     return json(200, { data: { items } })
   } catch (e) {
     console.error(`[staff/calendar] ${e instanceof Error ? e.message : e}`)
