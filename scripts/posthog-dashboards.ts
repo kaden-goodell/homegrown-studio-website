@@ -79,8 +79,8 @@ const INSIGHTS: { name: string; description: string; query: unknown }[] = [
       FROM square_payments WHERE status = 'COMPLETED' GROUP BY week ORDER BY week` } } },
   { name: 'Site errors', description: 'Every error caught in visitors\' browsers, by who caused it (error_from): ours = the site broke; facebook_app / hidden / browser_extension / other_site = the visitor\'s browser or app, not us.',
     query: trend([ev('$exception')], 'error_from', table) },
-  { name: OUR_ERRORS, description: 'Errors from our own code only (error_from = ours) — the site actually broke for someone. The email alert watches this.',
-    query: trend([ev('$exception', { error_from: 'ours' })], undefined, { interval: 'hour', dateRange: { date_from: '-7d' } }) },
+  { name: OUR_ERRORS, description: 'Errors from our own code only (error_from = ours) for real visitors (team devices left out) — the site actually broke for someone. The email alert watches this.',
+    query: trend([ev('$exception', { error_from: 'ours' })], undefined, { interval: 'hour', dateRange: { date_from: '-7d' }, filterTestAccounts: true }) },
 ]
 
 /** Email (to the PostHog login) within the hour when our own code errors for anyone. */
