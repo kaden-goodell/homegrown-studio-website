@@ -496,6 +496,12 @@ async function settleEarlier(rec: PartyRecord, p: PartyPaying, now: Date): Promi
     logger.error('Could not ask Square whether an earlier link payment paid', { partyId: rec.bookingId, error: String(earlier.error) })
     return 'unknown'
   }
+  // Money M8: a payment Square shows still going through (PENDING/APPROVED) is not "unpaid": a second card
+  // must never be charged on top of it. Busy until it settles (the webhook records it if it completes).
+  if (earlier.kind === 'unpaid' && earlier.pending) {
+    logger.warn('An earlier link payment is still going through in Square — not charging again', { partyId: rec.bookingId })
+    return 'unknown'
+  }
   if (earlier.kind === 'unpaid') return 'unpaid'
   logger.warn('An earlier link payment was paid — recording it', { partyId: rec.bookingId, orderId: earlier.order.orderId })
   const out = await recordLinkCharge(rec.bookingId, p, {

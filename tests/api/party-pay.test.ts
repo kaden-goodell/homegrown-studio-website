@@ -97,7 +97,7 @@ const SLOTS = [
   ['2027-03-07', '13:00'], ['2027-03-07', '15:30'], ['2027-03-13', '14:00'], ['2027-03-14', '13:00'], ['2027-03-14', '15:30'],
   ['2027-03-20', '14:00'], ['2027-03-21', '13:00'], ['2027-03-21', '15:30'], ['2027-03-27', '14:00'], ['2027-03-28', '13:00'],
   ['2027-03-28', '15:30'], ['2027-04-03', '14:00'], ['2027-04-04', '13:00'], ['2027-04-04', '15:30'], ['2027-04-10', '14:00'],
-  ['2027-04-11', '13:00'], ['2027-04-11', '15:30'], ['2027-04-17', '14:00'], ['2027-04-18', '13:00'], ['2027-04-18', '15:30'],
+  ['2027-04-11', '13:00'], ['2027-04-11', '15:30'], ['2027-04-17', '14:00'], ['2027-04-18', '13:00'], ['2027-04-18', '15:30'], ['2027-04-24', '14:00'], ['2027-04-25', '13:00'], ['2027-04-25', '15:30'],
 ]
 let slot = 0
 
@@ -429,6 +429,22 @@ describe('drift (R14, as Task 7)', () => {
 })
 
 describe('no answer from Square', () => {
+  it('money M8: after the 24-hour lock, a payment Square shows still PENDING is never charged over: the next try waits', async () => {
+    const p = await linkParty()
+    m.processPayment.mockRejectedValueOnce(new Error('socket hang up'))
+    m.findOrderPayment.mockResolvedValueOnce(null)
+    const b = payBody(p)
+    expect((await pay(b)).status).toBe(502)
+    vi.setSystemTime(new Date(NOW.getTime() + 25 * 3600_000))
+    const orderId = `ord-${b.attemptId}:order`
+    m.paid.set(orderId, { id: 'pay-pending', orderId, amount: 30000, status: 'pending', receiptUrl: null })
+    m.createOrder.mockClear(); m.processPayment.mockClear()
+    const next = await pay(payBody(p))
+    expect(next.status).toBe(409)
+    expect(next.json).toMatchObject({ code: 'in_progress', detail: LINK_BUSY_MESSAGE })
+    expect(m.processPayment).not.toHaveBeenCalled()
+  })
+
   it('keeps the slot 24 hours, tells the owners, 502; another attempt waits; Square’s payment event records it', async () => {
     const p = await linkParty()
     m.processPayment.mockRejectedValueOnce(new Error('socket hang up'))

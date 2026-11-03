@@ -847,6 +847,11 @@ async function recoverPaid(partyId: string, input: BookInput, now: Date, known?:
     logger.error('Could not ask Square whether an earlier party try paid', { partyId, error: String(earlier.error) })
     return null
   }
+  // Money M8: still going through in Square → never treated as unpaid (no second charge); ask again later.
+  if (earlier.kind === 'unpaid' && earlier.pending) {
+    logger.warn('An earlier party try is still going through in Square — waiting', { partyId })
+    return null
+  }
   if (earlier.kind === 'unpaid') return 'unpaid'
   logger.warn('An earlier try of this party was paid — recording it', { partyId, orderId: earlier.order.orderId })
   const pay = earlier.payment
