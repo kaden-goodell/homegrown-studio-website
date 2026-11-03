@@ -83,9 +83,9 @@ describe('refund email after a class cancel (final review I10)', () => {
 
 describe('cancel not finished email (final review I13)', () => {
   it('says the cancel didn’t go through, nothing refunded, still booked, and what to do; no colons', async () => {
-    await email.sendCancelNotFinishedEmail({ to: 'a@b.co', givenName: 'Ada', className: 'Candles', whenLabel: 'Sat, Nov 7 · 2:00 PM CT' })
+    await email.sendCancelNotFinishedEmail({ to: 'a@b.co', givenName: 'Ada', className: 'Candles', whenLabel: 'Sat, Nov 7 · 2 PM CT' })
     const m = mockSendMail.mock.calls.at(-1)![0]
-    expect(m.text).toContain('Your cancel for Candles (Sat, Nov 7 · 2:00 PM CT) didn’t go through, so nothing was refunded and you’re still booked.')
+    expect(m.text).toContain('Your cancel for Candles (Sat, Nov 7 · 2 PM CT) didn’t go through, so nothing was refunded and you’re still booked.')
     expect(m.text).toMatch(/If you still can’t make it, text us at .+ and we’ll sort it out with you\./)
     expect(m.text.split('Hometown Studio ·')[0]).not.toContain(':')
   })
