@@ -6,6 +6,7 @@ import { sendEmail } from '@lib/email'
 import { rateLimited } from '@lib/rate-limit'
 import { renderTaxReport, taxReportCsv } from '@lib/tax-report'
 import { buildTaxMonth, lastTaxSent, recordTaxSent, taxReportRecipients } from '@lib/tax-report-store'
+import { TAX_EXTRA_BAD, validTaxEmail } from '@lib/tax-extra'
 import { monthOf } from './reports.json'
 
 export const prerender = false
@@ -26,7 +27,9 @@ function monthRefusal(month: unknown): string | null {
  * GET ?month=2026-10&fresh=1    → the same, asked of Square again
  * GET ?month=2026-10&format=csv → the spreadsheet, as a download
  * POST { month, action: 'send' } → emails that month's report to the tax
- *   report list again ("Send it again"); audited.
+ *   report list ("Send it now" / "Send it again"); audited.
+ * POST { month, action: 'send', to } → the same, to that one address only
+ *   ("Send to…", e.g. the accountant; I7). Month totals only, no customers.
  */
 export const GET: APIRoute = async ({ request, url }) => {
   if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
@@ -63,7 +66,10 @@ export const POST: APIRoute = async ({ request }) => {
   const refused = monthRefusal(month)
   if (refused) return json(400, { error: refused })
   if (rateLimited(`tax-report-send:${month}`, 5, 10 * 60_000)) return json(429, { error: 'It was just sent a few times. Check the inbox, or wait ten minutes.' })
-  const recipients = await taxReportRecipients()
+  const typed = typeof body?.to === 'string' && body.to.trim() ? body.to : null
+  const one = typed ? validTaxEmail(typed) : null
+  if (typed && !one) return json(400, { error: TAX_EXTRA_BAD, field: 'to' })
+  const recipients = one ? [one] : await taxReportRecipients()
   const to = recipients.join(', ')
   let report
   try {

@@ -144,6 +144,27 @@ describe('More › Notifications', () => {
     expect(sent.rows.archive).toEqual(['TM4', 'TM1'])
   })
 
+  it('I7: Also send the monthly tax split to: its own Save, says when it starts, and Stop sending it there', async () => {
+    nv.taxExtra = { email: '', startsAt: null }
+    fetchMock.mockImplementation(async (url: string, init: RequestInit = {}) => {
+      if ((init.method ?? 'GET') === 'GET') return ok({ data: nv })
+      const b = JSON.parse(String(init.body))
+      nv = { ...nv, taxExtra: { email: b.email, startsAt: b.email ? '2026-11-03T15:00:00.000Z' : null } }
+      return ok({ data: { taxExtra: nv.taxExtra, changed: true } })
+    })
+    renderSheet(<NotifySheet />)
+    const card = await screen.findByRole('group', { name: 'Also send the monthly tax split to' })
+    expect(within(card).getByRole('button', { name: 'Save address' })).toBeDisabled()
+    fireEvent.change(within(card).getByLabelText(/Email/), { target: { value: 'chris@cpa.example' } })
+    fireEvent.click(within(card).getByRole('button', { name: 'Save address' }))
+    await waitFor(() => expect(posts(fetchMock, NOTIFY)[0].body).toEqual({ action: 'tax-extra', email: 'chris@cpa.example' }))
+    expect(await screen.findByText(/The tax split also goes to chris@cpa.example from .*The owners were told\./)).toBeInTheDocument()
+    const again = await screen.findByRole('group', { name: 'Also send the monthly tax split to' })
+    expect(await within(again).findByText(/chris@cpa.example starts getting it/)).toBeInTheDocument()
+    fireEvent.click(within(again).getByRole('button', { name: 'Stop sending it there' }))
+    await waitFor(() => expect(posts(fetchMock, NOTIFY)[1].body).toEqual({ action: 'tax-extra', email: '' }))
+  })
+
   it('a refusal shows in plain words', async () => {
     fetchMock.mockImplementation(async (url: string, init: RequestInit = {}) => ((init.method ?? 'GET') === 'GET'
       ? ok({ data: nv })

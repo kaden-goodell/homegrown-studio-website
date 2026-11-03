@@ -229,7 +229,7 @@ const samePicks = (a: Picks, b: Picks) => Object.keys(a).every((k) => [...a[k as
 export function NotifySheet() {
   const toast = useToast()
   const sheet = useSheet()
-  const [view, setView] = useState<(NotifyView & { readOnly: boolean }) | null>(null)
+  const [view, setView] = useState<(NotifyView & { readOnly: boolean; taxExtra?: { email: string; startsAt: string | null } }) | null>(null)
   const [picks, setPicks] = useState<Picks | null>(null)
   const [error, setError] = useState('')
   const [saveError, setSaveError] = useState('')
@@ -241,7 +241,7 @@ export function NotifySheet() {
   useEffect(() => {
     let on = true
     setError('')
-    api<NotifyView & { readOnly: boolean }>(NOTIFY).then((r) => {
+    api<NotifyView & { readOnly: boolean; taxExtra?: { email: string; startsAt: string | null } }>(NOTIFY).then((r) => {
       if (!on) return
       if (r.ok && r.data) { setView(r.data); setPicks(picksOf(r.data)) }
       else setError(r.error ?? 'Couldn’t load the notifications.')
@@ -318,6 +318,7 @@ export function NotifySheet() {
             </fieldset>
           ))}
           {saveError && <p className="adm-error" role="alert">{saveError}</p>}
+          <TaxExtraCard saved={view.taxExtra ?? { email: '', startsAt: null }} readOnly={view.readOnly} onSaved={() => setTries((n) => n + 1)} />
           <p className="adm-small adm-muted adm-gap-top">What’s shown is what’s saved. Changes count from the next message.</p>
           <div className="adm-two">
             <button type="button" className="adm-btn is-ghost" onClick={() => sheet.open({ kind: 'more', page: 'staff' }, { part: 'people' })}>Edit emails and mobiles</button>
@@ -326,6 +327,47 @@ export function NotifySheet() {
         </>
       )}
     </SheetFrame>
+  )
+}
+
+/**
+ * "Also send the monthly tax split to" (final review I7): one address outside
+ * the owners, like the accountant. Its own Save; a new address starts a day
+ * later; every owner is told when it changes.
+ */
+function TaxExtraCard({ saved, readOnly, onSaved }: { saved: { email: string; startsAt: string | null }; readOnly: boolean; onSaved: () => void }) {
+  const toast = useToast()
+  const [email, setEmail] = useState(saved.email)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => { setEmail(saved.email) }, [saved.email])
+  const dirty = email.trim().toLowerCase() !== saved.email
+  async function save(next: string) {
+    setBusy(true)
+    setError('')
+    const r = await api<{ taxExtra: { email: string; startsAt: string | null }; changed: boolean }>(NOTIFY, { action: 'tax-extra', email: next })
+    setBusy(false)
+    if (!r.ok || !r.data) { setError(r.error ?? DIDNT_SAVE); return }
+    const x = r.data.taxExtra
+    toast(!r.data.changed ? 'Nothing changed.' : x.email ? `Saved. The tax split also goes to ${x.email}${x.startsAt ? ` from ${dayAndClock(x.startsAt)}` : ''}. The owners were told.` : 'Saved. The tax split goes to the owners only. The owners were told.')
+    onSaved()
+  }
+  return (
+    <fieldset className="adm-card adm-gap-top" aria-label="Also send the monthly tax split to">
+      <legend className="adm-dark"><b>Also send the monthly tax split to</b></legend>
+      <span className="adm-small adm-muted">One more email, like your accountant’s. Only the month’s totals go: no customer names. A new address starts getting it a day after you save it.</span>
+      <label className="adm-fld">
+        <span>Email <span className="adm-muted">(optional)</span></span>
+        <input type="email" inputMode="email" autoCapitalize="off" autoCorrect="off" value={email} disabled={readOnly} placeholder="Like: chris@accountant.com" onChange={(e) => { setEmail(e.target.value); setError('') }} />
+      </label>
+      {saved.email && saved.startsAt && <span className="adm-small">{`${saved.email} starts getting it ${dayAndClock(saved.startsAt)}.`}</span>}
+      {saved.email && !saved.startsAt && <span className="adm-small">{`${saved.email} gets it too.`}</span>}
+      {error && <p className="adm-error" role="alert">{error}</p>}
+      <div className="adm-two">
+        <button type="button" className="adm-btn is-ghost" disabled={readOnly || busy || !dirty || !email.trim()} onClick={() => save(email.trim())}>{busy ? 'Saving…' : 'Save address'}</button>
+        {saved.email && <button type="button" className="adm-btn is-ghost" disabled={readOnly || busy} onClick={() => save('')}>Stop sending it there</button>}
+      </div>
+    </fieldset>
   )
 }
 

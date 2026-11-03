@@ -770,8 +770,10 @@ describe('More', () => {
     const tax = await within(dialog()).findByRole('region', { name: 'Tax split' })
     expect(await within(tax).findByText('$2.70')).toBeInTheDocument()
     expect(within(tax).getByRole('link', { name: 'Download' })).toHaveAttribute('href', expect.stringMatching(/^\/api\/admin\/tax-report\.json\?month=\d{4}-\d{2}&format=csv$/))
-    fireEvent.click(within(tax).getByRole('button', { name: 'Send it again' }))
+    // Never sent yet: the button says so (I7); after it goes, Send it again.
+    fireEvent.click(within(tax).getByRole('button', { name: 'Send it now' }))
     expect(await screen.findByText('Sent to kaden@ourhometownstudio.com.')).toBeInTheDocument()
+    expect(await within(tax).findByRole('button', { name: 'Send it again' })).toBeInTheDocument()
     expect(posts(f, '/api/admin/tax-report.json')[0]).toMatchObject({ action: 'send' })
     const pick = within(dialog()).getByRole('combobox', { name: 'Show' }) as HTMLSelectElement
     const past = [...pick.options].find((o) => o.value === '2026-09')!

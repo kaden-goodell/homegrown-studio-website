@@ -157,6 +157,29 @@ describe('tax-report.json: the tax split for any month', () => {
     } finally { m.picked = null }
   })
 
+  it('I7: Send to… emails that month to one typed address only (the accountant), audited; a bad address is refused', async () => {
+    const mo = nextMonth()
+    const r = await post({ action: 'send', month: mo, to: ' Chris@CPA.example ' })
+    expect(r.body.data).toMatchObject({ sent: true, to: 'chris@cpa.example' })
+    expect(m.email.mock.calls[0][0]).toMatchObject({ to: 'chris@cpa.example' })
+    expect(m.audit[0]).toMatchObject({ action: 'tax-report-send', details: { to: 'chris@cpa.example', sent: true } })
+    expect(await post({ action: 'send', month: nextMonth(), to: 'chris@, dana@x.co' })).toMatchObject({ status: 400, body: { field: 'to' } })
+  })
+
+  it('I7: the "Also send the monthly tax split to" address joins the list a day after it was saved', async () => {
+    const { saveTaxExtra } = await import('@lib/tax-extra')
+    const { taxReportRecipients } = await import('@lib/tax-report-store')
+    m.picked = ['cat@example.com']
+    try {
+      const at = new Date('2026-11-02T15:00:00Z')
+      await saveTaxExtra('chris@cpa.example', { id: 'o', name: 'Catherine' }, at)
+      expect(await taxReportRecipients(new Date('2026-11-03T14:00:00Z'))).toEqual(['cat@example.com'])
+      expect(await taxReportRecipients(new Date('2026-11-03T15:00:00Z'))).toEqual(['cat@example.com', 'chris@cpa.example'])
+      await saveTaxExtra('', { id: 'o', name: 'Catherine' }, at)
+      expect(await taxReportRecipients(new Date('2026-11-09T15:00:00Z'))).toEqual(['cat@example.com'])
+    } finally { m.picked = null }
+  })
+
   it('an email that doesn’t go says so (and offers Download)', async () => {
     m.email.mockResolvedValue({ sent: false })
     expect(await post({ action: 'send', month: nextMonth() })).toMatchObject({ status: 502, body: { error: 'The email didn’t go. Download it instead, or try again later.' } })

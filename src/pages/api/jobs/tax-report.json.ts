@@ -42,11 +42,11 @@ export function monthName(month: string): string {
 export function taxFailureEmail(month: string, error: string): { subject: string; text: string; html: string } {
   const name = monthName(month)
   const link = `${siteConfig.url.replace(/\/$/, '')}/admin#more-reports`
-  const steps = `Open the admin page (${link}) › More › Reports › pick ${name} › Tax split. It asks Square again when it opens. When it shows, tap Send it again to get this email, or Download it. If Square still doesn't answer, try again tomorrow.`
+  const steps = `Open the admin page (${link}) › More › Reports › pick ${name} › Tax split. It asks Square again when it opens. When it shows, tap Send it now (it says Send it again if it went before) to get this email, or Download it. If Square still doesn't answer, try again tomorrow.`
   return {
     subject: `Tax report for ${name} could not be made`,
     text: `The monthly tax split for ${name} couldn't be built from Square just now (${error.slice(0, 200)}).\n\n${steps}`,
-    html: `<p>The monthly tax split for ${name} couldn’t be built from Square just now.</p><p>Open the <a href="${link}">admin page</a> › More › Reports › pick ${name} › Tax split. It asks Square again when it opens. When it shows, tap <strong>Send it again</strong> to get this email, or <strong>Download</strong> it.</p><p>If Square still doesn’t answer, try again tomorrow.</p>`,
+    html: `<p>The monthly tax split for ${name} couldn’t be built from Square just now.</p><p>Open the <a href="${link}">admin page</a> › More › Reports › pick ${name} › Tax split. It asks Square again when it opens. When it shows, tap <strong>Send it now</strong> (it says <strong>Send it again</strong> if it went before) to get this email, or <strong>Download</strong> it.</p><p>If Square still doesn’t answer, try again tomorrow.</p>`,
   }
 }
 

@@ -73,7 +73,7 @@ function saveFile(name: string, text: string) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }
 
-/** One month's tax split from Square: Download, Send it again, Ask Square again. */
+/** One month's tax split from Square: Download, Send it now / again, Send to…, Ask Square again. */
 function MonthTax({ month }: { month: string }) {
   const toast = useToast()
   const [r, setR] = useState<(TaxMonth & { lastSent: TaxSent | null }) | null>(null)
@@ -82,6 +82,9 @@ function MonthTax({ month }: { month: string }) {
   const [fresh, setFresh] = useState(false)
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
+  /** "Send to…" (I7): one address typed here, like the accountant's. */
+  const [askTo, setAskTo] = useState(false)
+  const [toEmail, setToEmail] = useState('')
   useEffect(() => {
     let live = true
     setR(null)
@@ -95,13 +98,14 @@ function MonthTax({ month }: { month: string }) {
     })
     return () => { live = false }
   }, [month, tries])
-  async function send() {
+  async function send(to?: string) {
     setSending(true)
     setSendError('')
-    const x = await api<{ sent: boolean; to: string; at: string }>(TAX_REPORT, { action: 'send', month })
+    const x = await api<{ sent: boolean; to: string; at: string }>(TAX_REPORT, { action: 'send', month, ...(to ? { to } : {}) })
     setSending(false)
     if (x.ok && x.data) {
       toast(`Sent to ${x.data.to}.`)
+      setAskTo(false)
       setR((cur) => (cur ? { ...cur, lastSent: { at: x.data!.at, to: x.data!.to, by: '' } } : cur))
     } else setSendError(x.error ?? '')
   }
@@ -120,9 +124,24 @@ function MonthTax({ month }: { month: string }) {
           {sendError && <p className="adm-error" role="alert">{sendError}</p>}
           <div className="adm-two adm-gap-top">
             <a className="adm-btn is-ghost" href={`${TAX_REPORT}?month=${month}&format=csv`} download={`hometown-tax-${month}.csv`}>Download</a>
-            <button type="button" className="adm-btn is-pri" disabled={sending} onClick={send}>{sending ? 'Sending…' : 'Send it again'}</button>
+            <button type="button" className="adm-btn is-pri" disabled={sending} onClick={() => send()}>{sending && !askTo ? 'Sending…' : r.lastSent ? 'Send it again' : 'Send it now'}</button>
           </div>
-          <p className="adm-small adm-muted adm-gap-top">{`Send it again emails this month’s tax split to the tax report list. Download saves it as a spreadsheet.`}</p>
+          <p className="adm-small adm-muted adm-gap-top">{`${r.lastSent ? 'Send it again' : 'Send it now'} emails this month’s tax split to the owners picked for it in Notifications (and the accountant, if you added one there). Download saves it as a spreadsheet.`}</p>
+          {askTo
+            ? (
+              <div className="adm-panel adm-gap-top" role="group" aria-label="Send to someone else">
+                <label className="adm-fld">
+                  <span>Their email</span>
+                  <input type="email" inputMode="email" autoCapitalize="off" autoCorrect="off" value={toEmail} placeholder="Like: your accountant’s email" onChange={(e) => { setToEmail(e.target.value); setSendError('') }} />
+                </label>
+                <span className="adm-small">Only this month’s totals go: no customer names.</span>
+                <div className="adm-two">
+                  <button type="button" className="adm-btn is-ghost" onClick={() => { setAskTo(false); setSendError('') }}>Never mind</button>
+                  <button type="button" className="adm-btn is-pri" disabled={sending || !toEmail.trim()} onClick={() => send(toEmail.trim())}>{sending ? 'Sending…' : 'Send'}</button>
+                </div>
+              </div>
+            )
+            : <button type="button" className="adm-btn is-ghost is-sm adm-gap-top" onClick={() => setAskTo(true)}>Send to…</button>}
           {!r.partial && (
             <button type="button" className="adm-btn is-ghost is-sm adm-gap-top" onClick={() => { setFresh(true); setTries((n) => n + 1) }}>Ask Square again</button>
           )}

@@ -283,8 +283,9 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'Reports',
     points: [
       'More › **Reports**: pick a month, or a whole year, under Show. It shows class seats sold, class sales, class refunds, parties booked and party fees taken.',
-      'Under it is the **Tax split** from Square for that month: use tax (classes, Craft Café and party crafts) and sales tax (take-home kits), refunds taken off. Party studio fees carry no tax and show as untaxed. **Download** saves it as a spreadsheet for the accountant. **Send it again** emails it to the tax report list.',
-      'The tax split is also emailed by itself on the 1st of each month. If that email says it couldn’t be made, open Reports, pick that month, and tap **Send it again** once it shows. A month is remembered a week after it ends (late register payments come in by then); **Ask Square again** reads it fresh.',
+      'Under it is the **Tax split** from Square for that month: use tax (classes, Craft Café and party crafts) and sales tax (take-home kits), refunds taken off. Party studio fees carry no tax and show as untaxed. **Download** saves it as a spreadsheet. **Send it now** (it says **Send it again** once it has gone) emails it to the owners picked for it in Notifications, and to the accountant if you added one there. **Send to…** emails that month to any one address you type, like the accountant’s (only the month’s totals go, no customer names).',
+      'To send the spreadsheet yourself: **Download** › on the iPad open Files › Downloads › press and hold the file › Share › Mail.',
+      'The tax split is also emailed by itself on the 1st of each month. If that email says it couldn’t be made, open Reports, pick that month, and tap **Send it now** once it shows. A month is remembered a week after it ends (late register payments come in by then); **Ask Square again** reads it fresh.',
       'A refund shows in the month it was made, not the month of the sale.',
       'Each sale rung up on the register is in the tax split. For the sale-by-sale detail, Square has its own reports (Square Dashboard › Reports).',
     ],
@@ -397,6 +398,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       'Someone who stops being an owner stops getting them. If nobody picked for one is left, it goes to every owner. An owner with no mobile on file gets no texts; only when nobody picked has a mobile do the texts go to the phone numbers the site was set up with.',
       'The weekly records archive waits a day before it goes to a new owner, or to an owner’s new email. The screen shows when it starts. Saving this screen sends the other owners an email and a text saying what changed.',
       'Keep the weekly archive emails: they are the record of every waiver, check-in and incident.',
+      '**Also send the monthly tax split to** (same screen): type one more email, like your accountant’s, then **Save address**. It starts getting the monthly tax split a day later, and every owner gets an email and a text saying so. **Stop sending it there** takes it off.',
     ],
   },
   // ── Stage 4 (extras): promotions, repeating dates, Register setup, waitlists, customers' own cancels, the reader ──
