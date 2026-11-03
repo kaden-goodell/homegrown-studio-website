@@ -15,11 +15,11 @@
  */
 import { randomUUID } from 'node:crypto'
 import {
-  addDays, check, checkEqual, checkStatus, chicagoDate, chicagoToUtcIso, sayReply, SkipScenario, SquareError,
+  addDays, check, checkEqual, checkStatus, chicagoDate, chicagoToUtcIso, sayReply, SkipScenario, SlotAllocator, SquareError,
   type Reply, type Scenario, type Scope,
 } from './core'
 import {
-  bookingIdOf, bookingsOf, CARD_DECLINED, CARD_OK, checkNotCharged, checkRefundInSquare, cleanUpClass, makeClass, nameOf, noSquare,
+  blockedDay, bookingIdOf, bookingsOf, CARD_DECLINED, CARD_OK, checkNotCharged, checkRefundInSquare, cleanUpClass, makeClass, nameOf, noSquare,
   ordersFor, refund, siteLocation, sinceNow, testContent, toDecide, updateClass, type Ctx,
 } from './scenarios'
 
@@ -181,12 +181,23 @@ async function settleWaitlist(ctx: Ctx, classId: string, done: (rows: any[]) => 
 }
 
 /** A capacity-1 class with its one seat sold online. */
-async function fullClass(ctx: Ctx, scope: Scope, what: string, capacity = 1): Promise<{ cls: any; seat: Paid }> {
-  const cls = await makeClass(ctx, scope, { content: testContent({ name: nameOf(ctx, what) }), sessions: ctx.slots.sessions(1, { capacity }) })
+async function fullClass(ctx: Ctx, scope: Scope, what: string, capacity = 1, sessions = ctx.slots.sessions(1, { capacity })): Promise<{ cls: any; seat: Paid }> {
+  const cls = await makeClass(ctx, scope, { content: testContent({ name: nameOf(ctx, what) }), sessions })
   const seat = await bookWith(ctx, cls.id, { tickets: { person: capacity } })
   checkStatus(seat.reply, 200, 'Book the class full')
   return { cls, seat }
 }
+
+/**
+ * Days for a class whose waitlist cutoff a scenario moves past: 5 to ~25 days
+ * out, 6 AM (the staffing scenarios' soon classes are at 5 AM from day 2).
+ * Far enough that the default cutoff (48 hours, D7) hasn't passed, so the
+ * waitlist can still be joined; near enough that "start + a day" stays inside
+ * the 0–720 hour cutoff the class form allows.
+ */
+let cutoffSlots: SlotAllocator | null = null
+const cutoffSession = (ctx: Ctx, capacity: number) =>
+  (cutoffSlots ??= new SlotAllocator(addDays(today(), 5), blockedDay(ctx.settings))).sessions(1, { capacity, time: '06:00' })
 
 const freeTheSeat = (ctx: Ctx, classId: string, bookingId: string) => refund(ctx, { classId, bookingId, kind: 'booking', attempt: `e2e-${randomUUID()}` })
 
@@ -208,11 +219,16 @@ async function cancelView(ctx: Ctx, t: string): Promise<any> {
 }
 const cancelPost = (ctx: Ctx, body: Record<string, unknown>) => ctx.pub.post('/api/classes/cancel.json', body)
 
-/** Refunds on a sandbox payment (ListPaymentRefunds since `since`, filtered to it). */
-async function refundsOn(ctx: Ctx, scope: Scope, paymentId: string, since: string): Promise<any[]> {
-  const loc = await siteLocation(ctx, scope)
-  const r = await ctx.square!.get(`/refunds?location_id=${encodeURIComponent(loc)}&begin_time=${encodeURIComponent(since)}&limit=100`)
-  return (r.refunds ?? []).filter((x: any) => x.payment_id === paymentId)
+/**
+ * Refunds on a sandbox payment, read from the payment's own refund_ids and
+ * each refund by id. Not ListPaymentRefunds: that list is eventually
+ * consistent, so a refund made a second or two earlier can be missing from it
+ * (run 2, scenario 65: Square had both refunds, the list showed one).
+ */
+async function refundsOn(ctx: Ctx, paymentId: string): Promise<any[]> {
+  const payment = (await ctx.square!.get(`/payments/${encodeURIComponent(paymentId)}`)).payment
+  const ids: string[] = payment?.refund_ids ?? []
+  return Promise.all(ids.map(async (id) => (await ctx.square!.get(`/refunds/${encodeURIComponent(id)}`)).refund))
 }
 
 // ── The scenarios ──────────────────────────────────────────────────────────
@@ -554,14 +570,16 @@ export const extrasScenarios: Scenario<Ctx>[] = [
     id: 59,
     title: 'S4-10 Waitlist cutoff passed: nobody charged, the seat is the public\'s',
     plan: [
-      'capacity 1, booked; one person waiting; the class\'s waitlist cutoff moved so it has passed',
+      'a class 5+ days out (6 AM), capacity 1, booked; one person waiting; the class\'s waitlist cutoff moved past now (start + a day, inside 0–720 hours)',
       'free the seat → nobody charged; Run the waitlist now closes the entry and takes the card off',
       'a public booking takes the seat',
     ],
     async run(ctx, scope) {
-      const { cls, seat } = await fullClass(ctx, scope, 'Waitlist cutoff')
+      // A class a few days out: the cutoff can be moved past its start within the 0–720 hours allowed (run 2: 6585 hours was refused).
+      const { cls, seat } = await fullClass(ctx, scope, 'Waitlist cutoff', 1, cutoffSession(ctx, 1))
       const { entryId } = await joinWaitlist(ctx, scope, cls, waiter(ctx, 1))
       const hours = Math.ceil((Date.parse(cls.sessions[0].startIso) - Date.now()) / 3_600_000) + 24
+      check(hours <= 720, `The class is too far out to move its waitlist cutoff past now (${hours} hours)`)
       const { class: cur } = await bookingsOf(ctx, cls.id)
       const up = await updateClass(ctx, cls.id, { content: { ...cur.content, rules: { ...cur.content.rules, waitlistCutoffHours: hours } } })
       checkStatus(up, 200, `Move the waitlist cutoff ${hours} hours before`)
@@ -807,7 +825,6 @@ export const extrasScenarios: Scenario<Ctx>[] = [
       'Square shows exactly 2 refunds on the payment',
     ],
     async run(ctx, scope) {
-      const since = new Date(Date.now() - 60_000).toISOString()
       const cls = await makeClass(ctx, scope, { content: testContent({ name: nameOf(ctx, 'Self cancel') }), sessions: ctx.slots.sessions(1) })
       const b = await bookWith(ctx, cls.id, { tickets: { person: 2 } })
       checkStatus(b.reply, 200, 'Book 2 seats')
@@ -837,7 +854,7 @@ export const extrasScenarios: Scenario<Ctx>[] = [
       // T3/F2: the class sheet counts each refund once, whatever the two tabs did.
       checkEqual(row.cancelLine, 'Cancelled online by the customer · 2 seats, $43.60 refunded', 'Class sheet line')
       if (!ctx.square) return noSquare(scope)
-      const refunds = await refundsOn(ctx, scope, b.reply.body.data.paymentId, since)
+      const refunds = await refundsOn(ctx, b.reply.body.data.paymentId)
       checkEqual(refunds.length, 2, 'Square refunds on the payment')
       checkEqual(refunds.map((r) => Number(r.amount_money.amount)), [2180, 2180], 'Square refund amounts')
     },

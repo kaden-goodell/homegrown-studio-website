@@ -46,7 +46,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { STUDIO_HOURS, WEEKDAYS } from '../../../src/config/hours'
 import {
-  addDays, check, checkEqual, checkStatus, chicagoDate, chicagoToUtcIso, Cleanup, sayReply, SkipScenario, SquareError, weekdayOf,
+  addDays, check, checkEqual, checkStatus, chicagoDate, chicagoToUtcIso, Cleanup, OWNER_HEADERS, sayReply, SkipScenario, SquareError, weekdayOf,
   type Reply, type Scenario, type Scope,
 } from './core'
 import {
@@ -91,7 +91,7 @@ export const TEST_DAY_BEFORE = '08:00'
 export const PARTY_CLEANUP_MINUTES = 60
 
 export const NO_CRAFT = 'The preview has no party craft, so a party can’t be booked. In /admin tap "Set up sandbox", set SQUARE_PARTY_CRAFT_CATEGORY_ID for the branch as it says, redeploy, then run this again.'
-export const OWNER_HEADERS = { 'X-Admin-Who': 'Kaden' }
+export { OWNER_HEADERS }
 const REASON = 'E2E sandbox test'
 
 /** Our party id for a key (attempt id or create key): the same rule as src/lib/booking-core/ids.ts idFor('pty', key). */
@@ -666,7 +666,10 @@ export const partyScenarios: Scenario<PartyCtx>[] = [
       checkEqual(item.detail.elsewhere, true, 'It is a payment with nothing to book it from')
       const decided = await ownerPost(ctx, '/api/admin/to-decide.json', { id: item.id, action: 'sorted' })
       checkStatus(decided, 200, 'Checked in Square')
-      check(!(await toDecide(ctx)).some((i) => i.id === item.id), 'The item is still in To decide')
+      // The list also carries what was decided lately, under the same id with `done` set: only a waiting one counts.
+      const after = await toDecide(ctx)
+      check(!after.some((i) => i.id === item.id && !i.done), 'The item is still in To decide')
+      check(after.some((i) => i.id === item.id && i.done), 'The decision is not in To decide\'s "decided lately"')
       check(!(await partyOf(ctx, bad.partyId)), 'A party was booked from the stray payment')
     },
   },
