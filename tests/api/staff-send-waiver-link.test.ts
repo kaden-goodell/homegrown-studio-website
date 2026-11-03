@@ -11,6 +11,11 @@ vi.mock('@lib/events', () => ({ getEvent: (...a: any[]) => mockGetEvent(...a), E
 const mockGetWaiverRecord = vi.fn()
 vi.mock('@lib/waiver-store', () => ({ getWaiverRecord: (...a: any[]) => mockGetWaiverRecord(...a) }))
 
+const mockSeatChoices = vi.fn(async (..._a: any[]): Promise<any[]> => [])
+vi.mock('@lib/seat-choices', () => ({ listSeatChoicesByEvent: (...a: any[]) => mockSeatChoices(...a) }))
+const mockLedger = vi.fn(async (..._a: any[]): Promise<any> => ({ lines: [] }))
+vi.mock('@lib/classes/seat-ledger', () => ({ getLedger: (...a: any[]) => mockLedger(...a) }))
+
 let configured = true
 const mockSend = vi.fn()
 vi.mock('@lib/quo', () => ({
@@ -100,5 +105,33 @@ describe('POST /api/staff/send-waiver-link.json (HOM-213)', () => {
     expect(res.status).toBe(200)
     const json = await res.json()
     expect(json.data.sent).toBe(false)
+  })
+
+  describe('a class booker who has not signed yet (by the email on their booking, crew review I2)', () => {
+    const ws = { kind: 'workshop', id: 'ws-1', title: 'Pottery Camp', startIso: '2026-10-20T18:00:00.000Z', days: ['2026-10-20'], dropOff: false }
+    it('our own class: texts the phone on their booking, never returns it', async () => {
+      mockGetEvent.mockResolvedValue({ ...ws, own: true })
+      mockLedger.mockResolvedValue({ lines: [{ customer: { givenName: 'Kim', familyName: 'Ng', email: 'Kim@x.com', phone: '2565550142' } }] })
+      const res = await POST(ctx({ email: 'kim@x.com', kind: 'workshop', id: 'ws-1' }))
+      const body = await res.json()
+      expect(body.data.sent).toBe(true)
+      expect(JSON.stringify(body)).not.toContain('2565550142')
+      expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: '2565550142' }))
+      expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({ target: expect.objectContaining({ label: 'Kim Ng' }) }))
+    })
+    it('a Square class: the phone from its seat record', async () => {
+      mockGetEvent.mockResolvedValue(ws)
+      mockSeatChoices.mockResolvedValue([{ customer: { givenName: 'Kim', familyName: 'Ng', email: 'kim@x.com', phone: '2565550142' } }])
+      await POST(ctx({ email: 'kim@x.com', kind: 'workshop', id: 'ws-1' }))
+      expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: '2565550142' }))
+    })
+    it('no phone on the booking: says to show the QR', async () => {
+      mockGetEvent.mockResolvedValue({ ...ws, own: true })
+      mockLedger.mockResolvedValue({ lines: [{ customer: { givenName: 'Kim', familyName: 'Ng', email: 'kim@x.com', phone: '' } }] })
+      const res = await POST(ctx({ email: 'kim@x.com', kind: 'workshop', id: 'ws-1' }))
+      expect(res.status).toBe(404)
+      expect((await res.json()).error).toMatch(/QR/)
+      expect(mockSend).not.toHaveBeenCalled()
+    })
   })
 })

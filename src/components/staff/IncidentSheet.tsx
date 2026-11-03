@@ -172,7 +172,7 @@ export default function IncidentSheet({
     >
       <div
         style={{
-          width: '100%', maxWidth: '30rem', height: '100vh', overflowY: 'auto',
+          width: '100%', maxWidth: '30rem', height: '100%', overflowY: 'auto',
           padding: '1.25rem 1.25rem 2rem', boxSizing: 'border-box',
           background: 'linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(255,255,255,0.96) 100%)',
           boxShadow: '-12px 0 40px rgba(0,0,0,0.25)',

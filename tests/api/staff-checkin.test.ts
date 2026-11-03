@@ -721,3 +721,40 @@ describe('pickup follows the household (seeding)', () => {
     expect(state.notAuthorized).toBe('')
   })
 })
+
+describe('POST /api/staff/checkin.json — expired or older agreements sign again first (crew review I2)', () => {
+  const signed = (over: Record<string, any>) => ({
+    id: 'rec-1', adult: { firstName: 'Kim', lastName: 'Ng', email: 'k@x.com', phone: '2565550142' }, minors: [], signedAt: '2025-01-01T00:00:00.000Z',
+    agreementVersion: 'v1', validUntil: '2099-01-01T00:00:00.000Z', ...over,
+  })
+
+  it('an expired agreement is refused with what to do, and nothing is marked', async () => {
+    mockGetWaiverRecord.mockResolvedValue(signed({ validUntil: '2020-01-01T00:00:00.000Z' }))
+    const res = await post({ kind: 'party', id: 'party-1', recordId: 'rec-1', action: 'checkin', personIds: ['adult'] })
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body).toMatchObject({ needsSigning: 'expired', error: 'Their agreement has expired. Have them sign again first.' })
+    expect(mockMutate).not.toHaveBeenCalled()
+  })
+
+  it('an older version is refused too', async () => {
+    mockGetWaiverRecord.mockResolvedValue(signed({ agreementVersion: 'v0' }))
+    const res = await post({ kind: 'party', id: 'party-1', recordId: 'rec-1', action: 'checkin', personIds: ['adult'] })
+    expect(res.status).toBe(409)
+    expect((await res.json()).needsSigning).toBe('outdated')
+  })
+
+  it('"Mark here anyway" goes through and is logged as such', async () => {
+    mockGetWaiverRecord.mockResolvedValue(signed({ validUntil: '2020-01-01T00:00:00.000Z' }))
+    const res = await post({ kind: 'party', id: 'party-1', recordId: 'rec-1', action: 'checkin', personIds: ['adult'], anyway: true })
+    expect(res.status).toBe(200)
+    expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'checkin.here', details: expect.objectContaining({ markedAnyway: true, agreement: 'expired' }) }))
+  })
+
+  it('a current agreement checks in as before (no extra log fields)', async () => {
+    mockGetWaiverRecord.mockResolvedValue(signed({}))
+    const res = await post({ kind: 'party', id: 'party-1', recordId: 'rec-1', action: 'checkin', personIds: ['adult'] })
+    expect(res.status).toBe(200)
+    expect(mockAudit.mock.calls.at(-1)![0].details.markedAnyway).toBeUndefined()
+  })
+})

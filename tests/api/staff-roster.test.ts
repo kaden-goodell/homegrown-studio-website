@@ -35,6 +35,9 @@ vi.mock('@lib/checkin-store', async (importOriginal) => {
   return { ...actual, getCheckin: (...a: any[]) => mockGetCheckin(...a) }
 })
 
+const mockFindCraft = vi.fn(async (_id: string): Promise<any> => null)
+vi.mock('@lib/craft-catalog', () => ({ findPartyCraft: (id: string) => mockFindCraft(id) }))
+
 const mockListSeatChoices = vi.fn()
 vi.mock('@lib/seat-choices', async (importOriginal) => {
   const actual: any = await importOriginal()
@@ -280,7 +283,7 @@ describe('GET /api/staff/roster.json — our parties (stage 2 Task 13)', () => {
     const id = 'pty_rosterm00000001'
     await createPartyRecord({
       bookingId: id, hostToken: 'h', craftName: 'Suncatchers', startIso: '2026-11-14T20:00:00.000Z', durationMinutes: 90, hostName: 'Stefanie Justice',
-      hostEmail: 's@x.com', guestCount: 10, title: null, dropOff: false, createdAt: '2026-11-01T00:00:00Z', source: 'ours', status: 'booked',
+      hostEmail: 's@x.com', guestCount: 10, title: null, dropOff: false, createdAt: '2026-11-01T00:00:00Z', source: 'ours', status: 'booked', craftId: 'crf_sun',
       items: [
         { id: 'itm_p', kind: 'package', refId: 'pkg_whole', label: 'Whole studio', qty: 1, unitCents: 30000, cents: 30000, extraMinutes: 0, chargeId: 'chg_1', addedAt: '', by: null },
         { id: 'itm_x', kind: 'addon', refId: 'add_bags', label: 'Goodie bags', qty: 10, unitCents: 500, cents: 5000, extraMinutes: 0, chargeId: null, addedAt: '', by: null },
@@ -292,9 +295,13 @@ describe('GET /api/staff/roster.json — our parties (stage 2 Task 13)', () => {
       refunds: [{ id: 'prf_1', chargeId: 'chg_1', paymentId: 'p1', cents: 5000, reason: 'r', by: null, role: 'owner', squareRefundId: 'sq', requestId: null, at: '2026-11-02T00:00:00Z' }],
     })
     mockGetEvent.mockResolvedValue({ ...partyEvent, id })
+    mockFindCraft.mockResolvedValueOnce({ id: 'crf_sun', name: 'Suncatchers', perHeadCents: 1800 })
     const res = await GET(ctx(`?kind=party&id=${id}`))
     const { data } = await res.json()
     expect(data.partyMoney).toMatchObject({ payer: 'Stefanie Justice', dueCents: 5000, cancelled: false, waiting: null })
+    // what the crew ring up at the end (crew review I10), and how the rest gets paid
+    expect(data.partyMoney.ringUp).toEqual({ craftName: 'Suncatchers', perHeadCents: 1800, guests: 10 })
+    expect(data.partyMoney.stillToPayBy).toBe('register')
     expect(data.partyMoney.charges).toEqual([{ id: 'chg_1', left: 25000, label: expect.stringMatching(/^Paid online when booked · Sun, Nov 1 1:00 PM · \$300$/) }])
   })
 

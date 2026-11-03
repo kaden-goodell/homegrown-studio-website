@@ -39,6 +39,7 @@ export default function CompSeatSheet({
   onClose,
   mode = 'comp',
   priceCents,
+  initialQuery = '',
 }: {
   event: { id: string; title: string; day: string; own?: true }
   /** 'sell': same add, but the money is taken at the register ("Sell a seat"). */
@@ -46,6 +47,8 @@ export default function CompSeatSheet({
   /** Price of one seat, for the "take $X at the register" line. */
   priceCents?: number
   options: SeatOption[]
+  /** What the crew already typed in the roster search ("No one here matches"): starts Find a customer. */
+  initialQuery?: string
   onRecorded: () => void
   onClose: () => void
 }) {
@@ -145,7 +148,7 @@ export default function CompSeatSheet({
     setDays((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : chooseN === 1 ? [id] : cur.length >= chooseN ? cur : [...cur, id]))
   }
 
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(initialQuery)
   const [found, setFound] = useState<FoundCustomer[]>([])
   const [picked, setPicked] = useState<null | { customer: FoundCustomer; household: Household | null }>(null)
   const [chosen, setChosen] = useState<string[]>([])
@@ -466,7 +469,7 @@ export default function CompSeatSheet({
     >
       <div
         style={{
-          width: '100%', maxWidth: '30rem', height: '100vh', overflowY: 'auto',
+          width: '100%', maxWidth: '30rem', height: '100%', overflowY: 'auto',
           padding: '1.25rem 1.25rem 2rem', boxSizing: 'border-box',
           background: 'linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(255,255,255,0.96) 100%)',
           boxShadow: '-12px 0 40px rgba(0,0,0,0.25)',

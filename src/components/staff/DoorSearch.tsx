@@ -238,13 +238,15 @@ function ResultCard({
 export default function DoorSearch(props: {
   todayEvents?: TodayEvent[]
   initialHousehold?: HouseholdMatch
+  /** Start with this search typed (the roster's "No one here matches" → + Add a family). */
+  initialQuery?: string
   onCheckedIn?: () => void
   onAdded?: (r: AddedResult) => void
   onAddToEvent?: (e: TodayEvent, h: HouseholdMatch) => void
 } & ({ mode?: 'walk-in'; event?: undefined } | { mode: 'event'; event: DoorEvent })) {
   const { mode = 'walk-in', todayEvents, initialHousehold, onCheckedIn, onAdded, onAddToEvent } = props
   const doorEvent = props.mode === 'event' ? props.event : undefined
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(props.initialQuery ?? '')
   const [results, setResults] = useState<HouseholdMatch[] | null>(initialHousehold ? [initialHousehold] : null)
   const [selectedId, setSelectedId] = useState<string | null>(initialHousehold?.recordId ?? null)
   const [error, setError] = useState<string | null>(null)

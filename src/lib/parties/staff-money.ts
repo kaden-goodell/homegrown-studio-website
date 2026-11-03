@@ -14,6 +14,7 @@ import { PARTY_SCOPE } from '@lib/booking-core/refund-runner'
 import { isOurs, type PartyCharge, type PartyRecord } from '@lib/party-store'
 import { dueCents, refundableOn } from './money'
 import { describePartyRequest } from './refunds'
+import { findPartyCraft } from '@lib/craft-catalog'
 
 export interface CrewPartyMoney {
   /** who the money goes back to */
@@ -24,6 +25,10 @@ export interface CrewPartyMoney {
   waiting: { requestId: string; cents: number; at: string; by: { id: string; name: string }; chargeId: string | null } | null
   dueCents: number
   cancelled: boolean
+  /** What the crew ring up at the register after the party (D1: crafts are never charged online). */
+  ringUp: { craftName: string; perHeadCents: number | null; guests: number }
+  /** How the "Still to pay" gets paid: a payment link already went out, or take it at the register. */
+  stillToPayBy: 'link' | 'register'
 }
 
 function chargeLabel(c: PartyCharge): string {
@@ -39,11 +44,18 @@ export async function crewPartyMoney(rec: PartyRecord): Promise<CrewPartyMoney |
     const w = (await listRefundRequests(PARTY_SCOPE, rec.bookingId)).map(describePartyRequest).find((q) => q.status === 'pending' && !q.squareRefundId)
     if (w) waiting = { requestId: w.requestId, cents: w.cents, at: w.at, by: w.by, chargeId: w.chargeId }
   } catch { /* the panel still refunds; a waiting refund is caught by the server's own check */ }
+  // The craft's price per guest today, from the catalog; unknown → the crew are told to look it up on the register.
+  let perHeadCents: number | null = null
+  if (rec.craftId) {
+    try { perHeadCents = (await findPartyCraft(rec.craftId))?.perHeadCents ?? null } catch { /* unknown */ }
+  }
   return {
     payer: rec.hostName,
     charges: (rec.charges ?? []).filter((c) => !c.simulated).map((c) => ({ id: c.id, left: refundableOn(rec, c.id), label: chargeLabel(c) })),
     waiting,
     dueCents: dueCents(rec),
     cancelled: rec.status === 'cancelled',
+    ringUp: { craftName: rec.craftName, perHeadCents, guests: rec.guestCount },
+    stillToPayBy: (rec.linkSent ?? []).length > 0 ? 'link' : 'register',
   }
 }

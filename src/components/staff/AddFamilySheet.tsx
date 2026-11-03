@@ -12,11 +12,14 @@ import NewFamilyButton from '@components/staff/NewFamilyButton'
 export default function AddFamilySheet({
   event,
   initialHousehold,
+  initialQuery,
   onAdded,
   onClose,
 }: {
   event: DoorEvent
   initialHousehold?: HouseholdMatch
+  /** What the crew already typed in the roster search ("No one here matches"). */
+  initialQuery?: string
   /** Called once the family is on the roster — the roster refreshes. */
   onAdded: () => void
   onClose: () => void
@@ -39,7 +42,7 @@ export default function AddFamilySheet({
     >
       <div
         style={{
-          width: '100%', maxWidth: '30rem', height: '100vh', overflowY: 'auto',
+          width: '100%', maxWidth: '30rem', height: '100%', overflowY: 'auto',
           padding: '1.25rem 1.25rem 2rem', boxSizing: 'border-box',
           background: 'linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(255,255,255,0.96) 100%)',
           boxShadow: '-12px 0 40px rgba(0,0,0,0.25)',
@@ -67,7 +70,7 @@ export default function AddFamilySheet({
         ) : (
           <>
             {!initialHousehold && <NewFamilyButton event={event} />}
-            <DoorSearch mode="event" event={event} initialHousehold={initialHousehold} onAdded={handleAdded} />
+            <DoorSearch mode="event" event={event} initialHousehold={initialHousehold} initialQuery={initialQuery} onAdded={handleAdded} />
           </>
         )}
       </div>
