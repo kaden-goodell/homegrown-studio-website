@@ -750,3 +750,21 @@ describe('WhatsOnCalendar loading', () => {
     expect(calls()[1]).toBe('/api/calendar.json?month=2027-01')
   })
 })
+
+describe('UI review (3 Nov): month chips at iPad width', () => {
+  beforeEach(setUp)
+  afterEach(tearDown)
+
+  it('iPad (≤1023px): names wrap at spaces only (no "Par/ty", "Christ/mas"), the time on its own line, text 12px', async () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes('1023'), media: query, addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    })))
+    render(<WhatsOnCalendar />)
+    const name = await screen.findByText('Fall Earring Bar')
+    expect(name.style.overflowWrap).toBe('normal')
+    expect(name.style.wordBreak).toBe('normal')
+    const chip = name.parentElement as HTMLElement
+    expect(chip.style.flexDirection).toBe('column')
+    expect(chip.style.fontSize).toBe('0.75rem')
+  })
+})

@@ -31,10 +31,11 @@ export function rangeOf(view: View, day: string): { from: string; days: string[]
 const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 /**
  * Narrower than this, seven columns get too thin: the week shows as a list of
- * days instead. iPad portrait (820px: 708px of content, with or without a
- * panel) gets the list; iPad landscape (1024px: 756px of content) the grid.
+ * days instead. Both iPad sizes (portrait 708px of content, landscape 756px)
+ * get the list: in seven columns there the day names read "Mo…" and the names
+ * are cut (UI review, 3 Nov). A wide computer screen gets the grid.
  */
-export const GRID_MIN_PX = 720
+export const GRID_MIN_PX = 900
 /** Narrower than this, month cells show coloured dots and a count, not name stubs. */
 export const MONTH_CHIPS_MIN_PX = 560
 

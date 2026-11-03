@@ -163,9 +163,19 @@ describe('CalendarView', () => {
       expect(screen.getByRole('button', { name: /Pottery/ })).not.toHaveClass('is-active')
     })
 
-    it('wide enough (720px+, iPad landscape), the seven columns come back (they never scroll sideways: see layout-css.test)', async () => {
+    it('UI review: iPad landscape (756px of content) gets the readable day list too, not seven cramped columns', async () => {
       wide(true)
       width(756)
+      vi.stubGlobal('fetch', server())
+      render(<CalendarView initialDay={DAY} onOpen={() => {}} />)
+      await screen.findByRole('button', { name: /Pottery/ })
+      expect(screen.getByRole('button', { name: /Pottery/ })).not.toHaveClass('adm-chip')
+      expect(document.querySelector('.adm-wgrid')).toBeNull()
+    })
+
+    it('wide enough (900px+, a computer screen), the seven columns come back (they never scroll sideways: see layout-css.test)', async () => {
+      wide(true)
+      width(960)
       vi.stubGlobal('fetch', server())
       render(<CalendarView initialDay={DAY} onOpen={() => {}} />)
       expect(await screen.findByRole('button', { name: /Pottery/ })).toHaveClass('adm-chip')

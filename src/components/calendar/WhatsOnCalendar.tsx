@@ -455,6 +455,8 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
   // Month grid first (Kaden, 9 Oct 2026: "the button says calendar"); List is one tap away.
   const [view, setView] = useState<'list' | 'month'>(initialView)
   const [compact, setCompact] = useState(false)
+  // UI review (3 Nov): iPad-sized month cells (~100px) put the time on its own line, so names get the width.
+  const [narrowCells, setNarrowCells] = useState(false)
   const [events, setEvents] = useState<CalendarEvent[]>(initialEvents)
   const [loading, setLoading] = useState(false)
   // The month on screen: did its request fail, or come back with parts missing?
@@ -533,7 +535,11 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
     setCompact(mq.matches)
     const handler = (ev: MediaQueryListEvent) => setCompact(ev.matches)
     mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
+    const narrow = window.matchMedia('(max-width: 1023px)')
+    setNarrowCells(narrow.matches)
+    const onNarrow = (ev: MediaQueryListEvent) => setNarrowCells(ev.matches)
+    narrow.addEventListener('change', onNarrow)
+    return () => { mq.removeEventListener('change', handler); narrow.removeEventListener('change', onNarrow) }
   }, [])
 
   // Fetch the displayed month's events on mount and whenever the visible month
@@ -890,9 +896,8 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
                     const time = e.kind === 'event' ? '' : chipTime(e.startTime)
                     const chipStyle: CSSProperties = {
                       display: 'flex',
-                      alignItems: 'baseline',
-                      gap: '0.3rem',
-                      fontSize: '0.6875rem',
+                      ...(narrowCells ? { flexDirection: 'column' as const, gap: 0 } : { alignItems: 'baseline', gap: '0.3rem' }),
+                      fontSize: '0.75rem',
                       lineHeight: 1.25,
                       fontWeight: 500,
                       color: 'var(--color-dark)',
@@ -911,12 +916,12 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
                     }
                     const inner = (
                       <>
-                        {time && <span style={{ flexShrink: 0, fontSize: '0.625rem', fontWeight: 700, color: inkOf(e), letterSpacing: '0.02em' }}>{time}</span>}
+                        {time && <span style={{ flexShrink: 0, fontSize: '0.6875rem', fontWeight: 700, color: inkOf(e), letterSpacing: '0.02em' }}>{time}</span>}
                         <span
                           style={
                             e.holiday
                               ? undefined
-                              : { overflow: 'hidden', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: chips.length <= 3 ? 3 : 2, overflowWrap: 'anywhere', minWidth: 0 }
+                              : { overflow: 'hidden', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: chips.length <= 3 ? 3 : 2, overflowWrap: 'normal', wordBreak: 'normal', hyphens: 'manual', minWidth: 0 }
                           }
                         >
                           {/* The time is already at the front of the chip: "4pm Party available", not "… · 4:00 PM". */}

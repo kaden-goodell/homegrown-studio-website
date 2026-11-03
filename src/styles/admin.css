@@ -816,7 +816,7 @@
 .adm-mgrid .adm-wd {
   padding: 2px 0;
   text-align: center;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: var(--color-muted);
 }
@@ -842,7 +842,7 @@
   border: 2px solid var(--color-primary);
 }
 .adm-mday .adm-n {
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 700;
   color: var(--k-class-ink);
   background: var(--k-class-soft);
@@ -854,7 +854,8 @@
   width: 100%;
   padding: 1px 4px;
   border-radius: 4px;
-  font-size: 0.66rem;
+  /* UI review (3 Nov): never under 12px on the iPad. */
+  font-size: 0.75rem;
   line-height: 1.2;
   text-align: left;
   background: var(--k-soft);
@@ -1409,7 +1410,7 @@
   color: var(--color-muted);
 }
 .adm-mclosed {
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: var(--color-muted);
 }
@@ -1531,7 +1532,7 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
 .adm-mday.h-thanksgiving { --holiday-color: var(--holiday-thanksgiving); --holiday-color-soft: var(--holiday-thanksgiving-soft); --holiday-color-ink: var(--holiday-thanksgiving-ink); }
 .adm-mday.h-christmas { --holiday-color: var(--holiday-christmas); --holiday-color-soft: var(--holiday-christmas-soft); --holiday-color-ink: var(--holiday-christmas-ink); }
 .adm-hname {
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   font-weight: 700;
   line-height: 1.1;
   text-align: center;
@@ -1559,7 +1560,7 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
   background: var(--k);
 }
 .adm-dots b {
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   color: var(--color-dark);
 }
 /* The fold pill for closed weekdays. */
