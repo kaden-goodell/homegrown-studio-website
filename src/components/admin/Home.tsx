@@ -138,6 +138,7 @@ export default function Home({ who, onOpen, onInbox }: {
         <button type="button" className="adm-btn is-ghost" onClick={() => onOpen({ kind: 'book-party' })}>+ Book a party</button>
         <button type="button" className="adm-btn is-ghost" onClick={() => onOpen({ kind: 'block' })}>Block time</button>
       </div>
+      <button type="button" className="adm-btn is-ghost" onClick={() => onOpen({ kind: 'more', page: 'find' })}>Find a booking</button>
       {!(shut && !todays.length) && <button type="button" className="adm-btn is-ghost is-sm" onClick={() => onOpen({ kind: 'print', day })}>Print today</button>}
     </div>
   )

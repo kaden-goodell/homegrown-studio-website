@@ -154,6 +154,7 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'Refunds',
     intro: 'Money only ever goes back when you tap Refund and confirm.',
     points: [
+      'Someone calls and you don’t know which class: Home › **Find a booking** › type their name, email or part of their phone › **Search**. Their class bookings show with **Refund** right under each one (and **Open the class**); their parties show with **Open the party** (refund on its Payments tab), and any waitlist place with **Open the class**. Bookings made in Square before the switch aren’t in it.',
       'A class seat: class › Bookings › under the person’s name, tap **Refund**. Pick **One person** or the whole booking, or **Another amount**, add a reason if you like, then **Confirm refund**. They get one refund email. Freeing a seat with no money back is **Free their seat**.',
       'A party: open the party › **Payments** › **Refund** on the payment. The confirm says who gets how much. The party stays booked; cancel it separately if you mean to.',
       '“Already refunded” means it was done before. Only tap **Refund again** if you really mean a second refund.',

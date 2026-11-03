@@ -31,6 +31,7 @@ import { PreviewMessagesSheet, ReportsSheet, SandboxSheet, WhoContext, WhoSheet 
 import { RecordsSheet } from './sheets/RecordsSheet'
 import { CraftsSheet } from './sheets/CraftsSheet'
 import { HelpSheet } from './sheets/HelpSheet'
+import { FindSheet } from './sheets/FindSheet'
 import { AdminAccessSheet, ConnectionsSheet, NotifySheet } from './sheets/OwnerSheets'
 import { PromoSheet, PromosSheet } from './promos/PromosSheet'
 import { ClosedDaysSheet, HoursSheet, RegisterSetupSheet } from './sheets/SettingsSheets'
@@ -505,6 +506,7 @@ function SheetContent({ sheet: s }: { sheet: Sheet }) {
         case 'notify': return <NotifySheet />
         case 'connections': return <ConnectionsSheet />
         case 'help': return <HelpSheet />
+        case 'find': return <FindSheet />
       }
   }
 }
