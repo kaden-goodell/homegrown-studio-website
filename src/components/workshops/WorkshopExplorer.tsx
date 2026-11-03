@@ -8,6 +8,7 @@ import { audienceOf, audienceOfAges, type Audience } from '@lib/workshop-copy'
 import WorkshopBookingModal from './WorkshopBookingModal'
 import { canBeBooked, isSoldOut } from '@lib/workshop-rules'
 import { byStart } from './workshop-view-model'
+import { ownWaitlistOpen } from './workshop-status'
 import { trackViewItemList, trackSelectItem, type AnalyticsItem } from '@lib/analytics'
 import type { SeatOption } from '@lib/seat-options'
 import { withSeatsSold, classAvailability, type OwnClassData } from '@lib/classes/public-class'
@@ -205,7 +206,9 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
       return
     }
     if (isSoldOut(target.remainingSeats)) {
-      setNotice(`${target.name} is sold out. Leave your email on its card and we’ll tell you if a seat opens.`)
+      setNotice(ownWaitlistOpen(target)
+        ? `${target.name} is sold out. Tap Join the waitlist on its card.`
+        : `${target.name} is sold out. Leave your email on its card and we’ll tell you if a seat opens.`)
       // Not every browser can do this; the notice alone still says what to do.
       document.getElementById(cardAnchor(target.id))?.scrollIntoView?.({ block: 'center' })
       return

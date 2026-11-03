@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 import WorkshopTile from '@components/workshops/WorkshopTile'
-import { workshopStatus } from '@components/workshops/workshop-status'
+import { ownWaitlistOpen, workshopStatus } from '@components/workshops/workshop-status'
 import { classAvailability, withSeatsSold } from '@lib/classes/public-class'
 import ClassBookingPanel from './ClassBookingPanel'
 
@@ -14,11 +14,15 @@ export const BOOKING_NOT_OPEN = 'Online booking is paused for now. Check back so
  */
 export default function ClassPage({ workshop: initial, bookingsOpen, closedNote }: { workshop: WorkshopData; bookingsOpen: boolean; closedNote?: string }) {
   const [workshop, setWorkshop] = useState(initial)
-  const canBook = bookingsOpen && workshopStatus(workshop).bookable
-  const [open, setOpen] = useState(canBook)
+  const status = workshopStatus(workshop)
+  // Final review I2: a sold-out class with its waitlist open opens the same panel, which takes them through joining it.
+  const waitlistable = status.soldOut && !status.closed && ownWaitlistOpen(workshop)
+  const canBook = bookingsOpen && (status.bookable || waitlistable)
+  // Straight away only when it can be booked; the waitlist opens on a tap.
+  const [open, setOpen] = useState(bookingsOpen && status.bookable)
   return (
     <div style={{ maxWidth: '26rem', margin: '0 auto', display: 'flex' }}>
-      <WorkshopTile workshop={workshop} onBook={() => setOpen(true)} {...(bookingsOpen ? {} : { closedNote: closedNote || BOOKING_NOT_OPEN })} />
+      <WorkshopTile workshop={workshop} {...(bookingsOpen ? { onBook: () => setOpen(true) } : { closedNote: closedNote || BOOKING_NOT_OPEN })} />
       {open && canBook && workshop.own && (
         <ClassBookingPanel
           workshop={workshop}

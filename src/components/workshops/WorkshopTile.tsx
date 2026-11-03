@@ -1,6 +1,6 @@
 import type { WorkshopData } from './WorkshopExplorer'
 import { firstParagraph } from '@lib/workshop-copy'
-import { workshopStatus, WorkshopWaitlist } from './workshop-status'
+import { ownWaitlistOpen, workshopStatus, WorkshopWaitlist } from './workshop-status'
 import { rowWhen } from './WorkshopRow'
 
 export interface WorkshopTileProps {
@@ -78,7 +78,9 @@ export default function WorkshopTile({ workshop, onBook, closedNote }: WorkshopT
               See details and book
             </button>
           )}
-          {!bookable && <WorkshopWaitlist workshop={workshop} {...(onBook ? { onJoin: onBook } : {})} />}
+          {/* While booking is paused, a sold-out class's waitlist can't be joined either: the note says why. */}
+          {!bookable && closedNote && soldOut && ownWaitlistOpen(workshop) && <p style={{ margin: 0, fontSize: '0.9375rem', color: 'var(--color-text)' }}>{closedNote}</p>}
+          {!bookable && !(closedNote && soldOut && ownWaitlistOpen(workshop)) && <WorkshopWaitlist workshop={workshop} {...(onBook ? { onJoin: onBook } : {})} />}
         </div>
       </div>
     </article>
