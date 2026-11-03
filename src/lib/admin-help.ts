@@ -103,7 +103,8 @@ export const HELP_SECTIONS: HelpSection[] = [
     points: [
       'Home › **+ New class**, or Classes › **+ New class**, or tap a day on the Calendar › **+ New class on this day**.',
       'Pick **Start fresh** or **From a past class** (copies its details; you pick new dates).',
-      'Fill in the name, the description, the photo, the dates and times, then the parts that matter for this class: **Seat prices** (+ Add a kind of seat), **Ways to book**, **Extras**, **Questions** and **Ages and booking rules**.',
+      'Fill in the name, the description, the photo, the dates and times, then under **More options** the parts that matter for this class: **Kinds of seat (like Adult and Kid)**, **Ways to book**, **Extras**, **Questions** and **Ages and booking rules**.',
+      'Adult and Kid prices: **More options** › Kinds of seat › rename Person to Adult › **+ Add a kind of seat** › type Kid › type each price in the box next to it. (With more than one way to book, like a drop-in as well as the full class, the prices go under Ways to book instead, one box per kind of seat.)',
       '**Add class** puts it on the website for people to book, and in your library. **Save as draft** keeps it just for you until you open it.',
       'If the time clashes with a party, a class or a closed day, it says what with. Pick another time.',
     ],

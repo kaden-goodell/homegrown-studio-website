@@ -56,7 +56,7 @@ export const MORE_KEYS: FieldKey[] = ['prices', 'tickets', 'addons', 'questions'
 /** "Fix the price." for the footer line, so an error far up the form is never missed. */
 const WHAT: Record<FieldKey, string> = {
   photo: 'the photo', name: 'the name', price: 'the price', earlybird: 'the early-bird', ages: 'the ages', description: 'the description', dates: 'the dates',
-  prices: 'the prices under Ways to book', tickets: 'Seat prices', addons: 'the extras', questions: 'the questions', rules: 'Ages and booking rules',
+  prices: 'the prices under More options', tickets: 'Kinds of seat', addons: 'the extras', questions: 'the questions', rules: 'Ages and booking rules',
   usual: 'the usual length or seats',
 }
 export function firstError(e: Errors): FieldKey | null {
