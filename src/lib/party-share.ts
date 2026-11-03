@@ -169,13 +169,13 @@ export function partyInviteMailto(input: {
       ? `You’re invited to ${input.title} at Hometown Studio!`
       : 'You’re invited to a private craft party at Hometown Studio!',
     '',
-    `🎨 We’re making: ${input.craftName}`,
-    `🗓 When: ${input.slotLabel}`,
-    `📍 Where: ${input.where ?? 'Hometown Studio · 525 Hughes Rd Ste F, Madison, AL'}`,
+    `We’re making ${input.craftName}`,
+    input.slotLabel,
+    `At ${input.where ?? 'Hometown Studio · 525 Hughes Rd Ste F, Madison, AL'}`,
     '',
-    'Details + a quick RSVP (takes about a minute):',
+    'See the details and RSVP here',
     input.inviteUrl,
-    ...(input.icsUrl ? ['', `📅 Add it to your calendar: ${input.icsUrl}`] : []),
+    ...(input.icsUrl ? ['', `Add it to your calendar ${input.icsUrl}`] : []),
     '',
     'Hope you can make it!',
   ].join('\n')

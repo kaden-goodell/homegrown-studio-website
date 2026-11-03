@@ -72,7 +72,7 @@ describe('POST /api/staff/send-waiver-link.json (HOM-213)', () => {
     expect(json.data.sent).toBe(true)
     const { to, content } = mockSend.mock.calls[0][0]
     expect(to).toBe('(256) 555-0123')
-    expect(content).toBe('Hometown Studio: please sign the participation agreement for Suncatchers Party: ' + content.split(': ').pop())
+    expect(content).toBe('Hometown Studio here. Please sign the participation agreement for Suncatchers Party ' + content.split(' ').pop())
     expect(content).toContain('Suncatchers Party')
     expect(content).toContain('/waiver?party=party-1')
     expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'waiver-link.sent', by: expect.objectContaining({ id: expect.any(String), role: expect.stringMatching(/^(owner|crew)$/) }), target: expect.objectContaining({ kind: 'household', id: 'wvr_1' }) }))

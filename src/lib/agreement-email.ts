@@ -54,7 +54,7 @@ function coveredList(record: WaiverRecord, now: Date): { name: string; age?: num
 }
 
 const footerText = () =>
-  `Keep this email — it's your copy. Questions: ${siteConfig.contactEmail} / ${siteConfig.contactPhone}.`
+  `Keep this email. It's your copy. Questions? Email ${siteConfig.contactEmail} or text ${siteConfig.contactPhone}.`
 
 export function buildAgreementCopy(input: BuildAgreementCopyInput): { subject: string; html: string; text: string } {
   const { record } = input
@@ -126,10 +126,10 @@ export function buildDropOffDetails(input: BuildDropOffDetailsInput): { subject:
   const signedDate = formatCalendarDate(record.signedAt)
 
   const lines = [
-    `When: ${formatWhen(event.startIso)}`,
+    `See you ${formatWhen(event.startIso)}.`,
     'Check your child in with our crew at the door.',
     `We'll text a pickup code to the phone ending ${phoneHint} at drop-off. Whoever collects ${kidsLabel} needs that code, and photo ID if we don't know them.`,
-    ...(pickups.length ? [`Authorized pickup: ${pickups.join(', ')}.`] : []),
+    ...(pickups.length ? [`${pickups.length === 1 ? pickups[0] : `${pickups.slice(0, -1).join(', ')} and ${pickups[pickups.length - 1]}`} can also pick up.`] : []),
     lateFeeLine(),
     "We don't give medication.",
     `These terms are Section 4b of the participation agreement you signed on ${signedDate}.`,
