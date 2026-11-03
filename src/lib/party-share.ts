@@ -9,6 +9,9 @@ export interface CalendarEventInput {
   endIso: string
   details: string
   location: string
+  /** Its own calendar id (and SEQUENCE), so a file sent again after a move replaces the old event instead of adding one. */
+  uid?: string
+  sequence?: number
 }
 
 /** "20260711T163000Z" from an ISO timestamp. */
@@ -60,8 +63,8 @@ export function buildIcs(
     ...events.flatMap((ev) => [
       'BEGIN:VEVENT',
       // Deterministic UID so the same booking never duplicates in a calendar.
-      one ? `UID:${opts.uid}@ourhometownstudio.com` : `UID:${prefix}-${compactUtc(ev.startIso)}@ourhometownstudio.com`,
-      ...(one ? [`SEQUENCE:${Math.max(0, Math.floor(opts.sequence ?? 0))}`] : []),
+      ev.uid ? `UID:${ev.uid}@ourhometownstudio.com` : one ? `UID:${opts.uid}@ourhometownstudio.com` : `UID:${prefix}-${compactUtc(ev.startIso)}@ourhometownstudio.com`,
+      ...(ev.uid ? [`SEQUENCE:${Math.max(0, Math.floor(ev.sequence ?? 0))}`] : one ? [`SEQUENCE:${Math.max(0, Math.floor(opts.sequence ?? 0))}`] : []),
       `DTSTAMP:${compactUtc(opts.stamp ?? ev.startIso)}`,
       ...(opts.stamp ? [`LAST-MODIFIED:${compactUtc(opts.stamp)}`] : []),
       `DTSTART:${compactUtc(ev.startIso)}`,
@@ -73,6 +76,11 @@ export function buildIcs(
     ]),
     'END:VCALENDAR',
   ].join('\r\n')
+}
+
+/** The calendar id a class confirmation gave a date that started at `startIso` (UID `class-<start>`). */
+export function classEventUid(startIso: string): string {
+  return `class-${compactUtc(startIso)}`
 }
 
 /**

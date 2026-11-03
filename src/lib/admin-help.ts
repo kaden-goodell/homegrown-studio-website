@@ -114,8 +114,8 @@ export const HELP_SECTIONS: HelpSection[] = [
     points: [
       'Open the class (Calendar or Classes). The tabs: **Bookings**, **Details**, **Dates**.',
       '**Details**: change anything, then **Save**. It asks **Only this class** or **This class and the library** (so next time starts from the new version too).',
-      '**Dates**: change a date or time, then **Save dates**. If people are booked it asks first: **Move and I’ll tell them**. Then it lists who to tell, with **Text everyone** and **Copy the numbers**. Nobody is told for you.',
-      'At the top: **Open** (people can book), **Closed** (on the website, sign-ups closed) or **Draft** (only you see it).',
+      '**Dates**: change a date or time, then **Save dates**. If people are booked it asks first: **Move and I’ll tell them**. Then it lists who to tell, with their numbers to tap, **Text everyone**, **Copy the numbers** and **Email everyone the new details** (each gets their confirmation again with the new time and a new calendar file that replaces the old one). Nothing is sent until you tap it.',
+      '**Dates** tab › Status (under the dates): **Open** (people can book), **Closed** (on the website, sign-ups closed) or **Draft** (only you see it). Then **Save dates**.',
       '**Run it again on new dates** makes a new class from this one, a week on, for you to adjust.',
     ],
   },
@@ -124,6 +124,7 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'Who’s coming',
     points: [
       'Class › **Bookings**: everyone booked, their seats, how they paid and anything refunded.',
+      '“I never got my email”: under their name tap **Email them their booking again** › **Send it**. It sends their confirmation again (the class, the time, the calendar file and their “Can’t make it?” link). If the email was mistyped, type the right one in the box first: it’s saved on their booking, so later emails go there too.',
       'Home › **Print today**, or a day on the Calendar › **Print this day**, prints the day’s lists for the table.',
       'At the door the crew check people in on /staff, add walk-ins and take payment.',
     ],
@@ -132,7 +133,7 @@ export const HELP_SECTIONS: HelpSection[] = [
     id: 'classes-cancel',
     title: 'Cancel a class',
     points: [
-      'Class › **Cancel class** › **Cancel this class**. Sign-ups stop and the class comes off the website. It never refunds anyone on its own.',
+      'Open the class › **Cancel this class** (the red button at the bottom of the **Bookings** tab, or of **Details**) › it lists who’s booked › **Cancel class**. Sign-ups stop and the class comes off the website. It never refunds anyone on its own.',
       'Then it lists who to contact (**Text everyone**, **Copy the numbers**), and **Refund everyone…** if you want to give the money back: it shows each person and amount, then **Refund <N> people**.',
       'If some refunds don’t go through, **Try the ones that didn’t go through**.',
     ],
@@ -151,7 +152,7 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'Refunds',
     intro: 'Money only ever goes back when you tap Refund and confirm.',
     points: [
-      'A class seat: class › Bookings › tap the person › **Refund**. Pick **One person** or the whole booking, or **Another amount**, add a reason if you like, then **Confirm refund**. They get one refund email. Freeing a seat with no money back is **Free their seat**.',
+      'A class seat: class › Bookings › under the person’s name, tap **Refund**. Pick **One person** or the whole booking, or **Another amount**, add a reason if you like, then **Confirm refund**. They get one refund email. Freeing a seat with no money back is **Free their seat**.',
       'A party: open the party › **Payments** › **Refund** on the payment. The confirm says who gets how much. The party stays booked; cancel it separately if you mean to.',
       '“Already refunded” means it was done before. Only tap **Refund again** if you really mean a second refund.',
       'A refund Square never answered shows **A refund is waiting on Square** on the booking (or on the party’s Payments). Tap **Ask Square**: it shows what Square did, then only the buttons that fit: **It went through** (recorded with Square’s refund, the customer emailed once), **Try the refund again** (never twice) or **It didn’t go through**. A new refund on that booking waits until this one is sorted.',
@@ -341,6 +342,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       'A password pasted here wins over the one in the hosting settings. So if someone changes GMAIL_APP_PASSWORD in the hosting settings later, first tap **Use the hosting setting instead** under the pasted one, or the pasted one keeps being used.',
       'Only if that screen says it can’t keep a password safely: sign in to the website’s hosting account on a computer (the login is on the studio’s accounts sheet) › Site configuration › Environment variables › GMAIL_APP_PASSWORD › Edit › paste it as the Production value › Save, then Deploys › Trigger deploy › Deploy site. Settings only count after that, and it takes about 3 minutes.',
       'Tap **Send me a test email** again. Until it works, call or text customers who are waiting on an email.',
+      'Once it works, send the emails people missed: for a class, open it › Bookings › **Email them their booking again** under each person who booked while emails were down; for a party, open it › **Email <name> the details**.',
     ],
   },
   {
@@ -433,7 +435,7 @@ export const HELP_ROWS: HelpRow[] = [
   { id: 'capacity-unknown', see: 'Can’t count seats sold for <class>', where: HOME, means: 'A class from Square has no seat count, so extra bookings can’t be spotted.', tap: 'On /staff, open the class › **⋯** › **Event settings** › **Capacity**, set it, save.', buttons: ['Capacity'] },
   { id: 'picks-missing', see: '<class>: N seats have no <choice>', where: HOME, means: 'Someone booked without picking (usually on Square’s own page).', tap: 'Call them and ask, so you prep the right thing.', buttons: [] },
   { id: 'recorded-over-sold', see: '<class>: recorded seats more than Square shows', where: HOME, means: 'Someone was added here to a class that still runs in Square, but not in Square, so Square could sell their seat again.', tap: 'Add them in Square.', buttons: [], square: SQ_LEGACY_CLASS },
-  { id: 'below-minimum', see: 'Short of its minimum', where: TODO_HOME, means: 'A class hasn’t reached the fewest people it needs by its decide-by day.', tap: '**Keep it running**, or **Text the people booked** (opens Messages with their numbers). To cancel, **Open the class** › **Cancel class**. Nothing cancels on its own.', buttons: ['Keep it running', 'Open the class'] },
+  { id: 'below-minimum', see: 'Short of its minimum', where: TODO_HOME, means: 'A class hasn’t reached the fewest people it needs by its decide-by day.', tap: '**Keep it running**, or **Text the people booked** (opens Messages with their numbers). To cancel, **Open the class** › **Cancel this class** (at the bottom) › **Cancel class**. Nothing cancels on its own.', buttons: ['Keep it running', 'Open the class'] },
   { id: 'pos-unmatched', see: 'Counter sale to match', where: TODO_HOME, means: 'A class seat was rung up on the register and the site couldn’t tell which class.', tap: 'Pick the class (and the seat) › **Match to a class**, or **Not for a class**.', buttons: ['Match to a class', 'Not for a class'] },
   { id: 'pos-needs-days', see: 'Counter seat needs its day', where: TODO_HOME, means: 'A seat rung up on the register for a class with several dates needs its day.', tap: 'Pick the day › **Save the day**.', buttons: ['Save the day'] },
   { id: 'door-unpaid', see: 'Not paid at the counter', where: TODO_HOME, means: 'Someone added at the door to pay at the counter has no matching sale.', tap: '**Mark paid at the counter** if they paid another way, or **Free the seat** to take them off the list.', buttons: ['Mark paid at the counter'] },

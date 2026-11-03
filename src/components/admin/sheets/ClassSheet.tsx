@@ -83,7 +83,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
   const [status, setStatus] = useState<ClassStatus>('open')
   const [datesError, setDatesError] = useState('')
   const [toTell, setToTell] = useState<PersonToTell[] | null>(null)
-  const [moved, setMoved] = useState<PersonToTell[] | null>(null)
+  const [moved, setMoved] = useState<{ people: PersonToTell[]; movedFrom: Record<string, string> } | null>(null)
   // Cancel and Refund everyone
   const [asking, setAsking] = useState(false)
   const [cancelError, setCancelError] = useState('')
@@ -237,7 +237,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     if (!checked.ok) { setDatesError(checked.error); return }
     setSaving(true)
     setBusy(confirmMove ? 'move' : 'dates')
-    const r = await api<{ class: ScheduledClass; peopleToTell?: PersonToTell[]; libraryAdded?: boolean }>(CLASSES, {
+    const r = await api<{ class: ScheduledClass; peopleToTell?: PersonToTell[]; movedFrom?: Record<string, string>; libraryAdded?: boolean }>(CLASSES, {
       action: 'update', id: cls.id, expectedUpdatedAt: expected, sessions: checked.sessions, status: status === 'cancelled' ? undefined : status,
       ...(confirmMove ? { confirmMove: true } : {}),
     })
@@ -260,7 +260,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     fill(saved, { dates: true })
     bump()
     if (confirmMove && r.data.peopleToTell?.length) {
-      setMoved(r.data.peopleToTell)
+      setMoved({ people: r.data.peopleToTell, movedFrom: r.data.movedFrom ?? {} })
       toast('Moved. Let the people below know.')
     } else toast(r.warning ?? (r.data.libraryAdded ? 'Saved. It’s in your library now.' : 'Saved. The calendar is updated.'))
   }
@@ -398,6 +398,31 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     open({ kind: 'print', day }, { back: { kind: 'class', id: cls.id }, label: c.name })
   }
 
+  // I2: the same Cancel at the bottom of Bookings (where she decides) and of Details.
+  const cancelBlock = asking
+    ? (
+      <div className="adm-panel is-warn" role="group" aria-label="Cancel the class">
+        <b>{`Cancel ${c.name}?`}</b>
+        {live.length
+          ? (
+            <>
+              <span>{`${live.length === 1 ? 'This person is' : 'These people are'} booked. You’ll contact them; nobody is refunded unless you choose to after.`}</span>
+              <ul className="adm-plain" aria-label="Booked on this class">
+                {live.map((b) => <li key={b.bookingId}>{[nameOf(b), `${seatsHeld(b)} ${seatsHeld(b) === 1 ? 'seat' : 'seats'}`, b.customer?.phone].filter(Boolean).join(' · ')}</li>)}
+              </ul>
+            </>
+          )
+          : <span>Nobody is booked.</span>}
+        <span className="adm-small">It comes off the website and the register.</span>
+        {cancelError && <p role="alert" className="adm-error">{cancelError}</p>}
+        <div className="adm-two">
+          <button type="button" className="adm-btn is-ghost" onClick={() => { setAsking(false); setCancelError('') }}>Keep it</button>
+          <button type="button" className="adm-btn is-danger" disabled={saving} onClick={doCancel}>Cancel class</button>
+        </div>
+      </div>
+    )
+    : <button type="button" className="adm-btn is-danger adm-cancelbtn" onClick={() => setAsking(true)}>Cancel this class</button>
+
   return (
     <SheetFrame tall title={c.name} subtitle={subtitle} footer={footer}>
       <div ref={body}>
@@ -482,8 +507,9 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
                     : cancelled ? 'No bookings.' : 'No bookings yet. It’s live on the What’s On page.'}
               </p>
             )}
-            {bookings.map((b) => <BookingRow key={b.bookingId} b={b} cls={cls} ticket={ticket} onChanged={() => { load(); bump() }} />)}
+            {bookings.map((b) => <BookingRow key={b.bookingId} b={b} cls={cls} ticket={ticket} canEmail={!cancelled && !past} onChanged={() => { load(); bump() }} />)}
             <WaitlistSection classId={cls.id} onChanged={() => { load(); bump() }} />
+            {!cancelled && cancelBlock}
           </section>
         )}
 
@@ -495,31 +521,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
             <fieldset className="adm-bare" disabled={cancelled}>
               <DetailsFields f={f} set={(fn) => setF((cur) => (cur ? fn(cur) : cur))} errors={errors} sessions={sessionsForPasses} />
             </fieldset>
-            {!cancelled && (
-              asking
-                ? (
-                  <div className="adm-panel is-warn" role="group" aria-label="Cancel the class">
-                    <b>{`Cancel ${c.name}?`}</b>
-                    {live.length
-                      ? (
-                        <>
-                          <span>{`${live.length === 1 ? 'This person is' : 'These people are'} booked. You’ll contact them; nobody is refunded unless you choose to after.`}</span>
-                          <ul className="adm-plain" aria-label="Booked on this class">
-                            {live.map((b) => <li key={b.bookingId}>{[nameOf(b), `${seatsHeld(b)} ${seatsHeld(b) === 1 ? 'seat' : 'seats'}`, b.customer?.phone].filter(Boolean).join(' · ')}</li>)}
-                          </ul>
-                        </>
-                      )
-                      : <span>Nobody is booked.</span>}
-                    <span className="adm-small">It comes off the website and the register.</span>
-                    {cancelError && <p role="alert" className="adm-error">{cancelError}</p>}
-                    <div className="adm-two">
-                      <button type="button" className="adm-btn is-ghost" onClick={() => { setAsking(false); setCancelError('') }}>Keep it</button>
-                      <button type="button" className="adm-btn is-danger" disabled={saving} onClick={doCancel}>Cancel class</button>
-                    </div>
-                  </div>
-                )
-                : <button type="button" className="adm-btn is-danger adm-cancelbtn" onClick={() => setAsking(true)}>Cancel this class</button>
-            )}
+            {!cancelled && cancelBlock}
           </section>
         )}
 
@@ -535,12 +537,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
                 <p className="adm-small adm-muted">{STATUS_NOTE[status === 'cancelled' ? 'open' : status]}</p>
               </>
             )}
-            {moved && (
-              <div className="adm-panel" role="group" aria-label="Moved">
-                <b>Moved. Let these people know.</b>
-                <PeopleList people={moved} label="People to tell" />
-              </div>
-            )}
+            {moved && <MovedPanel cls={cls} moved={moved} />}
             <button type="button" className="adm-btn is-ghost adm-again" onClick={() => open({ kind: 'again', id: cls.id })}>Run it again on new dates</button>
           </section>
         )}
@@ -579,16 +576,76 @@ function ClassStaff({ cls, staffKey, onPick }: { cls: ScheduledClass; staffKey: 
 
 function PeopleList({ people, label }: { people: PersonToTell[]; label: string }) {
   return (
-    <ul className="adm-plain" aria-label={label}>
+    <ul className="adm-plain adm-contacts" aria-label={label}>
       {people.map((p, i) => (
-        <li key={i}>{[p.name || 'No name', p.phone, p.email].filter(Boolean).join(' · ')}{p.sessions.length ? ` (booked ${p.sessions.join(', ')})` : ''}</li>
+        <li key={i}>
+          <span>{`${p.name || 'No name'}${p.sessions.length ? ` (booked ${p.sessions.join(', ')})` : ''}`}</span>
+          {(p.phone || p.email) && (
+            <span className="adm-links">
+              {p.phone && <a href={telHref(p.phone)}>{p.phone}</a>}
+              {p.email && <a href={`mailto:${p.email}`}>{p.email}</a>}
+            </span>
+          )}
+        </li>
       ))}
     </ul>
   )
 }
 
+/**
+ * After a move (final review I1): who to tell, with tappable numbers,
+ * Text everyone and Copy the numbers, and an owner-tapped "Email everyone the
+ * new details" (their confirmation again with the new time and a calendar
+ * file that replaces the old one). Nothing is sent until she taps it.
+ */
+function MovedPanel({ cls, moved }: { cls: ScheduledClass; moved: { people: PersonToTell[]; movedFrom: Record<string, string> } }) {
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ sent: string[]; failed: string[]; noEmail: string[] } | null>(null)
+  const [error, setError] = useState('')
+  const phones = [...new Set(moved.people.map((p) => p.phone).filter(Boolean))]
+  const withEmail = moved.people.filter((p) => p.email).length
+  async function emailAll() {
+    setBusy(true)
+    setError('')
+    const r = await api<{ sent: string[]; failed: string[]; noEmail: string[] }>(CLASSES, { action: 'email-moved', id: cls.id, movedFrom: moved.movedFrom })
+    setBusy(false)
+    if (!r.ok || !r.data) { setError(r.error ?? DIDNT_SAVE); return }
+    setResult(r.data)
+    toast(r.data.failed.length ? `Emailed ${r.data.sent.length}. ${r.data.failed.length} didn’t go.` : `Emailed ${r.data.sent.length === 1 ? '1 person' : `all ${r.data.sent.length}`} the new details.`)
+  }
+  return (
+    <div className="adm-panel" role="group" aria-label="Moved">
+      <b>Moved. Let these people know.</b>
+      <PeopleList people={moved.people} label="People to tell" />
+      {phones.length > 0 && (
+        <div className="adm-two">
+          <button type="button" className="adm-btn is-ghost" onClick={() => navigator.clipboard?.writeText(phones.join(', ')).then(() => toast('Copied the numbers.'), () => toast('Couldn’t copy. Press and hold the numbers to copy them.'))}>Copy the numbers</button>
+          <a className="adm-btn is-ghost" href={smsAll(phones)}>Text everyone</a>
+        </div>
+      )}
+      {withEmail > 0 && !result && (
+        <>
+          <button type="button" className="adm-btn is-pri" disabled={busy} onClick={emailAll}>{busy ? 'Sending…' : 'Email everyone the new details'}</button>
+          <span className="adm-small">Sends each of them their confirmation again with the new time and a new calendar file. Nothing is sent until you tap it.</span>
+        </>
+      )}
+      {error && <p className="adm-error" role="alert">{error}</p>}
+      {result && (
+        <p className="adm-small" role="status">
+          {[
+            result.sent.length ? `Emailed: ${result.sent.join(', ')}.` : '',
+            result.failed.length ? `Didn’t go: ${result.failed.join(', ')}. Call or text them.` : '',
+            result.noEmail.length ? `No email on file: ${result.noEmail.join(', ')}. Call or text them.` : '',
+          ].filter(Boolean).join(' ')}
+        </p>
+      )}
+    </div>
+  )
+}
+
 /** One booking: who, what they bought, how they paid, then the refund panel. */
-function BookingRow({ b, cls, ticket, onChanged }: { b: ClassBooking; cls: ScheduledClass; ticket: (id: string) => string; onChanged: () => void }) {
+function BookingRow({ b, cls, ticket, canEmail, onChanged }: { b: ClassBooking; cls: ScheduledClass; ticket: (id: string) => string; canEmail: boolean; onChanged: () => void }) {
   const c = cls.content
   const name = nameOf(b)
   const seatCount = Object.values(b.seats).reduce((a, n) => a + n, 0)
@@ -628,10 +685,57 @@ function BookingRow({ b, cls, ticket, onChanged }: { b: ClassBooking; cls: Sched
       )}
       {b.overCapacity && <p className="adm-small adm-warntext">This seat landed after the class was full. Check the room has space.</p>}
       {b.cancelLine && <p className="adm-small" data-testid="cancel-line">{b.cancelLine}</p>}
+      {canEmail && b.state !== 'held' && b.seatsComing > 0 && <ResendPanel b={b} cls={cls} onChanged={onChanged} />}
       <div data-refund-slot={b.bookingId}>
         {b.state !== 'held' && <RefundPanel classId={cls.id} booking={b} ticketLabel={ticket} waiting={b.waiting} counterSalesAtRegister send={(url, body) => api(url, body)} onDone={onChanged} />}
       </div>
     </article>
+  )
+}
+
+/**
+ * "Email them their booking again" (final review I6): the same confirmation,
+ * with their own "Can't make it?" link and the calendar file. The email box
+ * starts with the one on the booking; a different one is saved on the
+ * booking first (recorded with who changed it).
+ */
+function ResendPanel({ b, cls, onChanged }: { b: ClassBooking; cls: ScheduledClass; onChanged: () => void }) {
+  const toast = useToast()
+  const [open, setOpen] = useState(false)
+  const [email, setEmail] = useState(b.customer?.email ?? '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  if (!open) return <button type="button" className="adm-btn is-ghost is-sm" onClick={() => setOpen(true)}>Email them their booking again</button>
+  const changed = email.trim().toLowerCase() !== (b.customer?.email ?? '').trim().toLowerCase()
+  async function send() {
+    setBusy(true)
+    setError('')
+    const r = await api<{ sent: true; to: string; emailChanged: boolean }>(CLASSES, { action: 'resend-confirmation', id: cls.id, bookingId: b.bookingId, email: email.trim() })
+    setBusy(false)
+    if (!r.ok || !r.data) {
+      setError(r.error ?? DIDNT_SAVE)
+      if (r.extra.emailChanged) onChanged()
+      return
+    }
+    setOpen(false)
+    toast(r.data.emailChanged ? `Email fixed on the booking and sent to ${r.data.to}.` : `Sent to ${r.data.to}.`)
+    if (r.data.emailChanged) onChanged()
+  }
+  return (
+    <div className="adm-panel" role="group" aria-label={`Email ${nameOf(b)} their booking again`}>
+      <label className="adm-fld">
+        <span>Send it to</span>
+        <input type="email" inputMode="email" autoCapitalize="off" autoCorrect="off" value={email} onChange={(e) => { setEmail(e.target.value); setError('') }} />
+      </label>
+      <span className="adm-small">{changed && email.trim()
+        ? 'This email is saved on their booking first, so later emails go there too.'
+        : 'Their confirmation again: the class, the time, the calendar file and their “Can’t make it?” link.'}</span>
+      {error && <p className="adm-error" role="alert">{error}</p>}
+      <div className="adm-two">
+        <button type="button" className="adm-btn is-ghost" onClick={() => { setOpen(false); setEmail(b.customer?.email ?? ''); setError('') }}>Never mind</button>
+        <button type="button" className="adm-btn is-pri" disabled={busy || !email.trim()} onClick={send}>{busy ? 'Sending…' : 'Send it'}</button>
+      </div>
+    </div>
   )
 }
 

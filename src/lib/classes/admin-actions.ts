@@ -646,7 +646,7 @@ class SameAsLibrary extends Error {}
 
 export async function updateScheduledClass(body: {
   id?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; confirmMove?: unknown; expectedUpdatedAt?: unknown
-}, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass; peopleToTell?: PersonToTell[]; libraryAdded?: boolean }>> {
+}, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass; peopleToTell?: PersonToTell[]; movedFrom?: Record<string, string>; libraryAdded?: boolean }>> {
   const cls = await mustGetClass(body.id)
   const expectedUpdatedAt = expectedOf(body, cls)
   if (cls.status === 'cancelled') throw new ActionError(409, 'This class is cancelled. Duplicate it to run it again.')
@@ -746,7 +746,9 @@ export async function updateScheduledClass(body: {
   await audit(by, 'class-update', { kind: 'class', id: cls.id, label: synced.content.name }, {
     changes: changes.join(', ') || 'none', moved: moved.length, alsoUpdateLibrary: body.alsoUpdateLibrary === true,
   })
-  return { data: { class: synced, ...(peopleToTell ? { peopleToTell } : {}), ...(libraryAdded ? { libraryAdded } : {}) }, ...(warning ? { warning } : {}) }
+  // I1: the start each moved date had, so "Email everyone the new details" can move the event in their calendars.
+  const movedFrom = moved.length ? Object.fromEntries(moved.map((s) => [s.id, s.startIso])) : undefined
+  return { data: { class: synced, ...(peopleToTell ? { peopleToTell, movedFrom } : {}), ...(libraryAdded ? { libraryAdded } : {}) }, ...(warning ? { warning } : {}) }
 }
 
 /** Everyone holding a seat, one entry per booking. */
