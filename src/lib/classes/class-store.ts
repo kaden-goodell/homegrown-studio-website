@@ -107,7 +107,7 @@ const byFirstSession = (a: ScheduledClass, b: ScheduledClass) =>
 /** Classes with any session overlapping [fromIso, toIso); all when no range. Sorted by first session. */
 export async function listClasses(range?: { fromIso: string; toIso: string }): Promise<ScheduledClass[]> {
   const [keys, meta] = await Promise.all([
-    kv.list().then((ks) => ks.filter((k) => k.startsWith('class-'))),
+    kv.list('class-').then((ks) => ks.filter((k) => k.startsWith('class-'))),
     range ? kv.getWithMeta(CLASS_INDEX_KEY) : Promise.resolve(null),
   ])
   const readAll = async (ks: string[]) =>

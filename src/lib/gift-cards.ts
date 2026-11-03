@@ -44,7 +44,7 @@ export async function saveMintedGiftCard(r: MintedGiftCard): Promise<void> {
 }
 
 export async function listMintedGiftCards(): Promise<MintedGiftCard[]> {
-  const keys = (await kv.list()).filter((k) => k.startsWith(PREFIX))
+  const keys = (await kv.list(PREFIX)).filter((k) => k.startsWith(PREFIX))
   const records = await Promise.all(keys.map(async (k) => {
     const json = await kv.get(k)
     return json ? (JSON.parse(json) as MintedGiftCard) : null

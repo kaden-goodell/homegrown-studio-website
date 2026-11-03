@@ -207,7 +207,7 @@ export { tokenOf }
 
 /** Every decision on file (each item once), and their ids: a decided item never shows as waiting again. */
 async function listDecided(): Promise<{ all: Decided[]; ids: Set<string> }> {
-  const keys = (await decidedKv.list()).filter((k) => k.startsWith('done-'))
+  const keys = (await decidedKv.list('done-')).filter((k) => k.startsWith('done-'))
   // An undone decision is an empty record: the item waits again.
   const all = (await Promise.all(keys.map((k) => decidedKv.get(k)))).filter((j): j is string => !!j).map((j) => JSON.parse(j) as Decided)
   return { all, ids: new Set(all.map((d) => d.id)) }
@@ -708,7 +708,7 @@ async function cancelDecideItems(cache: ClassCache, skip: Set<string>, now: Date
  * weeks. Each source is read on its own: one that fails is named in
  * `failed` and the rest still show.
  */
-export async function listToDecide(now = new Date()): Promise<{ items: ToDecideItem[]; failed: string[] }> {
+export async function listToDecide(now = new Date(), opts: { only?: ToDecideKind } = {}): Promise<{ items: ToDecideItem[]; failed: string[] }> {
   const cache: ClassCache = new Map()
   const { all: decided, ids: skip } = await listDecided()
   // Every party record, read once for this build and shared by the party item builders.
@@ -720,26 +720,30 @@ export async function listToDecide(now = new Date()): Promise<{ items: ToDecideI
     console.error(`[to-decide] ${what}: ${e instanceof Error ? e.message : String(e)}`)
     return [] as ToDecideItem[]
   })
-  const groups = await Promise.all([
-    safe('counter sales', () => unmatchedItems(skip, now)),
-    safe('refunds', () => refundItems(cache, skip)),
-    safe('counter days', () => needsDaysItems(cache, skip)),
-    safe('minimums', () => minimumItems(skip, now)),
-    safe('door seats', () => doorItems(skip, now)),
-    safe('counter checks', () => matchItems(skip, now)),
-    safe('party payments', () => partyItems(skip, now)),
-    safe('party payments in flight', () => partyPaymentItems(skip, now, parties)),
-    safe('held party times', () => partyHoldItems(skip, now, parties)),
-    safe('paid bookings', () => paidNotSeatedItems(cache, skip)),
-    safe('hosts to tell', () => partyNotToldItems(skip, now, parties)),
-    safe('waitlist', () => waitlistDecideItems(cache, skip, now)),
-    safe('reader sales', () => readerItems(skip, now)),
-    safe('cancels', () => cancelDecideItems(cache, skip, now)),
-    safe('paid on cancelled classes', () => paidOnCancelledItems(skip)),
-  ])
+  // Each source and the kinds it makes. Deciding one item (I-10) builds only the sources of its kind.
+  const sources: [string, readonly ToDecideKind[], () => Promise<ToDecideItem[]>][] = [
+    ['counter sales', ['pos-unmatched'], () => unmatchedItems(skip, now)],
+    ['refunds', ['refund-plain', 'refund-failed', 'refund-unfinished', 'refund-unconfirmed'], () => refundItems(cache, skip)],
+    ['counter days', ['pos-needs-days'], () => needsDaysItems(cache, skip)],
+    ['minimums', ['below-minimum'], () => minimumItems(skip, now)],
+    ['door seats', ['door-unpaid'], () => doorItems(skip, now)],
+    ['counter checks', ['counter-match-check'], () => matchItems(skip, now)],
+    ['party payments', ['party-paid-unclear', 'party-no-confirmation'], () => partyItems(skip, now)],
+    ['party payments in flight', ['party-payment-unclear'], () => partyPaymentItems(skip, now, parties)],
+    ['held party times', ['party-hold-orphan'], () => partyHoldItems(skip, now, parties)],
+    ['paid bookings', ['paid-not-seated'], () => paidNotSeatedItems(cache, skip)],
+    ['hosts to tell', ['party-not-told'], () => partyNotToldItems(skip, now, parties)],
+    ['waitlist', ['waitlist-unknown', 'waitlist-declined', 'waitlist-refund'], () => waitlistDecideItems(cache, skip, now)],
+    ['reader sales', ['reader-waiting', 'reader-extra', 'reader-late'], () => readerItems(skip, now)],
+    ['cancels', ['cancel-request', 'cancel-unclear'], () => cancelDecideItems(cache, skip, now)],
+    ['paid on cancelled classes', ['paid-on-cancelled'], () => paidOnCancelledItems(skip)],
+  ]
+  const groups = await Promise.all(sources
+    .filter(([, kinds]) => !opts.only || kinds.includes(opts.only))
+    .map(([what, , fn]) => safe(what, fn)))
   const open = groups.flat().sort((a, b) => b.at.localeCompare(a.at))
   // Notes on waiting items (R40: "Texted the people booked"), shown on the item.
-  const noteKeys = (await decidedKv.list().catch(() => [] as string[])).filter((k) => k.startsWith('note-'))
+  const noteKeys = (await decidedKv.list('note-').catch(() => [] as string[])).filter((k) => k.startsWith('note-'))
   if (noteKeys.length) {
     const notes = new Map((await Promise.all(noteKeys.map((k) => decidedKv.get(k).catch(() => null))))
       .filter((j): j is string => !!j).map((j) => JSON.parse(j) as Decided).map((n) => [n.id, n]))
@@ -888,10 +892,16 @@ async function newFreeEntries(classId: string, lineIds: string[], before: Set<st
     .map((r) => ({ lineId: x.id, entryId: r.id! })))
 }
 
-/** Finds an open item by id; refuses one already decided or gone. */
-export async function openItem(id: string, now = new Date()): Promise<ToDecideItem> {
-  const { items } = await listToDecide(now)
-  const item = items.find((i) => i.id === id)
+/**
+ * Finds an open item by id; refuses one already decided or gone. With the
+ * item's kind (the sheet sends it), only that kind's source is built (I-10:
+ * every decision used to rebuild the whole list); not found there → the full
+ * list, so a wrong or old hint never refuses a real item.
+ */
+export async function openItem(id: string, now = new Date(), kind?: string): Promise<ToDecideItem> {
+  const only = (TO_DECIDE_KINDS as readonly string[]).includes(kind ?? '') ? (kind as ToDecideKind) : undefined
+  let item = only ? (await listToDecide(now, { only })).items.find((i) => i.id === id) : undefined
+  if (!item) item = (await listToDecide(now)).items.find((i) => i.id === id)
   if (!item) throw new DecideError(404, 'This isn’t waiting any more.')
   if (item.done) throw new DecideError(409, `Already done: ${item.done}.`)
   return item
@@ -907,7 +917,7 @@ const PARTY_KINDS: ReadonlySet<ToDecideKind> = new Set(['party-paid-unclear', 'p
 
 export async function decide(id: string, action: string, body: any, by: By, now = new Date()): Promise<DecideResult> {
   noTestSite()
-  const item = await openItem(id, now)
+  const item = await openItem(id, now, typeof body?.kind === 'string' ? body.kind : undefined)
   if (!ACTIONS[item.kind].includes(action)) throw new DecideError(400, 'That isn’t one of the choices for this.')
   const partyId = typeof item.detail.partyId === 'string' ? item.detail.partyId : ''
   if (item.kind === 'paid-not-seated') {

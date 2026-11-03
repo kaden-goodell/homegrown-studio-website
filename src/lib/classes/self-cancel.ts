@@ -42,7 +42,7 @@ import type { Cents, ScheduledClass } from './types'
 import { listRefundRequests, isWaiting, type SavedRefundRequest } from './refund-requests'
 import { classRefundBook, freeSeatOnly, ALREADY_FREE, type RefundRequest } from './refunds'
 import { clearRequest, runRefund } from '@lib/booking-core/refund-runner'
-import { squareFetch } from './square-api'
+import { askAboutRequest } from '@lib/booking-core/ask-square'
 import { RefundError, REFUND_JUST_MADE, SQUARE_NO_ANSWER, SQUARE_TURNED_DOWN, STILL_WAITING_ON_SQUARE } from '@lib/booking-core/refund-words'
 import { assertClassWritesAllowed } from './test-site-guard'
 import { cancelToken, readCancelToken } from './self-cancel-token'
@@ -107,7 +107,7 @@ export async function getCancelRecord(bookingId: string): Promise<CancelRecord |
 }
 
 export async function listCancelRecords(): Promise<CancelRecord[]> {
-  const keys = (await kv.list()).filter((k) => k.startsWith('cxl-'))
+  const keys = (await kv.list('cxl-')).filter((k) => k.startsWith('cxl-'))
   const all = await Promise.all(keys.map((k) => kv.get(k)))
   return all.filter((j): j is string => !!j).map((j) => JSON.parse(j) as CancelRecord)
 }
@@ -522,20 +522,26 @@ export async function retrySelfCancel(classId: string, bookingId: string, attemp
   return selfCancel({ token: cancelToken(classId, bookingId), lineIds: t.lineIds, attempt }, now)
 }
 
-/** What Square shows on the payment, read only: money refunded on it that isn't on our records yet (a refund we never heard back about). */
-async function unrecordedRefund(classId: string, bookingId: string, r: SavedRefundRequest): Promise<boolean> {
-  let p: any
+/**
+ * Money review I2: what Square shows for this saved request, read only, from
+ * Square's own list of refunds on the payment (the shared Ask Square), never
+ * from the payment's refunded total (which may leave out a PENDING refund):
+ *   'refund'  Square made it (or already took it: we have its refund id)
+ *   'pending' Square shows it still going through: nothing may be decided yet
+ *   'none'    no such refund (or it failed)
+ */
+async function squareShows(classId: string, bookingId: string, r: SavedRefundRequest): Promise<'refund' | 'pending' | 'none'> {
+  if (r.status === 'sent' || r.squareRefundId) return 'refund'
   try {
-    p = (await squareFetch(`/payments/${encodeURIComponent(r.paymentId)}`, { method: 'GET' }))?.payment
-  } catch {
+    const { answer } = await askAboutRequest({ classId, bookingId }, r.id)
+    return answer.state === 'done' ? 'refund' : answer.state === 'pending' ? 'pending' : 'none'
+  } catch (e) {
+    if (e instanceof RefundError && e.status === 404) return 'refund' // settled meanwhile: the retry reads it as it stands
     throw new CancelError(503, 'unavailable', 'Square isn’t answering right now. Their seats stay held. Try again in a few minutes.')
   }
-  if (!p) throw new CancelError(503, 'unavailable', 'Square isn’t answering right now. Their seats stay held. Try again in a few minutes.')
-  const back = Number(p.refunded_money?.amount) || 0
-  const lines = bookingLinesOf(await getLedger(classId), bookingId)
-  const recorded = lines.filter((l) => l.square.paymentId === r.paymentId).reduce((s, l) => s + l.refunds.reduce((a, x) => a + x.cents, 0), 0)
-  return back > recorded
 }
+
+export const CANCEL_REFUND_PENDING = 'Square shows this refund still going through. Their seats stay held. Ask Square again in a little while. Nothing was changed.'
 
 export type CancelAskAnswer = { result: 'cancelled' | 'cancelling'; cents: Cents } | { result: 'no-refund' }
 
@@ -557,7 +563,9 @@ export async function askSquareAboutCancel(classId: string, bookingId: string, a
     const out = await retrySelfCancel(classId, bookingId, attempt, now)
     return { result: out.result, cents: out.cents }
   }
-  if (await unrecordedRefund(classId, bookingId, r)) {
+  const shows = await squareShows(classId, bookingId, r)
+  if (shows === 'pending') throw new CancelError(409, 'changed', CANCEL_REFUND_PENDING)
+  if (shows === 'refund') {
     const out = await retrySelfCancel(classId, bookingId, attempt, now)
     return { result: out.result, cents: out.cents }
   }
@@ -581,7 +589,9 @@ export async function releaseSelfCancel(classId: string, bookingId: string, atte
   if (!cls) throw new CancelError(404, 'not-found', 'That class isn’t on file any more.')
   const r = requestOfTry(t, await listRefundRequests(classId, bookingId))
   if (r && (r.status === 'pending' || r.status === 'sent')) {
-    if (await unrecordedRefund(classId, bookingId, r)) throw new CancelError(409, 'changed', 'Square shows a refund on this payment now. Tap Ask Square to finish the cancel.')
+    const shows = await squareShows(classId, bookingId, r)
+    if (shows === 'pending') throw new CancelError(409, 'changed', CANCEL_REFUND_PENDING)
+    if (shows === 'refund') throw new CancelError(409, 'changed', 'Square shows a refund on this payment now. Tap Ask Square to finish the cancel.')
     try {
       const book = await classRefundBook(classId, bookingId, { cls })
       await clearRequest(book, r.id, 'did-not-go-through', 'Square showed no refund (To decide › Keep their booking)', { by, role: 'owner' })

@@ -42,7 +42,8 @@ function useDecide(item: ToDecideItem) {
   async function send(c: Choice, opts: { reload?: boolean } = {}): Promise<{ ok: boolean; data?: any; extra?: Record<string, any> }> {
     setBusy(c.action)
     setError('')
-    const r = await api<any>(TO_DECIDE, { id: item.id, action: c.action, ...(c.body ?? {}) })
+    // The kind lets the server build only this item's source (I-10).
+    const r = await api<any>(TO_DECIDE, { id: item.id, kind: item.kind, action: c.action, ...(c.body ?? {}) })
     setBusy(null)
     if (r.ok && r.data) {
       // Undo only when the server says this decision wrote something to take back (a seat already free has none).

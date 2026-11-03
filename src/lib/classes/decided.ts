@@ -19,7 +19,7 @@ export const minimumItemId = (classId: string) => tokenOf(`min-${classId}`)
 /** Ids decided (and not undone). A failed read counts as none decided: things show rather than hide. */
 export async function decidedIds(): Promise<Set<string>> {
   try {
-    const keys = (await decidedKv.list()).filter((k) => k.startsWith('done-'))
+    const keys = (await decidedKv.list('done-')).filter((k) => k.startsWith('done-'))
     const vals = await Promise.all(keys.map((k) => decidedKv.get(k)))
     return new Set(keys.filter((_, i) => !!vals[i]).map((k) => k.slice(5)))
   } catch {

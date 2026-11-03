@@ -56,7 +56,7 @@ export function submissionStore<S extends string, T extends Submission<S>>({ sto
 
     /** Newest first. */
     async list(): Promise<T[]> {
-      const keys = (await kv.list()).filter((k) => k.startsWith(`${prefix}-`))
+      const keys = (await kv.list(`${prefix}-`)).filter((k) => k.startsWith(`${prefix}-`))
       const all = await Promise.all(keys.map(async (k) => {
         const raw = await kv.get(k)
         return raw ? (JSON.parse(raw) as T) : null

@@ -139,7 +139,7 @@ function withLock<T>(k: string, fn: () => Promise<T>): Promise<T> {
 
 /** Every sale on file (To decide also looks at paid ones: a second payment, a late payment). */
 export async function listReaderSales(): Promise<ReaderSale[]> {
-  const keys = (await salesKv.list()).filter((k) => k.startsWith('rdr-'))
+  const keys = (await salesKv.list('rdr-')).filter((k) => k.startsWith('rdr-'))
   const all = await Promise.all(keys.map((k) => salesKv.get(k)))
   return all.filter((j): j is string => !!j).map((j) => JSON.parse(j) as ReaderSale)
 }
@@ -183,7 +183,7 @@ export async function getReaderOrderLink(orderId: string): Promise<ReaderOrderLi
 
 /** Every reader order we seated (the tax report takes their tax from here, OWNER-S4-8). */
 export async function listReaderOrderLinks(): Promise<ReaderOrderLink[]> {
-  const keys = (await ordersKv.list()).filter((k) => k.startsWith('ord-'))
+  const keys = (await ordersKv.list('ord-')).filter((k) => k.startsWith('ord-'))
   const all = await Promise.all(keys.map((k) => ordersKv.get(k)))
   return all.filter((j): j is string => !!j).map((j) => JSON.parse(j) as ReaderOrderLink)
 }

@@ -206,7 +206,7 @@ export async function markRequestDone(classId: string, bookingId: string, id: st
 
 /** Every saved request (for the nightly check of ones Square never confirmed). */
 export async function allRefundRequests(): Promise<SavedRefundRequest[]> {
-  const keys = (await kv.list()).filter((k) => k.startsWith('reqs-'))
+  const keys = (await kv.list('reqs-')).filter((k) => k.startsWith('reqs-'))
   const docs = await Promise.all(keys.map((k) => kv.get(k)))
   return docs.flatMap((d) => (d ? (JSON.parse(d) as SavedRefundRequest[]) : []))
 }

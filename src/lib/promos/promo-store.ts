@@ -69,7 +69,7 @@ export async function getUses(raw: string): Promise<PromoUses | null> {
  * someone is at the pay step isn't a mystery).
  */
 export async function listPromos(now = new Date()): Promise<(PromoCode & { usedCount: number; payingNow: number })[]> {
-  const keys = (await codes.list()).filter((k) => k.startsWith('code-'))
+  const keys = (await codes.list('code-')).filter((k) => k.startsWith('code-'))
   const all = await Promise.all(keys.map(async (k) => {
     const json = await codes.get(k)
     if (!json) return null

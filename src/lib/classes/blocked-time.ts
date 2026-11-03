@@ -22,7 +22,7 @@ const MAX_NOTE = 200
 export async function listBlocked(range?: { fromIso: string; toIso: string }): Promise<BlockedTime[]> {
   const from = range ? Date.parse(range.fromIso) : 0
   const to = range ? Date.parse(range.toIso) : 0
-  const keys = (await kv.list()).filter((k) => k.startsWith('blocked-'))
+  const keys = (await kv.list('blocked-')).filter((k) => k.startsWith('blocked-'))
   // Read in parallel: this sits on the public party picker path.
   const jsons = await Promise.all(keys.map((k) => kv.get(k)))
   const out: BlockedTime[] = []
