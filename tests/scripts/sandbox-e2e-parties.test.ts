@@ -11,6 +11,7 @@ import { idFor } from '@lib/booking-core/ids'
 import { buildIcs, partyCalendarIds } from '@lib/party-share'
 import { configPartySettings, validatePartySettings } from '@lib/parties/party-times'
 import { payLinkUrl } from '@lib/parties/payment-link'
+import { partyPhrase } from '@lib/parties/party-name'
 
 const HOST = new URL(PREVIEW_ORIGIN).host
 const SQ = 'connect.squareupsandbox.com'
@@ -127,9 +128,10 @@ describe('party helpers match the site', () => {
       .toThrow(/booking window \(40 days ahead\).*"Up to \(days ahead\)" to 90/)
   })
 
-  it('a clash refusal names a test party by the last word of its host’s name, as the site does', () => {
-    expect(clashLabel('Card')).toBe('the Card party')
-    expect(clashLabel('Extra time online')).toBe('the online party')
+  it('a clash refusal names a test party by its host’s first name ("E2E’s party"), as the site does', () => {
+    expect(clashLabel('Card')).toBe('E2E’s party')
+    expect(clashLabel('Extra time online')).toBe('E2E’s party')
+    expect(partyPhrase('E2E 11031141 Card')).toBe(clashLabel('Card'))
   })
 
   it('the bags extra is owners-only, so the preview’s /book never shows it during a run; the half hour stays online for scenario 29', () => {

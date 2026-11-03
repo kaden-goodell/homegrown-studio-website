@@ -367,9 +367,13 @@ export async function cancelTestParty(ctx: PartyCtx, id: string): Promise<void> 
   await clearTestParty(ctx, id)
 }
 
-/** How a clash refusal names a test party: "the <last word of the host's name> party" (conflicts.ts partyName). */
-export function clashLabel(what: string): string {
-  return `the ${what.trim().split(/\s+/).pop()} party`
+/**
+ * How a clash refusal names a test party: the one party name, "<host's first name>’s party"
+ * (conflicts.ts partyName → party-name.ts partyPhrase; UI review 3 Nov). Every test host is
+ * "E2E <run> <what>", so that's "E2E’s party" whatever `what` is; the craft follows (" · Pots").
+ */
+export function clashLabel(_what: string): string {
+  return 'E2E’s party'
 }
 
 const registered = new WeakMap<Scope, Set<string>>()
@@ -794,7 +798,7 @@ export const partyScenarios: Scenario<PartyCtx>[] = [
       cleanUpParty(ctx, scope, partyIdOf(clashKey))
       const clash = await adminBook(ctx, { startIso: start, what: 'Clash', pay: 'link', key: clashKey })
       checkStatus(clash.reply, 409, 'Booking over a party')
-      check(String(clash.reply.body?.error ?? '').startsWith(`Clashes with ${clashLabel('Card')},`), `The refusal doesn't name the party in the way ("Clashes with ${clashLabel('Card')}, …"): ${clash.reply.body?.error}`)
+      check(String(clash.reply.body?.error ?? '').startsWith(`Clashes with ${clashLabel('Card')}`), `The refusal doesn't name the party in the way ("Clashes with ${clashLabel('Card')} · …"): ${clash.reply.body?.error}`)
       const pastKey = `e2e-${randomUUID()}`
       cleanUpParty(ctx, scope, partyIdOf(pastKey))
       const past = await adminBook(ctx, { startIso: new Date(Date.now() - 60 * 60_000).toISOString(), what: 'Past', pay: 'link', key: pastKey })
@@ -874,7 +878,7 @@ export const partyScenarios: Scenario<PartyCtx>[] = [
 
       const onto = await act(ctx, a.partyId, 'move', { startIso: at(s, dayB, 0), fromIso: at(s, dayA, 0) })
       checkStatus(onto, 409, 'Moving onto a booked party')
-      check(String(onto.body?.error ?? '').startsWith(`Clashes with ${clashLabel('Blocker')},`), `The refusal doesn't name the party in the way ("Clashes with ${clashLabel('Blocker')}, …"): ${onto.body?.error}`)
+      check(String(onto.body?.error ?? '').startsWith(`Clashes with ${clashLabel('Blocker')}`), `The refusal doesn't name the party in the way ("Clashes with ${clashLabel('Blocker')} · …"): ${onto.body?.error}`)
       check(!!(await partyOf(ctx, blocker.partyId)), 'The blocker party is gone')
 
       const to = at(s, dayB, 1)
