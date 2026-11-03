@@ -239,3 +239,45 @@ describe('PaymentForm store mode (stage 4: save a card for the waitlist)', () =>
     expect(screen.queryByRole('group', { name: 'Payment' })).toBeNull()
   })
 })
+
+describe('PaymentForm wallets show the current total (final review I1, I19)', () => {
+  function walletSdk(tokenizeResult: { status: string; token?: string; errors?: { message: string }[] }) {
+    const script = document.createElement('script')
+    script.src = 'https://sandbox.web.squarecdn.com/v1/square.js'
+    document.head.appendChild(script)
+    // The Apple Pay JS SDK tag counts as already loaded, so nothing is downloaded.
+    const apple = document.createElement('script')
+    apple.src = 'https://applepay.cdn-apple.com/jsapi/1.latest/apple-pay-sdk.js'
+    document.head.appendChild(apple)
+    const update = vi.fn(() => true)
+    const request = { update }
+    const cardStub = { attach: vi.fn(async () => {}), destroy: vi.fn(async () => {}), tokenize: vi.fn() }
+    const applePayStub = { tokenize: vi.fn(async () => tokenizeResult), destroy: vi.fn(async () => {}) }
+    const paymentRequest = vi.fn(() => request)
+    ;(window as any).Square = {
+      payments: () => ({ card: async () => cardStub, applePay: vi.fn(async () => applePayStub), googlePay: vi.fn(async () => { throw new Error('no') }), paymentRequest }),
+    }
+    return { update, paymentRequest, applePayStub }
+  }
+
+  it('updates the Apple Pay / Google Pay request when the amount changes (a code applied)', async () => {
+    const sdk = walletSdk({ status: 'OK', token: 'wallet-1' })
+    configAnswers('sq0idp-real')
+    const onReady = vi.fn()
+    const view = render(<PaymentForm wallet={{ amount: '98.10', label: 'Hometown Studio' }} onWalletToken={vi.fn()} onReadyChange={onReady} environmentOverride="sandbox" />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Pay with Apple Pay' })).toBeInTheDocument())
+    expect(sdk.paymentRequest).toHaveBeenCalledWith(expect.objectContaining({ total: { amount: '98.10', label: 'Hometown Studio' } }))
+    view.rerender(<PaymentForm wallet={{ amount: '78.48', label: 'Hometown Studio' }} onWalletToken={vi.fn()} onReadyChange={onReady} environmentOverride="sandbox" />)
+    await waitFor(() => expect(sdk.update).toHaveBeenLastCalledWith({ total: { amount: '78.48', label: 'Hometown Studio' } }))
+  })
+
+  it('a failed wallet sheet says a plain sentence in an alert, never Square’s error text', async () => {
+    walletSdk({ status: 'Invalid', errors: [{ message: 'PaymentRequest total amount must be valid string' }] })
+    configAnswers('sq0idp-real')
+    render(<PaymentForm wallet={{ amount: '98.10', label: 'Hometown Studio' }} onWalletToken={vi.fn()} environmentOverride="sandbox" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Pay with Apple Pay' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Apple Pay didn’t go through. Nothing was charged. Try again, or pay with a card.')
+    expect(alert).not.toHaveTextContent(/PaymentRequest/)
+  })
+})

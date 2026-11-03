@@ -64,6 +64,11 @@ interface PaymentFormProps {
   mode?: 'charge' | 'store'
 }
 
+/** A wallet sheet that didn't finish: plain words, never Square's error text. */
+export function walletFailedMessage(name: string): string {
+  return `${name} didn’t go through. Nothing was charged. Try again, or pay with a card.`
+}
+
 /** Under the card field when a card is being saved, not charged. */
 export const STORE_NOTE = 'Nothing is charged now. Square saves your card. We never see its number.'
 
@@ -165,6 +170,11 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
     const afterpayContainerRef = useRef<HTMLDivElement>(null)
     const paymentsRef = useRef<any>(null)
     const containerRef = useRef<HTMLDivElement>(null)
+    // The wallet sheets' payment requests, kept so a new total (a code, a price change) reaches them.
+    const paymentRequestRef = useRef<any>(null)
+    const afterpayRequestRef = useRef<any>(null)
+    const walletTotal = useRef(wallet ? { amount: wallet.amount, label: wallet.label } : null)
+    walletTotal.current = wallet ? { amount: wallet.amount, label: wallet.label } : null
 
     // A mock config (simulated payments on dev / preview) beats any caller override,
     // so a booking modal's real app id can't put a live card box on a simulated site.
@@ -248,6 +258,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
                 currencyCode: 'USD',
                 total: { amount: wallet.amount, label: wallet.label },
               })
+              paymentRequestRef.current = paymentRequest
             } catch (err) {
             }
 
@@ -287,6 +298,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
                   total: { amount: wallet.amount, label: wallet.label },
                   requestShippingContact: false,
                 })
+                afterpayRequestRef.current = afterpayRequest
                 const afterpay = await payments.afterpayClearpay(afterpayRequest)
                 if (cancelled) {
                   afterpay.destroy?.().catch?.(() => {})
@@ -323,6 +335,23 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
         }
       }
     }, [config, isMockMode, effectiveEnvironment, attempt])
+
+    // Apple Pay / Google Pay always show the current total: a code applied or a new price
+    // after the sheet's request was made updates it (Square's PaymentRequest.update).
+    const pushWalletTotal = useCallback(() => {
+      const total = walletTotal.current
+      if (!total) return
+      for (const req of [paymentRequestRef.current, afterpayRequestRef.current]) {
+        try {
+          req?.update?.({ total })
+        } catch {
+          // An old SDK without update: the server still never charges more than the shown total.
+        }
+      }
+    }, [])
+    useEffect(() => {
+      pushWalletTotal()
+    }, [wallet?.amount, wallet?.label, pushWalletTotal])
 
     // The real gift card field exists only while the toggle is on: Square
     // fields don't hide reliably, so attach on toggle and destroy on toggle-off.
@@ -377,6 +406,8 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
         return
       }
       setWalletError(null)
+      // The sheet opens with the total on the Pay button right now.
+      pushWalletTotal()
       try {
         const result = await instance.tokenize()
         if (result.status === 'OK' && result.token) {
@@ -385,13 +416,14 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
         }
         // "Cancel" means the user closed the wallet sheet — not an error worth showing.
         if (result.status !== 'CANCEL') {
+          // Square's own words go to the log only; the customer gets a plain sentence.
           const message = result.errors?.map((e) => e.message).join(', ') ?? `${name} payment failed.`
           trackBookingProblem(bookingKind, 'wallet_failed', `${name}: ${message}`)
-          setWalletError(message)
+          setWalletError(walletFailedMessage(name))
         }
       } catch (err) {
         trackBookingProblem(bookingKind, 'wallet_failed', `${name}: ${err instanceof Error ? err.message : 'error'}`)
-        setWalletError(err instanceof Error ? err.message : `${name} payment failed.`)
+        setWalletError(walletFailedMessage(name))
       }
     }
 
@@ -471,7 +503,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
     if (loading) {
       return (
         <div className="space-y-3" role="group" aria-label={groupName}>
-          <div className="rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-400">
+          <div className="rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
             {store ? 'Loading the card form…' : 'Loading payment form...'}
           </div>
         </div>
@@ -586,7 +618,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           onClick={() => afterpayReady && tokenizeWallet(afterpayRef.current, 'Afterpay')}
           style={{ display: afterpayReady ? 'block' : 'none', minHeight: afterpayReady ? '44px' : 0, cursor: 'pointer', marginTop: afterpayReady ? '0.5rem' : 0 }}
         />
-        {walletError && <div className="text-sm text-red-700">{walletError}</div>}
+        {walletError && <div role="alert" className="text-sm text-red-700">{walletError}</div>}
         {anyWalletReady && (
           <div className="flex items-center gap-3" aria-hidden="true">
             <div className="h-px flex-1 bg-gray-200" />
@@ -604,7 +636,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
             : undefined}
         />
         {!sdkReady && (
-          <div className="text-sm text-gray-400">Initializing payment form...</div>
+          <div className="text-sm text-gray-600">Loading payment form…</div>
         )}
 
         {giftCards === 'allowed' ? (
@@ -612,11 +644,11 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
             {useGift && (
               <div ref={giftContainerRef} id="gift-card-container" className="min-h-[44px] rounded-md border border-gray-300" />
             )}
-            {giftError && <div className="text-sm text-red-700">{giftError}</div>}
+            {giftError && <div role="alert" className="text-sm text-red-700">{giftError}</div>}
             <button
               type="button"
               className="mt-2 text-sm underline"
-              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit' }}
+              style={{ background: 'none', border: 'none', padding: 0, minHeight: '2.75rem', cursor: 'pointer', color: 'inherit' }}
               onClick={() => { trackGiftCardToggle(!useGift, bookingKind); setGiftError(null); setUseGift((v) => !v) }}
             >
               {useGift ? 'Pay with a card instead' : 'Pay with a gift card instead'}
