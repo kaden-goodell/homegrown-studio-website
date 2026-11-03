@@ -78,7 +78,7 @@ describe('busyBetween', () => {
     const kinds = (k: Busy['kind']) => list.filter((b) => b.kind === k)
 
     expect(kinds('legacy-class')).toEqual([expect.objectContaining({ id: 'clssch_1', label: 'Square Candle Class', startIso: at('2030-03-16', '14:00'), endIso: at('2030-03-16', '16:00') })])
-    expect(kinds('party')).toEqual([expect.objectContaining({ id: 'bk_1', label: 'the Rivera party', endIso: at('2030-03-17', '15:00') })])
+    expect(kinds('party')).toEqual([expect.objectContaining({ id: 'bk_1', label: 'Jamie’s party', endIso: at('2030-03-17', '15:00') })])
     // Saturday café 9 to 1
     expect(kinds('cafe')).toEqual([expect.objectContaining({ startIso: at('2030-03-16', '09:00'), endIso: at('2030-03-16', '13:00'), label: 'Craft Café' })])
     expect(kinds('blocked')).toEqual([expect.objectContaining({ id: blk.id, label: 'Deep clean' })])
@@ -105,7 +105,7 @@ describe('busyBetween', () => {
     expect(parties).toEqual([
       expect.objectContaining({ kind: 'party', id: 'pty_held', startIso: at(day, '13:00'), endIso: at(day, '14:30'), party: { state: 'held', partyId: 'pty_held' } }),
       expect.objectContaining({ kind: 'party', id: 'pty_booked', party: { state: 'booked', partyId: 'pty_booked' } }),
-      expect.objectContaining({ kind: 'party', id: 'bk_9', label: 'the Rivera party' }),
+      expect.objectContaining({ kind: 'party', id: 'bk_9', label: 'Jamie’s party' }),
     ])
     const all = await busyBetween(at(day, '00:00'), at(day, '23:59'))
     expect(all.filter((b) => b.kind === 'party').map((b) => b.id)).toEqual(['pty_held', 'pty_booked', 'bk_9'])

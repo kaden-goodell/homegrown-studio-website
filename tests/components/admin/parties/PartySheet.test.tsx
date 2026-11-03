@@ -37,7 +37,7 @@ describe('Party sheet', () => {
   it('shows when, who, guests, craft and what is due; Details · Guests · Payments', async () => {
     server()
     open()
-    expect(await screen.findByRole('heading', { name: 'The Justice party' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /^Stefanie’s party/ })).toBeInTheDocument()
     expect(screen.getAllByText('Waiting on payment').length).toBeGreaterThan(0)
     expect(screen.getByText('Stefanie Justice')).toBeInTheDocument()
     expect(screen.getByText('Beaded Necklace')).toBeInTheDocument()

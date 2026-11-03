@@ -107,7 +107,7 @@ function CallText({ phone }: { phone: string }) {
 function SquareParty({ id, party: p, item, guests, day, staffFirst }: { id: string; party: AdminParty | null; item: CalendarItem | null; guests: AdminPartyGuest[] | null; day: string; staffFirst: boolean }) {
   const [tab, setTab] = useState<'details' | 'guests' | 'staff'>(staffFirst ? 'staff' : 'details')
   const startIso = p?.startIso ?? item?.startIso
-  const title = p ? partyTitle(p.hostName) : item ? item.label.replace(/^./, (c) => c.toUpperCase()) : 'Party'
+  const title = p ? partyTitle(p.hostName, p.craftName) : item ? item.label.replace(/^./, (c) => c.toUpperCase()) : 'Party'
   const when = p ? (p.endIso ? dayAndSpan(p.startIso, p.endIso) : dayAndClock(p.startIso)) : item ? dayAndSpan(item.startIso, item.endIso) : dayLabel(day)
   return (
     <SheetFrame tall title={title} subtitle={<>{when} <span className="adm-tag is-grey">Booked in Square</span></>} footer={p ? <CallText phone={p.hostPhone} /> : undefined}>
@@ -303,7 +303,7 @@ function OurParty({ party: p, guests, notice, staffFirst }: { party: AdminParty;
   const statusTag = <span className={`adm-tag${p.paymentState === 'paid' ? ' is-grey' : p.paymentState === 'cancelled' ? ' is-red' : ''}`}>{STATE_WORDS[p.paymentState]}</span>
 
   return (
-    <SheetFrame tall title={partyTitle(p.hostName)} subtitle={<>{when} {statusTag}</>} footer={footer}>
+    <SheetFrame tall title={partyTitle(p.hostName, p.craftName)} subtitle={<>{when} {statusTag}</>} footer={footer}>
       {told && (
         <div className={`adm-panel adm-gap-bottom adm-toldpanel${told.warn ? ' is-warn' : ''}`} role="group" aria-labelledby={`${toldId}-h`}>
           <h3 id={`${toldId}-h`} ref={toldHead} tabIndex={-1} aria-describedby={`${toldId}-t`}>{told.title}</h3>

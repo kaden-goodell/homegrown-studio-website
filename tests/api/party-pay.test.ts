@@ -190,6 +190,20 @@ describe('the link key', () => {
   })
 })
 
+describe('UI review #10: "Your party is paid" on an unpaid party', () => {
+  it('a party booked to pay by link reads "waiting" until paid; "paid" only once nothing is left unpaid', async () => {
+    const p = await linkParty()
+    expect((await balance(p.id, p.k)).json.data).toMatchObject({ state: 'waiting', dueCents: 30000 })
+    expect((await pay(payBody(p))).status).toBe(200)
+    expect((await balance(p.id, p.k)).json.data).toMatchObject({ state: 'paid', dueCents: 0 })
+  })
+  it('the walkthrough’s case: a hand-written record with no items has nothing due, so it reads "paid" (not a booking path)', async () => {
+    const p = await linkParty()
+    await updatePartyRecord(p.id, (r) => ({ ...r, items: [] }), 'test: strip items', owner)
+    expect((await balance(p.id, p.k)).json.data).toMatchObject({ state: 'paid', dueCents: 0 })
+  })
+})
+
 describe('POST /api/party/pay.json', () => {
   it('pays exactly the due items, marks them, files the payment, emails the host and texts the owners', async () => {
     const p = await linkParty()

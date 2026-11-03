@@ -342,7 +342,7 @@ describe('book', () => {
     await linkParty(w.sat2)
     const clash = await book(linkBody(localToUtcISO(w.satYmd, '15:00'), { host: { ...host, firstName: 'Ann', lastName: 'Other', email: 'ann@example.com' } }))
     expect(clash.status).toBe(409)
-    expect(clash.body.error).toMatch(/^Clashes with .*Justice/)
+    expect(clash.body.error).toMatch(/^Clashes with Stefanie’s party · /)
     const past = await book(linkBody('2027-01-30T20:00:00.000Z'))
     expect(past.status).toBe(409)
     expect(past.body.error).toBe('That time has already passed. Pick a later time.')
@@ -404,7 +404,7 @@ describe('move', () => {
     await linkParty(w.sat430, { host: { ...host, firstName: 'Ann', lastName: 'Other' } })
     const r = await act({ id: a, action: 'move', startIso: w.sat430 })
     expect(r.status).toBe(409)
-    expect(r.body.error).toMatch(/Clashes with .*Other/)
+    expect(r.body.error).toMatch(/Clashes with Ann’s party · /)
     expect((await getPartyRecord(a))!.startIso).toBe(new Date(w.sat2).toISOString())
     expect((await holdsOf(a)).map((h) => h.startIso)).toEqual([new Date(w.sat2).toISOString()])
   })
@@ -502,7 +502,7 @@ describe('extras', () => {
     await linkParty(w.sat430, { host: { ...host, firstName: 'Ann', lastName: 'Other' } })
     const clash = await act({ id: b, action: 'add-extra', addOnId: 'add_half', count: 1, createKey: `x_${randomUUID()}` })
     expect(clash.status).toBe(409)
-    expect(clash.body.error).toMatch(/Other/)
+    expect(clash.body.error).toMatch(/Ann’s party/)
     const bRec = (await getPartyRecord(b))!
     expect(bRec.items).toHaveLength(1)
     expect((await holdsOf(b))[0].endIso).toBe(bRec.endIso)
@@ -1338,7 +1338,7 @@ describe('Not told yet (DV8, T12 review I3) and what the host was last told (m9,
     const id = (await book(cardBody(w.sat2))).body.data.party.bookingId
     await act({ id, action: 'move', startIso: w.sun1 })
     const item = (await listToDecide(NOW)).items.find((i) => i.kind === 'party-not-told' && i.detail.partyId === id)!
-    expect(item).toMatchObject({ title: 'Host not told yet', className: expect.stringMatching(/Justice/) })
+    expect(item).toMatchObject({ title: 'Host not told yet', className: 'Stefanie’s party' })
     expect(item.head).toMatch(/^Stefanie hasn’t been told about the new time \(.+\)\. Nothing is sent to them on its own\.$/)
     expect(item.head).not.toContain(id)
     await decide(item.id, 'told', {}, KADEN, NOW)

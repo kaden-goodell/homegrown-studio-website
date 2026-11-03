@@ -86,7 +86,7 @@ describe('listWarnings', () => {
     expect(held.ok).toBe(true)
     try {
       const [w] = await listWarnings(WINDOW)
-      expect(w).toMatchObject({ code: 'class-over-party', eventId: 'clssch_pails', detail: 'Pumpkin Pails 1–3 PM is within an hour of the Patel party 1:00 PM.' })
+      expect(w).toMatchObject({ code: 'class-over-party', eventId: 'clssch_pails', detail: 'Pumpkin Pails 1–3 PM is within an hour of Sam’s party 1:00 PM.' })
       // One of our parties moves on /admin (only the Square class moves in Square).
       expect(w.action).toBe('Move the class in Square, or the party on /admin.')
     } finally {
@@ -106,9 +106,9 @@ describe('listWarnings', () => {
     const [w] = await listWarnings(WINDOW)
     expect(w).toEqual({
       code: 'class-over-party', eventKind: 'workshop', eventId: 'clssch_pails', when: '2026-10-18T18:00:00.000Z', title: 'Pumpkin Pails',
-      detail: 'Pumpkin Pails 1–3 PM is within an hour of the Rivera party 1:00 PM.', action: 'Move one in Square.',
+      detail: 'Pumpkin Pails 1–3 PM is within an hour of Jamie’s party 1:00 PM.', action: 'Move one in Square.',
     })
-    expect(warningLine(w)).toBe('Sun Oct 18 · Pumpkin Pails 1–3 PM is within an hour of the Rivera party 1:00 PM. Move one in Square.')
+    expect(warningLine(w)).toBe('Sun Oct 18 · Pumpkin Pails 1–3 PM is within an hour of Jamie’s party 1:00 PM. Move one in Square.')
   })
 
   it('class-over-party: a party booked 30 minutes after the class ends', async () => {
@@ -151,8 +151,8 @@ describe('listWarnings', () => {
     mockListBookings.mockResolvedValue([party('bk_lopez', '2026-10-19T15:00:00.000Z')]) // Mon 10 AM
     const [w] = await listWarnings(WINDOW)
     expect(w).toMatchObject({
-      code: 'party-on-closed-day', eventKind: 'party', eventId: 'bk_lopez', title: 'The Lopez party',
-      detail: 'The Lopez party 10:00 AM is booked on a closed day.',
+      code: 'party-on-closed-day', eventKind: 'party', eventId: 'bk_lopez', title: 'Ana’s party',
+      detail: 'Ana’s party 10:00 AM is booked on a closed day.',
     })
   })
 
@@ -403,7 +403,7 @@ describe('listWarnings — our parties (stage 2 Task 13)', () => {
     const lines = await partyLines()
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({ code: 'party-waiting-payment', eventKind: 'party', eventId: soon })
-    expect(warningLine(lines[0])).toBe('Sat Oct 17 · The Justice party 2:00 PM still has $300 to pay for the studio fee. Send the payment link again from the party on /admin, or call Stefanie. Nothing is cancelled for being unpaid.')
+    expect(warningLine(lines[0])).toBe('Sat Oct 17 · Stefanie’s party 2:00 PM still has $300 to pay for the studio fee. Send the payment link again from the party on /admin, or call Stefanie. Nothing is cancelled for being unpaid.')
   })
 
   it('a hold with no party record is named, with nothing to open', async () => {
@@ -475,7 +475,7 @@ describe('listWarnings — our parties (stage 2 Task 13)', () => {
     made.push({ id: b, start: SAT2 })
     const lines = (await partyLines()).filter((w) => w.code === 'two-parties')
     expect(lines).toHaveLength(1)
-    expect(lines[0].detail).toMatch(/^The (Justice|Lopez) party 2:00–3:30 PM and the (Justice|Lopez) party 2:00–3:30 PM are booked at the same time, or without the hour between them for cleanup\.$/)
+    expect(lines[0].detail).toMatch(/^(Stefanie|Ana)’s party 2:00–3:30 PM and (Stefanie|Ana)’s party 2:00–3:30 PM are booked at the same time, or without the hour between them for cleanup\.$/)
     expect(lines[0].action).toBe('Move one of them on /admin.')
   })
 
@@ -495,7 +495,7 @@ describe('listWarnings — our parties (stage 2 Task 13)', () => {
       status: 'open', by: { id: 'k', name: 'K' },
     })
     const lines = (await partyLines()).filter((w) => w.code === 'class-over-party')
-    expect(lines).toEqual([expect.objectContaining({ eventKind: 'workshop', eventId: cls.id, detail: 'Clay Night 4–5 PM is within an hour of the Justice party 2:00 PM.', action: 'Move one of them on /admin.' })])
+    expect(lines).toEqual([expect.objectContaining({ eventKind: 'workshop', eventId: cls.id, detail: 'Clay Night 4–5 PM is within an hour of Stefanie’s party 2:00 PM.', action: 'Move one of them on /admin.' })])
   })
 
   it('money that came in after a cancel is named until someone acts', async () => {
@@ -527,8 +527,8 @@ describe('listWarnings — our parties (stage 2 Task 13)', () => {
     mockListBookings.mockResolvedValue([party('bk_lopez', SAT2)])
     const lines = (await partyLines()).filter((w) => w.code === 'two-parties')
     expect(lines).toHaveLength(1)
-    expect(lines[0].detail).toMatch(/the Lopez party|The Lopez party/)
-    expect(lines[0].action).toBe('Move the Justice party on /admin. The Lopez party was booked in Square before we moved bookings here, so it can only be moved in Square.')
+    expect(lines[0].detail).toMatch(/Ana’s party/)
+    expect(lines[0].action).toBe('Move Stefanie’s party on /admin. Ana’s party was booked in Square before we moved bookings here, so it can only be moved in Square.')
   })
 
   it('Square’s party list can’t be read: the party warnings still run, with one line saying Square parties weren’t checked', async () => {

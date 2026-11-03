@@ -49,7 +49,7 @@ describe('legacyPartyBusy', () => {
       booking('bk_gone', '2027-02-07T21:30:00.000Z', { status: 'cancelled' }),
     ])
     expect(await legacyPartyBusy(FROM, TO)).toEqual([
-      { kind: 'party', id: 'bk_rivera', label: 'the Rivera party', hostName: 'Jamie Rivera', startIso: '2027-02-07T19:00:00.000Z', endIso: '2027-02-07T20:30:00.000Z' },
+      { kind: 'party', id: 'bk_rivera', label: 'Jamie’s party', hostName: 'Jamie Rivera', startIso: '2027-02-07T19:00:00.000Z', endIso: '2027-02-07T20:30:00.000Z' },
     ])
   })
 

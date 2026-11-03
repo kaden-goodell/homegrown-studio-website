@@ -14,6 +14,7 @@
  * Pure: ISO strings in, answers out. No Square, no storage. Imported by
  * scripts/create-class.ts too (tsx resolves the @ aliases).
  */
+import { partyPhrase } from '@lib/parties/party-name'
 import { partyConfig } from '@config/party.config'
 import { formatDay, formatTime } from '@lib/studio-time'
 
@@ -103,10 +104,9 @@ export function classesOverlap(a: ClassSpan, b: ClassSpan): boolean {
   return overlaps(intervalOf(a), intervalOf(b), partyConfig.cleanupBufferMinutes)
 }
 
-/** "the Rivera party" from host "Jamie Rivera"; "a party" when no name is known. */
+/** "Jamie’s party" from host "Jamie Rivera"; "a party" when no name is known (the one party name, UI review 3 Nov). */
 export function partyName(p: PartySpan): string {
-  const last = (p.hostName ?? '').trim().split(/\s+/).filter(Boolean).pop()
-  return last ? `the ${last} party` : 'a party'
+  return partyPhrase(p.hostName, 'a party')
 }
 
 /** The refusal every class-creation path prints. There is no override. */

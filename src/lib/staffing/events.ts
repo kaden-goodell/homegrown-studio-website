@@ -23,6 +23,7 @@
  * "nobody's on" list. Titles never carry a customer's name; a party host's
  * first name is in `detail.hostFirst` for owner views only. Server only.
  */
+import { partyDisplayName } from '@lib/parties/party-name'
 import { partyConfig } from '@config/party.config'
 import { sheetToken, type Sheet } from '@components/admin/shell/router'
 import { listClasses } from '@lib/classes/class-store'
@@ -89,8 +90,16 @@ const overlapsRange = (startIso: string, endIso: string, from: number, to: numbe
   Date.parse(endIso) > from && Date.parse(startIso) < to
 const hasPeople = (e: StaffingEntry | undefined | null) => !!e && (e.assigned.length > 0 || e.asks.length > 0)
 const firstName = (name: string | undefined | null): string | null => (name ?? '').trim().split(/\s+/)[0] || null
-const partyTitle = (guests: number | undefined) =>
-  typeof guests === 'number' && guests > 0 ? `Party · ${guests} ${guests === 1 ? 'guest' : 'guests'}` : 'Party'
+/**
+ * "Party · Decoupage Succulent Pots · 14 guests". The craft matches the party's one name on the other screens
+ * ("Paige’s party · Decoupage Succulent Pots", UI review 3 Nov); never the host's name here, because these
+ * titles reach crew shift lists, texts and calendar feeds (M4: crew never see who the host is in staffing).
+ */
+const partyTitle = (rec: Pick<PartyRecord, 'craftName' | 'guestCount'> | null | undefined) => {
+  const guests = rec?.guestCount
+  const name = partyDisplayName({ craftName: rec?.craftName })
+  return typeof guests === 'number' && guests > 0 ? `${name} · ${guests} ${guests === 1 ? 'guest' : 'guests'}` : name
+}
 
 function partyEnd(r: PartyRecord): string {
   if (r.endIso) return r.endIso
@@ -114,7 +123,7 @@ function sessionEvent(key: EventKey, c: ScheduledClass, s: ScheduledClass['sessi
 
 function partyEvent(key: EventKey, id: string, startIso: string, endIso: string, rec: PartyRecord | null, status: StaffableEvent['status']): StaffableEvent {
   return {
-    key, kind: 'party', title: partyTitle(rec?.guestCount), startIso, endIso, status,
+    key, kind: 'party', title: partyTitle(rec), startIso, endIso, status,
     openHref: href({ kind: 'party', day: localDate(startIso), id }),
     roster: { kind: 'party', id, day: localDate(startIso) },
     detail: { ...(typeof rec?.guestCount === 'number' ? { guests: rec.guestCount } : {}), hostFirst: firstName(rec?.hostName) },
@@ -508,7 +517,7 @@ export async function orphanEntries(now: Date): Promise<Orphan[]> {
     } else if (key.startsWith('party:pty_')) {
       const rec = await getPartyRecord(id)
       if (!rec) out.push({ key, entry, status: 'gone', ...lastSeen(entry) })
-      else if (rec.status === 'cancelled' && Date.parse(partyEnd(rec)) >= fromMs) out.push({ key, entry, status: 'cancelled', title: partyTitle(rec.guestCount), startIso: rec.startIso })
+      else if (rec.status === 'cancelled' && Date.parse(partyEnd(rec)) >= fromMs) out.push({ key, entry, status: 'cancelled', title: partyTitle(rec), startIso: rec.startIso })
     } else if (key.startsWith('party:')) {
       if (stillToCome(entry) && (await squarePartiesRead())) out.push({ key, entry, status: 'gone', ...lastSeen(entry) })
     } else if (key.startsWith('legacy:')) {

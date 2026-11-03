@@ -6,6 +6,7 @@
  * `@lib/event-meta`. `open-studio` walk-ins are handled by the door check,
  * never as an event here.
  */
+import { partyDisplayName } from '@lib/parties/party-name'
 import { getPartyRecord, isOurs, listParties, partyEndIso, type PartyRecord } from '@lib/party-store'
 export { partyEndIso }
 import { dueCents } from '@lib/parties/money'
@@ -54,6 +55,11 @@ export interface StudioEvent {
   guests?: number
   /** Parties: when it ends, extra time included (cleanup not included). */
   endIso?: string
+  /**
+   * Parties: what the host and their guests see (the host's own title, else "<Craft> Party"): the waiver page
+   * and the waiver-link text. `title` is the owners' and crew's name for it ("Testparent party · Pots").
+   */
+  publicTitle?: string
   /** Our parties with something still to pay (studio fee or extras): crew see "Waiting on payment". */
   waitingOnPayment?: true
   /** A party of ours that was cancelled: off This week and the door list; no RSVPs. */
@@ -112,7 +118,9 @@ function partyEvent(id: string, p: PartyRecord, meta: EventMeta | null): StudioE
   return {
     kind: 'party',
     id,
-    title: p.title ?? `${p.craftName} Party`,
+    // UI review (3 Nov): one name for owners and crew; the host's own title stays for the guests.
+    title: partyDisplayName({ hostName: p.hostName, craftName: p.craftName }),
+    publicTitle: p.title ?? `${p.craftName} Party`,
     startIso: p.startIso,
     days: meta?.days ?? [studioDate(p.startIso)],
     // Meta overrides; the party record's own dropOff is a read-only fallback
@@ -134,7 +142,8 @@ function legacyPartyEvent(b: Busy, meta: EventMeta | null): StudioEvent {
   return {
     kind: 'party',
     id: b.id,
-    title: last ? `${last} Party` : 'Party',
+    title: partyDisplayName({ hostName: b.hostName }),
+    publicTitle: last ? `${last} Party` : 'Party',
     startIso: b.startIso,
     days: meta?.days ?? [studioDate(b.startIso)],
     dropOff: meta?.dropOff ?? false,

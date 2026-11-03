@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { partyDisplayName } from '@lib/parties/party-name'
 import StaffHeader from '@components/staff/StaffHeader'
 import { type HouseholdMatch } from '@components/staff/DoorSearch'
 import { card, btn, Badge } from '@components/staff/ui'
@@ -81,12 +82,12 @@ export default function Upcoming({
           <button
             key={p.bookingId}
             type="button"
-            onClick={() => onOpenRoster({ kind: 'party', id: p.bookingId, title: p.title || `${p.craftName} Party` })}
+            onClick={() => onOpenRoster({ kind: 'party', id: p.bookingId, title: partyDisplayName(p) })}
             style={{ ...card, background: 'rgba(255,255,255,0.85)', width: '100%', textAlign: 'left', cursor: 'pointer', display: 'block', minHeight: '2.75rem' }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '0.35rem' }}>
               <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{p.title || `${p.craftName} Party`}</span>
+                <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{partyDisplayName(p)}</span>
                 {p.themeName && <Badge tone="muted">🎀 {p.themeName}</Badge>}
                 {p.waitingOnPayment && <Badge tone="warn">Waiting on payment</Badge>}
               </span>

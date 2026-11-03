@@ -26,7 +26,8 @@ import { closureOn } from '@config/closures'
 import type { StudioDays } from '@config/studio-days'
 import { cafeOn } from '@lib/cafe-days'
 import { getStudioDays } from '@lib/studio-settings'
-import { classSpanOf, intervalOf, overlaps, partyName, type ClassSpan } from '@lib/conflicts'
+import { classSpanOf, intervalOf, overlaps, type ClassSpan } from '@lib/conflicts'
+import { partyDisplayName } from '@lib/parties/party-name'
 import { getPartyRecord } from '@lib/party-store'
 import { holdBusy, holdsBetween } from '@lib/parties/party-book'
 import { legacyPartyBusy } from '@lib/parties/legacy-square'
@@ -145,8 +146,10 @@ export async function partyBusy(fromIso: string, toIso: string, now: Date = new 
     // Public reads never show who: no record read per party (cold starts).
     if (!labels) return b
     // A missing record only costs the label its name.
-    const hostName = (await getPartyRecord(h.partyId).catch(() => null))?.hostName
-    return hostName ? { ...b, hostName, label: partyName({ id: b.id, startIso: b.startIso, endIso: b.endIso, hostName }) } : b
+    const rec = await getPartyRecord(h.partyId).catch(() => null)
+    const hostName = rec?.hostName
+    // UI review: the one party name everywhere ("Testparent party · Decoupage Succulent Pots").
+    return hostName ? { ...b, hostName, label: partyDisplayName({ hostName, craftName: rec?.craftName }) } : b
   }))
   const seen = new Set(ours.map((b) => b.id))
   return [...ours, ...legacy.filter((b) => !seen.has(b.id))]

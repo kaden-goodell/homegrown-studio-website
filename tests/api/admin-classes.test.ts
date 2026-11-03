@@ -235,7 +235,7 @@ describe('scheduling', () => {
     // 3:00 PM is inside the party's hour of cleanup.
     const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Over The Party'), sessions: [ses(day, '15:00', '16:00')], status: 'open' })
     expect(r.status).toBe(409)
-    expect(r.body.error).toBe('Clashes with the Rivera party, Sun Feb 9 1 PM.')
+    expect(r.body.error).toBe('Clashes with Jamie’s party, Sun Feb 9 1 PM.')
     // 3:30 PM keeps the full hour: fine.
     const ok = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('After The Party'), sessions: [ses(day, '15:30', '16:30')], status: 'open' })
     expect(ok.status).toBe(200)

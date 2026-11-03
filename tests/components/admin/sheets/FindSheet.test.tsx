@@ -29,7 +29,7 @@ describe('Find a booking', () => {
     expect(within(row).getByRole('button', { name: 'Refund' })).toBeInTheDocument()
     fireEvent.click(within(row).getByRole('button', { name: 'Open the class' }))
     expect(sheet.open).toHaveBeenCalledWith({ kind: 'class', id: 'cls_1' }, expect.anything())
-    fireEvent.click(within(screen.getByRole('article', { name: 'Ada Lovelace party' })).getByRole('button', { name: 'Open the party' }))
+    fireEvent.click(within(screen.getByRole('article', { name: 'Ada’s party · Mugs' })).getByRole('button', { name: 'Open the party' }))
     expect(sheet.open).toHaveBeenLastCalledWith({ kind: 'party', day: '2031-04-01', id: 'pty_1' }, expect.anything())
     expect(within(screen.getByRole('article', { name: 'Ada Lovelace waiting' })).getByText(/waiting for 2 seats/)).toBeInTheDocument()
     fireEvent.click(within(row).getByRole('button', { name: 'Refund' }))

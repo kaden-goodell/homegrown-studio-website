@@ -169,7 +169,7 @@ describe('POST: save', () => {
     const booked = r.body.data.booked
     expect(booked).toHaveLength(1)
     expect(booked[0]).toMatchObject({ from: day, to: day, name: 'a snow day' })
-    expect(booked[0].items.map((i: any) => [i.kind, i.label])).toEqual([['party', 'the Justice party'], ['class', 'Needlepoint 101']])
+    expect(booked[0].items.map((i: any) => [i.kind, i.label])).toEqual([['party', 'Stefanie’s party'], ['class', 'Needlepoint 101']])
     expect((await getClosures()).some((c) => c.from === day)).toBe(true)
   })
 

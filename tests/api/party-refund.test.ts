@@ -105,7 +105,7 @@ describe('who can refund a party', () => {
     expect(r.body.data.refund).toMatchObject({ cents: 1000, by: { id: 'sam', name: 'Sam' }, role: 'crew', reason: 'Kid was sick' })
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({
       action: 'party-refund', by: { id: 'sam', name: 'Sam', role: 'crew' },
-      target: { kind: 'party', id: p.id, label: 'the Justice party' },
+      target: { kind: 'party', id: p.id, label: 'Stefanie’s party' },
       details: expect.objectContaining({ chargeId: 'chg_1', cents: 1000, reason: 'Kid was sick' }),
     }))
   })

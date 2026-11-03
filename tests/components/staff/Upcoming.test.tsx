@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import Upcoming from '@components/staff/Upcoming'
 
-const row = (id: string, startIso: string) => ({ bookingId: id, craftName: 'Slime', startIso, title: `Party ${id}`, hostName: 'H', hostPhone: null, guestCount: 10, rsvpHouseholds: 0, rsvpPeople: 0, themeName: null })
+const row = (id: string, startIso: string) => ({ bookingId: id, craftName: `Slime ${id}`, startIso, title: `Party ${id}`, hostName: 'Hana Host', hostPhone: null, guestCount: 10, rsvpHouseholds: 0, rsvpPeople: 0, themeName: null })
 
 describe('Upcoming', () => {
   beforeEach(() => {
@@ -20,15 +20,16 @@ describe('Upcoming', () => {
 
   it('lists only parties that have not happened, soonest first', async () => {
     render(<Upcoming staff={{ id: 's', name: 'Sam', role: 'crew' }} onOpenRoster={() => {}} />)
-    await waitFor(() => expect(screen.getByText('Party soon')).toBeTruthy())
-    expect(screen.queryByText('Party past')).toBeNull()
-    const titles = screen.getAllByText(/^Party /).map((n) => n.textContent)
-    expect(titles).toEqual(['Party soon', 'Party later'])
+    await waitFor(() => expect(screen.getByText('Hana’s party · Slime soon')).toBeTruthy())
+    expect(screen.queryByText('Hana’s party · Slime past')).toBeNull()
+    // UI review: the one party name (host's first name · craft), as on /admin — not the host's own title.
+    const titles = screen.getAllByText(/^Hana’s party · /).map((n) => n.textContent)
+    expect(titles).toEqual(['Hana’s party · Slime soon', 'Hana’s party · Slime later'])
   })
 
   it('a party with something still to pay says "Waiting on payment", and shows its end with extra time', async () => {
     render(<Upcoming staff={{ id: 's', name: 'Sam', role: 'crew' }} onOpenRoster={() => {}} />)
-    await waitFor(() => expect(screen.getByText('Party later')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Hana’s party · Slime later')).toBeTruthy())
     expect(screen.getAllByText('Waiting on payment')).toHaveLength(1)
     expect(screen.getByText('Sun, Nov 8 · 1–3 PM')).toBeTruthy()
   })

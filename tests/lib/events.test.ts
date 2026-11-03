@@ -335,8 +335,9 @@ describe('booked parties on the staff lists (2 Nov 2026)', () => {
   it('a party booked in Square with no record of ours is listed on its day, tagged, by the host’s last name', async () => {
     legacy.list = [sq('sq_bk1', '2026-10-20T19:00:00.000Z', 'Jamie Rivera'), sq('sq_bk2', '2026-10-20T22:00:00.000Z')]
     const { events, sources } = await listEvents({ from: '2026-10-20', to: '2026-10-20' })
-    expect(events.filter((e) => e.kind === 'party').map((e) => [e.id, e.title, !!e.squareBooked])).toEqual([
-      ['p1', 'Rivera Party', false], ['sq_bk1', 'Rivera Party', true], ['sq_bk2', 'Party', true],
+    // UI review (3 Nov): crew and owners see the one party name; the host's own title stays for the guests.
+    expect(events.filter((e) => e.kind === 'party').map((e) => [e.id, e.title, e.publicTitle, !!e.squareBooked])).toEqual([
+      ['p1', 'Party · Slime', 'Rivera Party', false], ['sq_bk1', 'Jamie’s party', 'Rivera Party', true], ['sq_bk2', 'Party', 'Party', true],
     ])
     expect(events.find((e) => e.id === 'sq_bk1')).toMatchObject({ days: ['2026-10-20'], endIso: '2026-10-20T20:30:00.000Z', dropOff: false })
     expect(sources.squareParties).toBeUndefined()
@@ -377,7 +378,7 @@ describe('booked parties on the staff lists (2 Nov 2026)', () => {
 
   it('a Square-booked party’s roster opens by its Square id on staff routes; anything else unknown is null', async () => {
     legacy.byId.set('sq_bk1', sq('sq_bk1', '2026-10-20T19:00:00.000Z', 'Jamie Rivera'))
-    expect(await getEvent('party', 'sq_bk1', { squareParties: true })).toMatchObject({ kind: 'party', id: 'sq_bk1', title: 'Rivera Party', squareBooked: true, days: ['2026-10-20'] })
+    expect(await getEvent('party', 'sq_bk1', { squareParties: true })).toMatchObject({ kind: 'party', id: 'sq_bk1', title: 'Jamie’s party', publicTitle: 'Rivera Party', squareBooked: true, days: ['2026-10-20'] })
     expect(await getEvent('party', 'sq_nope', { squareParties: true })).toBeNull()
   })
 
@@ -405,7 +406,7 @@ describe('booked parties on the staff lists (2 Nov 2026)', () => {
   it('a party This week already loaded answers from that list (no extra Square call)', async () => {
     legacy.list = [sq('sq_bk1', '2026-10-20T19:00:00.000Z', 'Jamie Rivera')]
     await listEvents({ from: '2026-10-20', to: '2026-10-20' })
-    expect(await getEvent('party', 'sq_bk1', { squareParties: true })).toMatchObject({ id: 'sq_bk1', title: 'Rivera Party' })
+    expect(await getEvent('party', 'sq_bk1', { squareParties: true })).toMatchObject({ id: 'sq_bk1', title: 'Jamie’s party' })
     expect(legacy.byIdAsked).toBe(0)
   })
 })

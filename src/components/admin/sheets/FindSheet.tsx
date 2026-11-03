@@ -4,6 +4,7 @@
  * Refund right there, the same panel as on the class), their parties and
  * their places on a waitlist, each with Open.
  */
+import { partyDisplayName } from '@lib/parties/party-name'
 import { useState, type FormEvent } from 'react'
 import type { FindResult, FoundClassBooking } from '@lib/customer-find'
 import { formatMoney } from '@lib/money'
@@ -60,11 +61,11 @@ export function FindSheet() {
         <section aria-label="Parties">
           <p className="adm-lbl">Parties</p>
           {r.parties.map((p) => (
-            <article key={p.bookingId} className="adm-bkc" aria-label={`${p.hostName} party`}>
+            <article key={p.bookingId} className="adm-bkc" aria-label={partyDisplayName(p)}>
               <div className="adm-bk">
                 <div className="adm-rm">
-                  <b>{`${p.hostName} · ${dayLabel(localDate(p.startIso))}`}</b>
-                  <small>{[p.craftName, `${p.guestCount} guests`, p.inSquare ? 'Booked in Square' : ''].filter(Boolean).join(' · ')}</small>
+                  <b>{partyDisplayName(p)}</b>
+                  <small>{[dayLabel(localDate(p.startIso)), p.hostName, `${p.guestCount} guests`, p.inSquare ? 'Booked in Square' : ''].filter(Boolean).join(' · ')}</small>
                 </div>
                 {p.status === 'cancelled' && <span className="adm-tag is-grey">Cancelled</span>}
               </div>

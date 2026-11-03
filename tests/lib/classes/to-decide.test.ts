@@ -445,16 +445,16 @@ describe('refunds on parties (scope "party")', () => {
   }
   const partyItem = async (partyId: string) => (await items()).find((i) => i.detail.partyId === partyId && !i.done)!
 
-  it('Square couldn’t finish a party refund: one item reading "the Justice party" that opens the party; Mark as handled is audited on the party', async () => {
+  it('Square couldn’t finish a party refund: one item reading "Stefanie’s party" that opens the party; Mark as handled is audited on the party', async () => {
     const partyId = await party()
     await flag('refund-failed', partyId)
     const item = await partyItem(partyId)
-    expect(item).toMatchObject({ kind: 'refund-failed', head: 'Square couldn’t finish a $50 refund on the Justice party.', className: 'the Justice party' })
+    expect(item).toMatchObject({ kind: 'refund-failed', head: 'Square couldn’t finish a $50 refund on Stefanie’s party.', className: 'Stefanie’s party' })
     expect(item.classId).toBeUndefined()
     expect(item.detail).toMatchObject({ partyId, partyDay: '2026-11-14', refundCents: 5000 })
     await expect(decide(item.id, 'handled', {}, CATHERINE, NOW)).rejects.toMatchObject({ status: 400 })
     expect((await decide(item.id, 'handled', { reason: 'Gave cash back' }, CATHERINE, NOW)).decided.what).toBe('Marked as handled: Gave cash back')
-    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ target: { kind: 'party', id: partyId, label: 'the Justice party' } }))
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ target: { kind: 'party', id: partyId, label: 'Stefanie’s party' } }))
   })
 
   it('no answer from Square on a party refund: It went through saves it on the party once and emails the host once', async () => {
@@ -467,7 +467,7 @@ describe('refunds on parties (scope "party")', () => {
     } as any)
     await flag('refund-unconfirmed', partyId, { requestId: req.id, squareRefundId: '', status: 'pending' })
     const item = await partyItem(partyId)
-    expect(item.head).toBe('A $50 refund on the Justice party got no answer from Square for a day.')
+    expect(item.head).toBe('A $50 refund on Stefanie’s party got no answer from Square for a day.')
     const spy = squareShows([{ id: 'RF-party', amountCents: 5000, status: 'COMPLETED' }])
     try {
       expect((await decide(item.id, 'went-through', {}, CATHERINE, NOW)).decided.what).toBe('It went through: $50 recorded with Square’s refund')

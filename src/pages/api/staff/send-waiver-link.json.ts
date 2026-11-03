@@ -69,7 +69,7 @@ export const POST: APIRoute = async ({ request }) => {
     if (!quoConfigured()) return json({ data: { sent: false } }, 200)
 
     const link = withUtm(`${siteConfig.url}/waiver?${kind}=${encodeURIComponent(id)}`, { source: 'text', medium: 'sms', campaign: 'waiver_link' })
-    const content = `Hometown Studio here. Please sign the participation agreement for ${event.title} ${link}`
+    const content = `Hometown Studio here. Please sign the participation agreement for ${event.publicTitle ?? event.title} ${link}`
 
     try {
       await sendQuoText({ to, content })

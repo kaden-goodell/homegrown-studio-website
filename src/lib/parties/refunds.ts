@@ -16,6 +16,7 @@
  *
  * Server only.
  */
+import { partyPhrase } from '@lib/parties/party-name'
 import { recordAudit } from '@lib/audit'
 import { classWritesRefusal, TestSiteStoreError } from '@lib/classes/test-site-guard'
 import { sendRefundEmail } from '@lib/email'
@@ -42,10 +43,9 @@ const UNREACHABLE = "The party records couldn't be reached. Try again."
 /** Who a refund made in Square itself is recorded as. */
 const SQUARE: By = { id: 'square', name: 'Square' }
 
-/** "the Justice party" (the host's last name), or "the party" with no name. */
+/** "Stefanie’s party" (the host's first name: the one party name, UI review 3 Nov), or "the party" with no name. */
 export function partyLabel(r: Pick<PartyRecord, 'hostName'>): string {
-  const last = (r.hostName ?? '').trim().split(/\s+/).filter(Boolean).pop()
-  return last ? `the ${last} party` : 'the party'
+  return partyPhrase(r.hostName, 'the party')
 }
 
 export interface PartyRefundAsk {

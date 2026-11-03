@@ -45,7 +45,7 @@ beforeEach(() => { mocks.audit.mockClear(); mocks.email.mockClear() })
 
 describe('partyLabel', () => {
   it('names the party by the host\'s last name', () => {
-    expect(partyLabel({ hostName: 'Stefanie Justice' })).toBe('the Justice party')
+    expect(partyLabel({ hostName: 'Stefanie Justice' })).toBe('Stefanie’s party')
     expect(partyLabel({ hostName: '  ' })).toBe('the party')
   })
 })
@@ -57,7 +57,7 @@ describe('partyRefundBook', () => {
     const book = (await partyRefundBook(r.bookingId, { ask: { partyId: r.bookingId, chargeId: 'chg_1', cents: 100, reason: '' } }))!
     const fields = ['scope', 'label', 'kind', 'logTag', 'unreachable', 'inputHash', 'plan', 'stillFits', 'noteFailed', 'write', 'noteSquareId', 'afterWrite', 'current', 'describe', 'canEmail', 'email', 'audit', 'auditCheck']
     for (const f of fields) expect(book[f as keyof typeof book], f).toBeDefined()
-    expect(book).toMatchObject({ scope: { classId: 'party', bookingId: r.bookingId }, label: 'the Justice party', kind: 'amount', logTag: 'parties/refund' })
+    expect(book).toMatchObject({ scope: { classId: 'party', bookingId: r.bookingId }, label: 'Stefanie’s party', kind: 'amount', logTag: 'parties/refund' })
     expect(book.inputHash).not.toBe('')
     expect(await partyRefundBook('pty_nothere')).toBeNull()
   })
@@ -102,7 +102,7 @@ describe('partyRefundBook', () => {
     expect(await book.email(req, r)).toBe(true)
     expect(mocks.email).toHaveBeenCalledWith({ to: 'stef@example.com', givenName: 'Stefanie', className: 'your party', cents: 5000, keptSeat: true, party: { startIso: r.startIso } })
     await book.audit(req, 'sq_1', 'square-webhook')
-    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'party-refund', target: { kind: 'party', id: r.bookingId, label: 'the Justice party' }, details: expect.objectContaining({ via: 'square-webhook' }) }))
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'party-refund', target: { kind: 'party', id: r.bookingId, label: 'Stefanie’s party' }, details: expect.objectContaining({ via: 'square-webhook' }) }))
     await book.auditCheck(req, { at: '', by: { id: 'sam', name: 'Sam' }, role: 'crew', outcome: 'did-not-go-through', reason: 'Not there' })
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'party-refund-checked', by: { id: 'sam', name: 'Sam', role: 'crew' } }))
   })

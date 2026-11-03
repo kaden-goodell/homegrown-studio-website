@@ -147,8 +147,8 @@ describe('spans', () => {
 })
 
 describe('wording', () => {
-  it('names a party by the host’s last name', () => {
-    expect(partyName({ id: 'b', startIso: at('13:00'), endIso: at('14:30'), hostName: 'Jamie Rivera' })).toBe('the Rivera party')
+  it('names a party by the host’s first name (the one party name, UI review 3 Nov)', () => {
+    expect(partyName({ id: 'b', startIso: at('13:00'), endIso: at('14:30'), hostName: 'Jamie Rivera' })).toBe('Jamie’s party')
     expect(partyName({ id: 'b', startIso: at('13:00'), endIso: at('14:30') })).toBe('a party')
   })
 

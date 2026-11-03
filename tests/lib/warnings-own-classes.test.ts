@@ -104,8 +104,8 @@ describe('warnings for our own classes', () => {
     own.flags = [{ id: 'fp', kind: 'refund-failed', classId: 'party', bookingId: id, paymentId: 'p', squareRefundId: 'r', cents: 5000, refundCents: 5000, status: 'FAILED', at: '2026-10-14T16:00:00.000Z', resolved: null }]
     const list = await listWarnings(WINDOW, { now: NOW })
     expect(list).toEqual([expect.objectContaining({
-      code: 'refund-flag', eventKind: 'party', eventId: id, title: 'The Justice party', itemId: 'fp',
-      detail: 'The Justice party: Square couldn’t finish a $50 refund.',
+      code: 'refund-flag', eventKind: 'party', eventId: id, title: 'Stefanie’s party', itemId: 'fp',
+      detail: 'Stefanie’s party: Square couldn’t finish a $50 refund.',
     })])
   })
 

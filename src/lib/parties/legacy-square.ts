@@ -20,6 +20,7 @@
  * Also home of `onSandbox`, `isNotFound` and `loadPartyVariationId` (were in
  * party-open-dates.ts, which re-exports them).
  */
+import { partyDisplayName } from '@lib/parties/party-name'
 import { providers } from '@config/providers'
 import { siteConfig, type SquareConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
@@ -138,7 +139,7 @@ async function squareParties(fromIso: string, toIso: string, labels = true, staf
     .map((p) => ({
       kind: 'party' as const,
       id: p.id,
-      label: partyName(p),
+      label: partyDisplayName({ hostName: p.hostName }),
       startIso: p.startIso,
       endIso: p.endIso,
       ...(p.hostName ? { hostName: p.hostName } : {}),
@@ -193,5 +194,5 @@ export async function legacyStaffParty(id: string): Promise<Busy | null> {
   if (!b || b.status === 'cancelled' || NOT_COMING.has(b.squareStatus ?? '')) return null
   if (b.slot?.serviceVariationId !== (await partyVariationId())) return null
   const p = partySpanOf(b, await hostNameOf(b, true, true))
-  return { kind: 'party', id: p.id, label: partyName(p), startIso: p.startIso, endIso: p.endIso, ...(p.hostName ? { hostName: p.hostName } : {}) }
+  return { kind: 'party', id: p.id, label: partyDisplayName({ hostName: p.hostName }), startIso: p.startIso, endIso: p.endIso, ...(p.hostName ? { hostName: p.hostName } : {}) }
 }

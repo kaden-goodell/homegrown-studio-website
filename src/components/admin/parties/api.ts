@@ -4,6 +4,7 @@
  * free party times). Browser code: server modules are imported for their
  * types only.
  */
+import { partyDisplayName } from '@lib/parties/party-name'
 import { useEffect, useState } from 'react'
 import type { AdminParty, AdminPartyGuest } from '@pages/api/admin/party.json'
 import type { HostToTell, SendDetailsOffer } from '@lib/parties/admin-actions'
@@ -38,10 +39,9 @@ export function newKey(): string {
 /** "Stefanie" from "Stefanie Justice". */
 export const firstOf = (name: string) => name.trim().split(/\s+/)[0] || 'the host'
 
-/** "The Justice party" from "Stefanie Justice". */
-export function partyTitle(hostName: string): string {
-  const last = hostName.trim().split(/\s+/).filter(Boolean).pop()
-  return last ? `The ${last} party` : 'Party'
+/** "Justice party · Tote Bags": the one party name on every screen (UI review, 3 Nov). */
+export function partyTitle(hostName: string, craftName?: string | null): string {
+  return partyDisplayName({ hostName, craftName })
 }
 
 /** "14 guests · Waiting on payment" and friends: the words for a party's money state (never colour alone). */
