@@ -81,6 +81,7 @@
  * decideRefundFlag, clearRefundRequest, freeSeatOnly, recordPos, setNames,
  * markCounterMatchChecked. Server only.
  */
+import { policyWindows } from '@config/policy-content'
 import { recordAudit } from '@lib/audit'
 import { decidedKv, minimumItemId, tokenOf } from './decided'
 import type { By } from '@lib/staff-auth'
@@ -139,7 +140,7 @@ export const TO_DECIDE_KINDS = [
   'pos-needs-days', 'below-minimum', 'door-unpaid', 'counter-match-check', 'party-paid-unclear', 'paid-not-seated', 'party-not-told',
   'party-payment-unclear', 'party-no-confirmation', 'party-hold-orphan',
   'waitlist-unknown', 'waitlist-declined', 'waitlist-refund', 'reader-waiting', 'reader-extra', 'reader-late',
-  'cancel-request', 'cancel-unclear', 'paid-on-cancelled',
+  'cancel-request', 'cancel-unclear', 'paid-on-cancelled', 'party-change-request',
 ] as const
 export type ToDecideKind = (typeof TO_DECIDE_KINDS)[number]
 
@@ -524,6 +525,32 @@ async function partyItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]>
 /** "I told them" on a party that is no longer here. */
 export const PARTY_GONE = 'That party isn’t on the books any more, so there’s nothing to tell the host. Reload to clear this.'
 
+/**
+ * Final review I4 (D2: parties stay request-only): the host asked from their
+ * party page to move or cancel. One item per request; Catherine sorts it out
+ * from the party (Move, Cancel, Refund) and taps Done. Only parties still to come.
+ */
+async function partyChangeItems(skip: Set<string>, now: Date, parties: () => Promise<PartyRecord[]>): Promise<ToDecideItem[]> {
+  const out: ToDecideItem[] = []
+  for (const r of await parties()) {
+    const req = r.changeRequests?.[r.changeRequests.length - 1]
+    if (!req || !isOurs(r) || r.status === 'cancelled' || Date.parse(r.startIso) <= now.getTime()) continue
+    const id = tokenOf(`pcr-${r.bookingId}-${Date.parse(req.at)}`)
+    if (skip.has(id)) continue
+    const first = r.hostName.split(' ')[0] || 'The host'
+    const days = Math.floor((Date.parse(r.startIso) - Date.parse(req.at)) / 86_400_000)
+    const what = req.want === 'move' ? 'move' : req.want === 'cancel' ? 'cancel' : 'change something about'
+    out.push({
+      id, kind: 'party-change-request', title: req.want === 'cancel' ? 'Host asked to cancel' : req.want === 'move' ? 'Host asked to move' : 'Host sent a note',
+      at: req.at, className: partyLabel(r),
+      head: `${first} asked to ${what} their party on ${whenText(r.startIso)}, ${days} ${days === 1 ? 'day' : 'days'} before it.${req.note ? ` Their note: “${req.note}”` : ''}`,
+      hint: 'Call or text them, sort it out from the party, then tap Done',
+      detail: { partyId: r.bookingId, partyDay: studioDate(r.startIso), host: r.hostName, phone: r.hostPhone ?? '', email: r.hostEmail, want: req.want, note: req.note, daysBefore: days, refundDays: policyWindows.partyFullRefundDays },
+    })
+  }
+  return out
+}
+
 async function partyNotToldItems(skip: Set<string>, now: Date, parties: () => Promise<PartyRecord[]>): Promise<ToDecideItem[]> {
   const out: ToDecideItem[] = []
   for (const r of await parties()) {
@@ -733,6 +760,7 @@ export async function listToDecide(now = new Date(), opts: { only?: ToDecideKind
     ['held party times', ['party-hold-orphan'], () => partyHoldItems(skip, now, parties)],
     ['paid bookings', ['paid-not-seated'], () => paidNotSeatedItems(cache, skip)],
     ['hosts to tell', ['party-not-told'], () => partyNotToldItems(skip, now, parties)],
+    ['party requests', ['party-change-request'], () => partyChangeItems(skip, now, parties)],
     ['waitlist', ['waitlist-unknown', 'waitlist-declined', 'waitlist-refund'], () => waitlistDecideItems(cache, skip, now)],
     ['reader sales', ['reader-waiting', 'reader-extra', 'reader-late'], () => readerItems(skip, now)],
     ['cancels', ['cancel-request', 'cancel-unclear'], () => cancelDecideItems(cache, skip, now)],
@@ -789,6 +817,7 @@ const ACTIONS: Record<ToDecideKind, string[]> = {
   'cancel-request': ['refund', 'free', 'keep'],
   'cancel-unclear': ['ask', 'seen', 'retry', 'release'],
   'paid-on-cancelled': ['refund', 'sorted'],
+  'party-change-request': ['sorted'],
 }
 
 async function record(item: ToDecideItem, what: string, by: By, action: string, undo?: Decided['undo']): Promise<Decided> {
@@ -1322,6 +1351,9 @@ async function decideItem(item: ToDecideItem, action: string, body: any, by: By,
         throw e
       }
     }
+    case 'party-change-request':
+      // Catherine sorted it out from the party itself; this only marks the request handled.
+      return { decided: await record(item, 'Done', by, action) }
     case 'party-not-told': {
       // "I told them": the same as the party sheet's button, for the change this item named.
       const partyId = str(d.partyId)

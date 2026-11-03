@@ -25,14 +25,14 @@ export const inviteContent = {
   rsvp: {
     heading: 'One quick thing before you come',
     body: 'Everyone coming signs our short participation agreement — about a minute, and it covers you and your own kids for a full year of visits. Every adult in your group signs their own, so forward this to anyone coming with you.',
-    cta: '✍️ RSVP & sign your agreement',
+    cta: 'RSVP and sign your agreement',
     footnote: 'Each adult signs for themselves and their own kids — please don’t sign for someone else’s children.',
   },
 
   calendar: {
     heading: 'Add it to your calendar',
-    google: '📅 Google Calendar',
-    apple: '📅 Apple / Outlook',
+    google: 'Google Calendar',
+    apple: 'Apple / Outlook',
   },
 
   /** Shown if the link is missing its details. */

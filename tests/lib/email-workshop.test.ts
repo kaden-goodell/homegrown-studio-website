@@ -68,9 +68,9 @@ describe('sendWorkshopConfirmationEmail', () => {
   it('D2: carries the booking’s own “Can’t make it?” link when given, and none otherwise', async () => {
     await sendWorkshopConfirmationEmail({ ...input, cancelUrl: 'https://ourhometownstudio.com/classes/cancel/cls_1.bkg_1.sig' })
     const { html, text } = mockSendMail.mock.calls[0][0]
-    expect(text).toContain('Can’t make it? Cancel or change your booking here https://ourhometownstudio.com/classes/cancel/cls_1.bkg_1.sig')
+    expect(text).toContain('Can’t make it? Cancel your booking here https://ourhometownstudio.com/classes/cancel/cls_1.bkg_1.sig')
     expect(html).toContain('href="https://ourhometownstudio.com/classes/cancel/cls_1.bkg_1.sig"')
-    expect(html).toContain('Can&rsquo;t make it? Cancel or change your booking')
+    expect(html).toContain('Can&rsquo;t make it? Cancel your booking')
     await sendWorkshopConfirmationEmail(input)
     expect(mockSendMail.mock.calls[1][0].text).not.toContain('Cancel or change your booking')
   })
@@ -118,7 +118,7 @@ describe('sendWorkshopConfirmationEmail', () => {
     })
     const mail = mockSendMail.mock.calls[0][0]
     expect(mail.text).toContain(
-      'Your picks:\n  Seat 1 · Pumpkin color: Lavender\n  Seat 2 · Pumpkin color: Black\nPicks are made ahead for you, so they can’t be changed after you book.',
+      'Your picks\n  Seat 1 · Pumpkin color: Lavender\n  Seat 2 · Pumpkin color: Black\nPicks are made ahead for you, so they can’t be changed after you book.',
     )
     expect(mail.html).toContain('Your picks')
     expect(mail.html).toContain('Seat 2 · Pumpkin color: Black')
@@ -147,7 +147,7 @@ describe('sendWorkshopConfirmationEmail', () => {
   it('says comped, not $0 paid, for a giveaway seat', async () => {
     await sendWorkshopConfirmationEmail({ ...input, seats: 1, totalChargedCents: 0, comped: true })
     const { text, html } = mockSendMail.mock.calls[0][0]
-    expect(text).toContain('Seats: 1 seat, comped')
+    expect(text).toContain('1 seat, comped')
     expect(html).toContain('<strong>comped</strong>')
     for (const body of [text, html]) expect(body).not.toMatch(/\$0(\.00)? paid/)
   })
@@ -155,7 +155,7 @@ describe('sendWorkshopConfirmationEmail', () => {
   it('says what is due at the studio for a seat sold at the door', async () => {
     await sendWorkshopConfirmationEmail({ ...input, seats: 2, totalChargedCents: 0, dueAtStudioCents: 5000 })
     const { text, html } = mockSendMail.mock.calls[0][0]
-    expect(text).toContain('Seats: 2 seats, $50 to pay at the studio')
+    expect(text).toContain('2 seats, $50 to pay at the studio')
     expect(html).toContain('to pay at the studio</strong>')
     for (const body of [text, html]) expect(body).not.toMatch(/\$0(\.00)? paid/)
   })
@@ -171,5 +171,38 @@ describe('sendWorkshopConfirmationEmail', () => {
   it('reports not sent, without throwing, when sending fails', async () => {
     mockSendMail.mockRejectedValue(new Error('SMTP down'))
     expect(await sendWorkshopConfirmationEmail(input)).toEqual({ sent: false })
+  })
+})
+
+describe('class email: friends and every date (final review I9, I21)', () => {
+  it('friends get a guest-safe note to pass on (when, where, sign link), never "forward this email"', async () => {
+    await sendWorkshopConfirmationEmail({ ...input, cancelUrl: 'https://ourhometownstudio.com/classes/cancel/tok' })
+    const mail = mockSendMail.mock.calls[0][0]
+    for (const body of [mail.html, mail.text]) {
+      expect(body).not.toMatch(/Forward them this email/)
+      expect(body).toContain('Coming with friends? Send them this so they can sign too.')
+    }
+    // The note to pass on carries the sign link and no cancel link or receipt.
+    const text = String(mail.text)
+    const note = text.slice(text.indexOf('Coming with friends?'), text.indexOf('Everything you need'))
+    expect(note).toContain(input.waiverUrl)
+    expect(note).not.toContain('/classes/cancel/')
+    expect(note).not.toContain('receipt')
+  })
+
+  it('a class on several dates: no Google link (it holds one date), the attached invite adds every date', async () => {
+    const { googleCalendarUrl: _drop, ...rest } = input
+    await sendWorkshopConfirmationEmail({ ...rest, sessionLines: ['Mon, Nov 23 · 9 AM – 12 PM', 'Tue, Nov 24 · 9 AM – 12 PM'] })
+    const mail = mockSendMail.mock.calls[0][0]
+    for (const body of [mail.html, mail.text]) {
+      expect(body).not.toContain('calendar.google.com')
+      expect(body).toContain('Open the attached invite')
+    }
+  })
+
+  it('the plain text has no "Label:" lines', async () => {
+    await sendWorkshopConfirmationEmail(input)
+    const text = String(mockSendMail.mock.calls[0][0].text)
+    expect(text).not.toMatch(/^(When|Where|Directions|Seats|Your dates|Your picks|Receipt|Add to Google Calendar|Apple\/Outlook|Changing plans):/m)
   })
 })

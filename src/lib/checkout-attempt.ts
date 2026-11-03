@@ -109,3 +109,79 @@ export function classifyClassBookingError(text: string, phase: 'create' | 'compl
   }
   return 'unavailable'
 }
+
+// ── An attempt still going through, kept for this browser tab ─────────────────
+//
+// Final review C2: closing the panel, reloading or swiping back while Pay was
+// running used to lose the attempt id, so the next try was a new booking and
+// could charge again. The id now lives in sessionStorage while its outcome is
+// unknown (sent, no answer yet, or "still finishing"), keyed by what is being
+// booked. Reopening the same booking sends the same id, so the server answers
+// with the first try's result instead of charging twice. A plain ending
+// (booked, or "nothing was charged") forgets it.
+
+const PENDING_PREFIX = 'hs-pending-attempt:'
+/** Long enough to cover a lost answer and a reopened page; the server's holds run out well before. */
+export const PENDING_ATTEMPT_MAX_MS = 30 * 60_000
+
+export interface PendingAttempt {
+  id: string
+  /** What was being booked (the flow's own description), so a different booking never reuses it. */
+  shape: string
+  /** When it was sent (ms). */
+  at: number
+}
+
+function storage(): Storage | null {
+  try {
+    return typeof window !== 'undefined' ? window.sessionStorage : null
+  } catch {
+    return null
+  }
+}
+
+/** The attempt still going through for this scope (`class:<id>`, `party`), if any and not too old. */
+export function pendingAttempt(scope: string, now: number = Date.now()): PendingAttempt | null {
+  const s = storage()
+  if (!s) return null
+  try {
+    const raw = s.getItem(PENDING_PREFIX + scope)
+    if (!raw) return null
+    const p = JSON.parse(raw) as PendingAttempt
+    if (!isAttemptId(p?.id) || typeof p.shape !== 'string' || typeof p.at !== 'number') return null
+    if (now - p.at > PENDING_ATTEMPT_MAX_MS) {
+      s.removeItem(PENDING_PREFIX + scope)
+      return null
+    }
+    return p
+  } catch {
+    return null
+  }
+}
+
+/** The attempt id to use for this booking: the one still going through for the same booking, else a fresh one. */
+export function attemptIdFor(scope: string, shape: string): string {
+  const p = pendingAttempt(scope)
+  return p && p.shape === shape ? p.id : newAttemptId()
+}
+
+/** Called just before the request leaves: until a plain answer comes back, this attempt is going through. */
+export function rememberPendingAttempt(scope: string, id: string, shape: string, now: number = Date.now()): void {
+  try {
+    storage()?.setItem(PENDING_PREFIX + scope, JSON.stringify({ id, shape, at: now } satisfies PendingAttempt))
+  } catch {
+    // Storage blocked: the server's same-person check still stops a quick second booking.
+  }
+}
+
+/** A plain ending: booked, or nothing was charged. Only forgets the attempt it names. */
+export function forgetPendingAttempt(scope: string, id: string): void {
+  const s = storage()
+  if (!s) return
+  try {
+    const p = pendingAttempt(scope)
+    if (!p || p.id === id) s.removeItem(PENDING_PREFIX + scope)
+  } catch {
+    // Nothing to do.
+  }
+}

@@ -329,8 +329,16 @@ export async function classRefundBook(
     canEmail: (_rec, lines) => !!lines.find((l) => l.customer?.email)?.customer,
     async email(rec, lines) {
       const customer = lines.find((l) => l.customer?.email)!.customer!
+      // Final review I10: after a partial cancel, say how many seats went and how many are still booked
+      // (cancelling 1 of 3 used to say goodbye to someone still coming).
+      const booking = (await getLedger(classId).catch((): Ledger => ({ classId, lines: [] }))).lines.filter((l) => l.bookingId === rec.bookingId)
+      const refundedIds = new Set(rec.lines.map((x) => x.id))
+      const stillBooked = booking.filter((l) => !refundedIds.has(l.id) && isPaidLine(l) && !seatFreed(l)).length
+      const cancelled = rec.freeSeat ? rec.lines.length : 0
       return (await sendRefundEmail({
-        to: customer.email, givenName: customer.givenName, className: label, cents: rec.totalCents, keptSeat: !rec.freeSeat,
+        to: customer.email, givenName: customer.givenName, className: label, cents: rec.totalCents,
+        keptSeat: !rec.freeSeat || stillBooked > 0,
+        ...(cancelled > 0 ? { seats: { cancelled, stillBooked } } : {}),
       })).sent
     },
     audit: (rec, squareRefundId, how) => auditRefund(rec, label || rec.classId, squareRefundId, how),

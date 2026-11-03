@@ -104,8 +104,22 @@ export interface PartyRecord {
   calendarSeq?: number
   /** R6: paid after its time was taken by someone else; warned, never refunded automatically. */
   overlap?: true
+  /**
+   * D2 (parties stay request-only): the host asked from their party page to
+   * move or cancel. Oldest first, the last 10 kept. Catherine decides in
+   * /admin › To decide (nothing changes on its own). `told`: the owners got a
+   * text for it.
+   */
+  changeRequests?: PartyChangeRequest[]
   /** oldest first, capped at PARTY_HISTORY_CAP */
   history?: { at: string; by: By | null; change: string }[]
+}
+
+export interface PartyChangeRequest {
+  at: string
+  want: 'move' | 'cancel' | 'other'
+  note: string
+  told: boolean
 }
 
 /**

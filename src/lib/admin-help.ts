@@ -446,6 +446,7 @@ export const HELP_ROWS: HelpRow[] = [
   { id: 'party-old-time-held', see: '<time> still held, after a move', where: `${HOME}, the party`, means: 'The party moved, but its old time is still blocked.', tap: 'Open the party › **Free the old time**. The party stays where it is.', buttons: ['Free the old time'] },
   { id: 'party-hold-orphan', see: 'Party time held, no party', where: TODO_HOME, means: 'A time is blocked with no party on it, usually a booking that stopped halfway.', tap: '**Free this time**. It waits by itself while a payment might still be going through.', buttons: ['Free this time'] },
   { id: 'party-not-told', see: 'Host not told yet', where: `${TODO}, the party`, means: 'You moved, changed or cancelled a party and the host hasn’t heard.', tap: 'Open the party › **Email <name> the details** (or the new details), or after a call or text, **I told them**.', buttons: ['I told them'] },
+  { id: 'party-change-request', see: 'Host asked to move / Host asked to cancel', where: TODO, means: 'A host asked from their party page to move or cancel. Nothing changed on the party.', tap: 'Call or text them, **Open the party** and move, cancel or refund it by the party policy, then **Done** here.', buttons: ['Open the party', 'Done'] },
   { id: 'party-no-confirmation', see: 'Party booked, no confirmation', where: TODO, means: 'The party is paid and booked, but its confirmation email didn’t go.', tap: '**Open the party** › **Email <name> the details**, then **Done** here.', buttons: ['Open the party', 'Done'] },
   { id: 'party-paid-elsewhere', see: 'Party payment to check', where: TODO, means: 'Square took a payment the site couldn’t book a party from (often someone who paid, changed their mind and paid again).', tap: '**Refund it** (the site asks Square first; what is left on the payment goes back to their card, they get a refund email), or, when the party still owes at least that much, **Put it toward the party** (recorded as paid, no money moves). If Square already refunded it, only **It’s already sorted** is offered; if some went back, **Refund the rest**. A refund Square never answered is finished with **Refund it** (never twice). Already settled another way: **It’s already sorted**.', buttons: ['Refund it', 'Put it toward the party', 'It’s already sorted'] },
   { id: 'party-booking-unclear', see: 'Party payment unclear (a new booking)', where: TODO, means: 'Someone was paying for a new party and Square never answered.', tap: '**Confirm the party** or **It wasn’t paid**. Both ask Square first and act only on what it shows: Confirm books it once Square shows the payment (the host gets their confirmation); It wasn’t paid only works when Square shows no payment, and lets the held time go.', buttons: ['Confirm the party', 'It wasn’t paid'] },
@@ -548,6 +549,7 @@ export const TO_DECIDE_HELP: Record<ToDecideKind, string[]> = {
   'party-not-told': ['party-not-told'],
   'party-payment-unclear': ['party-payment-unclear'],
   'party-no-confirmation': ['party-no-confirmation'],
+  'party-change-request': ['party-change-request'],
   'party-hold-orphan': ['party-hold-orphan'],
   ...STAGE4_TO_DECIDE_HELP,
 }

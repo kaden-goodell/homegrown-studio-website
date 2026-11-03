@@ -7,6 +7,8 @@ import { listWaiversByParty, markDuplicateChildren } from '@lib/waiver-store'
 import { getRsvp } from '@lib/rsvp-store'
 import { getCheckin } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
+import { openRequest } from '@lib/parties/change-request'
+import { partyRefundLine } from '@lib/refund-lines'
 
 export const prerender = false
 
@@ -127,6 +129,13 @@ export const GET: APIRoute = async ({ url }) => {
             hostName: party!.hostName,
             guestCount: party!.guestCount,
             title: party!.title,
+            /** Final review I4: the party policy for this date, and the host's last move/cancel request (request-only, D2). */
+            refundLine: partyRefundLine(party!.startIso, new Date(), (party!.items ?? []).filter((it) => it.kind === 'package').reduce((t, it) => t + it.cents, 0) || undefined),
+            changeRequest: (() => {
+              const r = isOurs(party!) ? openRequest(party!) : null
+              return r ? { at: r.at, want: r.want } : null
+            })(),
+            canAskToChange: isOurs(party!) && party!.status !== 'cancelled',
           },
           summary: { households: households.length, people: peopleCount },
           households: responseHouseholds,

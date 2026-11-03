@@ -1018,7 +1018,7 @@ describe('stage 4: codes, the shown total and free bookings at checkout', () => 
     expect(Date.parse(uses!.holds[0].until)).toBeGreaterThanOrEqual(NOW.getTime() + 23 * 3_600_000)
     // Someone else can't take the last use meanwhile.
     newAttempt()
-    const other = await POST(ctx(one(cls, { promoCode: code })))
+    const other = await POST(ctx(one(cls, { promoCode: code, customer: { ...customer, email: 'someone@example.com' } })))
     expect((await other.json()).detail).toBe('That code has been used up. Nothing was charged.')
   })
 
@@ -1305,7 +1305,7 @@ describe('stage 4: codes, the shown total and free bookings at checkout', () => 
       const statuses: number[] = []
       for (let i = 0; i < 4; i++) {
         newAttempt()
-        statuses.push((await POST(ctx(one(cls, { promoCode: code, paymentToken: '', expectedTotalCents: 0, customer: { ...customer, email: 'farm@example.com' } })))).status)
+        statuses.push((await POST(ctx(one(cls, { promoCode: code, paymentToken: '', expectedTotalCents: 0, customer: { ...customer, email: 'farm@example.com' }, confirmRepeat: true })))).status)
       }
       expect(statuses).toEqual([200, 200, 200, 429])
     })
@@ -1393,5 +1393,43 @@ describe('stage 4: waitlist first', () => {
     newAttempt()
     const ok = await POST(ctx(body(cls, { tickets: { adult: 1 }, overCapacity: true }), undefined, '?door=1'))
     expect(ok.status).toBe(200)
+  })
+})
+
+describe('class booking — the same person minutes later, with a new attempt (final review C2)', () => {
+  it('their first payment still going through: "still going through", nothing held or charged', async () => {
+    const cls = makeClass()
+    mockProcessPayment.mockRejectedValueOnce(new Error('socket hang up'))
+    expect((await POST(ctx(body(cls)))).status).toBe(502)
+    newAttempt()
+    mockProcessPayment.mockClear()
+    const res = await POST(ctx(body(cls)))
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: 'in_progress', detail: expect.stringContaining('still going through') })
+    expect(mockProcessPayment).not.toHaveBeenCalled()
+  })
+
+  it('booked minutes ago: asks first (recent_booking, nothing charged); confirmRepeat books the second', async () => {
+    const cls = makeClass()
+    expect((await POST(ctx(body(cls)))).status).toBe(200)
+    newAttempt()
+    mockProcessPayment.mockClear()
+    const asked = await POST(ctx(body(cls, { attemptId: ATTEMPT, customer: { ...customer, email: 'ADA@example.com' } })))
+    expect(asked.status).toBe(409)
+    expect(await asked.json()).toMatchObject({ code: 'recent_booking', detail: expect.stringContaining('Nothing was charged this time') })
+    expect(mockProcessPayment).not.toHaveBeenCalled()
+    newAttempt()
+    const again = await POST(ctx(body(cls, { attemptId: ATTEMPT, confirmRepeat: true })))
+    expect(again.status).toBe(200)
+  })
+
+  it('a different person, or the same person after the window, books as usual', async () => {
+    const cls = makeClass()
+    expect((await POST(ctx(body(cls)))).status).toBe(200)
+    newAttempt()
+    expect((await POST(ctx(body(cls, { attemptId: ATTEMPT, customer: { ...customer, email: 'grace@example.com' } })))).status).toBe(200)
+    vi.setSystemTime(new Date(NOW.getTime() + 11 * 60_000))
+    newAttempt()
+    expect((await POST(ctx(body(cls, { attemptId: ATTEMPT })))).status).toBe(200)
   })
 })

@@ -51,8 +51,14 @@ describe('sendPartyConfirmationEmail', () => {
     for (const body of bodies()) {
       expect(body).toContain('525 Hughes Rd, Suite F, Madison, AL 35758')
       expect(body).toContain('Arrive up to 30 minutes early to set up.')
-      expect(body).toContain("we'll text you to check your headcount")
-      expect(body).toContain('you pay for who comes, minimum 10')
+      // Final review I6: nothing sends a headcount text, so none is promised.
+      expect(body).toContain('Know your headcount closer to the day? Text us so we can prep.')
+      expect(body).toContain('You pay for who comes, with a minimum of 10')
+      expect(body).not.toMatch(/week before|we'll text you/)
+      // Final review I4: how to ask to move or cancel (request-only).
+      expect(body).toContain('Need to move or cancel?')
+      expect(body).toContain('Ask from your party page, or text us, and we’ll sort it out with you.')
+      expect(body).toContain('You paid $300 today for the studio fee.')
       expect(body).toContain('Full refund until Oct 3. After that, studio credit.')
       expect(body).toContain('Text us at (256) 464-1710')
       expect(body).toContain('$300')
@@ -142,5 +148,27 @@ describe('sendPartyConfirmationEmail', () => {
     ;({ sendPartyConfirmationEmail } = await import('@lib/email'))
     expect(await sendPartyConfirmationEmail(input)).toEqual({ sent: false })
     expect(mockSendMail).not.toHaveBeenCalled()
+  })
+})
+
+describe('party confirmation money words (final review I8)', () => {
+  it('extras in today’s charge: "You paid $345 today", never "studio fee" for the whole amount', async () => {
+    await sendPartyConfirmationEmail({ ...input, totalChargedCents: 34500, feeCents: 30000 })
+    for (const body of bodies()) {
+      expect(body).toContain('You paid $345 today.')
+      expect(body).not.toMatch(/studio fee paid today|\$345 today for the studio fee/i)
+    }
+  })
+
+  it('a themed table is its own line, never glued onto the date in the subject', async () => {
+    await sendPartyConfirmationEmail({ ...input, themeName: 'Unicorn Table' })
+    expect(mockSendMail.mock.calls[0][0].subject).not.toContain('Unicorn')
+    for (const body of bodies()) expect(body).toContain('With the Unicorn Table.')
+  })
+
+  it('the plain-text version has no "Label:" lines', async () => {
+    await sendPartyConfirmationEmail(input)
+    const text = String(mockSendMail.mock.calls[0][0].text)
+    expect(text).not.toMatch(/^(Where|Directions|About your craft|Receipt|Changing plans|Add to Google Calendar|Apple or Outlook|Invitation link[^\n]*):/m)
   })
 })

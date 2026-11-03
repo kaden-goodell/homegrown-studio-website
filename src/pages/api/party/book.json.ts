@@ -7,6 +7,17 @@ import { isAttemptId, type CheckoutErrorCode } from '@lib/checkout-attempt'
 import { partyMessages } from '@lib/checkout-messages'
 import { bookParty, partyIdFor, IN_PROGRESS_MESSAGE, type BookInput } from '@lib/parties/checkout'
 import { getPartyRecord, type PartyCharge, type PartyRecord } from '@lib/party-store'
+import { recentPartyBySamePerson, recentPartyMessage, PARTY_ALREADY_BOOKED, PARTY_STILL_GOING_THROUGH } from '@lib/parties/same-person'
+
+/** Final review I19: what a customer reads when the request itself is off (never "Invalid request body"). */
+const WORDS = {
+  slowDown: 'That’s a lot of tries in a row. Give it a minute, then try again.',
+  time: 'Pick a date and time first. Nothing was charged.',
+  card: 'We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.',
+  name: 'Add your first and last name and your email. Nothing was charged.',
+  phone: 'Add a phone number. It’s how we reach you on party day. Nothing was charged.',
+  craft: 'Pick a craft first. Nothing was charged.',
+}
 
 /**
  * Book and pay for a party online: our own party record on the shared
@@ -23,15 +34,15 @@ import { getPartyRecord, type PartyCharge, type PartyRecord } from '@lib/party-s
 export const POST: APIRoute = async ({ request, clientAddress }) => {
   const open = await bookingsOpenNow(request, 'parties')
   if (open && rateLimited(`party-book:${clientAddress}`, 5, 60_000)) {
-    return errorResponse('Too many booking attempts — give it a minute.', 429)
+    return errorResponse(WORDS.slowDown, 429)
   }
   let body: any
   try {
     body = await request.json()
   } catch {
-    return open ? errorResponse('Invalid request body', 400) : await bookingsClosedResponse()
+    return open ? errorResponse(partyMessages.invalid, 400) : await bookingsClosedResponse()
   }
-  if (!body || typeof body !== 'object') return open ? errorResponse('Invalid request body', 400) : await bookingsClosedResponse()
+  if (!body || typeof body !== 'object') return open ? errorResponse(partyMessages.invalid, 400) : await bookingsClosedResponse()
   if (!open) {
     // A paid customer retrying after bookings closed still gets their confirmation (read only).
     const stored = isAttemptId(body.attemptId) ? await getPartyRecord(partyIdFor(body.attemptId)).catch(() => null) : null
@@ -40,9 +51,9 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   }
 
   // --- Validation (today's words) ---
-  if (!body.startTime || Number.isNaN(Date.parse(String(body.startTime)))) return errorResponse('Missing party time information', 400)
+  if (!body.startTime || Number.isNaN(Date.parse(String(body.startTime)))) return errorResponse(WORDS.time, 400)
   if (!body.paymentToken || typeof body.paymentToken !== 'string' || body.paymentToken.length > 4000) {
-    return errorResponse('Missing payment information', 400)
+    return errorResponse(WORDS.card, 400)
   }
   const host = {
     firstName: String(body.customer?.firstName ?? '').trim(),
@@ -50,12 +61,12 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     email: String(body.customer?.email ?? '').trim(),
     phone: String(body.customer?.phone ?? '').trim(),
   }
-  if (!host.email || !host.firstName || !host.lastName) return errorResponse('Full name and email are required', 400)
+  if (!host.email || !host.firstName || !host.lastName) return errorResponse(WORDS.name, 400)
   if (host.phone.replace(/\D/g, '').length < 10) {
-    return errorResponse('A phone number is required — it’s how we reach you on party day', 400)
+    return errorResponse(WORDS.phone, 400)
   }
   const craftId = typeof body.craftId === 'string' ? body.craftId : typeof body.craft?.id === 'string' ? body.craft.id : ''
-  if (!craftId) return errorResponse('Missing craft selection', 400)
+  if (!craftId) return errorResponse(WORDS.craft, 400)
   const guests = Math.floor(Number(body.guests ?? body.people ?? 0))
   const addOns = body.addOns && typeof body.addOns === 'object' && !Array.isArray(body.addOns)
     ? Object.fromEntries(Object.entries(body.addOns as Record<string, unknown>).map(([k, v]) => [String(k), Number(v)]))
@@ -92,6 +103,14 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   }
 
   if (input.expectedCents === undefined) console.warn('[api:party:book] Party booking sent no shown total — charging the server total')
+
+  // C2: the same host minutes ago with another attempt (a closed panel, a reload, a back swipe). A retry of
+  // this very attempt is the same party id and goes on to bookParty, which answers with its stored result.
+  const same = await recentPartyBySamePerson(host.email, partyIdFor(key), String(body.startTime))
+  if (same?.kind === 'charging') return errorResponse(PARTY_STILL_GOING_THROUGH, 409, 'in_progress')
+  if (same?.kind === 'booked' && same.sameTime) return errorResponse(PARTY_ALREADY_BOOKED, 409, 'already_booked')
+  if (same?.kind === 'booked' && body.confirmRepeat !== true) return errorResponse(recentPartyMessage(same.whenLabel), 409, 'recent_booking')
+
   let out: Awaited<ReturnType<typeof bookParty>>
   try {
     out = await bookParty(input)
@@ -138,7 +157,7 @@ function bookedResponse(
 }
 
 /** A plain sentence for the customer, plus a code the booking panel can act on. */
-function errorResponse(detail: string, status: number, code?: CheckoutErrorCode | 'in_progress', extra?: Record<string, unknown>) {
+function errorResponse(detail: string, status: number, code?: CheckoutErrorCode | 'in_progress' | 'recent_booking', extra?: Record<string, unknown>) {
   const resolved =
     code ?? (status === 400 ? 'invalid' : status === 409 ? 'slot_taken' : status === 402 ? 'card_declined' : 'unavailable')
   return new Response(

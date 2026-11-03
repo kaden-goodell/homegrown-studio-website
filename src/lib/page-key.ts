@@ -3,16 +3,18 @@
  * shows other families' children and allergies) and `/party/pay/<id>?k=…`
  * (the payment link). Their keys must never reach GA4, Meta or PostHog.
  *
- *   - Layout leaves out GA4 and the Meta Pixel on them and never
- *     session-records them (PostHog pageviews only, with no query string).
- *   - `PAGE_KEY_SCRIPT` runs first in <head>, before any analytics: it moves
- *     the key from the address bar into sessionStorage (so a refresh still
- *     works, see `rememberedPageKey`) and leaves the URL as the bare path.
- *     It also makes every link into a private page a full page load, so a
+ *   - Both pages run with no analytics at all (`noAnalytics`) and send no
+ *     referrer anywhere (`noReferrer`), so the address, key included, never
+ *     reaches GA4, Meta or PostHog, not even as the next page's referrer.
+ *   - The key STAYS in the address bar (final customer review I3): a host who
+ *     bookmarks the page, adds it to the Home Screen, shares it from Safari or
+ *     copies the address keeps a link that works, as the confirmation's "Keep
+ *     this link" promises. `PAGE_KEY_SCRIPT` also keeps a copy in
+ *     sessionStorage (`rememberedPageKey`), so a page opened without it in the
+ *     same tab still works.
+ *   - The script makes every link into a private page a full page load, so a
  *     key never rides an in-site (view transition) page change that the
- *     analytics already on the page would report.
- *   - `<meta name="referrer" content="same-origin">` keeps the page's address
- *     from going to other sites.
+ *     analytics already on another page would report.
  *
  * Client-safe: no imports.
  */
@@ -58,5 +60,4 @@ if(!w.__hsPageKeyGuard){w.__hsPageKeyGuard=1;d.addEventListener('click',function
 var u=new URL(location.href);if(u.searchParams.has('preview')){u.searchParams.delete('preview');history.replaceState(history.state,'',u.pathname+u.search+u.hash)}if(!P.test(u.pathname))return;
 var k=u.searchParams.get('k')||u.searchParams.get('key');
 if(k){try{sessionStorage.setItem('${STORE_PREFIX}'+u.pathname,k)}catch(_){}}
-if(u.search){history.replaceState(history.state,'',u.pathname+u.hash)}
 }catch(_){}})();`

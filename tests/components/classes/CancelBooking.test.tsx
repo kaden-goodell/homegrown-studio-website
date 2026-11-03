@@ -30,11 +30,14 @@ describe('Can’t make it? page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel and refund $21.80' }))
     const ask = screen.getByRole('group', { name: 'Cancel for sure?' })
     expect(ask).toHaveTextContent('Cancel your seat and refund $21.80?')
+    // Final review I18: the question takes focus, and Keep my booking gives it back to the button.
+    expect(document.activeElement).toHaveTextContent('Cancel your seat and refund $21.80?')
     fireEvent.click(within(ask).getByRole('button', { name: 'Keep my booking' }))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel and refund $21.80' }))
     expect(f).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Cancel and refund $21.80' }))
     fireEvent.click(within(screen.getByRole('group', { name: 'Cancel for sure?' })).getByRole('button', { name: 'Yes, cancel and refund' }))
-    expect(await screen.findByText('Done. We refunded $21.80 to the card you paid with, and we sent you an email to say so.')).toBeInTheDocument()
+    expect(await screen.findByText('Done. We refunded $21.80 to the card you paid with, and we’re emailing you to say so.')).toBeInTheDocument()
     expect(bodies(f)[0]).toMatchObject({ t: 'cls_1.bkg_1.sig', action: 'cancel', lineIds: ['led_1'] })
     expect(bodies(f)[0].attempt).toMatch(/^[A-Za-z0-9_-]{6,80}$/)
     expect(screen.getByRole('checkbox', { name: /Seat 1 · Adult · cancelled/ })).toBeDisabled()
@@ -52,7 +55,7 @@ describe('Can’t make it? page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel and refund $21.80' }))
     fireEvent.click(screen.getByRole('button', { name: 'Yes, cancel and refund' }))
     expect(await screen.findByText(/We’re finishing your refund with our card processor\. Your seats stay held until it’s done/)).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Your cancel is in' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'We’re finishing your cancel' })).toBeInTheDocument()
   })
 
   it('turned down: the error says nothing changed; the next press is a new attempt', async () => {

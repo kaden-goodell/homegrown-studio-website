@@ -67,3 +67,26 @@ describe('sendRefundEmail', () => {
     expect(m.text).not.toContain('class')
   })
 })
+
+describe('refund email after a class cancel (final review I10)', () => {
+  it('a partial cancel says how many seats went and that the rest are still booked', async () => {
+    await email.sendRefundEmail({ to: 'a@b.co', givenName: 'Ada', className: 'Candles', cents: 3270, keptSeat: true, seats: { cancelled: 1, stillBooked: 2 } })
+    const text = String(mockSendMail.mock.calls.at(-1)![0].text)
+    expect(text).toContain('Your 1 seat is cancelled. Your other 2 seats are still booked, so we’ll see you there.')
+    expect(text).not.toContain('another class soon')
+  })
+  it('the whole booking cancelled says goodbye', async () => {
+    await email.sendRefundEmail({ to: 'a@b.co', givenName: 'Ada', className: 'Candles', cents: 6540, keptSeat: false, seats: { cancelled: 2, stillBooked: 0 } })
+    expect(String(mockSendMail.mock.calls.at(-1)![0].text)).toContain('Your 2 seats are cancelled. We hope to see you at another class soon.')
+  })
+})
+
+describe('cancel not finished email (final review I13)', () => {
+  it('says the cancel didn’t go through, nothing refunded, still booked, and what to do; no colons', async () => {
+    await email.sendCancelNotFinishedEmail({ to: 'a@b.co', givenName: 'Ada', className: 'Candles', whenLabel: 'Sat, Nov 7 · 2 PM CT' })
+    const m = mockSendMail.mock.calls.at(-1)![0]
+    expect(m.text).toContain('Your cancel for Candles (Sat, Nov 7 · 2 PM CT) didn’t go through, so nothing was refunded and you’re still booked.')
+    expect(m.text).toMatch(/If you still can’t make it, text us at .+ and we’ll sort it out with you\./)
+    expect(m.text.split('Hometown Studio ·')[0]).not.toContain(':')
+  })
+})

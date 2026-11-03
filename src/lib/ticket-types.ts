@@ -83,7 +83,26 @@ export function seatPlan(types: TicketType[], counts: unknown, classPriceCents: 
   return { ok: true, value: seats }
 }
 
-export const pluralLabel = (label: string, n: number) => (n === 1 ? label : `${label}s`)
+const IRREGULAR: Record<string, string> = { child: 'children', person: 'people', man: 'men', woman: 'women' }
+
+/** "Adult" → "Adults", "Child" → "Children", "Kids" stays "Kids". Keeps the label's own capital. */
+export function pluralWord(label: string): string {
+  const words = label.split(' ')
+  const last = words[words.length - 1] ?? ''
+  const lower = last.toLowerCase()
+  let plural: string
+  if (IRREGULAR[lower]) plural = IRREGULAR[lower]
+  else if (/s$/i.test(last)) plural = lower
+  else if (/[^aeiou]y$/i.test(last)) plural = lower.slice(0, -1) + 'ies'
+  else plural = lower + 's'
+  // Keep the case the owner typed: "Child" → "Children", "TEEN" → "TEENS".
+  const cased = last === last.toUpperCase() && last.length > 1
+    ? plural.toUpperCase()
+    : last[0] === last[0]?.toUpperCase() ? plural[0].toUpperCase() + plural.slice(1) : plural
+  return [...words.slice(0, -1), cased].join(' ')
+}
+
+export const pluralLabel = (label: string, n: number) => (n === 1 ? label : pluralWord(label))
 
 /** "1 Adult, 2 Kids" for the seats given. */
 export function ticketSummary(seats: Pick<PlannedSeat, 'typeId' | 'label'>[]): string {

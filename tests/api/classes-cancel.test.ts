@@ -6,6 +6,7 @@ const m = vi.hoisted(() => ({
   refundPayment: vi.fn(),
   audit: vi.fn(),
   email: vi.fn(),
+  notFinished: vi.fn(async () => ({ sent: true })),
   alert: vi.fn(),
   runWaitlist: vi.fn(),
   keys: new Map<string, any>(),
@@ -43,7 +44,7 @@ vi.mock('@config/providers', () => ({
   },
 }))
 vi.mock('@lib/audit', () => ({ recordAudit: m.audit }))
-vi.mock('@lib/email', () => ({ sendRefundEmail: m.email }))
+vi.mock('@lib/email', () => ({ sendRefundEmail: m.email, sendCancelNotFinishedEmail: m.notFinished }))
 vi.mock('@lib/owner-alert', () => ({ alertOwners: m.alert }))
 vi.mock('@lib/classes/waitlist-runner', () => ({ runWaitlist: m.runWaitlist, decideUnclear: vi.fn(), UnclearError: class extends Error {} }))
 // F3: Ask Square reads the payment (read only): what Square refunded on it is every refund it made (by key).
@@ -164,7 +165,8 @@ describe('48+ hours ahead: cancel and refund', () => {
     expect(after[lines[0].id].refunds[0]).toMatchObject({ cents: 3270, freedSeat: true, by: { id: 'customer-online', name: 'Ada Lovelace (online)' } })
     expect(after[lines[1].id].state).toBe('confirmed')
     expect(m.runWaitlist).toHaveBeenCalledWith(classId, { reason: 'seat-freed' })
-    expect(m.email).toHaveBeenCalledWith(expect.objectContaining({ to: 'ada@example.com', cents: 3270, keptSeat: false }))
+    // Final review I10: 1 of 2 seats cancelled, the other still booked, and the email says so.
+    expect(m.email).toHaveBeenCalledWith(expect.objectContaining({ to: 'ada@example.com', cents: 3270, keptSeat: true, seats: { cancelled: 1, stillBooked: 1 } }))
     expect(m.alert).toHaveBeenCalledTimes(1)
     expect(m.alert.mock.calls[0][0]).toMatch(/^Ada Lovelace cancelled 1 seat of Candles \(.+\) online and got \$32\.70 back\. The seat is back on sale\.$/)
     expect(m.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-self-cancel', details: expect.objectContaining({ bookingId, cents: 3270 }) }))
@@ -404,6 +406,8 @@ describe('F3: a refund Square never answers never leaves Catherine stuck', () =>
     expect(m.refundPayment).toHaveBeenCalledTimes(1)
     expect(m.audit.mock.calls.some(([e]: any[]) => e.action === 'class-self-cancel-released')).toBe(true)
     expect(m.audit.mock.calls.some(([e]: any[]) => e.action === 'class-refund-checked' || /checked/.test(e.action))).toBe(true)
+    // Final review I13: they were promised an email once the refund went through; they hear it didn't.
+    expect(m.notFinished).toHaveBeenCalledWith(expect.objectContaining({ to: 'ada@example.com', className: 'Candles' }))
     const v = (await get(t)).body.data
     expect(v.seats[0]).toMatchObject({ state: 'booked', canPick: true })
     expect((await listToDecide()).items.filter((i) => i.kind === 'cancel-unclear' && !i.done && i.detail.bookingId === bookingId)).toHaveLength(0)

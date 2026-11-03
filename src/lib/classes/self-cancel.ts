@@ -28,6 +28,7 @@
  */
 import { makeKvStore } from '@lib/blob-store'
 import { recordAudit } from '@lib/audit'
+import { sendCancelNotFinishedEmail } from '@lib/email'
 import { alertOwners } from '@lib/owner-alert'
 import { createLogger } from '@lib/logger'
 import { formatMoney } from '@lib/money'
@@ -645,6 +646,14 @@ export async function releaseSelfCancel(classId: string, bookingId: string, atte
       target: { kind: 'class', id: classId, label: cls.content.name },
       details: { bookingId, attempt, cents: t.cents, lines: t.lineIds.join(',') },
     }).catch(() => undefined)
+    // Final review I13: they were told "We'll email you once the refund goes through". It didn't, so say so.
+    const customer = rec.customer
+    if (customer?.email) {
+      const lines = bookingLinesOf(await getLedger(classId).catch(() => ({ classId, lines: [] as LedgerLine[] })), bookingId)
+      const first = [...cls.sessions].filter((x) => lines.some((l) => l.sessionIds.includes(x.id))).sort((a, b) => a.startIso.localeCompare(b.startIso))[0]
+      await sendCancelNotFinishedEmail({ to: customer.email, givenName: customer.givenName, className: cls.content.name, whenLabel: first ? formatSlotLabel(first.startIso) : '' })
+        .catch((err) => logger.error('Cancel-not-finished email failed', { bookingId, error: String(err) }))
+    }
   }
 }
 

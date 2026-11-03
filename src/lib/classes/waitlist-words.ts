@@ -10,10 +10,12 @@ import { policyWindows } from '@config/policy-content'
 
 /**
  * Bumped whenever the consent sentence changes; stored with each entry. 2: the class and its date are named (I2).
- * 3: "even if the price goes up later" (D6). Entries joined under an older version keep their stored text and are
- * honoured as they are (the runner never reads the version).
+ * 3: "even if the price goes up later" (D6). 4 (final customer review): "never more than", and the text and email
+ * come "when it happens" (charges and texts wait for 8 AM–8 PM, I12), no longer "right away". 5 (merge of the final
+ * fixes): 4's words plus "(so I'm never charged inside the 48-hour no-refund window)" after the close date (D7, the
+ * waitlist closes 48 hours before class). Entries joined under an older version keep their stored text and are honoured as they are (the runner never reads the version).
  */
-export const CONSENT_VERSION = 'wl-consent-3'
+export const CONSENT_VERSION = 'wl-consent-5'
 
 export const MAX_WAITING_PER_CLASS = 40
 
@@ -38,7 +40,7 @@ export function closesLabel(iso: string): string {
  */
 export function consentText(input: { className: string; startIso: string; more?: boolean; closesIso: string; maxCents: number }): string {
   const when = `${input.more ? 'starts ' : ''}${closesLabel(input.startIso)}`
-  return `Save my card with Square. If a spot opens in ${input.className} (${when}) before the waitlist closes on ${closesLabel(input.closesIso)} (so I’m never charged inside the ${policyWindows.workshopRefundHours}-hour no-refund window), Hometown Studio adds me and charges this card up to ${formatMoney(input.maxCents)}, even if the price goes up later, without asking again. I’ll get a text and an email right away. I can leave the waitlist any time and my card comes off.`
+  return `Save my card with Square. If a spot opens in ${input.className} (${when}) before the waitlist closes on ${closesLabel(input.closesIso)} (so I’m never charged inside the ${policyWindows.workshopRefundHours}-hour no-refund window), Hometown Studio adds me and charges this card. It’s never more than ${formatMoney(input.maxCents)}, even if the price goes up later, and they won’t ask again first. I’ll get a text and an email when it happens. I can leave the waitlist any time and my card comes off.`
 }
 
 /** M-a: consent words compared without caring about spacing (browser and server may space "8 AM" differently). */
@@ -59,7 +61,7 @@ export const WAITLIST_MESSAGES = {
   /** M3/C1: a spot opened and a charge is being made or checked (it may stay unclear for a while). */
   charging: 'A spot opened and we tried to add you. We’re checking with Square whether your card was charged, and we’ll email you as soon as we know.',
   /** C1: they asked to leave while that charge is being checked. */
-  leaveAsked: 'We’re checking with Square whether your card was charged. If it wasn’t, nothing will be: you come off the waitlist and your card comes off. If it was, you’re in the class. We’ll email you either way.',
+  leaveAsked: 'We’re checking with Square whether your card was charged. If it wasn’t, nothing will be. You come off the waitlist and your card comes off. If it was, you’re in the class. We’ll email you either way.',
 } as const
 
 /** I2: the price or close time changed since the panel showed the consent (or the page is too old to say); nothing was saved. */

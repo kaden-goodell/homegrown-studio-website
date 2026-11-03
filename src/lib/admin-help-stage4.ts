@@ -86,7 +86,7 @@ export const STAGE4_HELP_SECTIONS: HelpSection[] = [
     title: 'Customers cancelling a class themselves',
     comingWith: 'extras',
     points: [
-      'Every class confirmation email has a “Can’t make it? Cancel or change your booking” link, just for that booking.',
+      'Every class confirmation email has a “Can’t make it? Cancel your booking” link, just for that booking.',
       'More than 48 hours before the class, the customer picks the seats that can’t come and cancels them. They get back exactly what those seats cost, tax included, on their card, and the refund email. The seats go back on sale and the waitlist runs. You get a text saying so; the class shows “Cancelled online by the customer”.',
       'A free booking (a 100% code) can be cancelled any time before the class; nothing is refunded.',
       'Inside 48 hours, for a gift seat, a seat paid at the studio or a booking for several dates partly refunded, the page shows the policy and lets them send you a note instead. You get a text and it’s in To decide.',

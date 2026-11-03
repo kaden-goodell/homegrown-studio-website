@@ -85,7 +85,7 @@ function PartyLabelChip({ label }: { label: string }) {
         marginBottom: '1.25rem',
       }}
     >
-      <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>RSVP’ing to:</span>
+      <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>RSVP for</span>
       <span>{label}</span>
     </div>
   )
@@ -390,11 +390,11 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         throw new Error(json?.error ?? 'Something went wrong — please try again.')
       }
       trackWaiverSigned({ kind: waiverKind, kids: minors.filter((_, i) => formComing(`child:${i}`)).length, dropOff: !!dropOff, kiosk, returning: false })
-      // Fresh signature — we always email a copy (HOM-216).
+      // Fresh signature: we email a copy (HOM-216), and say so only when it went out (I15).
       setDone({
         covered: json.data.covered,
         validUntil: json.data.validUntil,
-        subline: confirmation.emailedCopyLine.replace('{email}', email.trim()),
+        subline: json.data.copyEmailed === false ? confirmation.subline : confirmation.emailedCopyLine.replace('{email}', email.trim()),
         kidsComing: minors.some((_, i) => formComing(`child:${i}`)),
       })
       await markArrived(json.data.recordId, ['adult', ...minors.map((_, i) => `child:${i}`)].filter(formComing))
@@ -732,7 +732,11 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           onChange={(e) => setContact(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleLookup()}
           placeholder="Email or phone"
+          aria-label="Email or phone"
           autoComplete="email"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
         />
         {error && <p style={{ color: 'rgb(185,28,28)', fontSize: '0.875rem', marginTop: '0.6rem' }}>{error}</p>}
         <button
@@ -963,7 +967,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           </div>
           <div>
             <label style={labelStyle} htmlFor="wv-email">Email</label>
-            <input id="wv-email" type="email" style={inputStyle} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+            <input id="wv-email" type="email" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputStyle} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
           </div>
           <div>
             <label style={labelStyle} htmlFor="wv-phone">Phone</label>
@@ -1008,7 +1012,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
               </div>
               <div style={{ flex: '1 1 9rem' }}>
                 <label style={labelStyle} htmlFor={`wv-minor-dob-${i}`}>Date of birth</label>
-                <input id={`wv-minor-dob-${i}`} type="date" style={inputStyle} value={minor.dob} onChange={(e) => updateMinor(i, { dob: e.target.value })} />
+                <input id={`wv-minor-dob-${i}`} type="date" max={new Date(Date.now() - 86_400_000).toLocaleDateString('en-CA')} style={inputStyle} value={minor.dob} onChange={(e) => updateMinor(i, { dob: e.target.value })} />
               </div>
               <button
                 type="button"
@@ -1206,6 +1210,9 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           onChange={(e) => setSignature(e.target.value)}
           placeholder={fullName || 'Your full name'}
           autoComplete="off"
+          // It must match the name exactly: no autocorrect changing it.
+          autoCorrect="off"
+          spellCheck={false}
         />
         {signature.trim() && !signatureMatches && (
           <p style={{ color: '#b45309', fontSize: '0.8125rem', margin: '0.35rem 0 0', fontWeight: 600 }}>
@@ -1231,7 +1238,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
             }}
           >
             <p style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#b45309', margin: '0 0 0.35rem' }}>
-              Almost there — still need:
+              Almost there. Still needed
             </p>
             <ul style={{ margin: 0, paddingLeft: '1.1rem' }}>
               {missing.map((item) => (

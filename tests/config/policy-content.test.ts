@@ -59,7 +59,7 @@ describe('policy content (HOM-78 canonical spec)', () => {
 
   it('checkout summaries quote the same windows as policyWindows', () => {
     expect(checkoutPolicySummary.party).toContain(`${policyWindows.partyFullRefundDays}`)
-    expect(checkoutPolicySummary.party).toContain(`${policyWindows.partyRescheduleNoticeHours}h`)
+    expect(checkoutPolicySummary.party).toContain(`${policyWindows.partyRescheduleNoticeHours} hours’ notice`)
     expect(checkoutPolicySummary.party).toMatch(/who comes/i)
     expect(checkoutPolicySummary.workshop).toContain(`${policyWindows.workshopRefundHours}`)
   })

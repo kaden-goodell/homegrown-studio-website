@@ -11,7 +11,8 @@ export const inputStyle: CSSProperties = {
   borderRadius: '0.625rem',
   border: '1px solid rgba(var(--color-primary-rgb), 0.25)',
   background: 'rgba(255, 255, 255, 0.85)',
-  fontSize: '0.9375rem',
+  // 16px: iPhone Safari zooms into any field smaller than that (final review I14).
+  fontSize: '1rem',
   color: 'var(--color-dark)',
   outline: 'none',
 }

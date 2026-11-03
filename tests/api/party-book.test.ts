@@ -80,13 +80,16 @@ const post = async (b: Record<string, unknown>) => {
   return { status: res.status, json: await res.json() }
 }
 
+// A different host for every body: the same host minutes later with another attempt is the C2 check, tested on its own.
+let hostSeq = 0
 function body(startTime: string, over: Record<string, unknown> = {}) {
+  const n = ++hostSeq
   return {
     attemptId: randomUUID(),
     startTime,
     guests: 10,
     craftId: 'craft-1',
-    customer: { firstName: 'Alice', lastName: 'Smith', email: 'alice@example.com', phone: '256-555-1234' },
+    customer: { firstName: 'Alice', lastName: 'Smith', email: n === 1 ? 'alice@example.com' : `alice${n}@example.com`, phone: '256-555-1234' },
     paymentToken: 'cnon:card-nonce-ok',
     ...over,
   }
@@ -334,7 +337,7 @@ describe('POST /api/party/book.json: one order, one charge, no Square booking', 
     const b = body(start)
     const { status, json } = await post(b)
     expect(status).toBe(503)
-    expect(json.detail).toMatch(/not charged/)
+    expect(json.detail).toMatch(/Nothing was charged/)
     expect(m.processPayment).not.toHaveBeenCalled()
     expect(await heldBy(start, partyIdFor(b.attemptId))).toBeUndefined()
     expect(m.alert.mock.calls.some(([t]) => /price mismatch/.test(String(t)))).toBe(true)
@@ -460,5 +463,49 @@ describe('POST /api/party/book.json: one order, one charge, no Square booking', 
     expect(json.data.simulated).toBe(true)
     for (const f of [m.createOrder, m.processPayment, m.findOrCreate, m.createBooking]) expect(f).not.toHaveBeenCalled()
     expect(await getPartyRecord(json.data.bookingId)).toMatchObject({ simulated: true, status: 'booked' })
+  })
+})
+
+describe('party booking — the same host minutes later, with a new attempt (final review C2)', () => {
+  const SUN_1PM = at('2027-03-21', '15:30')
+  const OTHER_A = at('2027-03-06', '14:00')
+  const OTHER_B = at('2027-03-13', '14:00')
+  const SUN2_1PM = at('2027-03-28', '15:30')
+  const sameHost = { firstName: 'Bea', lastName: 'Jones', email: 'bea@example.com', phone: '256-555-9876' }
+
+  it('their own party at that time: "You just booked this party", not "taken, nothing charged"; no second charge', async () => {
+    const first = await post(body(SUN_1PM, { customer: sameHost }))
+    expect(first.status).toBe(200)
+    m.processPayment.mockClear()
+    const again = await post(body(SUN_1PM, { customer: { ...sameHost, email: 'BEA@example.com' } }))
+    expect(again.status).toBe(409)
+    expect(again.json).toMatchObject({ code: 'already_booked', detail: 'You just booked this party. Check your email for your confirmation. Nothing was charged this time.' })
+    expect(m.processPayment).not.toHaveBeenCalled()
+  })
+
+  it('another time minutes later: asks first (recent_booking); confirmRepeat books it', async () => {
+    const host = { ...sameHost, email: 'bea2@example.com' }
+    expect((await post(body(OTHER_A, { customer: host }))).status).toBe(200)
+    const asked = await post(body(OTHER_B, { customer: host }))
+    expect(asked.status).toBe(409)
+    expect(asked.json.code).toBe('recent_booking')
+    expect(asked.json.detail).toMatch(/^You booked a party for .+ a few minutes ago\. .*Nothing was charged this time\./)
+    expect((await post(body(OTHER_B, { customer: host, confirmRepeat: true }))).status).toBe(200)
+  })
+
+  it('a retry of the very same attempt still gets its stored answer (the check skips its own party)', async () => {
+    const b = body(SUN2_1PM, { customer: { ...sameHost, email: 'bea3@example.com' } })
+    expect((await post(b)).status).toBe(200)
+    const again = await post(b)
+    expect(again.status).toBe(200)
+    expect(again.json.data.replayed).toBe(true)
+  })
+
+  it('the request itself off: plain words, never "Invalid request body"', async () => {
+    const res = await POST({ request: new Request('https://x.test/api/party/book.json', { method: 'POST', body: 'not json' }), clientAddress: '203.0.113.99' } as any)
+    const json = await res.json()
+    expect(res.status).toBe(400)
+    expect(json.detail).not.toMatch(/Invalid request body/)
+    expect(json.detail).toBe('Something in the booking was missing. Please check your details and try again.')
   })
 })

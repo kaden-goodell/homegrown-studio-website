@@ -33,7 +33,7 @@ if (problem === 'missing') Astro.response.status = 404
 if (problem === 'failed') Astro.response.status = 503
 ---
 
-<Layout title="Your booking" description="Cancel or change your Hometown Studio class booking." noindex noAnalytics noReferrer>
+<Layout title="Your booking" description="Cancel your Hometown Studio class booking." noindex noAnalytics noReferrer>
   <section class="max-w-xl mx-auto px-4 sm:px-6 pb-20" style="padding-top: 5.5rem;">
     {view ? (
       <CancelBooking client:load token={token} initial={view} />

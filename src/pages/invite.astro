@@ -27,11 +27,13 @@ if (partyId) {
   }
 }
 
-// Derive display values — server record wins; query params are the fallback.
-const craft = record ? record.craftName : (params.get('craft') ?? '')
-const when  = record ? formatWhen(record.startIso) + ' CT' : (params.get('when') ?? '')
-const start = record ? record.startIso : (params.get('start') ?? '')
-const title = record ? (record.title ?? params.get('title') ?? '') : (params.get('title') ?? '')
+// Derive display values — server record wins. Query params only for an old link with no party id: a party id
+// we don't know never shows "You're invited" from words anyone can edit in the address (final review minor).
+const fromParams = !partyId
+const craft = record ? record.craftName : fromParams ? (params.get('craft') ?? '') : ''
+const when  = record ? formatWhen(record.startIso) + ' CT' : fromParams ? (params.get('when') ?? '') : ''
+const start = record ? record.startIso : fromParams ? (params.get('start') ?? '') : ''
+const title = record ? (record.title ?? params.get('title') ?? '') : fromParams ? (params.get('title') ?? '') : ''
 
 // Past-party guard: if we have a record and the party ended >24 h ago, show a
 // friendly closed state instead of the RSVP CTA.

@@ -49,6 +49,12 @@ interface Roster {
     calendarSeq?: number
     /** the studio fee or extras still to pay online, with the payment link (D1: never crafts) */
     pay?: { cents: number; what: string; url: string } | null
+    /** the party policy for this date, in one line */
+    refundLine?: string
+    /** the host's last "move or cancel" request (request-only) */
+    changeRequest?: { at: string; want: 'move' | 'cancel' | 'other' } | null
+    /** one of our own parties, still booked: the request form shows */
+    canAskToChange?: boolean
   }
   summary: { households: number; people: number }
   households: Household[]
@@ -69,6 +75,7 @@ const chip: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: '0.4rem',
+  minHeight: '2.75rem',
   padding: '0.5rem 0.9rem',
   borderRadius: '999px',
   background: 'rgba(var(--color-primary-rgb),0.08)',
@@ -78,6 +85,103 @@ const chip: React.CSSProperties = {
   fontWeight: 600,
   textDecoration: 'none',
   cursor: 'pointer',
+}
+
+const CHANGE_CHOICES: { want: 'move' | 'cancel' | 'other'; label: string }[] = [
+  { want: 'move', label: 'Move it' },
+  { want: 'cancel', label: 'Cancel it' },
+  { want: 'other', label: 'Something else' },
+]
+const SENT_WORDS: Record<'move' | 'cancel' | 'other', string> = {
+  move: 'We got your request to move your party.',
+  cancel: 'We got your request to cancel your party.',
+  other: 'We got your note.',
+}
+
+/**
+ * "Need to move or cancel?" (final review I4; D2: parties are request-only).
+ * The host says what they want; it goes to the owners, who sort it out by the
+ * party policy shown here. Nothing changes until they do.
+ */
+function ChangeRequest({ bookingId, hostKey, refundLine, sent: sentBefore }: { bookingId: string; hostKey: string; refundLine?: string; sent: { want: 'move' | 'cancel' | 'other' } | null }) {
+  const [want, setWant] = useState<'move' | 'cancel' | 'other' | null>(null)
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  const [sent, setSent] = useState<{ want: 'move' | 'cancel' | 'other' } | null>(sentBefore)
+  const [asking, setAsking] = useState(!sentBefore)
+  const sentRef = useRef<HTMLParagraphElement>(null)
+  async function send(e: React.FormEvent) {
+    e.preventDefault()
+    if (busy) return
+    if (!want) return setProblem('Choose whether you want to move it, cancel it or something else.')
+    if (want === 'other' && !note.trim()) return setProblem('Tell us a little about what you need.')
+    setBusy(true)
+    setProblem(null)
+    try {
+      const res = await fetch('/api/party/change-request.json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingId, key: hostKey || rememberedPageKey(), want, note }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) return setProblem(typeof body?.error === 'string' ? body.error : 'We couldn’t send that just now. Try again in a minute, or text us.')
+      setSent({ want })
+      setAsking(false)
+      setNote('')
+      setTimeout(() => sentRef.current?.focus(), 0)
+    } catch {
+      setProblem('We couldn’t send that just now. Try again in a minute, or text us.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const text = partyContent.textNumber
+  return (
+    <div style={card} data-testid="party-change">
+      <h2 style={{ fontSize: '1.0625rem', fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', margin: 0 }}>Need to move or cancel?</h2>
+      <p style={{ color: 'var(--color-text)', fontSize: '0.9375rem', margin: '0.5rem 0 0', lineHeight: 1.5 }}>
+        Send us a request and we’ll sort it out with you, following our{' '}
+        <a href="/policies#parties" target="_blank" rel="noopener" style={{ color: 'var(--color-primary)', fontWeight: 600, textDecoration: 'underline' }}>party policy</a>.
+        {refundLine ? ` ${refundLine}` : ''} Nothing changes until we do.
+      </p>
+      {sent && (
+        <p ref={sentRef} tabIndex={-1} role="status" style={{ color: 'var(--color-dark)', fontWeight: 600, fontSize: '0.9375rem', margin: '0.75rem 0 0', outline: 'none' }}>
+          {SENT_WORDS[sent.want]} We’ll be in touch to sort it out.{text ? ` Questions? Text us at ${text}.` : ''}
+        </p>
+      )}
+      {!asking ? (
+        <button type="button" onClick={() => { setAsking(true); setWant(null) }} style={{ ...chip, marginTop: '0.75rem', minHeight: '2.75rem' }}>
+          {sent ? 'Send another request' : 'Ask to move or cancel'}
+        </button>
+      ) : (
+        <form onSubmit={send} style={{ marginTop: '0.75rem', display: 'grid', gap: '0.75rem' }}>
+          <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+            <legend style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '0.375rem' }}>What would you like to do?</legend>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              {CHANGE_CHOICES.map((c) => (
+                <button key={c.want} type="button" aria-pressed={want === c.want} onClick={() => { setWant(c.want); setProblem(null) }}
+                  style={{ ...chip, minHeight: '2.75rem', ...(want === c.want ? { background: 'var(--color-primary)', color: '#fff', border: 'none' } : {}) }}>
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+          <div>
+            <label htmlFor="party-change-note" style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '0.25rem' }}>
+              {want === 'move' ? 'Which days or times work for you?' : 'Anything we should know?'} {want !== 'other' && <span style={{ fontWeight: 400, color: 'var(--color-muted)' }}>(optional)</span>}
+            </label>
+            <textarea id="party-change-note" value={note} onChange={(e) => { setNote(e.target.value); setProblem(null) }} maxLength={500} rows={3}
+              style={{ width: '100%', padding: '0.625rem 0.75rem', borderRadius: '0.75rem', border: '1.5px solid var(--color-field-border)', background: 'var(--color-surface)', fontSize: '1rem', color: 'var(--color-dark)', font: 'inherit' }} />
+          </div>
+          {problem && <p role="alert" className="field-error" style={{ margin: 0 }}>{problem}</p>}
+          <button type="submit" className="btn btn-primary" disabled={busy} style={{ minHeight: '2.75rem' }}>
+            {busy ? 'Sending…' : 'Send the request'}
+          </button>
+        </form>
+      )}
+    </div>
+  )
 }
 
 export default function PartyDashboard({ bookingId, hostKey }: Props) {
@@ -279,7 +383,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
             <button
               type="button"
               onClick={() => load(true)}
-              style={{ ...chip, fontSize: '0.75rem', padding: '0.3rem 0.65rem' }}
+              style={{ ...chip, fontSize: '0.8125rem', padding: '0.3rem 0.85rem', minHeight: '2.75rem' }}
               aria-label="Refresh roster"
             >
               Refresh
@@ -289,7 +393,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
 
         {households.length === 0 ? (
           <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', marginTop: '0.9rem' }}>
-            No RSVPs yet — share your invitation above and guests will appear here as they sign.
+            No RSVPs yet. Share your invitation above and guests show up here as they sign.
           </p>
         ) : (
           <div style={{ marginTop: '1rem', display: 'grid', gap: '0.6rem' }}>
@@ -303,8 +407,8 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
                 .filter((_, ci) => !h.attending.includes(`child:${ci}`))
                 .map((c) => c.name.split(' ')[0])
               const allergyLines = [
-                ...(adultComing && hasAllergy(h.adultAllergies) ? [`${h.signer.split(' ')[0]}: ${h.adultAllergies}`] : []),
-                ...comingGuests.filter((c) => hasAllergy(c.allergies)).map((c) => `${c.name.split(' ')[0]}: ${c.allergies}`),
+                ...(adultComing && hasAllergy(h.adultAllergies) ? [`${h.signer.split(' ')[0]}, ${h.adultAllergies}`] : []),
+                ...comingGuests.filter((c) => hasAllergy(c.allergies)).map((c) => `${c.name.split(' ')[0]}, ${c.allergies}`),
               ]
               const first = h.signer.split(' ')[0]
               const rowSummary = comingGuests.length > 0
@@ -327,12 +431,12 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
                   )}
                   {notComing.length > 0 && (
                     <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0.25rem 0 0', fontStyle: 'italic' }}>
-                      Not crafting: {notComing.join(', ')}
+                      {notComing.length === 1 ? `${notComing[0]} isn’t crafting` : `${notComing.slice(0, -1).join(', ')} and ${notComing[notComing.length - 1]} aren’t crafting`}
                     </p>
                   )}
                   {allergyLines.map((line) => (
                     <p key={line} style={{ fontSize: '0.75rem', color: 'var(--color-error)', margin: '0.35rem 0 0', fontWeight: 600 }}>
-                      Allergy: {line}
+                      Allergy<span aria-hidden="true"> ·</span> {line}
                     </p>
                   ))}
                 </div>
@@ -341,6 +445,10 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
           </div>
         )}
       </div>
+
+      {party.canAskToChange && (
+        <ChangeRequest bookingId={bookingId} hostKey={hostKey} refundLine={party.refundLine} sent={party.changeRequest ?? null} />
+      )}
     </div>
   )
 }

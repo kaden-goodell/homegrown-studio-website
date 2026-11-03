@@ -63,7 +63,7 @@ export function policySectionsFor(f: PolicyFacts = CONFIG_POLICY_FACTS): PolicyS
       rules: [
         {
           heading: `Cancel ${W.partyFullRefundDays}+ days before your party`,
-          body: 'Full refund of the studio fee to your original payment method. No questions, no fee.',
+          body: 'Full refund of the studio fee to your original payment method. Ask from your party page or text us. No fee.',
         },
         {
           heading: `Cancel inside ${W.partyFullRefundDays} days`,
@@ -81,8 +81,8 @@ export function policySectionsFor(f: PolicyFacts = CONFIG_POLICY_FACTS): PolicyS
         {
           heading: 'Guest count and craft charges',
           body:
-            `We’ll confirm your expected headcount about ${W.partyHeadcountLockDays} days before the party so we can prep stations and materials — ` +
-            `but crafts are charged at the studio for whoever actually comes, with a ${f.minGuests}-craft minimum. ` +
+            `Let us know your expected headcount about ${W.partyHeadcountLockDays} days before the party so we can prep stations and materials. ` +
+            `Crafts are charged at the studio for whoever actually comes, with a ${f.minGuests}-craft minimum. ` +
             'Plan for 15 and 13 make it? You pay for 13. Beyond the minimum, a friend who can’t make it never costs you anything, ' +
             'and day-of additions are welcome when supplies allow.',
         },
@@ -182,7 +182,7 @@ export const policySections: PolicySection[] = policySectionsFor()
 /** The party line beside the terms checkbox, for the package being booked. */
 export function partyCheckoutPolicySummary(minGuests: number = partyConfig.minGuests): string {
   return (
-    `Free reschedule with ${W.partyRescheduleNoticeHours}h notice · full refund ${W.partyFullRefundDays}+ days out · ` +
+    `Free reschedule with ${W.partyRescheduleNoticeHours} hours’ notice · full refund ${W.partyFullRefundDays}+ days out · ` +
     `studio credit inside ${W.partyFullRefundDays} days · crafts billed for who comes (${minGuests} minimum)`
   )
 }

@@ -112,7 +112,7 @@ export type BookOutcome =
 /** The customer's words for a still-running attempt. */
 export const IN_PROGRESS_MESSAGE = 'We’re still finishing your last try. Give it a minute, then check your email before trying again.'
 /** Square's total far above our quote: nothing charged. */
-export const PRICE_MISMATCH_MESSAGE = 'Pricing mismatch — your card was not charged and the date was released. Please try again or text us.'
+export const PRICE_MISMATCH_MESSAGE = 'We couldn’t price your party just now. Nothing was charged and the time is open again. Try again in a few minutes, or text us.'
 // DRAFT copy (new, for Kaden): a craft that left the catalog; a retried key whose party was cancelled.
 export const CRAFT_GONE_MESSAGE = 'That craft isn’t available any more. Nothing was charged. Pick another craft.'
 export const PARTY_CANCELLED_MESSAGE = 'That party was cancelled. Nothing was charged. Start a new booking, or text us.'
@@ -430,10 +430,14 @@ export async function sendPartyBookedEmail(input: {
       craftDescription: String(craft?.description ?? '').slice(0, 2000),
       craftImageUrl: craftImage(craft?.imageUrl, origin),
       ...(craft ? { perHeadCents: craft.perHeadCents, perHeadMaxCents: craft.perHeadMaxCents } : {}),
-      slotLabel: input.themeName ? `${slotLabel} — with ${input.themeName}` : slotLabel,
+      // The table on its own line, never glued onto the date (subject, heading, guest invite).
+      slotLabel,
+      ...(input.themeName ? { themeName: input.themeName } : {}),
       hostPageUrl,
       inviteUrl,
       totalChargedCents: input.chargedCents,
+      // I8: what of today's charge is the studio fee, so the email never calls extras "studio fee".
+      feeCents: studioFeeCents(draft),
       receiptUrl: input.receiptUrl,
       googleCalendarUrl: googleCalendarUrl(calEvent),
       // One calendar event per booking (UID from the booking id), its SEQUENCE bumped by every move or edit: a re-sent invite replaces the old one.
@@ -444,7 +448,8 @@ export async function sendPartyBookedEmail(input: {
       agreementLine: await agreementLineFor(input.email),
       arriveEarlyMinutes: partyConfig.hostArrivalMinutesEarly,
       minGuests: input.minGuests ?? partyConfig.minGuests,
-      refundLine: partyRefundLine(draft.startIso, new Date(), input.chargedCents > 0 ? input.chargedCents : undefined),
+      // The policy names the studio fee only (how extras are refunded is the owners' call, never promised here).
+      refundLine: partyRefundLine(draft.startIso, new Date(), studioFeeCents(draft) || (input.chargedCents > 0 ? input.chargedCents : undefined)),
       directionsUrl: STUDIO_DIRECTIONS_URL,
       ...(input.updated ? { updated: input.updated } : {}),
     })
@@ -453,6 +458,11 @@ export async function sendPartyBookedEmail(input: {
     logger.error('Party confirmation email failed (party still booked)', { partyId, error: String(err) })
     return false
   }
+}
+
+/** The package line(s) of a party: its studio fee, without extras or a themed table. */
+function studioFeeCents(r: Pick<PartyRecord, 'items'>): number {
+  return (r.items ?? []).filter((it) => it.kind === 'package').reduce((t, it) => t + it.cents, 0)
 }
 
 /** Absolute http(s) only; a site-relative path resolves against the site. */
@@ -467,7 +477,7 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
   // Square's idempotency keys: the attempt id (as /book always did), or the party id for an owner's longer create key.
   const sqKey = isAttemptId(input.key) ? input.key : partyId
   const startMs = Date.parse(input.startIso)
-  if (!Number.isFinite(startMs)) return refuse(400, 'invalid', 'Missing party time information')
+  if (!Number.isFinite(startMs)) return refuse(400, 'invalid', 'Pick a date and time first. Nothing was charged.')
   const startIso = new Date(startMs).toISOString()
   const card = input.pay.kind === 'card' ? input.pay : null
   const via: PartyCharge['via'] = input.audience === 'admin' ? 'admin-card' : 'online'
