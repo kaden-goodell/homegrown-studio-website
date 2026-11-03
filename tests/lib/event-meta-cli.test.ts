@@ -25,6 +25,13 @@ describe('parseSetEventArgs', () => {
     })
   })
 
+  it('--options-close sets when the questions close; default clears it', () => {
+    expect(parseSetEventArgs(['--workshop', 'clssch_1', '--options-close', '168'])).toMatchObject({ patch: { optionsCloseHours: 168 } })
+    expect(parseSetEventArgs(['--workshop', 'clssch_1', '--options-close', 'default'])).toMatchObject({ patch: { optionsCloseHours: null } })
+    expect(parseSetEventArgs(['--workshop', 'clssch_1', '--options-close', '400'])).toEqual({ error: 'Questions close 0 to 336 hours before the class, in whole hours.' })
+    expect(parseSetEventArgs(['--party', 'bk_1', '--options-close', '168'])).toEqual({ error: 'Questions for each seat are for classes (--workshop) only.' })
+  })
+
   it('--no-options clears them', () => {
     expect(parseSetEventArgs(['--workshop', 'clssch_pails', '--no-options'])).toMatchObject({ patch: { options: [] } })
   })

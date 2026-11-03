@@ -354,6 +354,16 @@ describe('POST /api/workshops/book.json', () => {
       expect(mockRelease).not.toHaveBeenCalled()
     })
 
+    it('takes no picks once the questions have closed (a week out), but still books', async () => {
+      // Now is 151 h before the class; the questions closed at 168 h.
+      mockGetEventMeta.mockResolvedValue({ options: [PAILS], signupCutoffHours: 24, optionsCloseHours: 168 })
+      const res = await POST(ctx(body()))
+      expect(res.status).toBe(200)
+      expect(mockSaveSeatChoices.mock.calls[0][0].picks).toEqual([])
+      const late = await POST(ctx(body({ picks: [TWO_PICKS[0]] })))
+      expect(late.status).toBe(400)
+    })
+
     it('texts the owners that someone booked (both phones are in OWNER_ALERT_NUMBERS)', async () => {
       await POST(ctx(body()))
       expect(mockAlertOwners).toHaveBeenCalledWith(expect.stringMatching(/^New class booking: Ada Lovelace, 2 seats, /))

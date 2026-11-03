@@ -1,7 +1,7 @@
 import type { Workshop } from '@providers/interfaces/workshop'
 import type { WorkshopData } from './WorkshopExplorer'
 import { canBeBooked } from '@lib/workshop-rules'
-import { isSignupClosed, signupClosesAt, type CutoffSettings } from '@lib/seat-options'
+import { isSignupClosed, openOptions, signupClosesAt, type CutoffSettings } from '@lib/seat-options'
 import { formatTimeRange } from '@components/calendar/calendar-view-model'
 
 /**
@@ -77,7 +77,7 @@ export function toWorkshopData(w: Workshop): WorkshopData {
 export function withSignupInfo(data: WorkshopData, settings: CutoffSettings, now: Date = new Date()): WorkshopData {
   return {
     ...data,
-    options: settings.options,
+    options: openOptions(data.startTime, settings, now),
     signupClosesAt: signupClosesAt(data.startTime, settings),
     signupClosed: isSignupClosed(data.startTime, settings, now),
   }

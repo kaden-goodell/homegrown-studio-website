@@ -4,7 +4,7 @@
  * anyone has picked) are applied by `mergeEventMeta`, same as the gear sheet.
  */
 import type { EventMetaPatch } from '@lib/event-meta'
-import { validateCapacity, validateCutoffHours, type SeatOption } from '@lib/seat-options'
+import { validateCapacity, validateCutoffHours, validateOptionsCloseHours, type SeatOption } from '@lib/seat-options'
 import { validateTicketTypes } from '@lib/ticket-types'
 
 export interface SetEventArgs {
@@ -16,7 +16,7 @@ export interface SetEventArgs {
 
 export const SET_EVENT_USAGE =
   'Usage: set-event.ts (--workshop <clssch_id> | --party <bookingId>) [--on | --off] [--days a,b] ' +
-  '[--option "Label=Choice|Choice" …] [--no-options] [--cutoff <hours> | --cutoff default] [--capacity <seats> | --capacity none] [--made-to-order | --not-made-to-order] [--ticket "Adult:min=1" --ticket "Kid=15:min=1" … | --no-tickets] [--show]'
+  '[--option "Label=Choice|Choice" …] [--no-options] [--options-close <hours> | --options-close default] [--cutoff <hours> | --cutoff default] [--capacity <seats> | --capacity none] [--made-to-order | --not-made-to-order] [--ticket "Adult:min=1" --ticket "Kid=15:min=1" … | --no-tickets] [--show]'
 
 export function parseSetEventArgs(argv: string[]): SetEventArgs | { error: string } {
   const flag = (n: string) => {
@@ -47,6 +47,14 @@ export function parseSetEventArgs(argv: string[]): SetEventArgs | { error: strin
       options.push({ id: '', label: spec.slice(0, eq).trim(), choices: spec.slice(eq + 1).split('|').map((c) => c.trim()) })
     }
     patch.options = options
+  }
+
+  const optionsClose = flag('options-close')
+  if (optionsClose !== undefined) {
+    if (kind !== 'workshop') return { error: 'Questions for each seat are for classes (--workshop) only.' }
+    const checked = validateOptionsCloseHours(optionsClose === 'default' ? null : Number(optionsClose))
+    if (!checked.ok) return { error: checked.error }
+    patch.optionsCloseHours = checked.value
   }
 
   const cutoff = flag('cutoff')

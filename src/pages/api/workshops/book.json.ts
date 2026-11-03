@@ -27,6 +27,7 @@ import {
   cutoffClosedMessage,
   effectiveCutoffHours,
   isSignupClosed,
+  openOptions,
   picksNote,
   validatePicks,
   type CutoffSettings,
@@ -146,6 +147,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     options: metaLookup.value?.options ?? [],
     signupCutoffHours: metaLookup.value?.signupCutoffHours ?? null,
     madeToOrder: metaLookup.value?.madeToOrder ?? false,
+    optionsCloseHours: metaLookup.value?.optionsCloseHours ?? null,
   }
   if (isSignupClosed(workshop.startAt, settings)) {
     return fail(409, 'not_open', cutoffClosedMessage(effectiveCutoffHours(settings)))
@@ -165,11 +167,13 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     return fail(400, 'invalid', 'This page is out of date. Reload it and book again. Nothing was charged.')
   }
   const seatPrice = (seat: number) => plan ? plan[seat - 1].priceCents : workshop.priceCents
-  const picksCheck = validatePicks(settings.options, seats, body.picks)
+  // Questions that have closed (shirt sizes a week out) take no picks.
+  const options = openOptions(workshop.startAt, settings)
+  const picksCheck = validatePicks(options, seats, body.picks)
   if (!picksCheck.ok) return fail(400, 'invalid', picksCheck.error)
   const picks: SeatPick[] = picksCheck.value
   // Square keeps the picks only as a booking note ("Pumpkin color: Lavender ×2").
-  const note = picksNote(settings.options, picks)
+  const note = picksNote(options, picks)
 
   let customerId: string | undefined
   // The email on their Square record, when the phone matched it and it is a
@@ -426,7 +430,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
         email,
         givenName,
         receiptUrl: paidBooking.receiptUrl,
-        options: settings.options,
+        options,
         picks: paidPicks,
         totalChargedCents: chargedCents,
         ...(onFile ? { alsoTo: onFile } : {}),

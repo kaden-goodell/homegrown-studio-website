@@ -26,6 +26,8 @@ export interface CutoffSettings {
   signupCutoffHours: number | null
   /** Made ahead for each person (e.g. cookies baked to the headcount). */
   madeToOrder?: boolean
+  /** Questions close this many hours before the start while seats keep selling; null = open until sign-ups close. */
+  optionsCloseHours?: number | null
 }
 
 export const MAX_OPTIONS = 3
@@ -116,6 +118,13 @@ export function validateCutoffHours(raw: unknown): Result<number | null> {
   return { ok: false, error: `Sign-ups close 0 to ${MAX_CUTOFF_HOURS} hours before the class, in whole hours.` }
 }
 
+/** When a class's questions close: whole hours 0–336 before it, or null for "with sign-ups". */
+export function validateOptionsCloseHours(raw: unknown): Result<number | null> {
+  if (raw === null) return { ok: true, value: null }
+  if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 && raw <= MAX_CUTOFF_HOURS) return { ok: true, value: raw }
+  return { ok: false, error: `Questions close 0 to ${MAX_CUTOFF_HOURS} hours before the class, in whole hours.` }
+}
+
 /** A class's seat count: a whole number 1–999, or null for "unknown". */
 export function validateCapacity(raw: unknown): Result<number | null> {
   if (raw === null) return { ok: true, value: null }
@@ -138,6 +147,16 @@ export function signupClosesAt(startIso: string, s: CutoffSettings): string {
 
 export function isSignupClosed(startIso: string, s: CutoffSettings, now: Date = new Date()): boolean {
   return now.getTime() >= Date.parse(signupClosesAt(startIso, s))
+}
+
+/**
+ * The questions a booking made now answers: none once they've closed. Shirt
+ * sizes close a week out so blanks can be ordered; later bookers get no pick
+ * (Kaden, 2 Nov 2026).
+ */
+export function openOptions(startIso: string, s: CutoffSettings, now: Date = new Date()): SeatOption[] {
+  if (s.optionsCloseHours == null) return s.options
+  return now.getTime() >= Date.parse(startIso) - s.optionsCloseHours * 3_600_000 ? [] : s.options
 }
 
 export function cutoffClosedMessage(hours: number): string {
