@@ -4,12 +4,19 @@ import { toIso } from '@lib/classes/validate'
 import {
   ActionError, cancelClass, classesBetween, duplicateClass, json, fixRegisterPrice, linkClassToLibrary, putClassOnRegister, repeatClass, updateClassRegister, repeatPreview, reply, scheduleClass, updateScheduledClass,
 } from '@lib/classes/admin-actions'
+import { emailMovedBookings, resendBookingConfirmation } from '@lib/classes/resend-confirmation'
+import { cancelSeries, seriesCapacity, seriesInfo, updateSeries } from '@lib/classes/series'
 
 export const prerender = false
 
-/** GET ?from=&to= (ISO): our classes with a session in that range, and seats taken per session. Owners only. */
+/**
+ * GET ?from=&to= (ISO): our classes with a session in that range, and seats taken per session. Owners only.
+ * GET ?series=<classId>: the dates still to come in that class's Repeat series, each with who's booked (I3).
+ */
 export const GET: APIRoute = async ({ request, url }) => {
   if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
+  const series = url.searchParams.get('series')
+  if (series !== null) return reply(() => seriesInfo(series))
   const fromRaw = url.searchParams.get('from'), toRaw = url.searchParams.get('to')
   const from = fromRaw ? toIso(fromRaw) : null, to = toRaw ? toIso(toRaw) : null
   if ((fromRaw || toRaw) && (!from || !to)) return json(400, { error: 'Pick a start and an end for the range.' })
@@ -30,6 +37,11 @@ export const GET: APIRoute = async ({ request, url }) => {
  *      { action: 'fix-register-price', id } (D4: the POS seat prices follow the early-bird now, not at the next hourly run)
  *      { action: 'sync-pos', id } (Put it on the register: a class that should be on the POS and isn't)
  *      { action: 'update-register', id } (Update the register: send the class again with Register setup's tax and category)
+ *      { action: 'resend-confirmation', id, bookingId, email? } (Email them their booking again; a new email is saved on the booking first)
+ *      { action: 'email-moved', id, movedFrom: { [sessionId]: oldStartIso } } (Email everyone the new details, after a move)
+ *      { action: 'update-series', id, content, expectedUpdatedAt } (Details › All dates in this series, I3)
+ *      { action: 'series-capacity', id, capacity } (Dates › seats for all dates in this series)
+ *      { action: 'cancel-series', id } (Cancel › All dates in this series; never refunds)
  */
 export const POST: APIRoute = async ({ request }) => {
   if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
@@ -47,6 +59,11 @@ export const POST: APIRoute = async ({ request }) => {
       case 'fix-register-price': return fixRegisterPrice(body, by)
       case 'sync-pos': return putClassOnRegister(body, by)
       case 'update-register': return updateClassRegister(body, by)
+      case 'resend-confirmation': return resendBookingConfirmation(body, by)
+      case 'email-moved': return emailMovedBookings(body, by)
+      case 'update-series': return updateSeries(body, by)
+      case 'series-capacity': return seriesCapacity(body, by)
+      case 'cancel-series': return cancelSeries(body, by)
       default: throw new ActionError(400, 'That is not something a class can do.')
     }
   })

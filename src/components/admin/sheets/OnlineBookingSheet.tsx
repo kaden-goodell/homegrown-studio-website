@@ -8,6 +8,8 @@
  */
 import { useEffect, useState } from 'react'
 import type { By } from '@lib/staff-auth'
+import { shortDay } from '@lib/classes/chicago-day'
+import { addDays, today } from '../classes/dates'
 import { api } from '../classes/api'
 import { Failed, Seg, Skeleton } from '../shell/items'
 import { SheetFrame, useSheetDirty } from '../shell/Sheet'
@@ -21,6 +23,8 @@ export interface OnlineBookingView {
   open: Record<Kind, boolean>
   pauseNote: string
   pauseNoteWritten: string
+  /** M2: paused kinds that open again by themselves, and the day. */
+  reopenOn?: Partial<Record<Kind, string>>
   previewToken: string
   source: 'saved' | 'setup' | 'unreadable'
   updatedAt: string | null
@@ -97,17 +101,20 @@ function OnlineBookingForm({ v, setV }: { v: OnlineBookingView; setV: (v: Online
   const [stale, setStale] = useState('')
   const [shown, setShown] = useState<string>('')
   const [askNewLink, setAskNewLink] = useState(false)
+  /** M2: the optional "Open again by itself on" day typed in the Pause ask. */
+  const [reopenDay, setReopenDay] = useState('')
   const noteDirty = note.trim().replace(/\s+/g, ' ') !== v.pauseNoteWritten
   useSheetDirty(noteDirty)
   useEffect(() => { if (!noteDirty) setNote(v.pauseNoteWritten) }, [v.updatedAt])
 
-  async function save(change: { open?: Partial<Record<Kind, boolean>>; pauseNote?: string; newTestLink?: boolean }): Promise<OnlineBookingView | null> {
+  async function save(change: { open?: Partial<Record<Kind, boolean>>; pauseNote?: string; newTestLink?: boolean; reopenOn?: Partial<Record<Kind, string | null>> }): Promise<OnlineBookingView | null> {
     setBusy(true)
     setStale('')
     const r = await api<OnlineBookingView & { changed: string[] }>(ONLINE_BOOKING, {
       open: { ...v.open, ...(change.open ?? {}) },
       pauseNote: change.pauseNote ?? v.pauseNoteWritten,
       newTestLink: change.newTestLink === true,
+      ...(change.reopenOn ? { reopenOn: change.reopenOn } : {}),
       expectedUpdatedAt: v.updatedAt,
     })
     setBusy(false)
@@ -120,11 +127,18 @@ function OnlineBookingForm({ v, setV }: { v: OnlineBookingView; setV: (v: Online
 
   async function flip(kind: Kind, open: boolean) {
     setAsking(null)
-    const saved = await save({ open: { [kind]: open } })
+    const day = !open && reopenDay ? reopenDay : null
+    const saved = await save({ open: { [kind]: open }, ...(open ? {} : { reopenOn: { [kind]: day } }) })
+    setReopenDay('')
     if (!saved) return
     toast(open
       ? `${NAME[kind]} are open online again.`
-      : `${NAME[kind]} are paused online. People already booked keep their booking.`)
+      : `${NAME[kind]} are paused online${day ? ` until ${shortDay(day)}, when they open again by themselves` : ''}. People already booked keep their booking.`)
+  }
+
+  async function keepPaused(kind: Kind) {
+    const saved = await save({ reopenOn: { [kind]: null } })
+    if (saved) toast(`${NAME[kind]} stay paused until you open them.`)
   }
 
   async function saveNote() {
@@ -185,8 +199,11 @@ function OnlineBookingForm({ v, setV }: { v: OnlineBookingView; setV: (v: Online
             <p className="adm-small adm-muted">
               {v.open[k]
                 ? 'People can book on the website.'
-                : `The website says booking is paused and shows your note.${since ? ` Paused ${whenLabel(since.at)} (${since.by}).` : ''}`}
+                : `The website says booking is paused and shows your note.${since ? ` Paused ${whenLabel(since.at)} (${since.by}).` : ''} ${v.reopenOn?.[k] ? `It opens again by itself on ${shortDay(v.reopenOn[k]!)}.` : 'It stays paused until you open it.'}`}
             </p>
+            {!v.open[k] && v.reopenOn?.[k] && (
+              <button type="button" className="adm-btn is-ghost is-sm" disabled={locked} onClick={() => keepPaused(k)}>Don’t open it by itself</button>
+            )}
             {asking?.kind === k && (
               <div className="adm-panel" role="group" aria-label={asking.open ? `Open ${LOWER[k]}?` : `Pause ${LOWER[k]}?`}>
                 <b>{asking.open ? (k === 'kits' ? 'Kits have been hidden for a while. Open them online?' : `Open ${LOWER[k]} online?`) : `Pause ${LOWER[k]}?`}</b>
@@ -195,6 +212,13 @@ function OnlineBookingForm({ v, setV }: { v: OnlineBookingView; setV: (v: Online
                     ? 'People can book on the website again within a minute.'
                     : 'People already booked keep their booking. Payment links already sent still work. The website shows your note instead.'}
                 </span>
+                {!asking.open && (
+                  <label className="adm-fld">
+                    <span>Open again by itself on <span className="adm-muted">(optional)</span></span>
+                    <input type="date" value={reopenDay} min={addDays(today(), 1)} max={addDays(today(), 90)} onChange={(e) => setReopenDay(e.target.value)} />
+                  </label>
+                )}
+                {!asking.open && <span className="adm-small adm-muted">{reopenDay ? `It opens again at the start of ${shortDay(reopenDay)}.` : 'Left blank, it stays paused until you open it. To close the studio for a day, use Closed days instead.'}</span>}
                 <div className="adm-two">
                   <button type="button" className="adm-btn is-ghost" onClick={() => setAsking(null)}>{asking.open ? 'Keep it paused' : 'Keep it open'}</button>
                   <button type="button" className={asking.open ? 'adm-btn is-pri' : 'adm-btn is-danger'} disabled={locked} onClick={() => flip(k, asking.open)}>
@@ -277,8 +301,8 @@ export function HomeBookingPaused({ onOpen }: { onOpen: (s: Sheet) => void }) {
   const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1].toLowerCase()}`
   return (
     <div className="adm-panel is-warn adm-gap-top" role="group" aria-label="Online booking">
-      <span>{`${list} are paused online${first ? ` since ${whenLabel(first.at)} (${first.by})` : ''}.`}</span>
-      <button type="button" className="adm-btn is-pri is-sm" onClick={() => onOpen({ kind: 'more', page: 'booking' })}>Open online booking</button>
+      <span>{`${list} are paused online${first ? ` since ${whenLabel(first.at)} (${first.by})` : ''}.${paused.map((k) => (v.reopenOn?.[k] ? ` ${NAME[k]} open again by themselves on ${shortDay(v.reopenOn[k]!)}.` : '')).join('')}`}</span>
+      <button type="button" className="adm-btn is-pri is-sm" onClick={() => onOpen({ kind: 'more', page: 'booking' })}>Go to Online booking</button>
     </div>
   )
 }

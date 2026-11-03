@@ -53,7 +53,7 @@ export function useRepeatPreview(r: Repeat, sessions: Session[] | null, body: { 
   return { dates: fresh ? state.dates : null, error: fresh ? state.error : '', checking: r.kind !== 'none' && !!pattern && !!sessions?.length && !fresh, retry }
 }
 
-export default function RepeatSection({ value, onChange, firstDay, multi, preview, error }: {
+export default function RepeatSection({ value, onChange, firstDay, multi, preview, error, earlyBirdUntil }: {
   value: Repeat
   onChange: (r: Repeat) => void
   /** The first date's day (YYYY-MM-DD), or '' while the dates aren't filled in. */
@@ -63,6 +63,8 @@ export default function RepeatSection({ value, onChange, firstDay, multi, previe
   preview: { dates: RepeatDate[] | null; error: string; checking: boolean; retry?: () => void }
   /** A refusal about the repeat from Add. */
   error?: string
+  /** The early-bird's last day on the first date (M6), when it has one: each date gets it the same days before. */
+  earlyBirdUntil?: string
 }) {
   const set = (patch: Partial<Repeat>) => onChange({ ...value, ...patch })
   function choose(kind: RepeatKind) {
@@ -99,8 +101,12 @@ export default function RepeatSection({ value, onChange, firstDay, multi, previe
       {value.kind !== 'none' && (
         <div className="adm-repeat-list">
           <p className="adm-small adm-muted" aria-live="polite">
-            {!firstDay ? 'Fill in the dates above to see the list.' : preview.checking ? 'Checking the dates…' : preview.dates ? `${ticked} ${ticked === 1 ? 'class' : 'classes'}, each one its own class on the calendar and the register. Untick a date to leave it out.` : ''}
+            {!firstDay ? 'Fill in the dates above to see the list.' : preview.checking ? 'Checking the dates…' : preview.dates ? `${ticked} ${ticked === 1 ? 'class' : 'classes'}, each one its own class on the calendar and the register, kept together as one series: later you can change or cancel one date or all of them. Untick a date to leave it out.` : ''}
           </p>
+          {earlyBirdUntil && firstDay && preview.dates && (() => {
+            const days = Math.round((Date.parse(`${firstDay}T12:00:00Z`) - Date.parse(`${earlyBirdUntil}T12:00:00Z`)) / 86_400_000)
+            return days >= 0 ? <p className="adm-small adm-muted" data-testid="repeat-early-bird">{days === 0 ? 'Early-bird: each date’s ends on that date.' : `Early-bird: each date’s ends ${days} ${days === 1 ? 'day' : 'days'} before that date, like the first one’s.`}</p> : null
+          })()}
           {preview.error && <p role="alert" className="adm-error">{preview.error}</p>}
           {preview.error && preview.retry && <button type="button" className="adm-btn is-ghost is-sm" onClick={preview.retry}>Check again</button>}
           {error && <p role="alert" className="adm-error adm-fielderr">{error}</p>}

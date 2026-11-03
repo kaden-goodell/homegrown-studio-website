@@ -61,11 +61,11 @@ export interface HelpRow {
 
 // ── Square, only where it is the only place ───────────────────────────────
 
-const SQ_LEGACY_PARTY: HelpSquare = {
+export const SQ_LEGACY_PARTY: HelpSquare = {
   why: 'Only for a party booked in Square before the switch (it says “Booked in Square”). The site can’t change those.',
   steps: 'Square Dashboard (squareup.com, signed in) › Appointments › Calendar › go to the party’s day › tap the booking › Reschedule (to move it) or Cancel. Refunds for it: Square Dashboard › Transactions › search the host’s name › open the payment › Issue refund.',
 }
-const SQ_LEGACY_CLASS: HelpSquare = {
+export const SQ_LEGACY_CLASS: HelpSquare = {
   why: 'Only for a class that still runs in Square (it opens as “Square class”). The site can’t change those.',
   steps: 'Square Dashboard (squareup.com, signed in) › Appointments › Calendar › go to the class’s day › tap the class › Edit (to move it or change its seats) or Add attendee (to add someone).',
 }
@@ -94,7 +94,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       'Tap anything on the Calendar or a list to open it. The **×** at the top closes it.',
       'Nothing is ever sent to a customer, cancelled or refunded on its own. The site tells you, and you press the button. Every button that sends money back or cancels asks first and says who and how much.',
       'More › **Using as** says whose name your changes are saved under. **Sign out** asks for the passcode next time.',
-      'The crew use /staff on the iPad: who’s coming, check-in, waivers, door seats. Anything only an owner should do is here.',
+      'The crew use /staff on the iPad: who’s coming, check-in, waivers, door seats. Anything only an owner should do is here, except three jobs done on /staff: gift cards, **Comp a seat** and **Sell a seat** (see “Things you do on /staff” below).',
     ],
   },
   {
@@ -103,7 +103,8 @@ export const HELP_SECTIONS: HelpSection[] = [
     points: [
       'Home › **+ New class**, or Classes › **+ New class**, or tap a day on the Calendar › **+ New class on this day**.',
       'Pick **Start fresh** or **From a past class** (copies its details; you pick new dates).',
-      'Fill in the name, the description, the photo, the dates and times, then the parts that matter for this class: **Seat prices** (+ Add a kind of seat), **Ways to book**, **Extras**, **Questions** and **Ages and booking rules**.',
+      'Fill in the name, the description, the photo, the dates and times, then under **More options** the parts that matter for this class: **Kinds of seat (like Adult and Kid)**, **Ways to book**, **Extras**, **Questions** and **Ages and booking rules**.',
+      'Adult and Kid prices: **More options** › Kinds of seat › rename Person to Adult › **+ Add a kind of seat** › type Kid › type each price in the box next to it. (With more than one way to book, like a drop-in as well as the full class, the prices go under Ways to book instead, one box per kind of seat.)',
       '**Add class** puts it on the website for people to book, and in your library. **Save as draft** keeps it just for you until you open it.',
       'If the time clashes with a party, a class or a closed day, it says what with. Pick another time.',
     ],
@@ -113,9 +114,9 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'Change, move or reopen a class',
     points: [
       'Open the class (Calendar or Classes). The tabs: **Bookings**, **Details**, **Dates**.',
-      '**Details**: change anything, then **Save**. It asks **Only this class** or **This class and the library** (so next time starts from the new version too).',
-      '**Dates**: change a date or time, then **Save dates**. If people are booked it asks first: **Move and I’ll tell them**. Then it lists who to tell, with **Text everyone** and **Copy the numbers**. Nobody is told for you.',
-      'At the top: **Open** (people can book), **Closed** (on the website, sign-ups closed) or **Draft** (only you see it).',
+      '**Details**: change anything, then **Save**. It asks **Only this class** or **This class and the library** (so next time starts from the new version too). A class you repeated asks **Just this date** or **All dates in this series** instead.',
+      '**Dates**: change a date or time, then **Save dates**. If people are booked it asks first: **Move and I’ll tell them**. Then it lists who to tell, with their numbers to tap, **Text everyone**, **Copy the numbers** and **Email everyone the new details** (each gets their confirmation again with the new time and a new calendar file that replaces the old one). Nothing is sent until you tap it.',
+      '**Dates** tab › Status (under the dates): **Open** (people can book), **Closed** (on the website, sign-ups closed) or **Draft** (only you see it). Then **Save dates**.',
       '**Run it again on new dates** makes a new class from this one, a week on, for you to adjust.',
     ],
   },
@@ -124,6 +125,7 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'Who’s coming',
     points: [
       'Class › **Bookings**: everyone booked, their seats, how they paid and anything refunded.',
+      '“I never got my email”: under their name tap **Email them their booking again** › **Send it**. It sends their confirmation again (the class, the time, the calendar file and their “Can’t make it?” link). If the email was mistyped, type the right one in the box first: it’s saved on their booking, so later emails go there too.',
       'Home › **Print today**, or a day on the Calendar › **Print this day**, prints the day’s lists for the table.',
       'At the door the crew check people in on /staff, add walk-ins and take payment.',
     ],
@@ -132,7 +134,8 @@ export const HELP_SECTIONS: HelpSection[] = [
     id: 'classes-cancel',
     title: 'Cancel a class',
     points: [
-      'Class › **Cancel class** › **Cancel this class**. Sign-ups stop and the class comes off the website. It never refunds anyone on its own.',
+      'Open the class › **Cancel this class** (the red button at the bottom of the **Bookings** tab, or of **Details**) › it lists who’s booked › **Cancel class**. Sign-ups stop and the class comes off the website. It never refunds anyone on its own.',
+      'For a class you repeated every week, it also lists who’s booked on the other dates still to come, and asks **Just this date** or **All dates in this series**. Neither refunds anyone.',
       'Then it lists who to contact (**Text everyone**, **Copy the numbers**), and **Refund everyone…** if you want to give the money back: it shows each person and amount, then **Refund <N> people**.',
       'If some refunds don’t go through, **Try the ones that didn’t go through**.',
     ],
@@ -151,7 +154,8 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'Refunds',
     intro: 'Money only ever goes back when you tap Refund and confirm.',
     points: [
-      'A class seat: class › Bookings › tap the person › **Refund**. Pick **One person** or the whole booking, or **Another amount**, add a reason if you like, then **Confirm refund**. They get one refund email. Freeing a seat with no money back is **Free their seat**.',
+      'Someone calls and you don’t know which class: Home › **Find a booking** › type their name, email or part of their phone › **Search**. Their class bookings show with **Refund** right under each one (and **Open the class**); their parties show with **Open the party** (refund on its Payments tab), and any waitlist place with **Open the class**. Bookings made in Square before the switch aren’t in it.',
+      'A class seat: class › Bookings › under the person’s name, tap **Refund**. Pick **One person** or the whole booking, or **Another amount**, add a reason if you like, then **Confirm refund**. They get one refund email. Freeing a seat with no money back is **Free their seat**.',
       'A party: open the party › **Payments** › **Refund** on the payment. The confirm says who gets how much. The party stays booked; cancel it separately if you mean to.',
       '“Already refunded” means it was done before. Only tap **Refund again** if you really mean a second refund.',
       'A refund Square never answered shows **A refund is waiting on Square** on the booking (or on the party’s Payments). Tap **Ask Square**: it shows what Square did, then only the buttons that fit: **It went through** (recorded with Square’s refund, the customer emailed once), **Try the refund again** (never twice) or **It didn’t go through**. A new refund on that booking waits until this one is sorted.',
@@ -165,7 +169,7 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'Book a party for someone on the phone',
     points: [
       'Home › **+ Book a party**, or a day on the Calendar › **+ Book a party on this day**.',
-      'Pick the day and a free time. If they want a time that isn’t a party time, tap **Another time** (any day, 8 AM to 8 PM; it still checks nothing else is on).',
+      'Pick the day and a free time. If they want a time that isn’t a party time, tap **Another time on this day** (8 AM to 8 PM on the day you picked, any day of the week; it still checks nothing else is on). Moving a booked party has the same thing: **Move** › **Another time**.',
       'Pick the package, the craft, the number of guests, any extras, and type the host’s name, phone and email.',
       'How they pay: **Send payment link** (the party is booked and its time held now; the host gets an email and a text with a link for the studio fee) or **Take card now** (type their card into Square’s card box).',
       'Crafts are always paid at the studio after the party, never online.',
@@ -182,7 +186,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       '**+ Add an extra** after booking: it shows as due. Then **Send payment link** (it asks only for what’s due), **Send it again**, **Copy payment link** or **Take card now**.',
       '**Cancel party**: frees the time. It never gives money back; use **Refund** on Payments for that.',
       'After a move, a cancel or a change, “Not told yet” stays on the party (and in To decide) until you tap **Email <name> the details** or, if you called or texted, **I told them**.',
-      'A party that says **Booked in Square** was booked before the switch. You can see it here but only change it in Square, until it has run.',
+      'A party that says **Booked in Square** was booked before the switch. You can see it here but only change it in Square, until it has run. **How** under that line shows the steps in Square.',
     ],
     square: [SQ_LEGACY_PARTY],
   },
@@ -230,7 +234,8 @@ export const HELP_SECTIONS: HelpSection[] = [
       'Write a short note for customers (up to 140 letters) and tap **Save note**. Left blank, it says booking is paused and to call or text the studio.',
       'To try booking while it’s paused, tap **Copy party test link** or **Copy class test link** and open it on your phone or iPad. That device can book for 30 days. Bookings made with it are real.',
       '**Make a new test link** stops every test link you gave out before.',
-      'While anything is paused, Home says so, with **Open online booking**.',
+      'Pausing asks **Open again by itself on** (optional): pick a day and it opens again at the start of that day with nothing to press. Left blank, it stays paused until you open it. **Don’t open it by itself** takes the day off. To close the whole studio for a day, use Closed days instead.',
+      'While anything is paused, Home says so, with **Go to Online booking** (it opens this screen; nothing changes until you choose).',
     ],
   },
   {
@@ -268,7 +273,8 @@ export const HELP_SECTIONS: HelpSection[] = [
     id: 'warnings',
     title: 'Warnings and To decide',
     points: [
-      'Warnings show on Home under “Needs you”, on the class or party itself, on /staff for the crew, and in the morning warnings email. To decide items are in Inbox › **To decide**.',
+      'Warnings show on Home under **Warnings** (in “Needs you”), each with the button that fixes it, or **Open the class** / **Open the party** to sort it there. They also show on the class or party itself, on /staff for the crew, and in the morning warnings email, so you see them even when emails aren’t going out.',
+      'To decide items are in Inbox › **To decide**; Home shows how many are waiting. Staffing lines (nobody on, someone on who can’t) are under Home › Staffing.',
       'Each one says what happened and what to tap. The table below has every one of them.',
       'Nothing on either list cancels, refunds or texts anyone by itself.',
     ],
@@ -278,8 +284,9 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'Reports',
     points: [
       'More › **Reports**: pick a month, or a whole year, under Show. It shows class seats sold, class sales, class refunds, parties booked and party fees taken.',
-      'Under it is the **Tax split** from Square for that month: use tax (classes, Craft Café and party crafts) and sales tax (take-home kits), refunds taken off. Party studio fees carry no tax and show as untaxed. **Download** saves it as a spreadsheet for the accountant. **Send it again** emails it to the tax report list.',
-      'The tax split is also emailed by itself on the 1st of each month. If that email says it couldn’t be made, open Reports, pick that month, and tap **Send it again** once it shows. A month is remembered a week after it ends (late register payments come in by then); **Ask Square again** reads it fresh.',
+      'Under it is the **Tax split** from Square for that month: use tax (classes, Craft Café and party crafts) and sales tax (take-home kits), refunds taken off. Party studio fees carry no tax and show as untaxed. **Download** saves it as a spreadsheet. **Send it now** (it says **Send it again** once it has gone) emails it to the owners picked for it in Notifications, and to the accountant if you added one there. **Send to…** emails that month to any one address you type, like the accountant’s (only the month’s totals go, no customer names).',
+      'To send the spreadsheet yourself: **Download** › on the iPad open Files › Downloads › press and hold the file › Share › Mail.',
+      'The tax split is also emailed by itself on the 1st of each month. If that email says it couldn’t be made, open Reports, pick that month, and tap **Send it now** once it shows. A month is remembered a week after it ends (late register payments come in by then); **Ask Square again** reads it fresh.',
       'A refund shows in the month it was made, not the month of the sale.',
       'Each sale rung up on the register is in the tax split. For the sale-by-sale detail, Square has its own reports (Square Dashboard › Reports).',
     ],
@@ -320,6 +327,18 @@ export const HELP_SECTIONS: HelpSection[] = [
     ],
   },
   {
+    id: 'on-staff',
+    title: 'Things you do on /staff',
+    intro: 'A few owner jobs live on /staff, the crew’s screen: open the studio website with /staff at the end, on the iPad or your phone, and sign in with the staff passcode.',
+    points: [
+      'Make a gift card: /staff › **Gift cards** › pick an amount (or type one under Other amount), who it’s for and a note › **Make card**. The card number shows: tap **Copy** and paste it into a text or email to them. The list below shows every card made here with what’s left on it; **Number** shows a card’s number again. A gift card pays for a party online or at the register; class seats online can’t be paid with one.',
+      'Give someone a free seat (a giveaway, a make-good, or a booking the site couldn’t finish): /staff › open the class (This week, Today or Upcoming) › **Comp a seat** › **Find a customer**, or type their first name, last name and email › the day and how many seats › tick **Email them a confirmation** if they should get one › **Add comped seat**.',
+      'Book a class seat for someone on the phone or at the door: /staff › open the class › **Sell a seat** › who’s coming and how many › how they pay: **Pay on the iPad** (their card or Apple Pay, right there; they get the usual confirmation), **Pay at the counter** (**Add seat, pay at the counter**, then ring it up on the register) or **Charge on the reader** (when it’s turned on in More › Register setup).',
+      'Check-in, waivers and pickup at the door are the crew’s screens too; everything there is the same for you.',
+    ],
+    square: [{ why: 'Taking money back off a gift card, or clearing one, is only in Square.', steps: 'Square Dashboard (squareup.com, signed in) › Gift cards › find the card by its number › Refund or Clear balance.' }],
+  },
+  {
     id: 'connections',
     title: 'Emails, texts and Square',
     intro: 'The website sends emails through the studio’s Google account, texts through Quo, and takes payments through Square. If one stops, Home says so.',
@@ -351,6 +370,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       'A password pasted here wins over the one in the hosting settings. So if someone changes GMAIL_APP_PASSWORD in the hosting settings later, first tap **Use the hosting setting instead** under the pasted one, or the pasted one keeps being used.',
       'Only if that screen says it can’t keep a password safely: sign in to the website’s hosting account on a computer (the login is on the studio’s accounts sheet) › Site configuration › Environment variables › GMAIL_APP_PASSWORD › Edit › paste it as the Production value › Save, then Deploys › Trigger deploy › Deploy site. Settings only count after that, and it takes about 3 minutes.',
       'Tap **Send me a test email** again. Until it works, call or text customers who are waiting on an email.',
+      'Once it works, send the emails people missed: for a class, open it › Bookings › **Email them their booking again** under each person who booked while emails were down; for a party, open it › **Email <name> the details**.',
     ],
   },
   {
@@ -384,7 +404,7 @@ export const HELP_SECTIONS: HelpSection[] = [
     points: [
       'More › **Admin access** shows who the owners are and when the /admin passcode was last changed.',
       'The owners are the people marked **Owner** in More › Staff › People. To add an owner, add them (or edit them) as Owner. To take someone off, edit them to **Crew** or tap **No longer working here**. **Change who’s an owner** opens that list. There’s always at least one owner. Each owner picks their name under “Who’s using this?”, and gets the alerts picked for them in More › **Notifications**.',
-      '**Change the admin passcode**: type the one you use now, then the new one twice (at least 8 letters or numbers, no space at the start or end, and not the staff passcode), then **Save new admin passcode**. Every other phone or iPad signed in to /admin is signed out. The one you’re on stays signed in. Change it when an owner leaves, a phone is lost, or someone else saw it, and write it somewhere safe. Every owner (you too) gets an email and a text saying it was changed.',
+      '**Change the admin passcode**: type the one you use now, then the new one twice (at least 8 letters or numbers, no space at the start or end, and not the staff passcode), then **Save new admin passcode**. Every other phone or iPad signed in to /admin is signed out. The one you’re on stays signed in. Change it when an owner leaves, a phone is lost, or someone else saw it, and write it somewhere safe. Forgot the one you use now? Tap **Forgot the one you use now?** in that form › **Email the owners a link**. Every owner (you too) gets an email and a text saying it was changed.',
       'Taking an owner off in Staff › People (made **Crew**, or **No longer working here**) asks **Change the admin passcode now?** right there, because their phone may still be signed in to /admin. **Change it now** shows the form; **Not now** leaves it.',
       'When someone is made an owner, an owner is taken off, or an owner’s email or mobile changes, every owner gets an email and a text at the email and mobile they had before (the one taken off or changed too, and you, even if you made the change). It says it came from a signed-in /admin device and which name that device picked, since anyone holding a signed-in phone can pick any name. If you get one you didn’t expect, check Staff › People and **Notifications**, and change the admin passcode.',
       'After 8 wrong passcodes from one place, /admin makes that place wait 15 minutes before trying again. After 20 wrong ones in a day from anywhere, the owners get a text and an email, and **Admin access** says so. After 50 in a day, every try has to wait a few seconds after the last wrong one (never more than 30 seconds), so sign-in slows down but never closes. The email link under **Forgot the passcode?** works too.',
@@ -402,6 +422,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       'Someone who stops being an owner stops getting them. If nobody picked for one is left, it goes to every owner. An owner with no mobile on file gets no texts; only when nobody picked has a mobile do the texts go to the phone numbers the site was set up with.',
       'The weekly records archive waits a day before it goes to a new owner, or to an owner’s new email. The screen shows when it starts. Saving this screen sends the other owners an email and a text saying what changed.',
       'Keep the weekly archive emails: they are the record of every waiver, check-in and incident.',
+      '**Also send the monthly tax split to** (same screen): type one more email, like your accountant’s, then **Save address**. It starts getting the monthly tax split a day later, and every owner gets an email and a text saying so. **Stop sending it there** takes it off.',
     ],
   },
   // ── Stage 4 (extras): promotions, repeating dates, Register setup, waitlists, customers' own cancels, the reader ──
@@ -410,8 +431,10 @@ export const HELP_SECTIONS: HelpSection[] = [
 
 // ── When you see this → tap this ──────────────────────────────────────────
 
-const HOME = 'Home “Needs you”, the morning email'
+const HOME = 'Home › Warnings, the morning email'
 const TODO = 'Inbox › To decide'
+/** To decide items: settled in Inbox › To decide; Home counts them under “Needs you”. */
+const TODO_HOME = 'Inbox › To decide (counted on Home), the morning email'
 const HOME_STAFF = 'Home › Staffing, the morning email'
 
 export const HELP_ROWS: HelpRow[] = [
@@ -421,7 +444,7 @@ export const HELP_ROWS: HelpRow[] = [
   { id: 'party-held-longer', see: 'Held longer than the party', where: 'The party', means: 'The calendar blocks more time than the party has.', tap: 'Open the party › **Put the end time back**.', buttons: ['Put the end time back'] },
   { id: 'party-cancelled-held', see: 'A cancelled party’s time still held', where: `${HOME}, the party`, means: 'Nobody can book that time.', tap: 'Open the party › **Free this time**. Nothing is sent and no money moves.', buttons: ['Free this time'] },
   { id: 'party-old-time-held', see: '<time> still held, after a move', where: `${HOME}, the party`, means: 'The party moved, but its old time is still blocked.', tap: 'Open the party › **Free the old time**. The party stays where it is.', buttons: ['Free the old time'] },
-  { id: 'party-hold-orphan', see: 'Party time held, no party', where: `${TODO}, ${HOME}`, means: 'A time is blocked with no party on it, usually a booking that stopped halfway.', tap: '**Free this time**. It waits by itself while a payment might still be going through.', buttons: ['Free this time'] },
+  { id: 'party-hold-orphan', see: 'Party time held, no party', where: TODO_HOME, means: 'A time is blocked with no party on it, usually a booking that stopped halfway.', tap: '**Free this time**. It waits by itself while a payment might still be going through.', buttons: ['Free this time'] },
   { id: 'party-not-told', see: 'Host not told yet', where: `${TODO}, the party`, means: 'You moved, changed or cancelled a party and the host hasn’t heard.', tap: 'Open the party › **Email <name> the details** (or the new details), or after a call or text, **I told them**.', buttons: ['I told them'] },
   { id: 'party-no-confirmation', see: 'Party booked, no confirmation', where: TODO, means: 'The party is paid and booked, but its confirmation email didn’t go.', tap: '**Open the party** › **Email <name> the details**, then **Done** here.', buttons: ['Open the party', 'Done'] },
   { id: 'party-paid-elsewhere', see: 'Party payment to check', where: TODO, means: 'Square took a payment the site couldn’t book a party from (often someone who paid, changed their mind and paid again).', tap: '**Refund it** (the site asks Square first; what is left on the payment goes back to their card, they get a refund email), or, when the party still owes at least that much, **Put it toward the party** (recorded as paid, no money moves). If Square already refunded it, only **It’s already sorted** is offered; if some went back, **Refund the rest**. A refund Square never answered is finished with **Refund it** (never twice). Already settled another way: **It’s already sorted**.', buttons: ['Refund it', 'Put it toward the party', 'It’s already sorted'] },
@@ -441,19 +464,19 @@ export const HELP_ROWS: HelpRow[] = [
   { id: 'capacity-unknown', see: 'Can’t count seats sold for <class>', where: HOME, means: 'A class from Square has no seat count, so extra bookings can’t be spotted.', tap: 'On /staff, open the class › **⋯** › **Event settings** › **Capacity**, set it, save.', buttons: ['Capacity'] },
   { id: 'picks-missing', see: '<class>: N seats have no <choice>', where: HOME, means: 'Someone booked without picking (usually on Square’s own page).', tap: 'Call them and ask, so you prep the right thing.', buttons: [] },
   { id: 'recorded-over-sold', see: '<class>: recorded seats more than Square shows', where: HOME, means: 'Someone was added here to a class that still runs in Square, but not in Square, so Square could sell their seat again.', tap: 'Add them in Square.', buttons: [], square: SQ_LEGACY_CLASS },
-  { id: 'below-minimum', see: 'Short of its minimum', where: `${TODO}, ${HOME}`, means: 'A class hasn’t reached the fewest people it needs by its decide-by day.', tap: '**Keep it running**, or **Text the people booked** (opens Messages with their numbers). To cancel, **Open the class** › **Cancel class**. Nothing cancels on its own.', buttons: ['Keep it running', 'Open the class'] },
-  { id: 'pos-unmatched', see: 'Counter sale to match', where: `${TODO}, ${HOME}`, means: 'A class seat was rung up on the register and the site couldn’t tell which class.', tap: 'Pick the class (and the seat) › **Match to a class**, or **Not for a class**.', buttons: ['Match to a class', 'Not for a class'] },
-  { id: 'pos-needs-days', see: 'Counter seat needs its day', where: `${TODO}, ${HOME}`, means: 'A seat rung up on the register for a class with several dates needs its day.', tap: 'Pick the day › **Save the day**.', buttons: ['Save the day'] },
-  { id: 'door-unpaid', see: 'Not paid at the counter', where: `${TODO}, ${HOME}`, means: 'Someone added at the door to pay at the counter has no matching sale.', tap: '**Mark paid at the counter** if they paid another way, or **Free the seat** to take them off the list.', buttons: ['Mark paid at the counter'] },
-  { id: 'counter-match-check', see: 'Check a counter sale', where: `${TODO}, ${HOME}`, means: 'A register sale was matched to someone; make sure it was them.', tap: '**Yes, it was <name>**, or pick who it was › **It was <name>**.', buttons: ['Pick who it was'] },
-  { id: 'paid-not-seated', see: 'Paid, no seat', where: `${TODO}, ${HOME}`, means: 'Square shows someone paid online, but their seat was let go (usually a slow payment).', tap: '**Give them their seat** (even if the date is full), or **Refund it** (the site asks Square first; the payment goes back to their card and they get a refund email; tapping twice never refunds twice). Settled another way: **It’s already sorted**.', buttons: ['Give them their seat', 'Refund it', 'It’s already sorted'] },
+  { id: 'below-minimum', see: 'Short of its minimum', where: TODO_HOME, means: 'A class hasn’t reached the fewest people it needs by its decide-by day.', tap: '**Keep it running**, or **Text the people booked** (opens Messages with their numbers). To cancel, **Open the class** › **Cancel this class** (at the bottom) › **Cancel class**. Nothing cancels on its own.', buttons: ['Keep it running', 'Open the class'] },
+  { id: 'pos-unmatched', see: 'Counter sale to match', where: TODO_HOME, means: 'A class seat was rung up on the register and the site couldn’t tell which class.', tap: 'Pick the class (and the seat) › **Match to a class**, or **Not for a class**.', buttons: ['Match to a class', 'Not for a class'] },
+  { id: 'pos-needs-days', see: 'Counter seat needs its day', where: TODO_HOME, means: 'A seat rung up on the register for a class with several dates needs its day.', tap: 'Pick the day › **Save the day**.', buttons: ['Save the day'] },
+  { id: 'door-unpaid', see: 'Not paid at the counter', where: TODO_HOME, means: 'Someone added at the door to pay at the counter has no matching sale.', tap: '**Mark paid at the counter** if they paid another way, or **Free the seat** to take them off the list.', buttons: ['Mark paid at the counter'] },
+  { id: 'counter-match-check', see: 'Check a counter sale', where: TODO_HOME, means: 'A register sale was matched to someone; make sure it was them.', tap: '**Yes, it was <name>**, or pick who it was › **It was <name>**.', buttons: ['Pick who it was'] },
+  { id: 'paid-not-seated', see: 'Paid, no seat', where: TODO_HOME, means: 'Square shows someone paid online, but their seat was let go (usually a slow payment).', tap: '**Give them their seat** (even if the date is full), or **Refund it** (the site asks Square first; the payment goes back to their card and they get a refund email; tapping twice never refunds twice). Settled another way: **It’s already sorted**.', buttons: ['Give them their seat', 'Refund it', 'It’s already sorted'] },
   { id: 'classes-unreadable', see: 'Classes / Classes in Square couldn’t be checked', where: HOME, means: 'The check couldn’t read the classes just now.', tap: 'Refresh the page to try again. If it’s still there after an hour, look over the day on the Calendar yourself.', buttons: [] },
 
   // Refunds (classes and parties)
-  { id: 'refund-plain', see: 'Refund done in Square', where: `${TODO}, ${HOME}`, means: 'Someone refunded a class booking in Square; the seat is still taken here.', tap: '**Free a seat** (puts it back on sale, no money moves) or **Keep their seat**.', buttons: ['Keep their seat'] },
-  { id: 'refund-failed', see: 'Refund didn’t go through', where: `${TODO}, ${HOME}`, means: 'Square couldn’t finish a refund.', tap: '**Ask Square** to see what it shows now. If it failed, **Try the refund again** (a new refund of the same amount; tapping twice never refunds twice; if Square failed it before it was saved here, the site says so and you refund it from the booking itself). Settled another way: **Mark as handled** and say how.', buttons: ['Ask Square', 'Try the refund again', 'Mark as handled'] },
-  { id: 'refund-unfinished', see: 'Refund half finished', where: `${TODO}, ${HOME}`, means: 'A refund went through in Square but wasn’t finished here.', tap: '**Finish it**. It marks it done and emails the customer once.', buttons: ['Finish it'] },
-  { id: 'refund-unconfirmed', see: 'Refund with no answer', where: `${TODO}, ${HOME}`, means: 'Square never answered about a refund for a day.', tap: '**Ask Square**. It shows what Square did with the refund, then only the buttons that fit: **It went through** (records it with Square’s refund, the customer emailed once), **Try the refund again** (the same request, so never twice) or **It didn’t go through**.', buttons: ['Ask Square', 'It went through', 'Try the refund again', 'It didn’t go through'] },
+  { id: 'refund-plain', see: 'Refund done in Square', where: TODO_HOME, means: 'Someone refunded a class booking in Square; the seat is still taken here.', tap: '**Free a seat** (puts it back on sale, no money moves) or **Keep their seat**.', buttons: ['Keep their seat'] },
+  { id: 'refund-failed', see: 'Refund didn’t go through', where: TODO_HOME, means: 'Square couldn’t finish a refund.', tap: '**Ask Square** to see what it shows now. If it failed, **Try the refund again** (a new refund of the same amount; tapping twice never refunds twice; if Square failed it before it was saved here, the site says so and you refund it from the booking itself). Settled another way: **Mark as handled** and say how.', buttons: ['Ask Square', 'Try the refund again', 'Mark as handled'] },
+  { id: 'refund-unfinished', see: 'Refund half finished', where: TODO_HOME, means: 'A refund went through in Square but wasn’t finished here.', tap: '**Finish it**. It marks it done and emails the customer once.', buttons: ['Finish it'] },
+  { id: 'refund-unconfirmed', see: 'Refund with no answer', where: TODO_HOME, means: 'Square never answered about a refund for a day.', tap: '**Ask Square**. It shows what Square did with the refund, then only the buttons that fit: **It went through** (records it with Square’s refund, the customer emailed once), **Try the refund again** (the same request, so never twice) or **It didn’t go through**.', buttons: ['Ask Square', 'It went through', 'Try the refund again', 'It didn’t go through'] },
 
   // Arrive with stage 3 (staffing)
   { id: 'unstaffed', see: '<event> has no one on yet / has N of M on', where: HOME_STAFF, means: 'A class or party needs people and doesn’t have them.', tap: '**Put someone on** (opens its **Staff** tab) › **Put on**. Or More › Staff › **Needs someone**.', buttons: ['Put someone on', 'Put on'], comingWith: 'staffing' },
@@ -470,6 +493,10 @@ export const HELP_ROWS: HelpRow[] = [
   { id: 'admin-reset-notice', see: 'The /admin passcode was reset / changed, or The studio’s owners changed', where: 'An email and a text to the owners', means: 'Someone reset the admin passcode (with the emailed link, the hosting settings, or in Admin access), or changed who the owners are, their emails or mobiles, or who gets alerts.', tap: 'If it was one of you, nothing to do. If not: on the /admin sign-in page tap **Forgot the passcode?**, set a new one, then check More › Staff › People and **Notifications**.', buttons: ['Forgot the passcode?'] },
   { id: 'admin-many-wrong', see: 'Lots of wrong /admin passcodes today', where: 'An email and a text to the owners, More › Admin access', means: 'Someone typed a wrong /admin passcode 20 times today.', tap: 'If it wasn’t one of you, **Change the admin passcode** in More › Admin access.', buttons: ['Change the admin passcode'] },
   { id: 'service-not-set', see: 'Emails / Texts / Square aren’t set up on this site', where: 'Home “Needs you”', means: 'The website has no password or key for it, so nothing goes out that way.', tap: '**What to do** has the steps for each.', buttons: ['What to do'] },
+
+  // Owner alerts that ask for a step (I9)
+  { id: 'free-not-recorded', see: 'Class paid, seats not recorded yet … Nothing was charged (a free booking)', where: 'A text to the owners', means: 'Someone booked a free seat (a 100% code) and the site couldn’t write it down. Their seats are held for a day.', tap: 'On /staff, open the class › **Comp a seat** › their name, email and seats › **Add comped seat**, so the seats are theirs for good. The held seats let go by themselves after a day.', buttons: ['Comp a seat', 'Add comped seat'] },
+  { id: 'signup-not-saved', see: 'Site sign-up: <email> wants to hear about … (not saved)', where: 'A text and an email to the owners', means: 'Someone asked to be told when booking opens. “Not saved” means that message is the only copy of their sign-up.', tap: 'Keep that email (or write the address down). When booking opens, email or text them.', buttons: [] },
 
   // Stage 4 (extras): admin-help-stage4.ts
   ...STAGE4_HELP_ROWS,

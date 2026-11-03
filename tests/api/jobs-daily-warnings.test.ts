@@ -20,7 +20,8 @@ vi.mock('@lib/square-dashboard', () => ({
   loadSessionRecord: (...a: any[]) => mockLoadSession(...a),
   checkSession: (...a: any[]) => mockCheckSession(...a),
 }))
-vi.mock('@config/providers', () => ({ providers: { workshop: { listAllWorkshops: async () => [{ scheduleId: 'clssch_pails' }] } } }))
+const legacy = vi.hoisted(() => ({ list: [{ scheduleId: 'clssch_pails', startAt: '2026-10-18T18:00:00.000Z' }, { scheduleId: 'clssch_pails', startAt: '2026-11-08T18:00:00.000Z' }] as any[] }))
+vi.mock('@config/providers', () => ({ providers: { workshop: { listAllWorkshops: async () => legacy.list } } }))
 
 import { POST, dailyWarningsJobKey, squareSignInLine } from '@pages/api/jobs/daily-warnings.json'
 
@@ -102,9 +103,12 @@ describe('POST /api/jobs/daily-warnings.json', () => {
     const res = await POST(ctx(dailyWarningsJobKey(SECRET)))
     expect((await res.json()).data).toEqual({ count: 1, sent: true })
     const mail = mockSendEmail.mock.calls[0][0]
-    expect(mail.subject).toMatch(/Square sign-in/)
+    expect(mail.subject).toBe('⚠ Comps on classes run by Square go in Square by hand for now')
     expect(mail.text).toMatch(/expired \(saved 2026-09-26, lasted about 10 days\)/)
-    expect(mail.text).toMatch(/save-square-session/)
+    // I8: the step she can do herself, in Square, and when it stops mattering; never a script.
+    expect(mail.text).toMatch(/Square Dashboard › Appointments › the class › Add attendee/)
+    expect(mail.text).toMatch(/stops mattering after Sun Nov 8/)
+    expect(mail.text).not.toMatch(/npx|scripts?\/|cURL|tsx/)
   })
 })
 
@@ -178,5 +182,13 @@ describe('squareSignInLine', () => {
   it('says so when no sign-in is saved', async () => {
     mockLoadSession.mockResolvedValue(null)
     expect(await squareSignInLine()).toMatch(/no Square sign-in saved/)
+  })
+  it('I8: says nothing once no class run by Square is still to come (it never matters again)', async () => {
+    mockLoadSession.mockResolvedValue(null)
+    const kept = legacy.list
+    legacy.list = [{ scheduleId: 'clssch_old', startAt: '2026-09-01T18:00:00.000Z' }]
+    try {
+      expect(await squareSignInLine()).toBeNull()
+    } finally { legacy.list = kept }
   })
 })

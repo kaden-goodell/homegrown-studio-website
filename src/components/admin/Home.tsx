@@ -15,6 +15,7 @@ import { HomeStaffing } from './staffing/HomeStaffing'
 import { HomePasscodeAlert } from './staffing/HomePasscodeAlert'
 import { HomeBookingPaused } from './sheets/OnlineBookingSheet'
 import { HomeHealthAlert } from './HomeHealth'
+import { HomeWarnings } from './HomeWarnings'
 import { tagLookup, useBoard } from './staffing/api'
 import { dayStartIso } from './classes/dates'
 
@@ -125,6 +126,7 @@ export default function Home({ who, onOpen, onInbox }: {
       <HomeBookingPaused onOpen={onOpen} />
       <HomeHealthAlert onOpen={onOpen} />
       <HomePasscodeAlert onOpen={onOpen} />
+      <HomeWarnings onOpen={onOpen} onInbox={onInbox} />
       <HomeStaffing onOpen={onOpen} />
     </div>
   )
@@ -136,6 +138,7 @@ export default function Home({ who, onOpen, onInbox }: {
         <button type="button" className="adm-btn is-ghost" onClick={() => onOpen({ kind: 'book-party' })}>+ Book a party</button>
         <button type="button" className="adm-btn is-ghost" onClick={() => onOpen({ kind: 'block' })}>Block time</button>
       </div>
+      <button type="button" className="adm-btn is-ghost" onClick={() => onOpen({ kind: 'more', page: 'find' })}>Find a booking</button>
       {!(shut && !todays.length) && <button type="button" className="adm-btn is-ghost is-sm" onClick={() => onOpen({ kind: 'print', day })}>Print today</button>}
     </div>
   )

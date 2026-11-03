@@ -32,7 +32,7 @@ export function contentChanges(a: ClassContent, b: ClassContent, opts: { usual?:
   if (a.description !== b.description) out.push('Description')
   if ((a.instructor ?? '') !== (b.instructor ?? '')) out.push('Teacher')
   if (differs(a.passes, b.passes)) out.push('Ways to book')
-  if (differs(a.ticketTypes, b.ticketTypes)) out.push('Seat prices')
+  if (differs(a.ticketTypes, b.ticketTypes)) out.push('Kinds of seat')
   if (differs(a.addOns, b.addOns)) out.push('Extras')
   if (differs(a.questions, b.questions)) out.push('Questions')
   if (differs({ ...a.rules, ages: '' }, { ...b.rules, ages: '' })) out.push('Booking rules')

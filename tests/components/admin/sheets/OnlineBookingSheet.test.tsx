@@ -59,8 +59,21 @@ describe('More › Online booking', () => {
     expect(posts(f)).toHaveLength(0)
     fireEvent.click(screen.getByRole('button', { name: 'Pause parties' }))
     await screen.findByText(/Parties are paused online/)
-    expect(posts(f, URL_)[0].body).toEqual({ open: { parties: false, workshops: true, kits: false }, pauseNote: '', newTestLink: false, expectedUpdatedAt: null })
+    expect(posts(f, URL_)[0].body).toEqual({ open: { parties: false, workshops: true, kits: false }, pauseNote: '', newTestLink: false, reopenOn: { parties: null }, expectedUpdatedAt: null })
     expect(screen.getByText(/The website says booking is paused and shows your note\./)).toBeInTheDocument()
+  })
+
+  it('M2: a pause can open again by itself on a day; Don’t open it by itself takes that off', async () => {
+    const f = server()
+    vi.stubGlobal('fetch', f)
+    renderSheet(<OnlineBookingSheet />)
+    const parties = await screen.findByRole('group', { name: 'Parties online' })
+    fireEvent.click(parties.querySelector('button:nth-child(2)')!)
+    expect(screen.getByText(/Left blank, it stays paused until you open it\. To close the studio for a day, use Closed days instead\./)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/Open again by itself on/), { target: { value: '2099-01-02' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Pause parties' }))
+    await waitFor(() => expect(posts(f, URL_)).toHaveLength(1))
+    expect(posts(f, URL_)[0].body.reopenOn).toEqual({ parties: '2099-01-02' })
   })
 
   it('Keep it open changes nothing', async () => {
@@ -130,7 +143,7 @@ describe('Home › paused online', () => {
     })))
     render(<HomeBookingPaused onOpen={onOpen} />)
     expect(await screen.findByText('Parties are paused online since Tue Nov 3, 3:10 PM (Catherine).')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Open online booking' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Go to Online booking' }))
     expect(onOpen).toHaveBeenCalledWith({ kind: 'more', page: 'booking' })
   })
 

@@ -6,7 +6,7 @@ import { SITE_URL } from '@config/site-url'
 import { createLogger } from '@lib/logger'
 import { sendEmail } from '@lib/email'
 import { addDays } from '@lib/kit-dates'
-import { studioDate } from '@lib/studio-time'
+import { formatCalendarDay, studioDate } from '@lib/studio-time'
 import { listWarnings, OWNER_ONLY_CODES, warningLine, WARNING_WINDOW_DAYS } from '@lib/warnings'
 import { providers } from '@config/providers'
 import { checkSession, loadSessionRecord } from '@lib/square-dashboard'
@@ -14,22 +14,26 @@ import { digestWarnings, stillToDecideLine } from '@lib/warning-digest'
 import { runMinimumToRunAlerts } from '@lib/classes/minimum-to-run'
 
 /**
- * The saved Square sign-in (comps use it). Checking it daily also keeps it in
- * use. Returns a line for the email when it no longer works, else null.
+ * The saved Square sign-in (adding comped seats to classes still run in
+ * Square uses it). Checking it daily also keeps it in use. Returns a line for
+ * the email when it no longer works, else null. Nothing to say once no class
+ * run by Square is still to come (G10/I8): the line then never matters. The
+ * fix it gives is the one Catherine can do herself, in Square; never a script.
  */
 export async function squareSignInLine(now = new Date()): Promise<string | null> {
   try {
-    const saved = await loadSessionRecord()
-    const fix = 'Until it’s re-saved, comped seats have to be added in Square by hand. To fix: copy a fresh app.squareup.com request as cURL and run npx tsx scripts/save-square-session.ts.'
-    if (!saved) return `The site has no Square sign-in saved. ${fix}`
     const workshops = (await providers.workshop.listAllWorkshops?.()) ?? []
-    const scheduleId = workshops[0]?.scheduleId
-    if (!scheduleId) return null
-    const check = await checkSession(scheduleId)
+    const ahead = workshops.filter((w) => Date.parse(w.startAt) > now.getTime())
+    if (!ahead.length) return null
+    const last = ahead.reduce((a, b) => (Date.parse(b.startAt) > Date.parse(a.startAt) ? b : a))
+    const fix = `Until then, comped seats on classes still run by Square need adding in Square by hand: Square Dashboard › Appointments › the class › Add attendee. This stops mattering after ${formatCalendarDay(studioDate(last.startAt))}, the last class still run by Square.`
+    const saved = await loadSessionRecord()
+    if (!saved) return `The site has no Square sign-in saved, so it can’t add comped seats to classes still run by Square. ${fix}`
+    const check = await checkSession(ahead[0].scheduleId)
     if (check.state === 'connected') return null
     if (check.state === 'error') return null // Square hiccup; tomorrow's check will tell
     const lasted = saved.savedAt ? Math.floor((now.getTime() - Date.parse(saved.savedAt)) / 86_400_000) : null
-    return `The site’s Square sign-in expired${lasted !== null ? ` (saved ${saved.savedAt!.slice(0, 10)}, lasted about ${lasted} day${lasted === 1 ? '' : 's'})` : ''}. ${fix}`
+    return `The site’s Square sign-in for comps expired${lasted !== null ? ` (saved ${saved.savedAt!.slice(0, 10)}, lasted about ${lasted} day${lasted === 1 ? '' : 's'})` : ''}. ${fix}`
   } catch (err) {
     logger.warn('Square sign-in check failed', { error: err instanceof Error ? err.message : String(err) })
     return null
@@ -113,7 +117,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   const onlySignIn = !!signIn && lines.length === 1
-  const subject = onlySignIn ? '⚠ The site’s Square sign-in needs re-saving' : `⚠ Studio schedule needs attention (${lines.length})`
+  const subject = onlySignIn ? '⚠ Comps on classes run by Square go in Square by hand for now' : `⚠ Studio schedule needs attention (${lines.length})`
   const footer = 'Nothing has been changed. Each line needs a person.'
   // Staffing lines are fixed in /admin (More › Staff), which the /staff panel doesn't show.
   const staffing = digest.full.some((w) => OWNER_ONLY_CODES.has(w.code))

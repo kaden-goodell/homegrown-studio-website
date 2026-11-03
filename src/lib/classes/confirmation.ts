@@ -6,7 +6,7 @@
 import { checkoutPolicySummary, POLICY_PATH, POLICY_ANCHORS } from '@config/policy-content'
 import { inviteContent } from '@config/invite-content'
 import { sendWorkshopConfirmationEmail } from '@lib/email'
-import { buildIcs, googleCalendarUrl } from '@lib/party-share'
+import { buildIcs, classEventUid, googleCalendarUrl } from '@lib/party-share'
 import { formatDayAndSpan, formatSlotLabel, formatTimeSpan } from '@lib/studio-time'
 import { summarize } from '@lib/seo'
 import { withUtm } from '@lib/utm'
@@ -90,6 +90,13 @@ export async function sendClassConfirmation(input: {
   dueAtStudioCents?: number
   /** Stage 4: the waitlist's first sentence ("A spot opened and you're in!…"). */
   lead?: string
+  /**
+   * Sent again after a move (final review I1): each moved date's start time as
+   * the customer's calendar has it (sessionId → old start). The calendar file
+   * reuses those ids with a higher SEQUENCE, so adding it moves the old event.
+   */
+  calendarFrom?: Record<string, string>
+  calendarSequence?: number
 }): Promise<boolean> {
   const { cls, origin } = input
   const sessions = cls.sessions
@@ -139,7 +146,10 @@ export async function sendClassConfirmation(input: {
     policyUrl: `${origin}${POLICY_PATH}#${POLICY_ANCHORS.workshops}`,
     googleCalendarUrl: googleCalendarUrl(calendarEvent),
     // Every session goes in the calendar file; Google's link can only hold one, so it stays the first.
-    icsContent: buildIcs(sessions.map((s) => ({ ...calendarEvent, startIso: s.startIso, endIso: s.endIso })), { uidPrefix: 'class' }),
+    icsContent: buildIcs(sessions.map((s) => ({
+      ...calendarEvent, startIso: s.startIso, endIso: s.endIso,
+      ...(input.calendarFrom ? { uid: classEventUid(input.calendarFrom[s.id] ?? s.startIso), sequence: input.calendarSequence ?? 1 } : {}),
+    })), { uidPrefix: 'class' }),
     bookingRef: input.bookingId,
     ...(sessions.length > 1 ? { sessionLines: sessions.map((s) => formatDayAndSpan(s.startIso, s.endIso)) } : {}),
     ...(input.pickLines?.length ? { pickLines: input.pickLines } : {}),

@@ -62,7 +62,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   }
 
   // Best-effort heads-up to the owners on both channels.
-  const summary = `Site sign-up: ${email} wants to hear about ${interest || 'booking opening'}.${saved ? '' : ' (not saved to Square — add them by hand)'}`
+  const summary = `Site sign-up: ${email} wants to hear about ${interest || 'booking opening'}.${saved ? '' : ' (not saved: keep this text or email, it’s the only copy of their sign-up)'}`
   const [text] = await Promise.allSettled([
     alertOwners(summary),
     providers.notification.send({
@@ -71,7 +71,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       details: {
         email,
         ...(interest ? { interest } : {}),
-        saved: saved ? 'yes' : 'NO — add to Square by hand',
+        saved: saved ? 'yes' : 'NO — keep this email, it’s the only copy of their sign-up',
       },
       severity: saved ? 'info' : 'warning',
       timestamp: new Date().toISOString(),

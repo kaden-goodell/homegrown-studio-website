@@ -145,6 +145,28 @@ describe('New class: the details, ported from the old class form', () => {
     expect(sent.prices).toEqual({ [full.id]: { [kid]: 1550 }, [drop.id]: { person: 1200 } })
   })
 
+  it('I4: Adult and Kid prices go right next to each kind of seat (Kinds of seat comes first), while there is one way to book', async () => {
+    const f = server()
+    vi.stubGlobal('fetch', f)
+    renderSheet(<NewClassSheet />)
+    fillBasics('Family Pottery')
+    fireEvent.click(screen.getByRole('button', { name: /More options/ }))
+    const kinds = screen.getByRole('region', { name: 'Kinds of seat (like Adult and Kid)' })
+    const ways = screen.getByRole('region', { name: 'Ways to book' })
+    expect(kinds.compareDocumentPosition(ways) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.change(within(kinds).getByLabelText('Kind of seat 1'), { target: { value: 'Adult' } })
+    fireEvent.click(within(kinds).getByRole('button', { name: '+ Add a kind of seat' }))
+    fireEvent.change(within(kinds).getByLabelText('Kind of seat 2'), { target: { value: 'Kid' } })
+    fireEvent.change(within(kinds).getByLabelText('Full class Adult price ($)'), { target: { value: '25' } })
+    fireEvent.change(within(kinds).getByLabelText('Full class Kid price ($)'), { target: { value: '15' } })
+    expect(within(ways).queryByLabelText(/price \(\$\)/)).toBeNull()
+    expect(screen.getByText('Prices are under More options › Kinds of seat, next to each kind.')).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
+    await waitFor(() => expect(posts(f, CLASSES)).toHaveLength(1))
+    const sent = posts(f, CLASSES)[0].body.content
+    expect(Object.values(sent.prices)).toEqual([{ person: 2500, [sent.ticketTypes[1].id]: 1500 }])
+  })
+
   it('removing a way to book or a kind of seat removes its prices', async () => {
     const f = server()
     vi.stubGlobal('fetch', f)
