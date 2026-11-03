@@ -870,6 +870,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             ...(selectedTheme && themeTierAvailable ? { theme: { themeId: selectedTheme.id, serves: themeTierServes } } : {}),
             paymentToken: token,
             sourceKind,
+            // The total on the Pay button: the server never charges a different one (I-2).
+            expectedTotalCents: deposit,
           }),
         })
       } catch {
@@ -886,6 +888,12 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         // be recognised as the same one, so it keeps the ID.
         const keep = outcomeUnknown(failure) || errData?.code === 'in_progress'
         if (!keep) attemptId.current = newAttemptId()
+        if (errData?.why === 'price_changed') {
+          // The owners changed a price since this opened: nothing was held or charged. Show the new prices.
+          trackPaymentFailed('price_changed')
+          await loadServiceInfo()
+          throw new Error('The price changed since this page opened, so nothing was charged or booked. The new total is on the button. Check it, then pay again.')
+        }
         if (errData?.code === 'slot_taken' || errData?.code === 'not_open') {
           trackPaymentFailed(errData.code)
           await recoverFromLostTime()

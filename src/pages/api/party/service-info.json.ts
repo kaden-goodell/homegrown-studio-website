@@ -128,7 +128,9 @@ export const GET: APIRoute = async ({ url }) => {
     // online extras, the party times and closed days. Display only; /book
     // re-prices and re-checks everything on the server.
     const linkPackageId = url.searchParams.get('package') ?? undefined
-    const [settings, days] = await Promise.all([getPartySettings(), getStudioDays()])
+    // Fresh (I-2): the prices shown here are what /book holds the customer to (expectedTotalCents), so they
+    // must be what the owners saved, not this server's 60-second memory.
+    const [settings, days] = await Promise.all([getPartySettings({ fresh: true }), getStudioDays()])
     const facts = publicPartyFacts(settings, days, new Date(), { packageId: linkPackageId })
     const pkg = facts.packages.find((p) => p.id === linkPackageId) ?? facts.packages.find((p) => p.who === 'everyone')
     const data = {

@@ -461,7 +461,7 @@ describe('PartyModal — paying', () => {
     expect(screen.getByRole('button', { name: 'Loading payment form…' })).toBeDisabled()
   })
 
-  it('sends what was chosen, under one attempt ID, and never a price', async () => {
+  it('sends what was chosen, under one attempt ID, and never a price (only the total it showed, to be held to)', async () => {
     open()
     await toPay()
     await pay()
@@ -478,10 +478,23 @@ describe('PartyModal — paying', () => {
       sourceKind: 'card',
     })
     expect(body.attemptId).toMatch(/^[0-9a-f-]{36}$/)
-    // The server prices the party from the saved settings and the catalog.
-    expect(JSON.stringify(body)).not.toMatch(/cents|price|amount|durationMinutes|imageUrl/i)
+    // The server prices the party from the saved settings and the catalog; the shown total only pins it (I-2).
+    expect(body.expectedTotalCents).toBe(30000)
+    const { expectedTotalCents: _shown, ...rest } = body
+    expect(JSON.stringify(rest)).not.toMatch(/cents|price|amount|durationMinutes|imageUrl/i)
     expect(body).not.toHaveProperty('craft')
     expect(body).not.toHaveProperty('people')
+  })
+
+  it('I-2: the price changed since it opened → says so plainly, reloads the prices, stays on the pay step', async () => {
+    answers.book = { status: 409, body: { code: 'invalid', field: 'price', why: 'price_changed', newCents: 35000, oldCents: 30000, detail: 'The price changed since this opened. Nothing was charged or booked.' } }
+    open()
+    await toPay()
+    const infoCalls = requestsTo('service-info').length
+    await pay()
+    expect(await screen.findByRole('alert')).toHaveTextContent('The price changed since this page opened, so nothing was charged or booked. The new total is on the button.')
+    await waitFor(() => expect(requestsTo('service-info').length).toBe(infoCalls + 1))
+    expect(screen.getByTestId('payment-form')).toBeInTheDocument()
   })
 
   it('shows a short gift card message as written, and stays on the pay step', async () => {
