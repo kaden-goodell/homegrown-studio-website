@@ -30,7 +30,7 @@ vi.mock('@lib/blob-store', async (orig) => {
   }
 })
 
-import { hold, confirm, release, recordRefund, recordRequestRefund, setNames, getLedger, seatsTaken, extendHold } from '@lib/classes/seat-ledger'
+import { hold, confirm, release, recordRefund, recordRequestRefund, setNames, getLedger, seatsTaken, extendHold, SeatAlreadyFreedError } from '@lib/classes/seat-ledger'
 import { quote, type BookingRequest } from '@lib/classes/pricing'
 import { defaultRules } from '@lib/classes/validate'
 import type { ScheduledClass, ClassContent } from '@lib/classes/types'
@@ -292,6 +292,19 @@ describe('seat ledger', () => {
     const again = await confirm(cls.id, 'bkg_gw', { orderId: 'o', paymentId: 'p' }, f, NOW)
     expect(again.map((l) => l.state).sort()).toEqual(['confirmed', 'refunded'])
     expect((await getLedger(cls.id)).lines).toHaveLength(2)
+  })
+
+  it('refuseIfFreed: two presses freeing the same seat at once record it once (checked inside the write)', async () => {
+    const cls = make(1)
+    const f = fb(cls, { tickets: { person: 1 } }, { bookingId: 'bkg_ff' })
+    await hold(cls, f.quote, f.input, NOW)
+    const [l1] = await confirm(cls.id, 'bkg_ff', { orderId: null, paymentId: null }, f, NOW)
+    const go = () => recordRefund(cls.id, [l1.id], { cents: 0, reason: 'Cancelled online', by, freeSeat: true, squareRefundId: null, refuseIfFreed: true })
+    const out = await Promise.allSettled([go(), go()])
+    expect(out.filter((o) => o.status === 'fulfilled')).toHaveLength(1)
+    const lost = out.find((o) => o.status === 'rejected') as PromiseRejectedResult
+    expect(lost.reason).toBeInstanceOf(SeatAlreadyFreedError)
+    expect((await getLedger(cls.id)).lines.find((l) => l.id === l1.id)!.refunds).toHaveLength(1)
   })
 
   it('per-line cents: one refund written unevenly over seats in one go, still refusing more than paid', async () => {

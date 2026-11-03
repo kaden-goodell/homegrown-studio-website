@@ -17,7 +17,7 @@ import { afterReply } from '@lib/after-reply'
 import { sendRefundEmail } from '@lib/email'
 import type { By } from '@lib/staff-auth'
 import { getClass } from './class-store'
-import { getLedger, noteRefundFailed, recordRefund, recordRequestRefund, type Ledger, type LedgerLine } from './seat-ledger'
+import { getLedger, noteRefundFailed, recordRefund, recordRequestRefund, SeatAlreadyFreedError, type Ledger, type LedgerLine } from './seat-ledger'
 import { isPaidLine, leftOn, seatFreed } from './seat-status'
 import type { Cents, ScheduledClass } from './types'
 import { hashOf, listRefundRequests, type SavedRefundRequest } from './refund-requests'
@@ -412,7 +412,8 @@ export async function freeSeatOnly(
     if (!chosen.length) throw new RefundError(409, ALREADY_FREE)
   }
   const ids = chosen.map((l) => l.id)
-  const lines = await recordRefund(cls.id, ids, { cents: 0, reason, by: actor.by, freeSeat: true, squareRefundId: null })
+  const lines = await recordRefund(cls.id, ids, { cents: 0, reason, by: actor.by, freeSeat: true, squareRefundId: null, refuseIfFreed: true })
+    .catch((e) => { throw e instanceof SeatAlreadyFreedError ? new RefundError(409, ALREADY_FREE) : e })
   await onSeatFreed(cls.id, [...new Set(lines.flatMap((l) => l.sessionIds))]).catch(() => undefined)
   await recordAudit({
     by: { ...actor.by, role: actor.role },

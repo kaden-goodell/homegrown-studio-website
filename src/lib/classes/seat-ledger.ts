@@ -13,7 +13,7 @@ import { newId } from './validate'
 import { studioDate } from '@lib/studio-time'
 import { assertClassWritesAllowed } from './test-site-guard'
 import { createLogger } from '@lib/logger'
-import { isExpiredHold, isPaidLine, paidOn, refundedOn, takesSeat } from './seat-status'
+import { isExpiredHold, isPaidLine, paidOn, refundedOn, seatFreed, takesSeat } from './seat-status'
 export { isComing, isPaidLine, takesSeat } from './seat-status'
 
 const logger = createLogger('classes:seat-ledger')
@@ -383,10 +383,15 @@ export function paidBy(l: LedgerLine, paymentId: string): boolean {
  * for it on this class are replaced by the person's, so their seat choice,
  * reason and name stand.
  */
+/** recordRefund with refuseIfFreed: a seat was freed already (another press got there first). */
+export class SeatAlreadyFreedError extends Error {
+  constructor() { super('That seat is already freed.') }
+}
+
 export async function recordRefund(
   classId: string,
   lineIds: string[],
-  input: { cents: Cents | Record<string, Cents>; reason: string; by: By; freeSeat: boolean; squareRefundId: string | null },
+  input: { cents: Cents | Record<string, Cents>; reason: string; by: By; freeSeat: boolean; squareRefundId: string | null; refuseIfFreed?: boolean },
 ): Promise<LedgerLine[]> {
   const centsOf = (id: string): Cents => (typeof input.cents === 'number' ? input.cents : input.cents[id])
   for (const id of lineIds) {
@@ -411,6 +416,8 @@ export async function recordRefund(
       const l = cur.lines.find((x) => x.id === id)
       if (!l) throw new Error('One of those seats is not on this class.')
       if (seen(l)) continue
+      // Checked inside the write: two presses freeing the same seat at once record it once.
+      if (input.refuseIfFreed && seatFreed(l)) throw new SeatAlreadyFreedError()
       todo.add(id)
       if (l.state !== 'confirmed' && l.state !== 'refunded') throw new Error('Only paid seats can be refunded.')
       if (refundedOn(l) + centsOf(id) > paidOn(l)) throw new Error('That is more than was paid for this seat.')
