@@ -167,7 +167,7 @@ describe('the owners’ switch (More › Online booking)', () => {
     const set = vi.fn()
     const g = await bookingPageGate({ url: new URL(`https://x/book?preview=${saved.previewToken}`), request: new Request('https://x/book'), setCookie: set }, 'parties')
     expect(g.open).toBe(true)
-    expect(set).toHaveBeenCalledWith('hg_preview', saved.previewToken, expect.objectContaining({ httpOnly: true, maxAge: 60 * 60 * 24 * 30 }))
+    expect(set).toHaveBeenCalledWith('hg_preview', saved.previewToken, expect.objectContaining({ httpOnly: true, secure: true, maxAge: 60 * 60 * 24 * 30 }))
 
     const again = await saveSwitches({ open: saved.open, pauseNote: '', newTestLink: true }, { expectedUpdatedAt: saved.updatedAt, by })
     expect(again.saved.previewToken).not.toBe(saved.previewToken)

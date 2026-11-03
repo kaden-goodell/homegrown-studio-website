@@ -9,5 +9,5 @@ export const GET: APIRoute = async ({ request, url }) => {
   if (!(await adminAuthorized(request))) return new Response('Sign in first.', { status: 401 })
   const photo = await getRequestPhoto(url.searchParams.get('id') ?? '', Number(url.searchParams.get('n')))
   if (!photo) return new Response('Not found', { status: 404 })
-  return new Response(new Uint8Array(photo), { status: 200, headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400' } })
+  return new Response(new Uint8Array(photo), { status: 200, headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' } })
 }
