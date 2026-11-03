@@ -20,7 +20,7 @@ export function defaultRules(): ClassRules {
     minimumToRun: null,
     linkOnly: false,
     joinPartway: true,
-    waitlistCutoffHours: 2,
+    waitlistCutoffHours: 48, // D7: never inside the 48-hour no-refund window (waitlist-rules floors it there anyway)
     canShareRoom: false,
   }
 }

@@ -6,6 +6,7 @@
  * DRAFT copy for Kaden (tasks-9-10-report.md, COPY FOR KADEN).
  */
 import { formatMoney } from '@lib/money'
+import { policyWindows } from '@config/policy-content'
 
 /**
  * Bumped whenever the consent sentence changes; stored with each entry. 2: the class and its date are named (I2).
@@ -37,7 +38,7 @@ export function closesLabel(iso: string): string {
  */
 export function consentText(input: { className: string; startIso: string; more?: boolean; closesIso: string; maxCents: number }): string {
   const when = `${input.more ? 'starts ' : ''}${closesLabel(input.startIso)}`
-  return `Save my card with Square. If a spot opens in ${input.className} (${when}) before the waitlist closes on ${closesLabel(input.closesIso)}, Hometown Studio adds me and charges this card up to ${formatMoney(input.maxCents)}, even if the price goes up later, without asking again. I’ll get a text and an email right away. I can leave the waitlist any time and my card comes off.`
+  return `Save my card with Square. If a spot opens in ${input.className} (${when}) before the waitlist closes on ${closesLabel(input.closesIso)} (so I’m never charged inside the ${policyWindows.workshopRefundHours}-hour no-refund window), Hometown Studio adds me and charges this card up to ${formatMoney(input.maxCents)}, even if the price goes up later, without asking again. I’ll get a text and an email right away. I can leave the waitlist any time and my card comes off.`
 }
 
 /** M-a: consent words compared without caring about spacing (browser and server may space "8 AM" differently). */

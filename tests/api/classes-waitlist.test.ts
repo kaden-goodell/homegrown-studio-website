@@ -115,9 +115,9 @@ describe('waitlist join', () => {
     expect(e.square).toEqual({ customerId: 'cust-1', cardId: expect.any(String), brand: 'VISA', last4: '4242', expMonth: 12, expYear: expect.any(Number) })
     // Only the card's face: no number, CVV or token is kept.
     expect(JSON.stringify(e)).not.toMatch(/cnon:|card_number|cvv/i)
-    expect(e.consent.text).toBe(consentText({ className: 'Potholder Looms', startIso: '2026-10-17T15:00:00.000Z', closesIso: '2026-10-17T13:00:00.000Z', maxCents: 2180 }))
+    expect(e.consent.text).toBe(consentText({ className: 'Potholder Looms', startIso: '2026-10-17T15:00:00.000Z', closesIso: '2026-10-15T15:00:00.000Z', maxCents: 2180 }))
     expect(e.consent.text).toBe(body.consentShown!.text) // I2: stored exactly as shown
-    expect(e.consent.text).toContain('If a spot opens in Potholder Looms (Sat, Oct 17 at 10 AM) before the waitlist closes on Sat, Oct 17 at 8 AM')
+    expect(e.consent.text).toContain('If a spot opens in Potholder Looms (Sat, Oct 17 at 10 AM) before the waitlist closes on Thu, Oct 15 at 10 AM')
     expect(e.consent.text).toContain('up to $21.80')
 
     const m = mail.joined.mock.calls[0][0]
@@ -263,7 +263,7 @@ describe('waitlist join', () => {
     await fill(cls)
     const shown = shownFor(cls)!
     const closes = await call(joinBody(cls, { consentShown: { ...shown, closesIso: '2026-10-17T12:00:00.000Z' } }))
-    expect(await closes.json()).toMatchObject({ code: 'consent_changed', detail: 'The waitlist now closes Sat, Oct 17 at 8 AM. Check it and tick the box again. Nothing was charged.' })
+    expect(await closes.json()).toMatchObject({ code: 'consent_changed', detail: 'The waitlist now closes Thu, Oct 15 at 10 AM. Check it and tick the box again. Nothing was charged.' })
     // Words that no longer carry the amount are refused, and the reply carries today's words.
     const words = await call(joinBody(cls, { consentShown: { ...shown, text: shown.text.replace(/\$[\d.]+/, 'whatever it costs') } }))
     expect(await words.json()).toMatchObject({ code: 'consent_changed', text: shown.text })
@@ -394,8 +394,8 @@ describe('public view', () => {
     await fill(cls)
     await call(joinBody(cls))
     const w = toPublicClass(cls, await getLedger(cls.id), NOW, {}, await getWaitlist(cls.id))
-    expect(w.own!.sessions[0].waitlist).toEqual({ open: true, closesIso: '2026-10-17T13:00:00.000Z', waiting: 1 })
-    const after = toPublicClass(cls, await getLedger(cls.id), new Date('2026-10-17T13:00:00.000Z'), {}, await getWaitlist(cls.id))
+    expect(w.own!.sessions[0].waitlist).toEqual({ open: true, closesIso: '2026-10-15T15:00:00.000Z', waiting: 1 })
+    const after = toPublicClass(cls, await getLedger(cls.id), new Date('2026-10-15T15:00:00.000Z'), {}, await getWaitlist(cls.id))
     expect(after.own!.sessions[0].waitlist!.open).toBe(false)
     // At the door there's no waitlist.
     expect(toPublicClass(cls, await getLedger(cls.id), NOW, { door: true }).own!.sessions[0].waitlist).toBeUndefined()

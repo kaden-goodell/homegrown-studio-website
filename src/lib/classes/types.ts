@@ -20,7 +20,7 @@ export interface ClassRules {
   minimumToRun: { count: number; decideByIso: string } | null
   linkOnly: boolean
   joinPartway: boolean    // when false, a 'remaining' pass is never offered once the first session starts
-  waitlistCutoffHours: number // default 2 (stage 4 uses it)
+  waitlistCutoffHours: number // default 48 (D7); waitlist-rules never lets it close inside the no-refund window
   canShareRoom: boolean   // allows overlap with another class
 }
 /**
