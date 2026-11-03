@@ -128,7 +128,7 @@ export async function bookingsClosedResponse(): Promise<Response> {
 }
 
 /** Cookie setter the booking pages hand in (Astro.cookies.set). */
-type SetCookie = (name: string, value: string, opts: { path: string; httpOnly: boolean; sameSite: 'lax'; maxAge: number }) => void
+type SetCookie = (name: string, value: string, opts: { path: string; httpOnly: boolean; sameSite: 'lax'; secure?: boolean; maxAge: number }) => void
 
 /** The same address without `preview` (where the test link sends the browser once its cookie is set). */
 export function urlWithoutPreview(url: URL): string {
@@ -155,7 +155,7 @@ export async function bookingPageGate(
   const queryMatch = secretMatches(page.url.searchParams.get('preview'), token)
   let redirect: string | undefined
   if (queryMatch && page.setCookie) {
-    page.setCookie(PREVIEW_COOKIE, token, { path: '/', httpOnly: true, sameSite: 'lax', maxAge: 60 * 60 * 24 * 30 })
+    page.setCookie(PREVIEW_COOKIE, token, { path: '/', httpOnly: true, sameSite: 'lax', secure: page.url.protocol === 'https:', maxAge: 60 * 60 * 24 * 30 })
     redirect = urlWithoutPreview(page.url)
   }
   const preview = queryMatch || secretMatches(cookieValue(page.request, PREVIEW_COOKIE), token)

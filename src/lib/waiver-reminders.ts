@@ -26,6 +26,7 @@
  * guessed: that family gets no message, and the owners' summary names them.
  * One message per family per day, however many classes and however many runs.
  */
+import { maskContact } from '@lib/pii-mask'
 import { providers } from '@config/providers'
 import { listSeatChoicesByEvent, type SeatChoiceRecord } from '@lib/seat-choices'
 import { listRsvpsByEvent } from '@lib/rsvp-store'
@@ -318,7 +319,7 @@ export async function runWaiverReminders(now: Date, origin: string): Promise<Rem
       await sentStore.set(sentKey(plan.day, f.key), JSON.stringify({ at: now.toISOString(), email, text })).catch(() => undefined)
     }
     sent.push({ family: f, email, text })
-    logger.info('Waiver reminder', { family: f.key, email, text })
+    logger.info('Waiver reminder', { family: maskContact(f.key), email, text })
   }
   const summarySent = await sendOwnerSummary(plan, sent).catch(() => false)
   return { plan, sent, summarySent }

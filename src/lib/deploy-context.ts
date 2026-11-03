@@ -36,8 +36,10 @@ export function contextFromHost(rawHost: string | undefined): DeployContext | nu
   if (/^deploy-preview-\d+--/.test(host)) return 'deploy-preview'
   const branchLabel = /^([a-z0-9-]+)--[a-z0-9-]+\.netlify\.app$/.exec(host)?.[1]
   // `<24-hex-id>--site.netlify.app` is a permanent per-deploy link, which exists
-  // for production deploys too: we can't tell which deploy it is, so treat it as production.
-  if (branchLabel) return /^[0-9a-f]{20,}$/.test(branchLabel) ? 'production' : 'branch-deploy'
+  // for production deploys AND deploy previews: we can't tell which, so it's
+  // 'unknown' (fail safe: the test-site guards refuse writes on Netlify, and
+  // simulated data stays hidden). Production itself is told by Netlify.context.
+  if (branchLabel) return /^[0-9a-f]{20,}$/.test(branchLabel) ? 'unknown' : 'branch-deploy'
   if (/^[a-z0-9-]+\.netlify\.app$/.test(host)) return 'production'
   if (host === 'ourhometownstudio.com' || host.endsWith('.ourhometownstudio.com')) return 'production'
   if (host === 'homegrowncraftstudio.com' || host.endsWith('.homegrowncraftstudio.com')) return 'production'

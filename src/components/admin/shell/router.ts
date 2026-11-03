@@ -14,8 +14,8 @@ const TOKEN_RE = /^[A-Za-z0-9._-]{1,120}$/
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 
 export type InboxKind = 'request' | 'message' | 'teacher'
-export type MorePage = 'booking' | 'parties' | 'crafts' | 'hours' | 'closed' | 'staff' | 'promos' | 'register' | 'reports' | 'records' | 'import' | 'sandbox' | 'messages' | 'who' | 'help' | 'access' | 'notify' | 'connections'
-export const MORE_PAGES: MorePage[] = ['booking', 'parties', 'crafts', 'hours', 'closed', 'staff', 'promos', 'register', 'reports', 'records', 'import', 'sandbox', 'messages', 'who', 'help', 'access', 'notify', 'connections']
+export type MorePage = 'booking' | 'parties' | 'crafts' | 'hours' | 'closed' | 'staff' | 'promos' | 'register' | 'reports' | 'records' | 'import' | 'sandbox' | 'messages' | 'who' | 'help' | 'access' | 'notify' | 'connections' | 'activity'
+export const MORE_PAGES: MorePage[] = ['booking', 'parties', 'crafts', 'hours', 'closed', 'staff', 'promos', 'register', 'reports', 'records', 'import', 'sandbox', 'messages', 'who', 'help', 'access', 'notify', 'connections', 'activity']
 
 /** Every sheet /admin can open, as data. */
 export type Sheet =

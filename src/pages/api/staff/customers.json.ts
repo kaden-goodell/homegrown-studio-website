@@ -4,6 +4,8 @@ import { providers } from '@config/providers'
 import { findCustomers } from '@lib/customer-directory'
 import { householdForSeats } from '@lib/attending'
 import { createLogger } from '@lib/logger'
+import { rateLimited } from '@lib/rate-limit'
+import { maskEmail, maskPhone } from '@lib/pii-mask'
 
 export const prerender = false
 
@@ -16,15 +18,31 @@ const shape = (c: { id: string; givenName?: string; familyName?: string; email?:
   id: c.id, givenName: c.givenName ?? '', familyName: c.familyName ?? '', email: c.email ?? '', phone: c.phone ?? '',
 })
 
+/** Searches (and picks) per staff member per minute (DV19). */
+export const CUSTOMER_LOOKUPS_PER_MINUTE = 30
+/** The shortest search: two letters at a time would page through the customer list. */
+export const MIN_QUERY = 3
+
+/** A search result as crew see it: masked contacts (DV19). Owners see them whole. */
+export const masked = (c: ReturnType<typeof shape>) => ({ ...c, email: maskEmail(c.email), phone: maskPhone(c.phone) })
+
 /**
  * Staff-only "Find a customer" for Comp / Sell a seat.
- * `GET ?q=` → up to 8 Square customers matching a name, email or phone.
- * `GET ?id=` → that customer, plus the household on their waiver (or null).
+ * `GET ?q=` → up to 8 Square customers matching a name, email or phone
+ *   (3+ characters). Crew get masked contacts (`j•••@gmail.com`, `••1234`).
+ * `GET ?id=` → that customer in full (the sale needs the email), plus the
+ *   household on their waiver (or null).
+ * Both count toward 30 a minute per staff member.
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!(await staffAuthorized(request))) return reply(401, { error: 'Unauthorized' })
+  const member = await staffAuthorized(request)
+  if (!member) return reply(401, { error: 'Unauthorized' })
   const id = url.searchParams.get('id')?.trim()
   const q = url.searchParams.get('q')?.trim() ?? ''
+  if (!id && q.length < MIN_QUERY) return reply(200, { data: [] })
+  if (rateLimited(`staff-customers:${member.id}`, CUSTOMER_LOOKUPS_PER_MINUTE, 60_000)) {
+    return reply(429, { error: 'That’s a lot of searches. Wait a minute and try again.' })
+  }
   try {
     if (id) {
       const c = await providers.customer.getById(id)
@@ -32,8 +50,8 @@ export const GET: APIRoute = async ({ request, url }) => {
       const household = await householdForSeats({ email: c.email, phone: c.phone })
       return reply(200, { data: { customer: shape(c), household } })
     }
-    if (q.length < 2) return reply(200, { data: [] })
-    return reply(200, { data: (await findCustomers(q)).map(shape) })
+    const found = (await findCustomers(q)).map(shape)
+    return reply(200, { data: member.role === 'owner' ? found : found.map(masked) })
   } catch (err) {
     logger.error('Customer search failed', { error: err instanceof Error ? err.message : String(err) })
     return reply(503, { error: 'Couldn’t reach Square. Try again.' })

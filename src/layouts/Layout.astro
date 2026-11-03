@@ -5,6 +5,7 @@ import Header from '@components/shared/Header.astro'
 import Footer from '@components/shared/Footer.astro'
 import Analytics from '@components/shared/Analytics.astro'
 import PostHog from '@components/posthog.astro'
+import { posthogPagePrivacy } from '@lib/posthog-privacy'
 import SeoHead from '@components/shared/SeoHead.astro'
 import Shimmer from '@components/shared/Shimmer'
 import RenameNotice from '@components/shared/RenameNotice'
@@ -69,7 +70,7 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     <SeoHead {...Astro.props} />
     {/* Every page: our address never goes to other sites (a private page's key included). */}
     {noReferrer ? <meta name="referrer" content="no-referrer" /> : <meta name="referrer" content="same-origin" />}
-    {!noAnalytics && <PostHog noRecording={!!bare || Astro.url.pathname.startsWith('/waiver') || privateParty} />}
+    {!noAnalytics && <PostHog privacy={posthogPagePrivacy(Astro.url.pathname, !!bare || privateParty)} />}
     <ViewTransitions />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

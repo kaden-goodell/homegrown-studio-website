@@ -31,6 +31,7 @@ import { formatMoney } from '@lib/money'
 import type { By } from '@lib/staff-auth'
 import { getPartyRecord, isOurs, PartyNotFoundError, updatePartyRecord, type PartyCharge, type PartyItem, type PartyRecord } from '@lib/party-store'
 import { hashOf, listRefundRequests, type SavedRefundRequest } from '@lib/classes/refund-requests'
+import { assertClassWritesAllowed } from '@lib/classes/test-site-guard'
 import { PAID_ELSEWHERE_SCOPE, runRefund, type RefundBook } from '@lib/booking-core/refund-runner'
 import { RefundError, refundKeyRaw } from '@lib/booking-core/refund-words'
 import { idFor } from '@lib/booking-core/ids'
@@ -210,6 +211,7 @@ export async function paidElsewhereRefundBook(orderId: string, opts: { entry?: E
 export async function refundPaidElsewhere(
   orderId: string, reason: string, by: By, opts: { cents?: Cents; now?: Date } = {},
 ): Promise<{ cents: Cents; emailed: boolean; firstName: string; email: string; already: boolean }> {
+  assertClassWritesAllowed()
   const entry = await paidElsewhereEntry(orderId)
   const saved = await listRefundRequests(PAID_ELSEWHERE_SCOPE, orderId)
   if (!entry) {

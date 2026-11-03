@@ -119,6 +119,23 @@ describe('PostHog key scrubber (window.__hsScrubKeys)', () => {
     expect(JSON.stringify(ev)).not.toMatch(/s3cret/)
   })
 
+  it('I2 / M3: cuts the token out of cancel and waitlist links, and the reader return state (data=)', () => {
+    run()
+    const scrub = (window as any).__hsScrubKeys
+    const ev = scrub({ properties: {
+      $current_url: 'https://ourhometownstudio.com/classes/waitlist/cls_1.wle_2.SECRETW?x=1',
+      $referrer: 'https://ourhometownstudio.com/classes/cancel/SECRETC',
+      $elements_chain: 'a:attr__href="/classes/waitlist/SECRETW2"',
+      pos: 'https://ourhometownstudio.com/staff/pos-return?data=SIGNEDSTATE&ok=1',
+      keep: 'https://ourhometownstudio.com/classes/cls_3',
+    } })
+    expect(ev.properties.$current_url).toBe('https://ourhometownstudio.com/classes/waitlist/[link]?x=1')
+    expect(ev.properties.$referrer).toBe('https://ourhometownstudio.com/classes/cancel/[link]')
+    expect(ev.properties.pos).toBe('https://ourhometownstudio.com/staff/pos-return?ok=1')
+    expect(ev.properties.keep).toBe('https://ourhometownstudio.com/classes/cls_3')
+    expect(JSON.stringify(ev)).not.toMatch(/SECRET|SIGNEDSTATE/)
+  })
+
   it('PostHog runs it on every event', () => {
     const ph = readFileSync(resolve(__dirname, '../../src/components/posthog.astro'), 'utf8')
     expect(ph).toMatch(/before_send: function \(event\) \{ return window\.__hsScrubKeys \? window\.__hsScrubKeys\(event\) : event \}/)
@@ -139,7 +156,7 @@ describe('Layout', () => {
   it('leaves out GA4 and the Meta Pixel, never records, and keeps the address to this site on /party/*', () => {
     expect(layout).toContain('const privateParty = isPrivatePartyPage(Astro.url.pathname)')
     expect(layout).toMatch(/\{!bare && !privateParty && !noAnalytics && <Analytics \/>\}/)
-    expect(layout).toMatch(/<PostHog noRecording=\{[^}]*privateParty[^}]*\} \/>/)
+    expect(layout).toMatch(/<PostHog privacy=\{posthogPagePrivacy\(Astro\.url\.pathname, [^}]*privateParty[^}]*\)\} \/>/)
     // dev 1bac82d: every page keeps its address to this site; a noAnalytics page (the host page) gets no PostHog at all.
     expect(layout).toContain('<meta name="referrer" content="same-origin" />')
     expect(layout).toMatch(/\{!noAnalytics && <PostHog /)

@@ -5,6 +5,7 @@ import { providers } from '@config/providers'
 import { alertOwners } from '@lib/owner-alert'
 import { createLogger } from '@lib/logger'
 import { recordAudit } from '@lib/audit'
+import { classWritesRefusal } from '@lib/classes/test-site-guard'
 import {
   listMintedGiftCards, saveMintedGiftCard, validateMint, newGiftCardRecordId, giftCardIdForPress, getMintedGiftCard,
   type MintedGiftCard,
@@ -19,21 +20,36 @@ const logger = createLogger('api:staff:gift-cards')
 const HEADERS = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: HEADERS })
 
-/** Staff-only: every gift card we've made, with its live balance from Square. */
+/**
+ * Crew see only a card's last 4 digits (DV19): online redemption needs only
+ * the number, so a full list would let anyone signed in spend a card. The
+ * full number is shown once, to its maker, right after it's made (POST), and
+ * to owners. `giftCardId` (Square's id, which can look the card up) goes to
+ * owners only too.
+ */
+export function maskedGan(gan: string): string {
+  const digits = String(gan ?? '').replace(/\s/g, '')
+  return digits.length > 4 ? `•••• ${digits.slice(-4)}` : digits
+}
+
+/** Staff-only: every gift card we've made, with its live balance from Square. Crew get masked numbers. */
 export const GET: APIRoute = async ({ request }) => {
-  if (!(await staffAuthorized(request))) return json({ error: 'Unauthorized' }, 401)
+  const member = await staffAuthorized(request)
+  if (!member) return json({ error: 'Unauthorized' }, 401)
+  const owner = member.role === 'owner'
   try {
     const records = await listMintedGiftCards()
     const cards = await Promise.all(records.map(async (r) => {
+      const shown = owner ? r : { ...r, gan: maskedGan(r.gan), giftCardId: '', masked: true as const }
       try {
         const live = await providers.giftcard.get(r.giftCardId)
-        return { ...r, balanceCents: live ? live.balanceCents : null, state: live ? live.state : null }
+        return { ...shown, balanceCents: live ? live.balanceCents : null, state: live ? live.state : null }
       } catch (err) {
         logger.warn('Gift card lookup failed', { id: r.id, error: err instanceof Error ? err.message : String(err) })
-        return { ...r, balanceCents: null, state: null }
+        return { ...shown, balanceCents: null, state: null }
       }
     }))
-    return json({ data: { cards } })
+    return json({ data: { cards, masked: !owner } })
   } catch (err) {
     logger.error('Gift card list failed', { error: err instanceof Error ? err.message : String(err) })
     return json({ error: 'Could not load gift cards' }, 503)
@@ -44,6 +60,9 @@ export const GET: APIRoute = async ({ request }) => {
 export const POST: APIRoute = async ({ request }) => {
   const member = await staffAuthorized(request)
   if (!member) return json({ error: 'Unauthorized' }, 401)
+  // R41 (I1): a test site sharing the live stores and Square never makes a real gift card.
+  const refusal = classWritesRefusal(request)
+  if (refusal) return json({ error: refusal, code: 'NO_TEST_STORE' }, 503)
 
   let body: unknown
   try { body = await request.json() } catch { body = null }
@@ -91,7 +110,7 @@ export const POST: APIRoute = async ({ request }) => {
   try {
     await saveMintedGiftCard(record)
   } catch (err) {
-    logger.error('Gift card made but not recorded', { id, gan: minted.gan, error: err instanceof Error ? err.message : String(err) })
+    logger.error('Gift card made but not recorded', { id, gan: maskedGan(minted.gan), error: err instanceof Error ? err.message : String(err) })
     await audit(false)
     await alertOwners(`Gift card ${minted.gan} ($${v.value.amountCents / 100}, for ${v.value.forWhom}) was made in Square by ${member.name} but not recorded. Hand it out anyway.`)
     return json({ error: 'Card made but not recorded', gan: minted.gan }, 502)

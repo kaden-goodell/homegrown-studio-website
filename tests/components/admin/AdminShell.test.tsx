@@ -725,11 +725,11 @@ describe('More', () => {
     expect(posts(f, '/api/admin/classes/import-square.json')).toEqual([{ dryRun: true }])
   })
 
-  it('Owners and alerts: Admin access, Notifications, and Email, texts and Square', async () => {
+  it('Owners and alerts: Admin access, Notifications, Email, texts and Square, and Activity (DV19)', async () => {
     await signedIn()
     tab('More')
     const owners = await screen.findByRole('list', { name: 'Owners and alerts' })
-    expect(within(owners).getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Admin access', 'Notifications', 'Email, texts and Square'])
+    expect(within(owners).getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Admin access', 'Notifications', 'Email, texts and Square', 'Activity'])
     fireEvent.click(within(owners).getByRole('button', { name: /Admin access/ }))
     expect(window.location.hash).toBe('#more-access')
   })

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 
 let preview = true
-vi.mock('@lib/deploy-context', () => ({ isPreviewOrDev: () => preview }))
+vi.mock('@lib/deploy-context', () => ({ isPreviewOrDev: () => preview, deployContext: () => 'dev' }))
 
 import { saveMintedGiftCard, listMintedGiftCards, validateMint, type MintedGiftCard } from '@lib/gift-cards'
 

@@ -20,11 +20,25 @@ describe('GET /api/staff/customers.json', () => {
     authed = null
     expect((await call('q=ash')).status).toBe(401)
   })
-  it('searches from two letters', async () => {
+  it('DV19: searches from three letters; crew get masked contacts, owners the whole thing', async () => {
     mockFind.mockResolvedValue([ASH])
-    expect((await (await call('q=a')).json()).data).toEqual([])
-    expect((await (await call('q=as')).json()).data).toEqual([ASH])
-    expect(mockFind).toHaveBeenCalledTimes(1)
+    expect((await (await call('q=as')).json()).data).toEqual([])
+    expect(mockFind).not.toHaveBeenCalled()
+    expect((await (await call('q=ash')).json()).data).toEqual([{ ...ASH, email: 'a•••@x.com', phone: '••4753' }])
+    authed = { id: 'cat', name: 'Catherine', role: 'owner' }
+    expect((await (await call('q=ash')).json()).data).toEqual([ASH])
+  })
+  it('DV19: 30 lookups a minute per staff member, then 429 (picks count too)', async () => {
+    authed = { id: 'busy', name: 'Busy', role: 'crew' }
+    mockFind.mockResolvedValue([])
+    mockGet.mockResolvedValue(ASH)
+    mockHousehold.mockResolvedValue(null)
+    for (let i = 0; i < 29; i++) expect((await call(`q=abc${i}`)).status).toBe(200)
+    expect((await call('id=C1')).status).toBe(200)
+    expect((await call('q=abcd')).status).toBe(429)
+    expect((await call('id=C1')).status).toBe(429)
+    authed = { id: 'other', name: 'Other', role: 'crew' }
+    expect((await call('q=abcd')).status).toBe(200)
   })
   it('returns one customer with their household', async () => {
     mockGet.mockResolvedValue(ASH)

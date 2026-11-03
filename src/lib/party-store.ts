@@ -20,10 +20,11 @@
  * payment and an email fix landing together both stay. `savePartyRecord`
  * (unconditional) is left only for the old Square booking route.
  */
-import { randomUUID } from 'node:crypto'
+import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { createLogger } from '@lib/logger'
 import { isPreviewOrDev } from '@lib/deploy-context'
 import { makeKvStore } from '@lib/blob-store'
+import { assertClassWritesAllowed } from '@lib/classes/test-site-guard'
 import type { By } from '@lib/staff-auth'
 import type { Cents } from '@lib/parties/types'
 import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
@@ -217,6 +218,7 @@ export function newHostToken(): string {
 
 /** Unconditional write. Only the old Square booking route still uses it (removed in stage 2 Task 7). */
 export async function savePartyRecord(record: PartyRecord): Promise<void> {
+  assertClassWritesAllowed()
   await kv.set(record.bookingId, JSON.stringify(record, null, 2))
   logger.info('Party stored', { bookingId: record.bookingId })
 }
@@ -238,6 +240,8 @@ export async function getPartyRecord(bookingId: string): Promise<PartyRecord | n
  * the same booking sent twice) nothing is written and the stored one comes back.
  */
 export async function createPartyRecord(r: PartyRecord): Promise<{ kind: 'created' | 'exists'; rec: PartyRecord }> {
+  // R41 defence in depth (I1): a test site sharing the live stores never writes a live party.
+  assertClassWritesAllowed()
   needId(r.bookingId)
   if (await kv.setIfMatch(r.bookingId, JSON.stringify(r, null, 2), null, false)) {
     logger.info('Party created', { bookingId: r.bookingId })
@@ -261,6 +265,7 @@ export async function updatePartyRecord(
   change: string,
   by: By | null,
 ): Promise<PartyRecord> {
+  assertClassWritesAllowed()
   needId(id)
   for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
     await casPause(attempt)
@@ -284,9 +289,12 @@ export async function updatePartyRecord(
   throw new Error('Someone else changed this party at the same moment. Try again.')
 }
 
-/** Constant-ish check that the supplied token matches the party's host token. */
+/** Constant-time check that the supplied token matches the party's host token (M2). */
 export function hostTokenValid(record: PartyRecord | null, token: string | null | undefined): boolean {
-  return !!record && !!token && token === record.hostToken
+  if (!record || !token || typeof record.hostToken !== 'string' || !record.hostToken) return false
+  const a = Buffer.from(token, 'utf8')
+  const b = Buffer.from(record.hostToken, 'utf8')
+  return a.length === b.length && timingSafeEqual(a, b)
 }
 
 /** All party records (for the staff console). Newest first. */

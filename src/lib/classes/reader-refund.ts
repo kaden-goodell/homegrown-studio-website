@@ -18,6 +18,7 @@
 import { recordAudit } from '@lib/audit'
 import { sendRefundEmail } from '@lib/email'
 import type { By } from '@lib/staff-auth'
+import { assertClassWritesAllowed } from './test-site-guard'
 import { READER_SCOPE, runRefund, type RefundBook } from '@lib/booking-core/refund-runner'
 import { RefundError, refundKeyRaw } from '@lib/booking-core/refund-words'
 import { hashOf, listRefundRequests, type SavedRefundRequest } from './refund-requests'
@@ -144,6 +145,7 @@ export async function readerRefundBook(ref: string, opts: { orderId?: string } =
 export async function refundReaderPayments(
   bookingId: string, orderId: string, paymentIds: string[], reason: string, by: By,
 ): Promise<{ cents: Cents; emailed: boolean }> {
+  assertClassWritesAllowed()
   let cents = 0
   let emailed = false
   for (const paymentId of paymentIds) {

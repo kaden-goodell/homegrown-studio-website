@@ -39,4 +39,28 @@ describe('SwitchPersonSheet', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(onClose).toHaveBeenCalled()
   })
+  it('DV19: an owner is switched to only with the staff passcode, asked for right here', async () => {
+    const team = [{ id: 'b', name: 'Catherine', role: 'owner' }, { id: 'c', name: 'Ava', role: 'crew' }]
+    const ava = { id: 'c', name: 'Ava', role: 'crew' } as const
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ data: { staff: team } }) })
+      .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: 'Incorrect passcode.', needsPasscode: true }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ data: { staff: team[0] } }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const onSwitched = vi.fn()
+    const onSignedOut = vi.fn()
+    render(<SwitchPersonSheet current={ava} onClose={() => {}} onSwitched={onSwitched} onSignedOut={onSignedOut} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Catherine' }))
+    // Nothing sent yet: the passcode is asked first.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const field = screen.getByLabelText('To switch to Catherine, enter the staff passcode.')
+    fireEvent.change(field, { target: { value: 'wrong1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to Catherine' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Incorrect passcode.')
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ staffId: 'b', passcode: 'wrong1' })
+    expect(onSignedOut).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText('To switch to Catherine, enter the staff passcode.'), { target: { value: 'right1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to Catherine' }))
+    await waitFor(() => expect(onSwitched).toHaveBeenCalledWith(team[0]))
+  })
 })

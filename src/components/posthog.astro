@@ -1,15 +1,18 @@
 ---
-/** Staff tools (console, counter iPad) and the agreement show families'
- *  names, allergies and pickup people as page text, which input masking does
- *  not hide: those pages send events but are never session-recorded. */
-const { noRecording = false } = Astro.props as { noRecording?: boolean }
+/** Staff tools (console, counter iPad), /admin, the agreement and the party
+ *  pages show families' names, allergies and pickup people as page text,
+ *  which input masking does not hide: those pages send pageviews but are never
+ *  session-recorded and autocapture nothing (src/lib/posthog-privacy.ts, I5). */
+import { posthogPrivacyOptions, type PostHogPagePrivacy } from '@lib/posthog-privacy'
+const { privacy = { noRecording: false, privateText: false } } = Astro.props as { privacy?: PostHogPagePrivacy }
+const privacyOptions = posthogPrivacyOptions(privacy)
 const apiKey = import.meta.env.PUBLIC_POSTHOG_PROJECT_TOKEN
 const apiHost = import.meta.env.PUBLIC_POSTHOG_HOST
 const isDevelopment = import.meta.env.DEV
 const environment = import.meta.env.MODE
 ---
 
-<script is:inline define:vars={{ apiKey, apiHost, isDevelopment, environment, noRecording }}>
+<script is:inline define:vars={{ apiKey, apiHost, isDevelopment, environment, privacyOptions }}>
   if (!apiKey || !apiHost) {
     if (isDevelopment) {
       const missingVariable = !apiKey
@@ -34,15 +37,15 @@ const environment = import.meta.env.MODE
       // (view transitions swap the page without a reload).
       capture_pageview: 'history_change',
       capture_pageleave: true,
-      // Where people click and how far they scroll, per page; page speed.
-      enable_heatmaps: true,
+      // Page speed. Heatmaps and autocapture: public pages only (privacyOptions below).
       capture_performance: { web_vitals: true },
       capture_exceptions: {
         capture_unhandled_errors: true,
         capture_unhandled_rejections: true,
         capture_console_errors: false,
       },
-      disable_session_recording: noRecording,
+      // disable_session_recording / autocapture / enable_heatmaps / mask_all_text / mask_all_element_attributes
+      ...privacyOptions,
       // Party page keys never leave in an event: src/lib/page-key.ts strips key= / k= from every URL and clicked href.
       before_send: function (event) { return window.__hsScrubKeys ? window.__hsScrubKeys(event) : event },
       logs: {
@@ -55,6 +58,6 @@ const environment = import.meta.env.MODE
       },
     })
   } else {
-    window.posthog.set_config({ disable_session_recording: noRecording })
+    window.posthog.set_config(privacyOptions)
   }
 </script>

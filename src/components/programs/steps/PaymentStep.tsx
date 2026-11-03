@@ -1,3 +1,11 @@
+/**
+ * RETIRED (Programs are hidden: siteConfig.features.programs.enabled = false,
+ * and /programs redirects home). The routes this step called
+ * (/api/customer/find-or-create, /api/checkout/create-order and
+ * process-payment, /api/programs/enroll) were deleted in the final security
+ * fixes (I3/M7): find-or-create was a public lookup of Square customers.
+ * Turning Programs back on needs a new payment path on the own booking system.
+ */
 import { useState, useRef } from 'react'
 import { useEnrollment } from '../EnrollmentContext'
 import PaymentForm from '@components/checkout/PaymentForm'

@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { CAS_ATTEMPTS } from '@lib/cas-retry'
 
 let previewOrDev = true
-vi.mock('@lib/deploy-context', () => ({ isPreviewOrDev: () => previewOrDev }))
+vi.mock('@lib/deploy-context', () => ({ isPreviewOrDev: () => previewOrDev, deployContext: () => 'dev' }))
 
 /** An in-memory blob store with real etags, so compare-and-set is really tested. */
 const fake = vi.hoisted(() => {

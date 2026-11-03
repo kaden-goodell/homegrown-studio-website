@@ -3,6 +3,7 @@ import { bookingsOpenNow, bookingsClosedResponse } from '@lib/bookings-gate'
 import { localDate } from '@lib/party-slots'
 import { partyStartsInWindow, PARTY_TIMES_UNREADABLE } from '@lib/parties/open-times'
 import { createLogger } from '@lib/logger'
+import { rateLimited } from '@lib/rate-limit'
 
 const logger = createLogger('api:party:available-dates')
 
@@ -16,7 +17,9 @@ const json = (body: unknown, status = 200) =>
  * From our party settings and `@lib/parties/open-times`; when anything can't
  * be read the answer is 503 and no date is shown (never "every date").
  */
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, clientAddress }) => {
+  // M4: public read; slow a script down.
+  if (rateLimited(`party-available-dates:${clientAddress}`, 30, 60_000)) return json({ error: 'Too many tries. Wait a minute and try again.' }, 429)
   if (!await bookingsOpenNow(request, 'parties')) return await bookingsClosedResponse()
   const startTime = Date.now()
   let body: any = {}

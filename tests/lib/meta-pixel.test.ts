@@ -17,6 +17,11 @@ describe('meta pixel', () => {
     expect(metaPixelAllowed('ourhometownstudio.com', '/party/pty_1')).toBe(false)
     expect(metaPixelAllowed('ourhometownstudio.com', '/party/pay/pty_1')).toBe(false)
     expect(metaPixelAllowed('ourhometownstudio.com', '/parties')).toBe(true)
+    // I2: the waitlist Leave link and /admin are private too.
+    expect(metaPixelAllowed('ourhometownstudio.com', '/classes/waitlist/cls_1.wle_2.secret')).toBe(false)
+    expect(metaPixelAllowed('ourhometownstudio.com', '/classes/cancel/tok')).toBe(false)
+    expect(metaPixelAllowed('ourhometownstudio.com', '/admin')).toBe(false)
+    expect(metaPixelAllowed('ourhometownstudio.com', '/classes/cls_1')).toBe(true)
   })
 
   it('stays off with no pixel id', async () => {
@@ -65,6 +70,13 @@ describe('party host pages stay private', () => {
     expect(page).toMatch(/<Layout[^>]*\bnoAnalytics\b/)
     expect(page).toMatch(/<Layout[^>]*\bnoReferrer\b/)
     expect(layout).toContain('{noReferrer ? <meta name="referrer" content="no-referrer" />')
+  })
+
+  it('I2: the waitlist Leave link (token in the path) is the same: no GA4, PostHog or Meta, no referrer', async () => {
+    const { readFileSync } = await import('node:fs')
+    const page = readFileSync('src/pages/classes/waitlist/[token].astro', 'utf8')
+    expect(page).toMatch(/<Layout[^>]*\bnoAnalytics\b/)
+    expect(page).toMatch(/<Layout[^>]*\bnoReferrer\b/)
   })
 })
 

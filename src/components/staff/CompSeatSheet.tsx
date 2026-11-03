@@ -152,7 +152,7 @@ export default function CompSeatSheet({
   const [guests, setGuests] = useState<string[]>([])
 
   useEffect(() => {
-    if (picked || query.trim().length < 2) { setFound([]); return }
+    if (picked || query.trim().length < 3) { setFound([]); return }
     const q = query.trim()
     const t = setTimeout(async () => {
       try {

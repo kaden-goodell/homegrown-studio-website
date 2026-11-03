@@ -13,6 +13,7 @@
  * (`classRefundBook`) plus the class rules: planning, keys, words.
  */
 import { recordAudit } from '@lib/audit'
+import { classWritesRefusal, TestSiteStoreError } from './test-site-guard'
 import { afterReply } from '@lib/after-reply'
 import { sendRefundEmail } from '@lib/email'
 import type { By } from '@lib/staff-auth'
@@ -473,6 +474,9 @@ export async function refundRequestsReply(url: URL): Promise<Response> {
 
 /** Route handler body shared by /admin and /staff. */
 export async function refundReply(request: Request, actor: { by: By; role: 'owner' | 'crew' }, opts: { reasonRequired: boolean }): Promise<Response> {
+  // R41 (I1): first thing, before the body is read or Square is asked anything.
+  const refusal = classWritesRefusal(request)
+  if (refusal) return json(503, { error: refusal, code: 'NO_TEST_STORE' })
   try {
     const body = await request.json().catch(() => null)
     if (body && typeof body === 'object' && body.action === 'free-seat') {
@@ -496,6 +500,7 @@ export async function refundReply(request: Request, actor: { by: By; role: 'owne
     return json(200, { data: r })
   } catch (e) {
     if (e instanceof RefundError) return json(e.status, { error: e.message, ...(e.extra ?? {}) })
+    if (e instanceof TestSiteStoreError) return json(503, { error: e.message, code: 'NO_TEST_STORE' })
     const msg = e instanceof Error ? e.message : String(e)
     console.error(`[classes/refund] ${msg}`)
     return json(503, { error: "The class records couldn't be reached. Try again." })
