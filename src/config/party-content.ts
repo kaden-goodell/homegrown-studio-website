@@ -95,7 +95,7 @@ export function partyContentFor(facts?: PartyFactsLike | PartyCopyFacts | null) 
     hero: {
       eyebrow: 'Private parties',
       headline: 'Throw a party they’ll actually remember',
-      occasions: 'Birthdays · Girls’ nights · Showers · Team nights · Just because',
+      occasions: 'Girls’ nights · Showers · Team nights · Celebrations · Just because',
       subline:
         'A completely private studio — your group is the only group in the room. Pick a craft, pick a date, and come make something together.',
       valueTrio: [
@@ -146,7 +146,7 @@ export function partyContentFor(facts?: PartyFactsLike | PartyCopyFacts | null) 
       },
       {
         q: 'What if some guests can’t make it?',
-        a: `You pay for crafts for the people who actually come, with a ${f.minGuests}-craft minimum (parties are for groups of ${f.minGuests} or more). Beyond the minimum, your guest count is just an estimate — no-shows never cost you anything. We’ll check in about ${LOCK_DAYS} days before the party to confirm your expected headcount so we can prep.`,
+        a: `You pay for crafts for the people who actually come, with a ${f.minGuests}-craft minimum (parties are for groups of ${f.minGuests} or more). Beyond the minimum, your guest count is just an estimate — no-shows never cost you anything. Let us know your expected headcount about ${LOCK_DAYS} days before the party so we can prep.`,
       },
       {
         q: 'How long is a party and how many people can I bring?',
@@ -158,7 +158,7 @@ export function partyContentFor(facts?: PartyFactsLike | PartyCopyFacts | null) 
       },
       {
         q: 'Who are parties for?',
-        a: 'Everyone. Birthdays at any age, girls’ nights, showers, team nights — if it’s worth celebrating, it’s worth crafting. Recommended for ages 8 and up.',
+        a: 'Everyone. Girls’ nights, showers, team nights, any celebration. If it’s worth celebrating, it’s worth crafting. Recommended for ages 8 and up.',
       },
       {
         q: 'Does everyone make the same craft?',
@@ -166,7 +166,7 @@ export function partyContentFor(facts?: PartyFactsLike | PartyCopyFacts | null) 
       },
       {
         q: 'What about personalized crafts?',
-        a: 'Some crafts are made to order for your group (we’ll mark them clearly when you book). After booking we’ll email you to collect your final headcount and personalization details. Because they’re custom-made, personalized items can’t be changed or refunded once made.',
+        a: 'Some crafts are made to order for your group (we’ll mark them clearly when you book). After booking, text us your final headcount and personalization details. Because they’re custom-made, personalized items can’t be changed or refunded once made.',
       },
       {
         q: 'Can I bring food, drinks, or a cake?',

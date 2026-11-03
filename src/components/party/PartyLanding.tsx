@@ -555,7 +555,7 @@ export default function PartyLanding({ copy = CONFIG_COPY_FACTS }: CopyProps = {
             { step: '1', text: 'Pick your craft and a date' },
             { step: '2', text: 'Tell us roughly how many guests' },
             { step: '3', text: `Pay the ${formatMoney(copy.feeCents)} studio fee — the date is yours` },
-            { step: '4', text: 'Guests pay for crafts at the studio, based on who comes' },
+            { step: '4', text: 'Crafts are paid at the studio for whoever comes' },
           ].map(({ step, text }) => (
             <div key={step} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.875rem 1.25rem', borderRadius: '0.75rem', background: 'rgba(255, 255, 255, 0.6)', border: '1px solid rgba(var(--color-primary-rgb), 0.08)' }}>
               <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '1.75rem', height: '1.75rem', borderRadius: '50%', background: 'rgba(var(--color-primary-rgb), 0.12)', color: 'var(--color-primary)', fontWeight: 600, fontSize: '0.8125rem', flexShrink: 0 }}>
