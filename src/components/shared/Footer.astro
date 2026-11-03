@@ -212,29 +212,42 @@ const phoneDigits = (siteConfig.contactPhone ?? '').replace(/[^+\d]/g, '')
     }
   }
 
-  /* Hours */
+  /* Hours: each day sits just left of its time, the pair centred under the
+     heading (Kaden 2 Nov 2026: the old spread-out rows "look terrible"). */
   .footer-hours {
+    display: grid;
+    grid-template-columns: max-content max-content;
+    column-gap: 1.25rem;
+    justify-content: start;
     margin: 0;
-    width: 17rem;
-    max-width: 100%;
     text-align: left;
   }
 
   .footer-hours-row {
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
+    display: contents;
+  }
+  .footer-hours-row dt,
+  .footer-hours-row dd {
+    margin: 0;
     padding: 0.175rem 0;
     font-size: 0.9375rem;
     line-height: 1.5;
     color: var(--color-on-dark-muted);
   }
-  .footer-hours-row dt,
-  .footer-hours-row dd {
-    margin: 0;
+  .footer-hours-row dt {
+    color: var(--color-on-dark);
   }
   .footer-hours-row dd {
     white-space: nowrap;
+  }
+
+  @media (min-width: 720px) {
+    .footer-hours {
+      justify-content: center;
+    }
+    .footer-column-middle .footer-note {
+      margin-inline: auto;
+    }
   }
 
   /* The quiet part: one row of links across the bottom, then the small print. */
