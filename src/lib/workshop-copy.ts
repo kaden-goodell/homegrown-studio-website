@@ -99,6 +99,10 @@ export function audienceOf(description?: string | null): Audience | null {
  */
 export function audienceOfAges(ages: string | null | undefined, description?: string | null): Audience | null {
   const text = (ages ?? '').trim()
+  // Final review I20: read the same way as the card label ("8 & up", "8-12", "Ages 8 to 12" → Ages 8+ / 8–12),
+  // so a class never shows "Ages 8–12" on its card yet misses the Kids & teens filter. A range starting under 18 is kids.
+  const label = agesLabel(text).match(/^Ages (\d{1,2})(?:\+|–\d{1,2})$/)
+  if (label) return Number(label[1]) < 18 ? 'kids' : 'adults'
   const n = text.match(/\b(\d{1,2})\s*(?:\+|and up\b|or older\b|and older\b)/i) ?? text.match(/^(?:ages?\s*)?(\d{1,2})\s*$/i)
   if (n) return Number(n[1]) < 18 ? 'kids' : 'adults'
   if (/\bGrades? \d{1,2}\s*[–-]\s*\d{1,2}\b/i.test(text)) return 'kids'

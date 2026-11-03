@@ -83,6 +83,17 @@ function useWide(): boolean {
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
 type Filter = 'all' | Audience
+
+/**
+ * Which filter a class shows under. A family class sold with both adult and
+ * kid tickets (final review I20) shows under both, whatever its ages line says.
+ */
+function inAudience(w: WorkshopData, filter: Audience): boolean {
+  const labels = (w.own?.ticketTypes ?? []).map((t) => t.label.toLowerCase())
+  const family = labels.some((l) => /adult|parent|grown/.test(l)) && labels.some((l) => /kid|child|teen|youth/.test(l))
+  if (family) return true
+  return (w.own ? audienceOfAges(w.own.rules.ages, w.description) : audienceOf(w.description)) === filter
+}
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'kids', label: 'Kids & teens' },
@@ -320,7 +331,7 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
             ))}
           </div>
           {(() => {
-            const shown = sorted.filter((w) => filter === 'all' || (w.own ? audienceOfAges(w.own.rules.ages, w.description) : audienceOf(w.description)) === filter)
+            const shown = sorted.filter((w) => filter === 'all' || inAudience(w, filter))
             if (shown.length === 0) {
               return (
                 <p style={{ margin: '0.5rem 0 0', fontSize: '0.9375rem', color: 'var(--color-muted)' }}>

@@ -380,4 +380,16 @@ describe('WorkshopExplorer — our own classes', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Adults' }))
     expect(screen.queryByTestId('workshop-cls_2')).toBeNull()
   })
+
+  it('a camp typed "8-12" shows under Kids & teens; a family class with adult and kid tickets under both (final review I20)', () => {
+    const camp = { ...mockWorkshops[1], id: 'cls_3', name: 'Art Camp', description: 'Paint.', own: { classId: 'cls_3', sessions: [], passes: [], ticketTypes: [], prices: {}, questions: [], addOns: [], rules: { ages: '8-12' } as any, instructor: null, taxPercent: 9 } }
+    const family = { ...mockWorkshops[1], id: 'cls_4', name: 'Family Clay', description: 'Together.', own: { classId: 'cls_4', sessions: [], passes: [], ticketTypes: [{ id: 'a', label: 'Adult' }, { id: 'k', label: 'Kid' }], prices: {}, questions: [], addOns: [], rules: { ages: '6 and up' } as any, instructor: null, taxPercent: 9 } }
+    render(<WorkshopExplorer workshops={[camp, family]} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Kids & teens' }))
+    expect(screen.getByTestId('workshop-cls_3')).toBeInTheDocument()
+    expect(screen.getByTestId('workshop-cls_4')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Adults' }))
+    expect(screen.queryByTestId('workshop-cls_3')).toBeNull()
+    expect(screen.getByTestId('workshop-cls_4')).toBeInTheDocument()
+  })
 })
