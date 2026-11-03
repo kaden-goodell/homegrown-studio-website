@@ -82,8 +82,19 @@ describe('sendPaymentLink', () => {
     expect(saved!.history!.at(-1)).toMatchObject({ by: KADEN, change: 'Payment link emailed and texted' })
   })
 
-  it('on a namespaced preview both go to Kaden, marked with who they were for', async () => {
+  it('on the sandbox preview neither is sent (muted), and the link counts as sent', async () => {
     process.env.STORE_NAMESPACE = 'preview'
+    delete process.env.PREVIEW_MESSAGES
+    const rec = party()
+    await createPartyRecord(rec)
+    expect(await sendPaymentLink(rec, 'https://preview.example', KADEN)).toMatchObject({ email: true, text: true })
+    expect(m.sendMail).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('on a preview with PREVIEW_MESSAGES=on both go to Kaden, marked with who they were for', async () => {
+    process.env.STORE_NAMESPACE = 'preview'
+    process.env.PREVIEW_MESSAGES = 'on'
     const rec = party()
     await createPartyRecord(rec)
     await sendPaymentLink(rec, 'https://preview.example', KADEN)
