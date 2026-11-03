@@ -11,6 +11,8 @@ import ThisWeek from '@components/staff/ThisWeek'
 import StaffCalendar from '@components/staff/StaffCalendar'
 import MyShifts from '@components/staff/MyShifts'
 import SwitchPersonSheet from '@components/staff/SwitchPersonSheet'
+import HandbackCover from '@components/staff/HandbackCover'
+import { clearKioskOut, kioskOutPending } from '@lib/kiosk-handback'
 import { readDayParam, writeDayParam } from '@components/staff/EventList'
 import { StaffNavContext, type LeaveGuard, type StaffNav, type StaffTab } from '@components/staff/nav'
 import GiftCards from '@components/staff/GiftCards'
@@ -260,6 +262,10 @@ function identifyStaff(staff: StaffMember): void {
   window.posthog?.identify(staff.id, { name: staff.name, role: staff.role })
 }
 
+/** The shared iPad asks "Still Sam?" after this long with no taps (crew review M8). */
+export const IDLE_MS = 20 * 60_000
+const DOOR_QUERY_KEY = 'hg_lastDoorQuery'
+
 export default function StaffConsole() {
   const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'week' | 'today' | 'upcoming' | 'calendar' | 'shifts' | 'roster' | 'kits' | 'giftcards'>('checking')
   // Which list a roster was opened from, so its Back and the active tab match.
@@ -272,6 +278,11 @@ export default function StaffConsole() {
   const [staffRoster, setStaffRoster] = useState<StaffMember[]>([])
   const [switchOpen, setSwitchOpen] = useState(false)
   const [me, setMe] = useState<StaffMember | null>(null)
+  const [loginBusy, setLoginBusy] = useState(false)
+  /** Full-screen cover while the iPad is (or may be) in someone else's hands. */
+  const [cover, setCover] = useState<null | 'kiosk' | 'idle'>(() => (typeof window !== 'undefined' && kioskOutPending() ? 'kiosk' : null))
+  const lastActive = useRef(Date.now())
+  const loginInFlight = useRef(false)
   const [pickBusy, setPickBusy] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
   const [pickAuthFailed, setPickAuthFailed] = useState(false)
@@ -328,16 +339,80 @@ export default function StaffConsole() {
     })()
   }, [])
 
+  // A page Safari restores from its cache (a Back swipe from the family's
+  // waiver) never re-mounts: catch it on pageshow and cover the screen.
+  useEffect(() => {
+    const onShow = () => { if (kioskOutPending()) setCover('kiosk') }
+    window.addEventListener('pageshow', onShow)
+    return () => window.removeEventListener('pageshow', onShow)
+  }, [])
+
+  // Shared iPad: after a long quiet spell, ask who's here before anything else is done.
+  useEffect(() => {
+    const touch = () => { lastActive.current = Date.now() }
+    const check = () => { if (Date.now() - lastActive.current >= IDLE_MS) setCover((c) => c ?? 'idle') }
+    const onVisible = () => { if (document.visibilityState === 'visible') check() }
+    window.addEventListener('pointerdown', touch, true)
+    window.addEventListener('keydown', touch, true)
+    document.addEventListener('visibilitychange', onVisible)
+    const t = setInterval(check, 30_000)
+    return () => {
+      window.removeEventListener('pointerdown', touch, true)
+      window.removeEventListener('keydown', touch, true)
+      document.removeEventListener('visibilitychange', onVisible)
+      clearInterval(t)
+    }
+  }, [])
+
+  /** The cover's "I'm Sam, continue": the sign-in must still be good on the server. */
+  async function continueAsMe() {
+    try {
+      const res = await fetch('/api/staff/me.json', { cache: 'no-store' })
+      if (res.ok) {
+        const json = await res.json()
+        const staff: StaffMember = json.data.staff
+        if (me && me.id !== staff.id) { window.posthog?.reset(); identifyStaff(staff) }
+        setMe(staff)
+        clearKioskOut()
+        lastActive.current = Date.now()
+        setCover(null)
+        return
+      }
+    } catch {
+      return // offline: stay covered, the tap can be tried again
+    }
+    // Signed out meanwhile: back to the passcode screen, nothing left on show.
+    clearKioskOut()
+    setCover(null)
+    passcodeRef.current = ''
+    setMe(null)
+    setRosterTarget(null)
+    setPhase('login')
+  }
+
   async function doLogin() {
+    if (loginInFlight.current) return
+    loginInFlight.current = true
     setLoginError(null)
-    const res = await fetch('/api/staff/login.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passcode }) })
-    if (!res.ok) { setLoginError((await res.json().catch(() => null))?.error ?? 'Login failed.'); return }
-    const json = await res.json()
-    passcodeRef.current = passcode
-    setStaffRoster(json.data.staff)
-    setPasscode('')
-    setPickError(null)
-    setPhase('pick')
+    setLoginBusy(true)
+    try {
+      const res = await fetch('/api/staff/login.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passcode }) })
+      if (!res.ok) { setLoginError((await res.json().catch(() => null))?.error ?? 'Login failed.'); return }
+      const json = await res.json()
+      passcodeRef.current = passcode
+      setStaffRoster(json.data.staff)
+      setPasscode('')
+      setPickError(null)
+      // A fresh passcode sign-in is the crew taking the iPad back.
+      clearKioskOut()
+      setCover(null)
+      setPhase('pick')
+    } catch {
+      setLoginError('Couldn’t reach the studio server — check wifi and try again.')
+    } finally {
+      loginInFlight.current = false
+      setLoginBusy(false)
+    }
   }
 
   async function doPick(staffId: string) {
@@ -362,6 +437,8 @@ export default function StaffConsole() {
       if (me && me.id !== json.data.staff.id) window.posthog?.reset()
       identifyStaff(json.data.staff)
       setMe(json.data.staff)
+      lastActive.current = Date.now()
+      setCover(null)
       setPickBusy(false)
       landOnToday()
     } catch {
@@ -450,9 +527,10 @@ export default function StaffConsole() {
       <div style={{ ...card, background: 'rgba(255,255,255,0.85)', maxWidth: '22rem', margin: '0 auto', textAlign: 'center' }}>
         <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '0.35rem' }}>Staff check-in</h2>
         <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', marginBottom: '1rem' }}>Enter the staff passcode.</p>
-        <input type="password" value={passcode} onChange={(e) => setPasscode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && doLogin()} placeholder="Passcode" style={{ ...field, width: '100%', marginBottom: '0.6rem' }} />
-        {loginError && <p style={{ color: '#b91c1c', fontSize: '0.875rem', marginBottom: '0.6rem' }}>{loginError}</p>}
-        <button type="button" onClick={doLogin} style={{ ...btn(true), width: '100%', padding: '0.65rem' }}>Enter</button>
+        <label htmlFor="staff-passcode" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}>Staff passcode</label>
+        <input id="staff-passcode" type="password" autoComplete="current-password" value={passcode} onChange={(e) => setPasscode(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void doLogin() } }} placeholder="Passcode" style={{ ...field, width: '100%', marginBottom: '0.6rem' }} />
+        {loginError && <p role="alert" style={{ color: '#b91c1c', fontSize: '0.875rem', marginBottom: '0.6rem' }}>{loginError}</p>}
+        <button type="button" onClick={() => void doLogin()} disabled={loginBusy} style={{ ...btn(true), width: '100%', padding: '0.65rem', ...(loginBusy ? { opacity: 0.6 } : {}) }}>{loginBusy ? 'Checking…' : 'Enter'}</button>
       </div>
     )
   }
@@ -471,6 +549,41 @@ export default function StaffConsole() {
   }
 
   if (!me) return null // 'today' / 'roster' / 'kits' all require a picked identity
+
+  /** Switch person done: a clean slate for the new person (crew review M9). */
+  function switched(staff: StaffMember) {
+    if (me && me.id !== staff.id) {
+      window.posthog?.reset()
+      identifyStaff(staff)
+      try { sessionStorage.removeItem(DOOR_QUERY_KEY) } catch { /* ignore */ }
+    }
+    clearKioskOut()
+    lastActive.current = Date.now()
+    setCover(null)
+    setMe(staff)
+    setSwitchOpen(false)
+    // Don't re-open the last person's "+ Add family" sheet on the fresh roster.
+    setRosterTarget((t) => t && { kind: t.kind, id: t.id, ...(t.day ? { day: t.day } : {}) })
+  }
+  const switchSheet = switchOpen && (
+    <SwitchPersonSheet
+      current={me}
+      zIndex={cover ? 410 : undefined}
+      onClose={() => setSwitchOpen(false)}
+      onSwitched={switched}
+      onSignedOut={() => { setSwitchOpen(false); clearKioskOut(); setCover(null); setMe(null); setPhase('login') }}
+    />
+  )
+
+  // The roster and every list stay off screen while the cover is up.
+  if (cover) {
+    return (
+      <>
+        <HandbackCover mode={cover} name={me.name} onContinue={continueAsMe} onSwitch={() => setSwitchOpen(true)} />
+        {switchSheet}
+      </>
+    )
+  }
 
   // Network error banner (kits phase only — Roster owns its own error
   // handling now, and Today owns its own per-section since its data comes
@@ -515,27 +628,20 @@ export default function StaffConsole() {
       {pendingLeave && (
         <UnsavedLeaveSheet busy={leaveBusy} onSave={() => leaveAfter('save')} onDiscard={() => leaveAfter('discard')} onStay={() => setPendingLeave(null)} />
       )}
-      {switchOpen && me && (
-        <SwitchPersonSheet
-          current={me}
-          onClose={() => setSwitchOpen(false)}
-          onSwitched={(staff) => { setMe(staff); setSwitchOpen(false) }}
-          onSignedOut={() => { setSwitchOpen(false); setMe(null); setPhase('login') }}
-        />
-      )}
+      {switchSheet}
     </StaffNavContext.Provider>
   )
 
   if (phase === 'week') {
-    return withNav(<ThisWeek staff={me} onOpenRoster={openRoster} />)
+    return withNav(<ThisWeek key={me.id} staff={me} onOpenRoster={openRoster} />)
   }
 
   if (phase === 'today') {
-    return withNav(<Today staff={me} onOpenRoster={openRoster} />)
+    return withNav(<Today key={me.id} staff={me} onOpenRoster={openRoster} />)
   }
 
   if (phase === 'upcoming') {
-    return withNav(<Upcoming staff={me} onOpenRoster={openRoster} />)
+    return withNav(<Upcoming key={me.id} staff={me} onOpenRoster={openRoster} />)
   }
 
   if (phase === 'calendar') {
@@ -549,13 +655,14 @@ export default function StaffConsole() {
   }
 
   if (phase === 'giftcards') {
-    return withNav(<GiftCards staff={me} />)
+    return withNav(<GiftCards key={me.id} staff={me} />)
   }
 
   if (phase === 'roster' && rosterTarget) {
     return withNav(
       <Roster
-        key={`${rosterTarget.kind}:${rosterTarget.id}`}
+        // keyed by person too: an open Sell sheet or a typed refund reason never carries over to the next person
+        key={`${me.id}:${rosterTarget.kind}:${rosterTarget.id}`}
         staff={me}
         onBack={() => { setRosterTarget(null); setPhase(lastList) }}
         backLabel={lastList === 'upcoming' ? 'Upcoming' : lastList === 'week' ? 'This week' : lastList === 'calendar' ? 'Calendar' : lastList === 'shifts' ? 'My shifts' : 'Today'}

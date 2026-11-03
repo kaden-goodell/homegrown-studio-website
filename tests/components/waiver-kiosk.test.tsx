@@ -83,6 +83,7 @@ describe('WaiverFlow — kiosk mode (HOM-209)', () => {
       writable: true,
     })
 
+    sessionStorage.setItem('hg_kioskOut', '1')
     const { container } = render(<WaiverFlow kiosk returnTo="/staff" />)
     fillMinimalForm(container)
 
@@ -96,6 +97,8 @@ describe('WaiverFlow — kiosk mode (HOM-209)', () => {
 
     expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/staff')
     expect(replaceSpy).toHaveBeenCalledWith('/staff')
+    // a proper hand-back: /staff opens without its "hand the iPad back" cover (C1)
+    expect(sessionStorage.getItem('hg_kioskOut')).toBeNull()
   })
 
   it('tapping Done returns immediately without waiting for the timer', async () => {
