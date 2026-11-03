@@ -94,4 +94,24 @@ describe('/api/staff/gift-cards', () => {
     expect(entry.details.gan).toBeUndefined()
     expect(mockAlert.mock.calls[0][0]).toContain('by Test')
   })
+
+  it('DV19: crew see only the last 4 digits and no Square id; owners see the whole number', async () => {
+    records = [{ id: 'gc_1', giftCardId: 'sqid', gan: '7783000011112222', amountCents: 500, forWhom: 'A', note: '', by: { id: 't', name: 'T' }, at: 'x' }]
+    get.mockResolvedValue({ id: 'sqid', gan: '7783000011112222', balanceCents: 500, state: 'ACTIVE' })
+    const crew = await (await get_()).json()
+    expect(crew.data.masked).toBe(true)
+    expect(crew.data.cards[0]).toMatchObject({ gan: '•••• 2222', giftCardId: '', masked: true, balanceCents: 500 })
+    expect(JSON.stringify(crew)).not.toContain('7783000011112222')
+    expect(JSON.stringify(crew)).not.toContain('sqid')
+    authed = { id: 'k', name: 'Kaden', role: 'owner' }
+    const owner = await (await get_()).json()
+    expect(owner.data.masked).toBe(false)
+    expect(owner.data.cards[0]).toMatchObject({ gan: '7783000011112222', giftCardId: 'sqid' })
+  })
+
+  it('DV19: the maker sees the whole number once, right after it is made', async () => {
+    mint.mockResolvedValue({ id: 'sq1', gan: '7783000011113333', balanceCents: 2500, state: 'ACTIVE' })
+    const body = await (await post({ amountDollars: 25, forWhom: 'Megan' })).json()
+    expect(body.data.card.gan).toBe('7783000011113333')
+  })
 })

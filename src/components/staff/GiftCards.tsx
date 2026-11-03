@@ -15,6 +15,8 @@ interface CardRow {
   by: { id: string; name: string }
   at: string
   simulated?: boolean
+  /** Crew see only the last 4 digits (DV19); owners see the whole number. */
+  masked?: boolean
   balanceCents: number | null
   state: string | null
 }
@@ -179,6 +181,9 @@ export default function GiftCards({ staff }: { staff: StaffMember }) {
       )}
 
       <div style={card}>
+        {cards.some((c) => c.masked) && (
+          <p style={{ margin: '0 0 0.5rem', fontSize: '0.875rem', color: 'var(--color-muted)' }}>Only the last 4 digits show here. Lost a number? Ask Catherine or Kaden.</p>
+        )}
         {cards.length === 0 ? (
           <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-muted)' }}>No gift cards made yet.</p>
         ) : (
@@ -188,7 +193,11 @@ export default function GiftCards({ staff }: { staff: StaffMember }) {
                 {c.forWhom} · {formatCents(c.amountCents)} ·{' '}
                 {c.balanceCents === null ? 'balance unavailable' : `${formatCents(c.balanceCents)} left`} ·{' '}
                 {new Date(c.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' })} · {c.by.name}{' '}
-                <button type="button" onClick={() => { setCopied('no'); setMade({ gan: c.gan, recorded: true }) }} style={{ ...btn(), padding: '0.1rem 0.5rem', fontSize: '0.875rem' }} aria-label={`Show the number for ${c.forWhom}`}>Number</button>
+                {c.masked ? (
+                  <span>· Card {c.gan}</span>
+                ) : (
+                  <button type="button" onClick={() => { setCopied('no'); setMade({ gan: c.gan, recorded: true }) }} style={{ ...btn(), padding: '0.1rem 0.5rem', fontSize: '0.875rem' }} aria-label={`Show the number for ${c.forWhom}`}>Number</button>
+                )}
               </li>
             ))}
           </ul>
