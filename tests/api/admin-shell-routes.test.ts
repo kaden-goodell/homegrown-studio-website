@@ -100,6 +100,22 @@ describe('reports', () => {
     expect(r.partiesBooked).toBe(3) // two of ours (one a test booking) + one booked in Square; the cancelled one left out
     expect(r.partyFeesCents).toBe(30000 + 5000 - 5000 + 30000 - 30000 - 10000)
   })
+  it('money M15: counts money as collected: no unpaid door seat, register seats without add-ons, a reader sale at what Square took', () => {
+    const now = new Date('2026-10-19T15:00:00Z')
+    const r = reports.monthReport([{
+      classId: 'cls_m15',
+      lines: [
+        line({ id: 'unpaid', bookingId: 'b1', source: 'door-counter' }), // never rung up
+        line({ id: 'rung', bookingId: 'b2', source: 'door-counter', square: { orderId: 'o2', paymentId: 'p2', lineUid: 'u2' } }),
+        line({ id: 'pos', bookingId: 'b3', source: 'pos', square: { orderId: 'o3', paymentId: 'p3', lineUid: 'u3' } }),
+        line({ id: 'rd1', bookingId: 'b4', source: 'door-reader', square: { orderId: 'o4', paymentId: 'p4', lineUid: null, chargedCents: 5000 } }),
+        line({ id: 'rd2', bookingId: 'b4', source: 'door-reader', seat: 2, square: { orderId: 'o4', paymentId: 'p4', lineUid: null, chargedCents: 5000 } }),
+      ],
+    }] as any, [], now)
+    expect(r.seatsSold).toBe(4)
+    expect(r.classSalesCents).toBe((3000 + 270) * 2 + 5000)
+  })
+
   it('owners only; a storage failure is a 503 with a sentence', async () => {
     expect((await get(reports, '/api/admin/reports.json', false)).status).toBe(401)
     mocks.parties.mockRejectedValue(new Error('blobs down'))
