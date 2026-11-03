@@ -84,6 +84,10 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'class-create-keys' },
   // our online bookings Square showed paid with no seat left (R42), and which confirmations went out
   { name: 'paid-not-seated' },
+  // I-5: bookings paid just as their class was cancelled (To decide: refund them)
+  { name: 'paid-on-cancelled' },
+  // background-job checks: Square notices arriving at another address (owner Home line)
+  { name: 'system-checks' },
   // Stage 4 (I2): one marker per class per day so the stale-register text goes out once.
   { name: 'pos-price-alerts' },
   { name: 'class-confirmations' },

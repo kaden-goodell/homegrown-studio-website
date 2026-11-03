@@ -580,7 +580,15 @@ export class SlotAllocator {
 
 // ── Money ──────────────────────────────────────────────────────────────────
 
-/** Tax on one seat line, as Square rounds it (and src/lib/tax.ts taxCents). */
-export const lineTax = (cents: number, percent = 9) => (cents > 0 && percent > 0 ? Math.round((cents * percent) / 100) : 0)
-/** The total for these seat prices, tax worked out per line. */
-export const totalWithTax = (prices: number[], percent = 9) => prices.reduce((s, p) => s + p + lineTax(p, percent), 0)
+/** Tax on one amount, as Square rounds it: a half cent to the even cent (src/lib/tax.ts taxCents; sandbox CalculateOrder, 2 Nov 2026). */
+export const lineTax = (cents: number, percent = 9) => {
+  if (!(cents > 0 && percent > 0)) return 0
+  const num = cents * Math.round(percent * 1000), den = 100_000
+  const q = Math.floor(num / den), r = num - q * den
+  return r * 2 < den ? q : r * 2 > den ? q + 1 : q % 2 === 0 ? q : q + 1
+}
+/** The total for these seat prices in one order: Square rounds the order's tax once, on the sum (src/lib/tax.ts orderTaxCents). */
+export const totalWithTax = (prices: number[], percent = 9) => {
+  const net = prices.reduce((s, p) => s + Math.max(0, p), 0)
+  return net + lineTax(net, percent)
+}

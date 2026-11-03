@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { CAS_ATTEMPTS } from '@lib/cas-retry'
 
 /** An in-memory blob store with real etags, so compare-and-set is really tested. */
 const fake = vi.hoisted(() => {
@@ -122,13 +123,13 @@ describe('saving', () => {
     expect(second.saved.history[0].before.closures).toHaveLength(1)
   })
 
-  it('compare-and-set: a write that loses the race reads again and retries; three losses is a 503', async () => {
+  it('compare-and-set: a write that loses the race reads again and retries; every try lost is a 503', async () => {
     const first = await saveStudioSettings(base(), { expectedUpdatedAt: null, by: CATHERINE })
     fake.state.loseNext = 1
     // The other writer only bumped the etag (same content, same updatedAt), so the retry succeeds.
     const second = await saveStudioSettings({ ...base(), closures: [] }, { expectedUpdatedAt: first.saved.updatedAt, by: KADEN })
     expect(second.saved.closures).toEqual([])
-    fake.state.loseNext = 3
+    fake.state.loseNext = CAS_ATTEMPTS
     await expect(saveStudioSettings(base(), { expectedUpdatedAt: second.saved.updatedAt, by: KADEN })).rejects.toMatchObject({ status: 503 })
   })
 
