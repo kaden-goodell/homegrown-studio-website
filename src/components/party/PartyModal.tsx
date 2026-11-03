@@ -30,7 +30,7 @@ import {
   partyInviteIcsUrl,
   PICKED_CRAFT_KEY,
 } from '@lib/party-share'
-import { formatTime, formatSlotLabel, formatDayAndSpan } from '@lib/studio-time'
+import { formatTime, formatSlotLabel, formatDayAndSpan, studioDate } from '@lib/studio-time'
 import { saveRecentParty } from '@lib/recent-party'
 import { attemptIdFor, forgetPendingAttempt, newAttemptId, pendingAttempt, rememberPendingAttempt } from '@lib/checkout-attempt'
 import { messageForFailure, outcomeUnknown, partyMessages, UNKNOWN_OUTCOME_MESSAGE } from '@lib/checkout-messages'
@@ -467,7 +467,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
     const startDate = new Date(initialStart)
     if (isNaN(startDate.getTime())) return
-    const date = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`
+    // The studio's day (Chicago), not the phone's: a phone in another time zone must open the right date.
+    const date = studioDate(startDate.toISOString())
 
     let cancelled = false
     setSelectedDate(date)
