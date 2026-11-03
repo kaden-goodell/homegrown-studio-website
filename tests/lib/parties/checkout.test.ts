@@ -58,7 +58,7 @@ vi.mock('@lib/party-store', async (orig) => {
 })
 
 import { bookParty, partyIdFor, type BookInput } from '@lib/parties/checkout'
-import { handlePartyOrder, confirmUnclearParty, notPaidUnclearParty } from '@lib/parties/square-orders'
+import { handlePartyOrder, confirmUnclearParty, notPaidUnclearParty, settleStuckPartyCheckouts } from '@lib/parties/square-orders'
 import { holdsBetween } from '@lib/parties/party-book'
 import { getCheckout, listCheckouts, saveCheckout } from '@lib/parties/party-checkouts'
 import { ORDER_UNKNOWN_MESSAGE } from '@lib/parties/square-orders'
@@ -233,6 +233,46 @@ describe('Square says a party order is paid (webhook / nightly reconcile)', () =
     })
     expect(await bookParty(inp, NOW)).toMatchObject({ kind: 'booked' })
     expect(await handlePartyOrder({ id: 'ord-none', reference_id: 'pty_ffffffffffffffff', state: 'OPEN', tenders: [] }, NOW)).toEqual({ action: 'ignored', why: 'not-paid' })
+  })
+
+  it('I-1: the request dies right after the charge: Square’s event pins the time, and the 10-minute sweep records the party', async () => {
+    const inp = input(at('2027-03-07', '15:30'))
+    const partyId = partyIdFor(inp.key)
+    const start = at('2027-03-07', '15:30')
+    let charged!: () => void
+    const chargedNow = new Promise<void>((r) => { charged = r })
+    m.processPayment.mockImplementationOnce(async (p: any) => {
+      m.paid.set(p.orderId, { id: 'pay-dies', orderId: p.orderId, amount: p.amount, status: 'completed', receiptUrl: null })
+      charged()
+      return new Promise(() => undefined) // the function was killed: no answer, nothing after this runs
+    })
+    void bookParty(inp, NOW)
+    await chargedNow
+    const orderId = `ord-${inp.key}:order`
+    // Square's payment event within seconds: still "charging", so it isn't recorded here — but the time is kept.
+    expect(await handlePartyOrder({ id: orderId, reference_id: partyId, state: 'COMPLETED', tenders: [{ payment_id: 'pay-dies' }] }, new Date())).toEqual({ action: 'ignored', why: 'in-flight' })
+    // Twelve minutes on, the 10-minute checkout hold would have run out: the time is still ours.
+    vi.setSystemTime(new Date(NOW.getTime() + 12 * 60_000))
+    expect((await heldBy(start, partyId))?.holdExpiresAt ?? 'none').toBe('none')
+    expect(await heldBy(start, partyId)).toMatchObject({ state: 'held', holdExpiresAt: null })
+    // The sweep finishes it: recorded, booked, host emailed once.
+    m.email.mockClear()
+    expect(await settleStuckPartyCheckouts(new Date())).toEqual({ checked: 1, recorded: 1 })
+    expect(await getPartyRecord(partyId)).toMatchObject({ status: 'booked', charges: [expect.objectContaining({ paymentId: 'pay-dies' })] })
+    expect((await heldBy(start, partyId))?.state).toBe('booked')
+    expect(m.email).toHaveBeenCalledTimes(1)
+    expect(await settleStuckPartyCheckouts(new Date())).toEqual({ checked: 0, recorded: 0 })
+  })
+
+  it('I-1: the sweep never touches a checkout charging for under 5 minutes, or an unpaid one', async () => {
+    const start = at('2027-02-23', '15:30')
+    const base = { startIso: start, endIso: new Date(Date.parse(start) + 7_200_000).toISOString(), order: null, quotedCents: 30000, squareCents: 30000, host: { firstName: 'A', lastName: 'S', email: 'a@x.co', phone: '1' }, origin: '', via: 'online' as const, at: NOW.toISOString() }
+    const draft = { bookingId: 'pty_00000000000000d1' } as any
+    await saveCheckout({ ...base, partyId: 'pty_00000000000000d1', state: 'charging', draft, orderId: 'ord-young', updatedAt: NOW.toISOString() } as any)
+    await saveCheckout({ ...base, partyId: 'pty_00000000000000d2', state: 'charging', draft, orderId: 'ord-unpaid', updatedAt: new Date(NOW.getTime() - 20 * 60_000).toISOString() } as any)
+    m.paid.set('ord-young', { id: 'pay-young', orderId: 'ord-young', amount: 30000, status: 'completed', receiptUrl: null })
+    expect(await settleStuckPartyCheckouts(NOW)).toEqual({ checked: 1, recorded: 0 })
+    expect(await getPartyRecord('pty_00000000000000d1')).toBeNull()
   })
 
   it('paid with nothing to record it from: kept for To decide, owners told once', async () => {
