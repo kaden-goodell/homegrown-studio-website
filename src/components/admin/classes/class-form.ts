@@ -58,7 +58,7 @@ export const MORE_KEYS: FieldKey[] = ['prices', 'tickets', 'addons', 'questions'
 /** "Fix the price." for the footer line, so an error far up the form is never missed. */
 const WHAT: Record<FieldKey, string> = {
   photo: 'the photo', name: 'the name', price: 'the price', earlybird: 'the early-bird', ages: 'the ages', description: 'the description', dates: 'the dates',
-  prices: 'the prices under More options', tickets: 'Kinds of seat', addons: 'the extras', questions: 'the questions', rules: 'Ages and booking rules',
+  prices: 'the prices', tickets: 'Kinds of seat', addons: 'the extras', questions: 'the questions', rules: 'Ages and booking rules',
   usual: 'the usual length or seats',
 }
 export function firstError(e: Errors): FieldKey | null {
@@ -72,6 +72,9 @@ export function fixLine(e: Errors, where = ''): string {
 export const dollars = (cents: number) => (cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2))
 const MONEY_RE = /^\d+(\.\d{1,2})?$/
 const toCents = (s: string) => Math.round(parseFloat(s) * 100)
+/** Seats a new class starts with (Kaden: every class is 35 unless he says otherwise). */
+export const DEFAULT_CLASS_SEATS = 35
+
 export const intOf = (s: string) => (/^\d+$/.test(s.trim()) ? Number(s.trim()) : NaN)
 
 export function blankContent(): ClassContent {
@@ -79,7 +82,7 @@ export function blankContent(): ClassContent {
     name: '', description: '', imageUrl: null, instructor: null, rules: defaultRules(),
     ticketTypes: [{ id: 'person', label: 'Person' }],
     passes: [{ id: newId('pas'), label: 'Full class', covers: { kind: 'all' } }],
-    prices: {}, questions: [], addOns: [], defaultCapacity: 12, defaultMinutes: 120,
+    prices: {}, questions: [], addOns: [], defaultCapacity: DEFAULT_CLASS_SEATS, defaultMinutes: 120,
   }
 }
 

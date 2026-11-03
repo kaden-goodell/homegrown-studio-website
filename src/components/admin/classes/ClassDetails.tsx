@@ -118,13 +118,15 @@ export function DetailsFields({ f, set, errors, sessions, usual, children }: {
       </Field>
       {children}
       <div className="adm-two">
+        {/* UI review (3 Nov): every price is typed HERE, whatever the setup. Adding a kind of seat or a way
+            to book under More options adds a row here; the box never moves. */}
         {isSimple(f) && pass && ticket
           ? (
             <Field label="Price per seat ($)" field="price" error={errors.price}>
               <input inputMode="decimal" placeholder="$" aria-invalid={!!errors.price || undefined} value={f.prices[pass.id]?.[ticket.id] ?? ''} onChange={(e) => setPrice(pass.id, ticket.id, e.target.value)} />
             </Field>
           )
-          : <p className="adm-small adm-muted adm-pricenote" data-field="price">{f.passes.length === 1 ? 'Prices are under More options › Kinds of seat, next to each kind.' : 'Prices are under More options › Ways to book.'}</p>}
+          : <PriceRows f={f} setPrice={setPrice} error={errors.prices} />}
         <Field label="Ages" field="ages" error={errors.ages} hint={f.ages.trim() ? `Shows as: ${agesLabel(f.ages)}` : 'Like 8 and up. Blank shows none.'}>
           <input value={f.ages} onChange={(e) => patch({ ages: e.target.value })} />
         </Field>
@@ -149,6 +151,28 @@ export function DetailsFields({ f, set, errors, sessions, usual, children }: {
       </h3>
       {more && <MoreOptions f={f} set={set} errors={errors} sessions={sessions} setPrice={setPrice} />}
     </>
+  )
+}
+
+/** Prices, one row per kind of seat (and per way to book): "Adult ($)", "Drop-in · Kid ($)". Empty = not sold. */
+function PriceRows({ f, setPrice, error }: { f: Form; setPrice: (passId: string, ticketId: string, v: string) => void; error?: string }) {
+  return (
+    <fieldset className="adm-fldwrap adm-prices" data-field="prices">
+      <legend>Prices ($)</legend>
+      {f.passes.map((p, i) => f.ticketTypes.map((t, j) => {
+        const way = f.passes.length === 1 ? (p.label || 'Way 1') : (p.label || `Way ${i + 1}`)
+        const kind = t.label || `Seat ${j + 1}`
+        return (
+          <label key={`${p.id}:${t.id}`} className="adm-fld adm-pricerow">
+            <span>{cellLabel(f, p.id, t.id) === 'Seat' ? kind : cellLabel(f, p.id, t.id).replace(/^Way to book/, way)}</span>
+            <input aria-label={`${way} ${kind} price ($)`} inputMode="decimal" placeholder="Not sold" aria-invalid={!!error || undefined}
+              value={f.prices[p.id]?.[t.id] ?? ''} onChange={(e) => setPrice(p.id, t.id, e.target.value)} />
+          </label>
+        )
+      }))}
+      <small className="adm-hint">Leave one empty when it isn’t sold.</small>
+      <Err text={error} />
+    </fieldset>
   )
 }
 
@@ -279,20 +303,11 @@ function MoreOptions({ f, set, errors, sessions, setPrice }: {
         <input value={f.instructor} onChange={(e) => patch({ instructor: e.target.value })} />
       </Field>
 
-      <Sub title="Kinds of seat (like Adult and Kid)" field="tickets" error={errors.tickets} note={f.passes.length === 1 ? 'Each kind of seat with its own price. Rename Person to Adult, add Kid, and type both prices here.' : 'Each kind of seat, like Adult and Kid. Their prices for each way to book are under Ways to book, below.'}>
-        {f.passes.length === 1 && <Err text={errors.prices} />}
+      <Sub title="Kinds of seat (like Adult and Kid)" field="tickets" error={errors.tickets} note="Each kind of seat, like Adult and Kid. Rename Person to Adult and add Kid; type their prices under Prices, above.">
         {f.ticketTypes.map((t, j) => {
-          const one = f.passes.length === 1 ? f.passes[0] : null
-          const label = t.label || `Seat ${j + 1}`
           return (
             <div key={t.id} className="adm-inline">
               <label className="adm-fld"><span>{`Kind of seat ${j + 1}`}</span><input value={t.label} onChange={(e) => setTicket(j, e.target.value)} /></label>
-              {one && (
-                <label className="adm-fld">
-                  <span>{`${label} price ($)`}</span>
-                  <input aria-label={`${one.label || 'Way 1'} ${label} price ($)`} inputMode="decimal" placeholder="Not sold" value={f.prices[one.id]?.[t.id] ?? ''} onChange={(e) => setPrice(one.id, t.id, e.target.value)} />
-                </label>
-              )}
               {f.ticketTypes.length > 1 && <button type="button" className="adm-btn is-ghost is-sm" onClick={() => removeTicket(j)}>{`Remove ${t.label || `kind of seat ${j + 1}`}`}</button>}
             </div>
           )
@@ -300,7 +315,7 @@ function MoreOptions({ f, set, errors, sessions, setPrice }: {
         <button type="button" className="adm-btn is-ghost is-sm" onClick={() => patch({ ticketTypes: [...f.ticketTypes, { id: newId('tkt'), label: '' }] })}>+ Add a kind of seat</button>
       </Sub>
 
-      <Sub title="Ways to book" field="prices" error={f.passes.length > 1 ? errors.prices : undefined} note={f.passes.length > 1 ? 'Each way someone can book, with a price for each kind of seat. Leave a price empty when it isn’t sold.' : 'Add a way to book only for something like a drop-in or a pick-your-dates pass. With one way, the prices are next to each kind of seat above.'}>
+      <Sub title="Ways to book" field="prices" note="Add a way to book only for something like a drop-in or a pick-your-dates pass. Each one gets its own prices under Prices, above.">
         {f.passes.map((p, i) => {
           const name = p.label || `Way ${i + 1}`
           return (
@@ -309,14 +324,6 @@ function MoreOptions({ f, set, errors, sessions, setPrice }: {
               <Includes pass={p} sessions={sessions} countText={f.chooseCounts[p.id] ?? (p.covers.kind === 'choose' ? String(p.covers.count) : '1')}
                 onCountText={(v) => set((cur) => ({ ...cur, chooseCounts: { ...cur.chooseCounts, [p.id]: v } }))}
                 onChange={(covers) => setPass(i, { covers })} />
-              {f.passes.length > 1 && <div className="adm-two">
-                {f.ticketTypes.map((t, j) => (
-                  <label key={t.id} className="adm-fld">
-                    <span>{`${t.label || `Seat ${j + 1}`} ($)`}</span>
-                    <input aria-label={`${name} ${t.label || `Seat ${j + 1}`} price ($)`} inputMode="decimal" placeholder="Not sold" value={f.prices[p.id]?.[t.id] ?? ''} onChange={(e) => setPrice(p.id, t.id, e.target.value)} />
-                  </label>
-                ))}
-              </div>}
               {f.passes.length > 1 && <button type="button" className="adm-btn is-ghost is-sm" onClick={() => removePass(i)}>{`Remove ${name}`}</button>}
             </div>
           )

@@ -11,7 +11,7 @@ import type { LibraryRun, RepeatResult } from '@lib/classes/admin-actions'
 import { sameDetails } from '@lib/classes/content-diff'
 import type { ClassContent, LibraryClass, ScheduledClass } from '@lib/classes/types'
 import { api, BOOKINGS, CLASSES } from '../classes/api'
-import { blankContent, build, fieldOf, fixLine, toForm, type Errors, type Form } from '../classes/class-form'
+import { blankContent, build, DEFAULT_CLASS_SEATS, fieldOf, fixLine, toForm, type Errors, type Form } from '../classes/class-form'
 import { DetailsFields, focusFirstError, PreviewButton } from '../classes/ClassDetails'
 import DateRows, { checkRows, endAfter, lengthOf, newDateRow, onOrAfter, weekLater, type DateRow } from '../classes/DateRows'
 import { addDays, dayLabel, nextOpenDay, partsOf, today } from '../classes/dates'
@@ -48,7 +48,7 @@ export function defaultDay(now = today(), closed: Closure[] = configClosures, op
 }
 
 function freshRows(day: string | undefined, closed: Closure[], open?: ReadonlySet<number>): DateRow[] {
-  return [newDateRow({ day: day ?? defaultDay(today(), closed, open), start: '18:00', end: '20:00', capacity: 12 })]
+  return [newDateRow({ day: day ?? defaultDay(today(), closed, open), start: '18:00', end: '20:00', capacity: DEFAULT_CLASS_SEATS })]
 }
 
 function newKey(): string {

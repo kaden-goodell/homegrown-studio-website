@@ -58,9 +58,9 @@ describe('New class: one screen', () => {
     expect(p.body.libraryId).toBeUndefined()
     expect(Object.values(p.body.content.prices)).toEqual([{ person: 3000 }])
     expect(p.body.content.passes[0]).toMatchObject({ label: 'Full class', covers: { kind: 'all' } })
-    expect(p.body.sessions).toEqual([expect.objectContaining({ startIso: at('2031-03-12', '18:00'), endIso: at('2031-03-12', '20:00'), capacity: 12 })])
+    expect(p.body.sessions).toEqual([expect.objectContaining({ startIso: at('2031-03-12', '18:00'), endIso: at('2031-03-12', '20:00'), capacity: 35 })])
     // From scratch, the first date sets the library's usual length and seats.
-    expect(p.body.content).toMatchObject({ defaultMinutes: 120, defaultCapacity: 12 })
+    expect(p.body.content).toMatchObject({ defaultMinutes: 120, defaultCapacity: 35 })
   })
 
   it('a date has to end after it starts', () => {
@@ -145,7 +145,7 @@ describe('New class: the details, ported from the old class form', () => {
     expect(sent.prices).toEqual({ [full.id]: { [kid]: 1550 }, [drop.id]: { person: 1200 } })
   })
 
-  it('I4: Adult and Kid prices go right next to each kind of seat (Kinds of seat comes first), while there is one way to book', async () => {
+  it('UI review: every price is typed in the one Prices box on the main form, whatever the setup (never under More options)', async () => {
     const f = server()
     vi.stubGlobal('fetch', f)
     renderSheet(<NewClassSheet />)
@@ -157,14 +157,26 @@ describe('New class: the details, ported from the old class form', () => {
     fireEvent.change(within(kinds).getByLabelText('Kind of seat 1'), { target: { value: 'Adult' } })
     fireEvent.click(within(kinds).getByRole('button', { name: '+ Add a kind of seat' }))
     fireEvent.change(within(kinds).getByLabelText('Kind of seat 2'), { target: { value: 'Kid' } })
-    fireEvent.change(within(kinds).getByLabelText('Full class Adult price ($)'), { target: { value: '25' } })
-    fireEvent.change(within(kinds).getByLabelText('Full class Kid price ($)'), { target: { value: '15' } })
+    const prices = screen.getByRole('group', { name: 'Prices ($)' })
+    // The Prices box sits before More options, and no price box is left under it.
+    expect(prices.compareDocumentPosition(kinds) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(kinds).queryByLabelText(/price \(\$\)/)).toBeNull()
     expect(within(ways).queryByLabelText(/price \(\$\)/)).toBeNull()
-    expect(screen.getByText('Prices are under More options › Kinds of seat, next to each kind.')).toBeInTheDocument()
+    fireEvent.change(within(prices).getByLabelText('Full class Adult price ($)'), { target: { value: '25' } })
+    fireEvent.change(within(prices).getByLabelText('Full class Kid price ($)'), { target: { value: '15' } })
+    // A second way to book adds rows to the same box.
+    fireEvent.click(within(ways).getByRole('button', { name: '+ Add a way to book' }))
+    expect(within(screen.getByRole('group', { name: 'Prices ($)' })).getByLabelText('Way 2 Kid price ($)')).toBeInTheDocument()
+    fireEvent.click(within(ways).getByRole('button', { name: 'Remove Way 2' }))
     fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
     await waitFor(() => expect(posts(f, CLASSES)).toHaveLength(1))
     const sent = posts(f, CLASSES)[0].body.content
     expect(Object.values(sent.prices)).toEqual([{ person: 2500, [sent.ticketTypes[1].id]: 1500 }])
+  })
+
+  it('a new class starts with 35 seats (Kaden: every class is 35 unless he says otherwise)', () => {
+    renderSheet(<NewClassSheet />)
+    expect((screen.getAllByLabelText(/^Seats/)[0] as HTMLInputElement).value).toBe('35')
   })
 
   it('removing a way to book or a kind of seat removes its prices', async () => {

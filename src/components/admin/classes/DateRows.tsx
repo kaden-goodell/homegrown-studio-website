@@ -1,6 +1,7 @@
 import type { Session } from '@lib/classes/types'
 import { newId } from '@lib/classes/validate'
 import { addDays, partsOf, today, toIsoAt } from './dates'
+import { DEFAULT_CLASS_SEATS } from './class-form'
 
 /**
  * One date a class meets on, as typed. `minutes` is the row's own length:
@@ -122,7 +123,7 @@ export default function DateRows({ rows, onChange, error, disabled, booked }: {
       ))}
       {error && <p role="alert" className="adm-error adm-fielderr">{error}</p>}
       {!disabled && (
-        <button type="button" className="adm-btn is-ghost" onClick={() => onChange([...rows, after(rows[rows.length - 1] ?? newDateRow({ day: addDays(today(), 7), start: '18:00', end: '20:00', capacity: 12 }))])}>
+        <button type="button" className="adm-btn is-ghost" onClick={() => onChange([...rows, after(rows[rows.length - 1] ?? newDateRow({ day: addDays(today(), 7), start: '18:00', end: '20:00', capacity: DEFAULT_CLASS_SEATS }))])}>
           + Add another date
         </button>
       )}
