@@ -8,7 +8,8 @@ export const MAX_PHOTOS = 4
 export const MAX_GUESTS = 500
 
 export const KINDS = [
-  ['birthday', 'Birthday'],
+  // Experiences are for everyone, never "birthday" (copy rule). Requests sent before this said 'birthday': kindLabel reads them as a celebration.
+  ['celebration', 'Celebration'],
   ['team', 'Team building'],
   ['church', 'Church or youth group'],
   ['school', 'School or field trip'],
@@ -91,6 +92,7 @@ export function clock12(hhmm: string): string {
 }
 
 export function kindLabel(r: EventRequest): string {
+  if ((r.event.kind as string) === 'birthday') return 'Celebration'
   return r.event.kind === 'other' ? r.event.kindOther || 'Something else' : label(KINDS, r.event.kind)
 }
 

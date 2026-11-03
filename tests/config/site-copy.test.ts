@@ -33,6 +33,7 @@ describe('site copy', () => {
       ['"What’s on"', /what(’|'|&rsquo;)s on/i],
       ['children’s characters', /Bluey|princess|superhero/i],
       ['"kid" or "kids"', /\bkids?\b/i],
+      ['"birthday" (experiences are for everyone)', /\bbirthdays?\b/i],
       ['the hand-typed craft price range', /\$15\s*(–|-|to)\s*\$40/],
       ['"Most popular"', /most popular/i],
       ['hearts and emoji', /[☀-➿\u{1F300}-\u{1FAFF}]/u],
@@ -44,6 +45,17 @@ describe('site copy', () => {
     it('formats money through formatMoney, not by hand', () => {
       expect(source).not.toMatch(/\/ 100\)?\.toFixed\(2\)\}?`/)
       expect(source).not.toMatch(/`\$\$\{/)
+    })
+  })
+
+  describe('private event request form', () => {
+    it('offers a celebration, never "birthday"; a request sent before reads as a celebration', async () => {
+      const { KINDS, kindLabel } = await import('@lib/event-request-options')
+      expect(KINDS.map(([, label]) => label).join(' ')).not.toMatch(/birthday/i)
+      expect(KINDS.map(([id]) => id)).toContain('celebration')
+      expect(read('src/components/private-events/PrivateEventForm.tsx')).not.toMatch(/\bbirthdays?\b/i)
+      const old = { event: { kind: 'birthday', kindOther: '' } } as any
+      expect(kindLabel(old)).toBe('Celebration')
     })
   })
 

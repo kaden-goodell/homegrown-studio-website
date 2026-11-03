@@ -154,7 +154,7 @@ export async function seedLiveWorkshops(ctx: SeedCtx, lib: any[], classes: any[]
 const FAMILY_COPY = [
   'Paint a pumpkin side by side with the whole family.',
   'Everyone picks their own paints and decorates a pumpkin however they want. No experience needed.',
-  'Each guest goes home with the pumpkin they paint. Ages 5 and up, with a grown-up.',
+  'Each guest goes home with the pumpkin they paint. Ages 8 and up, with a grown-up.',
 ].join('\n\n')
 
 const CAMP_COPY = [
