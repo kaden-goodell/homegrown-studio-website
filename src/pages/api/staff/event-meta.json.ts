@@ -5,6 +5,7 @@ import { paymentBypassEnabled } from '@lib/dev-flags'
 import { getEvent, EVENT_KIND_RE, type EventKind } from '@lib/events'
 import { setEventMeta, type EventMetaPatch } from '@lib/event-meta'
 import { SeatSettingsError, validateCapacity, validateCutoffHours, validateOptions } from '@lib/seat-options'
+import { DROP_OFF_LOCKED_MSG, dropOffLocked } from '@lib/drop-off-lock'
 
 export const prerender = false
 
@@ -104,6 +105,8 @@ export const POST: APIRoute = async ({ request }) => {
     if (!before) return bad("We couldn't find that event.", 404)
     // Our own classes keep their settings on the class itself.
     if (before.own) return bad('Change this class on /admin.', 409)
+    // Mid-event, only an owner can take the pickup-code rule away.
+    if (patch.dropOff === false && staff.role !== 'owner' && dropOffLocked(before)) return bad(DROP_OFF_LOCKED_MSG, 409)
     await setEventMeta(kind, id, patch, byOf(staff))
     const event = await getEvent(kind, id)
     if (!event) return bad("We couldn't find that event.", 404)

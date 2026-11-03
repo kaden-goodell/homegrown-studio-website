@@ -165,3 +165,28 @@ describe('EventSettingsSheet — made to order', () => {
     await waitFor(() => expect(posted(spy)).toEqual([{ kind: 'workshop', id: 'clssch_pails', madeToOrder: false }]))
   })
 })
+
+describe('EventSettingsSheet — drop-off locked mid-event (crew review M10)', () => {
+  afterEach(() => vi.useRealTimers())
+  const CAMP = { ...CLASS, kind: 'workshop', id: 'cs-camp', title: 'Camp', days: ['2026-10-20', '2026-10-21'], dropOff: true }
+
+  it('the crew see it locked with who to ask', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-21T15:00:00.000Z'))
+    serve(CAMP)
+    await open(CAMP)
+    expect(screen.getByRole('checkbox', { name: 'Drop-off event' })).toBeDisabled()
+    expect(screen.getByTestId('drop-off-locked')).toHaveTextContent('Ask Catherine or Kaden.')
+  })
+
+  it('an owner can still turn it off, and is told kids will leave without a code', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-21T15:00:00.000Z'))
+    serve(CAMP)
+    await act(async () => { render(<EventSettingsSheet event={CAMP} isOwner onSaved={vi.fn()} onClose={vi.fn()} />) })
+    const box = screen.getByRole('checkbox', { name: 'Drop-off event' })
+    expect(box).not.toBeDisabled()
+    fireEvent.click(box)
+    expect(screen.getByText('Turn off drop-off for this event? Kids will leave without a pickup code.')).toBeInTheDocument()
+  })
+})

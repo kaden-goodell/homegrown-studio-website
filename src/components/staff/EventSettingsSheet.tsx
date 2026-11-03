@@ -1,3 +1,4 @@
+import { DROP_OFF_LOCKED_MSG, dropOffLocked } from '@lib/drop-off-lock'
 import { useEffect, useState } from 'react'
 import { formatWhen } from '@lib/studio-time'
 import type { StudioEvent } from '@lib/events'
@@ -80,8 +81,11 @@ export default function EventSettingsSheet({
   event: initialEvent,
   onSaved,
   onClose,
+  isOwner = false,
 }: {
   event: StudioEvent
+  /** Owners may still turn drop-off off mid-event; the crew can't (M10). */
+  isOwner?: boolean
   onSaved: (event: StudioEvent) => void
   onClose: () => void
 }) {
@@ -114,6 +118,8 @@ export default function EventSettingsSheet({
       onSaved(r.event)
     }
   }
+
+  const locked = !isOwner && dropOffLocked(event)
 
   function requestDropOffToggle(next: boolean) {
     setConfirmDropOff(next)
@@ -184,7 +190,7 @@ export default function EventSettingsSheet({
             <input
               type="checkbox"
               checked={event.dropOff}
-              disabled={busy}
+              disabled={busy || locked}
               onChange={(e) => requestDropOffToggle(e.target.checked)}
             />
             Drop-off event
@@ -192,13 +198,16 @@ export default function EventSettingsSheet({
           <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
             Studio-run only (camps/PNO) — parties are never drop-off.
           </p>
+          {locked && (
+            <p data-testid="drop-off-locked" style={{ margin: '0.35rem 0 0', fontSize: '0.875rem', fontWeight: 600, color: '#b45309' }}>🔒 {DROP_OFF_LOCKED_MSG}</p>
+          )}
 
           {confirmDropOff !== null && (
             <div style={{ marginTop: '0.6rem', padding: '0.7rem 0.85rem', borderRadius: '0.7rem', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.28)' }}>
               <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-dark)', fontWeight: 600 }}>
                 {confirmDropOff
                   ? 'Switch this to a drop-off event? Pickup codes will be required for every child.'
-                  : 'Turn off drop-off for this event? Pickup codes will no longer be required.'}
+                  : 'Turn off drop-off for this event? Kids will leave without a pickup code.'}
               </p>
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem' }}>
                 <button type="button" onClick={() => setConfirmDropOff(null)} style={btn()}>Cancel</button>

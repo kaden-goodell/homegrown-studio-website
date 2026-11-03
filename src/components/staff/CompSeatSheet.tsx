@@ -6,6 +6,7 @@ import { asScheduledClass, currentPriceCents, type OwnClassData } from '@lib/cla
 import { quote } from '@lib/classes/pricing'
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 import { formatDayAndSpan, studioDate } from '@lib/studio-time'
+import { signOnIpad } from '@components/staff/DoorSearch'
 
 const formatDayKey = (iso: string) => studioDate(iso)
 
@@ -63,7 +64,7 @@ export default function CompSeatSheet({
   const [selections, setSelections] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState<null | { warning: string | null; byHand: boolean; dueCents: number | null; name: string; emailed: boolean; over: { sold: number; capacity: number } | null; ringUp: string }>(null)
+  const [done, setDone] = useState<null | { warning: string | null; byHand: boolean; dueCents: number | null; name: string; emailed: boolean; over: { sold: number; capacity: number } | null; ringUp: string; needsWaiver: boolean }>(null)
   const [notify, setNotify] = useState(false)
   const sell = mode === 'sell'
   const money = (c: number) => `$${(c / 100).toFixed(c % 100 === 0 ? 0 : 2)}`
@@ -298,6 +299,8 @@ export default function CompSeatSheet({
           over: body?.data?.over && typeof body.data.over.sold === 'number' ? body.data.over : null,
           // "1 × Adult, 1 × Kid": what to ring up at the register (R32: today, so it pays this seat)
           ringUp: soldTypes.filter((t) => (ownTickets[t.id] ?? 0) > 0).map((t) => `${ownTickets[t.id]} × ${t.label}`).join(', '),
+          // No in-date waiver picked: the next step is signing (M7).
+          needsWaiver: !household,
         })
         onRecorded()
       } else if (own && body?.code === 'sold_out') {
@@ -502,6 +505,7 @@ export default function CompSeatSheet({
               <li>Pick or create the person</li>
               <li>Add to class, then {sell ? 'Take payment' : 'Skip payment'}</li>
             </ol>
+            <p style={{ margin: '0.5rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>No Square sign-in on this iPad? Ask Catherine or Kaden.</p>
           </div>
         )}
         {own && (readerSale || readerPaid) ? (
@@ -558,7 +562,15 @@ export default function CompSeatSheet({
               </div>
             )}
             {done.warning && <p role="alert" style={{ margin: '0.6rem 0 0', color: '#b45309', fontSize: '0.875rem', fontWeight: 600 }}>{done.warning}</p>}
-            <button type="button" onClick={onClose} style={{ ...btn(true), marginTop: '1.2rem', padding: '0.7rem 2rem', minHeight: '2.75rem' }}>Done</button>
+            {done.needsWaiver && (
+              <div data-testid="sign-next" style={{ margin: '0.9rem 0 0', padding: '0.8rem', borderRadius: '0.6rem', background: 'rgba(var(--color-primary-rgb), 0.08)', textAlign: 'left' }}>
+                <p style={{ margin: '0 0 0.5rem', fontWeight: 700, color: 'var(--color-dark)' }}>{`No waiver on file for ${done.name} yet.`}</p>
+                <button type="button" onClick={() => signOnIpad({ kind: 'workshop', id: event.id, title: event.title, day: event.day })} style={{ ...btn(true), width: '100%' }}>
+                  Now sign the waiver on this iPad
+                </button>
+              </div>
+            )}
+            <button type="button" onClick={onClose} style={{ ...btn(!done.needsWaiver), marginTop: '1.2rem', padding: '0.7rem 2rem', minHeight: '2.75rem' }}>Done</button>
           </div>
         ) : own && clsError ? (
           <div role="alert" style={{ padding: '0.75rem', borderRadius: '0.6rem', background: 'rgba(185,28,28,0.08)' }}>
@@ -573,7 +585,7 @@ export default function CompSeatSheet({
             <p style={{ margin: '0 0 0.6rem', fontWeight: 600, color: 'var(--color-dark)' }}>
               {ownData.rules.joinPartway
                 ? 'Sign-ups for this class have closed.'
-                : 'Sign-ups for this class closed when it started. Turn on joining partway in /admin to add people now.'}
+                : 'Sign-ups for this class closed when it started. Ask Catherine or Kaden to turn on joining partway.'}
             </p>
             <button type="button" onClick={onClose} style={btn()}>Close</button>
           </div>
@@ -643,7 +655,8 @@ export default function CompSeatSheet({
                 </div>
                 <div style={row}>
                   <label htmlFor="comp-email" style={label}>Email</label>
-                  <input id="comp-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} style={input} autoComplete="off" />
+                  <input id="comp-email" type="email" required aria-describedby="comp-email-why" value={email} onChange={(e) => setEmail(e.target.value)} style={input} autoComplete="off" />
+                  <p id="comp-email-why" style={{ margin: '0.2rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>For their receipt and waiver.</p>
                 </div>
                 <div style={row}>
                   <label htmlFor="comp-phone" style={label}>Phone (optional)</label>

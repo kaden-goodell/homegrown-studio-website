@@ -139,7 +139,7 @@ function OwnBooking({ b, classId, households, taken, ticketLabels, onChanged }: 
       {readerMsg && <p role="status" style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: 'var(--color-dark)', fontWeight: 600 }}>{readerMsg}</p>}
       {error && <p role="alert" style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: '#b91c1c', fontWeight: 600 }}>{error}</p>}
       {!readerWaiting && <div style={{ marginTop: '0.4rem' }}>
-        <RefundPanel classId={classId} booking={b} endpoint={STAFF_REFUND} reasonRequired counterSalesAtRegister waiting={b.waiting} ticketLabel={(t) => ticketLabels[t] ?? t} onDone={onChanged} />
+        <RefundPanel classId={classId} booking={b} endpoint={STAFF_REFUND} reasonRequired counterSalesAtRegister crew waiting={b.waiting} ticketLabel={(t) => ticketLabels[t] ?? t} onDone={onChanged} />
       </div>}
     </li>
   )
@@ -495,6 +495,7 @@ export default function Roster({
       {eventSettingsOpen && (
         <EventSettingsSheet
           event={event}
+          isOwner={staff.role === 'owner'}
           onSaved={applyEventSettings}
           onClose={() => setEventSettingsOpen(false)}
         />
