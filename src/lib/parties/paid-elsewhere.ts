@@ -106,7 +106,7 @@ export async function paidElsewhereEntry(orderId: string): Promise<Entry | null>
 
 /** A party of ours, booked, that owes at least `cents`: the payment can go toward it. */
 export function canTakePayment(r: PartyRecord | null, cents: Cents): r is PartyRecord {
-  return !!r && isOurs(r) && r.status !== 'cancelled' && cents > 0 && dueCents(r) >= cents
+  return !!r && isOurs(r) && r.status !== 'cancelled' && cents > 0 && dueCents(r) >= cents && itemsCovered(r.items ?? [], cents) !== null
 }
 
 const firstOf = (e: Entry, r: PartyRecord | null) => (e.host.firstName || r?.hostName || '').trim().split(/\s+/)[0] || ''
@@ -307,19 +307,30 @@ export async function paidElsewhereForPayment(paymentId: string): Promise<PartyC
 // ── Put it toward the party ──────────────────────────────────────────────────
 
 /**
- * The unpaid items a payment of `cents` covers, in the order they were added:
- * each one whose price still fits in what is left. A payment for exactly what
- * is due covers everything.
+ * Money M7: the unpaid items a payment of `cents` pays for EXACTLY (they add
+ * up to the payment, to the cent), preferring the earliest-added items; null
+ * when no set of unpaid items adds up to it. Before, the greedy pick could
+ * mark a $300 package paid out of a $350 payment and leave a $100 extra
+ * still due: the host paid $450 for $400 of items. A payment that matches
+ * nothing can only be refunded (or marked sorted).
  */
-export function itemsCovered(items: PartyItem[], cents: Cents): PartyItem[] {
-  let left = cents
-  const out: PartyItem[] = []
-  for (const it of items) {
-    if (it.chargeId !== null || it.cents > left) continue
-    out.push(it)
-    left -= it.cents
+export function itemsCovered(items: PartyItem[], cents: Cents): PartyItem[] | null {
+  const unpaid = items.filter((it) => it.chargeId === null && it.cents > 0)
+  if (cents <= 0) return null
+  // Depth-first over the items in the order they were added: the first exact match found prefers earlier items.
+  const pick: PartyItem[] = []
+  let steps = 0
+  const go = (i: number, left: number): boolean => {
+    if (left === 0) return true
+    if (i >= unpaid.length || ++steps > 50_000) return false
+    if (unpaid[i].cents <= left) {
+      pick.push(unpaid[i])
+      if (go(i + 1, left - unpaid[i].cents)) return true
+      pick.pop()
+    }
+    return go(i + 1, left)
   }
-  return out
+  return go(0, cents) ? [...pick] : null
 }
 
 /**
@@ -361,7 +372,12 @@ export async function applyPaidElsewhere(orderId: string, by: By, now: Date = ne
       if (due < cents) {
         throw new PaidElsewhereError(409, `The party only owes ${formatMoney(due)}, less than this ${formatMoney(cents)} payment, so it can’t go toward the party. Refund it instead.`)
       }
-      const covered = new Set(itemsCovered(cur.items ?? [], cents).map((it) => it.id))
+      const exact = itemsCovered(cur.items ?? [], cents)
+      if (!exact) {
+        const owed = (cur.items ?? []).filter((it) => it.chargeId === null).map((it) => `${it.label} ${formatMoney(it.cents)}`).join(', ')
+        throw new PaidElsewhereError(409, `This ${formatMoney(cents)} payment doesn’t add up to any of what the party still owes (${owed}), so it can’t go toward the party without paying for part of something. Refund it instead, or tap It’s already sorted if you settled it with them.`)
+      }
+      const covered = new Set(exact.map((it) => it.id))
       const charge: PartyCharge = {
         id: chargeId, via: 'link', orderId, paymentId: entry.paymentId, cents,
         quotedCents: (cur.items ?? []).filter((it) => covered.has(it.id)).reduce((t, it) => t + it.cents, 0),
