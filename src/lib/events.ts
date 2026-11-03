@@ -58,8 +58,9 @@ export interface StudioEvent {
   /** Parties: when it ends, extra time included (cleanup not included). */
   endIso?: string
   /**
-   * Parties: what the host and their guests see (the host's own title, else "<Craft> Party"): the waiver page
-   * and the waiver-link text. `title` is the owners' and crew's name for it ("Testparent party · Pots").
+   * Parties: what the host and their guests see (the host's own title, else "<Craft> Party"): every email, text and
+   * page a host or guest reads (use `guestTitle` from `@lib/event-title`). `title` is the owners' and crew's name
+   * for it ("Paige’s party · Pots").
    */
   publicTitle?: string
   /** Our parties with something still to pay (studio fee or extras): crew see "Waiting on payment". */

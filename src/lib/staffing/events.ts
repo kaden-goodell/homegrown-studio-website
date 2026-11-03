@@ -126,7 +126,11 @@ function partyEvent(key: EventKey, id: string, startIso: string, endIso: string,
     key, kind: 'party', title: partyTitle(rec), startIso, endIso, status,
     openHref: href({ kind: 'party', day: localDate(startIso), id }),
     roster: { kind: 'party', id, day: localDate(startIso) },
-    detail: { ...(typeof rec?.guestCount === 'number' ? { guests: rec.guestCount } : {}), hostFirst: firstName(rec?.hostName) },
+    detail: {
+      ...(typeof rec?.guestCount === 'number' ? { guests: rec.guestCount } : {}),
+      ...(rec?.craftName?.trim() ? { craft: rec.craftName.trim() } : {}),
+      hostFirst: firstName(rec?.hostName),
+    },
   }
 }
 

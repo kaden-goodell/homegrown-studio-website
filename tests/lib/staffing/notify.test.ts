@@ -11,7 +11,7 @@ import { PREVIEW_SMS_TO } from '@lib/preview-outbound'
 
 // Sun Oct 25 2026, 1–3 PM CDT
 const klass = { kind: 'class' as const, title: 'Needlepoint 101', detail: {}, startIso: '2026-10-25T18:00:00.000Z', endIso: '2026-10-25T20:00:00.000Z' }
-const party = { kind: 'party' as const, title: 'Party · 14 guests', detail: { guests: 14, hostFirst: 'Stefanie' }, startIso: '2026-10-24T19:30:00.000Z', endIso: '2026-10-24T21:30:00.000Z' }
+const party = { kind: 'party' as const, title: 'Party · Decoupage Succulent Pots · 14 guests', detail: { guests: 14, craft: 'Decoupage Succulent Pots', hostFirst: 'Stefanie' }, startIso: '2026-10-24T19:30:00.000Z', endIso: '2026-10-24T21:30:00.000Z' }
 const jessica = { name: 'Jessica', givenName: 'Jessica', email: 'jessica@example.com', phone: '+12565550199' }
 /** No colon anywhere except inside a clock time like 1:30. */
 const noSentenceColon = (s: string) => expect(s.replace(/\d{1,2}:\d{2}/g, '')).not.toContain(':')
@@ -50,9 +50,16 @@ describe('the words', () => {
 
   it('a party never names the host; half hours read 2:30 PM', () => {
     const m = shiftMessage('on', party, 'x/staff')
-    expect(m.text).toBe("Hometown Studio here. You're on a party for 14 guests, Sat Oct 24, 2:30 PM to 4:30 PM. See your shifts at x/staff")
+    expect(m.text).toBe("Hometown Studio here. You're on the Decoupage Succulent Pots party for 14 guests, Sat Oct 24, 2:30 PM to 4:30 PM. See your shifts at x/staff")
     expect(JSON.stringify(m)).not.toMatch(/Stefanie|·/)
     for (const s of [m.text, m.subject, ...m.lines]) noSentenceColon(s)
+  })
+
+  it('review M5: a party with no craft or guests on record still reads as a party', () => {
+    const bare = { ...party, title: 'Party', detail: {} }
+    expect(shiftMessage('on', bare, 'x/staff').lines[0]).toBe("You're on a party, Sat Oct 24, 2:30 PM to 4:30 PM.")
+    expect(shiftMessage('on', { ...bare, detail: { craft: 'Slime' } }, 'x/staff').lines[0]).toBe("You're on the Slime party, Sat Oct 24, 2:30 PM to 4:30 PM.")
+    expect(shiftMessage('on', { ...bare, detail: { guests: 1 } }, 'x/staff').lines[0]).toBe("You're on a party for 1 guest, Sat Oct 24, 2:30 PM to 4:30 PM.")
   })
 
   it('several days of one class: ONE message listing the days', () => {

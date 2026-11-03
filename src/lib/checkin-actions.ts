@@ -16,6 +16,7 @@ import type { WaiverRecord } from '@lib/waiver-store'
 import { mutateCheckin, getCheckin, type CheckinState } from '@lib/checkin-store'
 import { sendQuoText, pickupCodeText } from '@lib/quo'
 import { eventKey, type EventKind, type StudioEvent } from '@lib/events'
+import { guestTitle } from '@lib/event-title'
 import type { By } from '@lib/staff-auth'
 import { createLogger } from '@lib/logger'
 
@@ -109,7 +110,7 @@ export async function sendPickupCode(
   try {
     await sendQuoText({
       to: c.waiverRecord?.adult.phone ?? '',
-      content: pickupCodeText(c.event.title ?? 'Hometown Studio', code, kidNames(c.waiverRecord)),
+      content: pickupCodeText(guestTitle(c.event) || 'Hometown Studio', code, kidNames(c.waiverRecord)),
     })
   } catch (err) {
     logger.error('Pickup-code text failed', { error: err instanceof Error ? err.message : String(err) })

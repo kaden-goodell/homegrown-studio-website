@@ -315,7 +315,7 @@ function MoreOptions({ f, set, errors, sessions, setPrice }: {
         <button type="button" className="adm-btn is-ghost is-sm" onClick={() => patch({ ticketTypes: [...f.ticketTypes, { id: newId('tkt'), label: '' }] })}>+ Add a kind of seat</button>
       </Sub>
 
-      <Sub title="Ways to book" field="prices" note="Add a way to book only for something like a drop-in or a pick-your-dates pass. Each one gets its own prices under Prices, above.">
+      <Sub title="Ways to book" field="passes" error={errors.passes} note="Add a way to book only for something like a drop-in or a pick-your-dates pass. Each one gets its own prices under Prices, above.">
         {f.passes.map((p, i) => {
           const name = p.label || `Way ${i + 1}`
           return (

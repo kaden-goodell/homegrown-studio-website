@@ -648,6 +648,17 @@ describe('POST /api/classes/book.json', () => {
     expect((await linesOf(cls))[0].answers).toEqual({})
   })
 
+  it('review M3: an answer to a question the owner deleted while the page was open is dropped, never called "closed"', async () => {
+    const cls = makeClass({ content: { rules: { ...defaultRules(), signupCutoffHours: 0, questionsCloseHours: 168 }, questions: [{ id: 'tee', label: 'Tee size', choices: ['Youth S', 'Youth M'] }] } })
+    vi.setSystemTime(new Date('2026-10-01T17:00:00.000Z')) // well before the questions close
+    squareTotal(6540)
+    const res = await POST(ctx(body(cls, { tickets: { adult: 1 }, seats: [{ answers: { tee: 'Youth S', q_gone: 'Blue' } }] })))
+    const json = await res.json()
+    expect(JSON.stringify(json)).not.toMatch(/have closed/)
+    expect(res.status).toBe(200)
+    expect((await linesOf(cls))[0].answers).toEqual({ tee: 'Youth S' })
+  })
+
   it('a link-only class is bookable by its id', async () => {
     const cls = makeClass({ content: { rules: { ...defaultRules(), linkOnly: true } } })
     const res = await POST(ctx(body(cls)))

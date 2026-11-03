@@ -37,15 +37,20 @@ export function openQuestions(cls: ScheduledClass, sessionIds: string[], now: Da
   return now.getTime() >= Date.parse(closesAt) ? [] : cls.content.questions
 }
 
-/** True when any seat carries an answer to a question that has closed. */
+/**
+ * True when any seat carries an answer to one of this class's questions that has closed. An answer to a question
+ * the class no longer has (an owner deleted it while the page was open) is not "closed": `cleanSeats` drops it and
+ * the booking goes ahead without it (review M3, 3 Nov).
+ */
 export function answersClosedQuestion(
   cls: ScheduledClass,
   seats: { answers?: Record<string, string> }[] | undefined,
   sessionIds: string[],
   now: Date,
 ): boolean {
+  const asked = new Set(cls.content.questions.map((q) => q.id))
   const open = new Set(openQuestions(cls, sessionIds, now).map((q) => q.id))
-  return (seats ?? []).some((s) => Object.entries(s.answers ?? {}).some(([id, v]) => !!v && !open.has(id)))
+  return (seats ?? []).some((s) => Object.entries(s.answers ?? {}).some(([id, v]) => !!v && asked.has(id) && !open.has(id)))
 }
 
 /** The seats with answers to closed questions taken off (add-ons kept). */

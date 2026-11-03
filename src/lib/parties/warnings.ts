@@ -178,11 +178,23 @@ export async function partyWarnings(from: string, to: string, now: Date, opts: {
     if (r) return nameOf(r)
     return squareIds.has(p.id) ? partyName(p) : fallback
   }
+  /** The same party named more fully: "Stefanie Justice’s party", or "Stefanie’s party · Slime". */
+  const fuller = (p: PartySpan, name: string, by: 'name' | 'craft'): string => {
+    const r = byId.get(p.id)
+    const host = (r?.hostName ?? p.hostName ?? '').trim()
+    if (by === 'name') return host ? `${possessive(host)} party` : name
+    const craft = (r?.craftName ?? '').trim()
+    return craft ? `${name} · ${craft}` : name
+  }
   for (let i = 0; i < spans.length; i++) {
     for (let j = i + 1; j < spans.length; j++) {
       const a = spans[i], b = spans[j]
       if (a.id === b.id || !overlaps(intervalOf(a), intervalOf(b), PARTY_CLEANUP_MINUTES)) continue
-      const na = spanName(a, 'a party'), nb = spanName(b, 'another party')
+      let na = spanName(a, 'a party'), nb = spanName(b, 'another party')
+      // Review M5 (3 Nov): two hosts with the same first name read the same ("Stefanie’s party … and Stefanie’s
+      // party …"). Owners only, so tell them apart by the host's full name, then by the craft.
+      if (na.toLowerCase() === nb.toLowerCase()) [na, nb] = [fuller(a, na, 'name'), fuller(b, nb, 'name')]
+      if (na.toLowerCase() === nb.toLowerCase()) [na, nb] = [fuller(a, na, 'craft'), fuller(b, nb, 'craft')]
       const sqA = squareIds.has(a.id), sqB = squareIds.has(b.id)
       out.push({
         code: 'two-parties', eventKind: 'party', eventId: a.id, when: a.startIso, title: capitalize(na),

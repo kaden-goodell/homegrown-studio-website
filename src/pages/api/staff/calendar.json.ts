@@ -30,10 +30,14 @@ export const GET: APIRoute = async ({ request, url }) => {
       .map((b) => (b.kind === 'class' ? { ...b, status: status.get(b.id) } : b))
       .filter((b) => !(b.kind === 'class' && (b as CalendarItem).status === 'draft'))
     // UI review (3 Nov): crew see which parties still owe the studio fee ("Waiting on payment"), as on /admin.
+    // Review M1 (3 Nov): the crew's calendar shows the party's label ("Paige’s party · Pots"), never the host's full
+    // name, so a crew device isn't sent it either.
     const items = await Promise.all(shown.map(async (b) => {
-      if (b.kind !== 'party' || !b.id.startsWith('pty_')) return b
-      const record = await getPartyRecord(b.id).catch(() => null)
-      return record ? { ...b, pay: paymentState(record) } : b
+      if (b.kind !== 'party') return b
+      const { hostName: _hostName, ...party } = b as CalendarItem & { hostName?: string }
+      if (!party.id.startsWith('pty_')) return party
+      const record = await getPartyRecord(party.id).catch(() => null)
+      return record ? { ...party, pay: paymentState(record) } : party
     }))
     return json(200, { data: { items } })
   } catch (e) {

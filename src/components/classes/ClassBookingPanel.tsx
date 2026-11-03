@@ -217,6 +217,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   const firstOpen = shownPasses.find((p) => p.state === 'open') ?? (door ? shownPasses.find(canBook) : undefined) ?? shownPasses[0] ?? own.passes[0]
 
   const [step, setStep] = useState<Step>('details')
+  const [openedAt] = useState(() => new Date())
   const [passId, setPassId] = useState<string>(firstOpen?.id ?? '')
   const pass = own.passes.find((p) => p.id === passId) as PublicPass
   const choose = pass?.covers.kind === 'choose' ? pass.covers.count : 0
@@ -277,7 +278,9 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   const total = seatTypes.length
   // Questions can close before sign-ups do (a tee size a week out): after that, new seats come without a pick.
   const askedSessionIds = choose ? picked : pass?.sessionIds ?? []
-  const questions = openQuestions(cls, askedSessionIds, new Date())
+  // Review M9 (3 Nov): judged at the time the sheet opened, so the steps never change under the customer. If the
+  // questions close while it's open, the server's "reload" answer covers it (nothing is charged).
+  const questions = openQuestions(cls, askedSessionIds, openedAt)
   const needsSeats = questions.length > 0 || own.addOns.length > 0
   const steps: Step[] = needsSeats ? ['details', 'seats', 'pay'] : ['details', 'pay']
   /** Seat i (in ticket type order) → its ticket type and its place among that type. */

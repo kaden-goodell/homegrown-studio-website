@@ -10,6 +10,7 @@
  *   4. lookup threw      → keep the id, no label (sign.json checks again)
  */
 import { getEvent, isEventPast, type StudioEvent } from '@lib/events'
+import { guestTitle } from '@lib/event-title'
 import { formatWhen } from '@lib/studio-time'
 import { getClass } from '@lib/classes/class-store'
 import { isOwnClassId } from '@lib/classes/staff-view'
@@ -39,7 +40,7 @@ export async function waiverEventOutcome(eventKind: 'party' | 'workshop' | null,
     // Days-based rule, aligned with sign.json's validateEvent: past once every
     // day of the event is before yesterday (studio-local).
     if (isEventPast(event, now)) return { kind: 'past', notice: 'This event has already happened.' }
-    return { kind: 'ok', id: rawId, label: `${event.publicTitle ?? event.title} · ${formatWhen(event.startIso)} CT`, dropOff: event.dropOff }
+    return { kind: 'ok', id: rawId, label: `${guestTitle(event)} · ${formatWhen(event.startIso)} CT`, dropOff: event.dropOff }
   } catch {
     return { kind: 'error', id: rawId }
   }

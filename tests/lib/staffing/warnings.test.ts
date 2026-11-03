@@ -90,10 +90,10 @@ describe('unstaffed', () => {
 
   it('a party names the host by first name only', async () => {
     const p = uid('pty_')
-    src.records.set(p, { bookingId: p, hostName: 'Stefanie Justice', hostEmail: 'stef@example.com', guestCount: 14, status: 'booked', source: 'ours', startIso: localToUtcISO('2026-11-07', '14:30') })
+    src.records.set(p, { bookingId: p, hostName: 'Stefanie Justice', hostEmail: 'stef@example.com', guestCount: 14, craftName: 'Slime', status: 'booked', source: 'ours', startIso: localToUtcISO('2026-11-07', '14:30') })
     src.parties = [{ kind: 'party', id: p, label: 'a party', startIso: localToUtcISO('2026-11-07', '14:30'), endIso: localToUtcISO('2026-11-07', '16:30'), party: { state: 'booked', partyId: p } }]
     const [w] = await staffingWarnings(FROM, TO, NOW)
-    expect(w).toMatchObject({ code: 'unstaffed', eventKind: 'party', eventId: p, detail: 'The party for Stefanie at 2:30 PM has no one on yet.' })
+    expect(w).toMatchObject({ code: 'unstaffed', eventKind: 'party', eventId: p, detail: 'Stefanie’s party · Slime at 2:30 PM has no one on yet.' })
     expect(JSON.stringify(w)).not.toMatch(/Justice|stef@/)
   })
 })

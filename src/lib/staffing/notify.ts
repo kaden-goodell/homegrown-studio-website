@@ -35,11 +35,15 @@ export function shiftClock(iso: string): string {
   return m ? `${h12}:${String(m).padStart(2, '0')} ${suffix}` : `${h12} ${suffix}`
 }
 
-/** What they're on, as a phrase: "Needlepoint 101" / "a party for 14 guests" / "a party". */
+/**
+ * What they're on, as a phrase: "Needlepoint 101" / "the Slime party for 14 guests" / "a party". A party is named
+ * by its craft and guests, as on the crew's shift list (review M5, 3 Nov), and never by its host.
+ */
 export function shiftWhat(ev: Pick<StaffableEvent, 'kind' | 'title' | 'detail'>): string {
   if (ev.kind !== 'party') return ev.title
-  const g = ev.detail.guests
-  return typeof g === 'number' && g > 0 ? `a party for ${g} ${g === 1 ? 'guest' : 'guests'}` : 'a party'
+  const g = ev.detail.guests, craft = ev.detail.craft?.trim()
+  const guests = typeof g === 'number' && g > 0 ? ` for ${g} ${g === 1 ? 'guest' : 'guests'}` : ''
+  return craft ? `the ${craft} party${guests}` : `a party${guests}`
 }
 
 type ShiftEvent = Pick<StaffableEvent, 'kind' | 'title' | 'detail' | 'startIso' | 'endIso'>

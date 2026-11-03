@@ -81,6 +81,13 @@ describe('buildDropOffDetails', () => {
     }
   })
 
+  it('a party: the subject uses the host\'s own title, not the owners\' and crew\'s name (review M2)', () => {
+    const event = makeEvent({ title: 'Paige’s party · Decoupage Succulent Pots', publicTitle: 'Maya Turns 9' })
+    const { subject, html, text } = buildDropOffDetails({ record: makeRecord(), event })
+    expect(subject).toBe('Drop-off details for Maya Turns 9')
+    expect(html + text).not.toContain('Paige')
+  })
+
   it('omits the authorized-pickup line when none was given, and only names attending kids', () => {
     const record = makeRecord({
       minors: [

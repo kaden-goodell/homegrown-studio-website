@@ -11,6 +11,7 @@ import { paymentBypassEnabled } from '@lib/dev-flags'
 import { listSeatChoicesByEvent } from '@lib/seat-choices'
 import { getLedger } from '@lib/classes/seat-ledger'
 import type { StudioEvent } from '@lib/events'
+import { guestTitle } from '@lib/event-title'
 
 export const prerender = false
 
@@ -69,7 +70,7 @@ export const POST: APIRoute = async ({ request }) => {
     if (!quoConfigured()) return json({ data: { sent: false } }, 200)
 
     const link = withUtm(`${siteConfig.url}/waiver?${kind}=${encodeURIComponent(id)}`, { source: 'text', medium: 'sms', campaign: 'waiver_link' })
-    const content = `Hometown Studio here. Please sign the participation agreement for ${event.publicTitle ?? event.title} ${link}`
+    const content = `Hometown Studio here. Please sign the participation agreement for ${guestTitle(event)} ${link}`
 
     try {
       await sendQuoText({ to, content })

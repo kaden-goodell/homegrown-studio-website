@@ -39,7 +39,7 @@ export function newKey(): string {
 /** "Stefanie" from "Stefanie Justice". */
 export const firstOf = (name: string) => name.trim().split(/\s+/)[0] || 'the host'
 
-/** "Justice party · Tote Bags": the one party name on every screen (UI review, 3 Nov). */
+/** "Stefanie’s party · Tote Bags": the one party name on every screen (UI review, 3 Nov). */
 export function partyTitle(hostName: string, craftName?: string | null): string {
   return partyDisplayName({ hostName, craftName })
 }

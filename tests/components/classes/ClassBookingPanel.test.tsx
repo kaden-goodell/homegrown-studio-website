@@ -883,6 +883,16 @@ describe('ClassBookingPanel — carried from the live site (2 Nov 2026)', () => 
     expect(screen.queryByText(/Not ready to book\?/)).toBeNull()
   })
 
+  it('review M9: the questions closing while the sheet is open don’t change its steps under the customer', () => {
+    const TEE = { id: 'tee', label: 'Tee size', choices: ['Youth S', 'Youth M'] }
+    // Closes 72 hours before Oct 24 6 PM UTC = Oct 21 6 PM UTC; NOW is Oct 20.
+    open(make({ questions: [TEE], rules: { ...defaultRules(), signupCutoffHours: 0, questionsCloseHours: 72 } }))
+    expect(screen.getByText('Step 1 of 3')).toBeInTheDocument()
+    vi.setSystemTime(new Date('2026-10-22T12:00:00Z'))
+    more() // any re-render
+    expect(screen.getByText('Step 1 of 3')).toBeInTheDocument()
+  })
+
   it('questions that have closed (a tee size a week out) are not asked: straight to paying, no pick sent', async () => {
     const TEE = { id: 'tee', label: 'Tee size', choices: ['Youth S', 'Youth M'] }
     // NOW is Oct 20; the Oct 24 class's questions closed 168 hours before (Oct 17).

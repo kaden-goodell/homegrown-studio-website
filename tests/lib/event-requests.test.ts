@@ -19,6 +19,12 @@ const ok = (body: any) => {
 }
 
 describe('checkRequest', () => {
+  it('review M7: an old cached page that still sends "birthday" is stored as a celebration, not blank', () => {
+    const base = goodBody()
+    const c = ok({ ...base, event: { ...base.event, kind: 'birthday' } })
+    expect(c.value.event.kind).toBe('celebration')
+  })
+
   it('accepts a full request and keeps every answer', () => {
     const c = ok(goodBody())
     expect(c.photos).toHaveLength(1)

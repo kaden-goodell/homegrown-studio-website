@@ -20,6 +20,7 @@ import { studioDayUtcRange } from '@lib/studio-time'
 import type { Warning } from '@lib/warnings'
 import { orphanEntries, staffingRows, type StaffingRow } from './events'
 import { shiftClock } from './notify'
+import { partyDisplayName } from '@lib/parties/party-name'
 import type { StaffableEvent } from './types'
 
 const logger = createLogger('staffing-warnings')
@@ -30,10 +31,13 @@ export const UNSTAFFED_HORIZON_DAYS = 14
 export const ASSIGN_IN_ADMIN = 'Assign someone in /admin › More › Staff.'
 export const STAFFING_UNREADABLE = "Couldn't check staffing."
 
-/** "Potholder Looms" / "The party for Stefanie" / "A party". Owners only (host first name, OWNER-4). */
+/**
+ * "Potholder Looms" / "Stefanie’s party · Slime" / "Party · Slime". Owners only (host first name, OWNER-4): the
+ * party's one name on the owners' screens (review M5, 3 Nov).
+ */
 function eventName(ev: StaffableEvent): string {
   if (ev.kind !== 'party') return ev.title
-  return ev.detail.hostFirst ? `The party for ${ev.detail.hostFirst}` : 'A party'
+  return partyDisplayName({ hostName: ev.detail.hostFirst, craftName: ev.detail.craft })
 }
 
 const kindOf = (ev: Pick<StaffableEvent, 'kind'>): Warning['eventKind'] => (ev.kind === 'party' ? 'party' : 'workshop')

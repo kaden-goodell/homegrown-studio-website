@@ -15,6 +15,7 @@ import { siteConfig } from '@config/site.config'
 import { formatCalendarDate, formatWhen } from '@lib/studio-time'
 import type { WaiverRecord } from '@lib/waiver-store'
 import type { StudioEvent } from '@lib/events'
+import { guestTitle } from '@lib/event-title'
 
 export interface BuildAgreementCopyInput {
   record: WaiverRecord
@@ -135,7 +136,7 @@ export function buildDropOffDetails(input: BuildDropOffDetailsInput): { subject:
     `These terms are Section 4b of the participation agreement you signed on ${signedDate}.`,
   ]
 
-  const subject = `Drop-off details for ${event.title}`
+  const subject = `Drop-off details for ${guestTitle(event)}`
   const html = `
 <div style="max-width:600px;margin:0 auto;padding:8px 4px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
   <p style="${EYEBROW}">Hometown Studio</p>

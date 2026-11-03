@@ -49,16 +49,17 @@ export interface Form {
 }
 
 /** Where an error shows, in the order the form reads (the first one gets the focus). */
-export const FIELD_ORDER = ['photo', 'name', 'price', 'earlybird', 'ages', 'description', 'dates', 'prices', 'tickets', 'addons', 'questions', 'rules', 'usual'] as const
+export const FIELD_ORDER = ['photo', 'name', 'price', 'earlybird', 'ages', 'description', 'dates', 'prices', 'tickets', 'passes', 'addons', 'questions', 'rules', 'usual'] as const
 export type FieldKey = (typeof FIELD_ORDER)[number]
 export type Errors = Partial<Record<FieldKey | 'form', string>>
 /** Errors that live under More options. */
-export const MORE_KEYS: FieldKey[] = ['prices', 'tickets', 'addons', 'questions', 'rules']
+// Review M4 (3 Nov): 'prices' is the Prices box on the main form, so a price error never springs More open.
+export const MORE_KEYS: FieldKey[] = ['tickets', 'passes', 'addons', 'questions', 'rules']
 
 /** "Fix the price." for the footer line, so an error far up the form is never missed. */
 const WHAT: Record<FieldKey, string> = {
   photo: 'the photo', name: 'the name', price: 'the price', earlybird: 'the early-bird', ages: 'the ages', description: 'the description', dates: 'the dates',
-  prices: 'the prices', tickets: 'Kinds of seat', addons: 'the extras', questions: 'the questions', rules: 'Ages and booking rules',
+  prices: 'the prices', tickets: 'Kinds of seat', passes: 'Ways to book', addons: 'the extras', questions: 'the questions', rules: 'Ages and booking rules',
   usual: 'the usual length or seats',
 }
 export function firstError(e: Errors): FieldKey | null {
@@ -166,15 +167,15 @@ export function build(f: Form, opts: { usual?: boolean } = {}): Built {
     }
   }
   if (!priceError && !Object.keys(prices).length) priceError = 'Add a price.'
-  if (f.passes.some((p) => !p.label.trim())) priceError ||= 'Each way to book needs a name.'
   if (priceError) errors[isSimple(f) ? 'price' : 'prices'] = priceError
+  if (f.passes.some((p) => !p.label.trim())) errors.passes = 'Each way to book needs a name.'
   if (f.ticketTypes.some((t) => !t.label.trim())) errors.tickets = 'Each kind of seat needs a name.'
   const passes: Pass[] = []
   for (const p of f.passes) {
     const label = p.label.trim()
     if (p.covers.kind !== 'choose') { passes.push({ ...p, label }); continue }
     const count = intOf(f.chooseCounts[p.id] ?? String(p.covers.count))
-    if (!(count >= 1 && count <= 60)) { errors.prices ||= `${label || 'A way to book'} needs to let people pick 1 to 60 dates.`; continue }
+    if (!(count >= 1 && count <= 60)) { errors.passes ||= `${label || 'A way to book'} needs to let people pick 1 to 60 dates.`; continue }
     passes.push({ ...p, label, covers: { kind: 'choose', count } })
   }
 

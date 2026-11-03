@@ -148,7 +148,7 @@ export async function partyBusy(fromIso: string, toIso: string, now: Date = new 
     // A missing record only costs the label its name.
     const rec = await getPartyRecord(h.partyId).catch(() => null)
     const hostName = rec?.hostName
-    // UI review: the one party name everywhere ("Testparent party · Decoupage Succulent Pots").
+    // UI review: the one party name everywhere ("Paige’s party · Decoupage Succulent Pots").
     return hostName ? { ...b, hostName, label: partyDisplayName({ hostName, craftName: rec?.craftName }) } : b
   }))
   const seen = new Set(ours.map((b) => b.id))

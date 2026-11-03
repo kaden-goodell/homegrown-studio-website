@@ -70,6 +70,14 @@ describe('questions close before sign-ups do', () => {
     expect(withoutClosedAnswers(cls, seats, ['ses_a'], before)).toEqual(seats)
   })
 
+  it('review M3: an answer to a question the class no longer has is not a "closed" answer (it is just dropped)', () => {
+    const cls = make({ questionsCloseHours: 168 })
+    const seats = [{ answers: { q_gone: 'Blue' } }]
+    expect(answersClosedQuestion(cls, seats, ['ses_a'], before)).toBe(false)
+    expect(answersClosedQuestion(cls, seats, ['ses_a'], after)).toBe(false)
+    expect(answersClosedQuestion(make(), seats, ['ses_a'], after)).toBe(false)
+  })
+
   it('the class sheet saves 0–720 hours and refuses anything else', () => {
     const base = { name: 'Tee class', description: 'x', ticketTypes: [{ id: 'person', label: 'Person' }], passes: [{ id: 'all', label: 'Full class', covers: { kind: 'all' } }], prices: { all: { person: 4000 } }, questions: [TEE], defaultCapacity: 10, defaultMinutes: 120 }
     const ok = validateContent({ ...base, rules: { questionsCloseHours: 168 } })

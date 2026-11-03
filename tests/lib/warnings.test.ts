@@ -479,6 +479,18 @@ describe('listWarnings — our parties (stage 2 Task 13)', () => {
     expect(lines[0].action).toBe('Move one of them on /admin.')
   })
 
+  it('review M5: two hosts with the same first name are told apart in a clash (full name, then the craft)', async () => {
+    const a = pid(), b = pid()
+    RECORDS.list = [rec(a), rec(b, { hostName: 'Stefanie Lopez', overlap: true })]
+    await hold(a)
+    const { confirmTime } = await import('@lib/parties/party-book')
+    expect((await confirmTime(b, SAT2, SAT2_END, NOW)).overlap).toBe(true)
+    made.push({ id: b, start: SAT2 })
+    const [line] = (await partyLines()).filter((w) => w.code === 'two-parties')
+    expect(line.detail).toMatch(/Stefanie Justice’s party/)
+    expect(line.detail).toMatch(/Stefanie Lopez’s party/)
+  })
+
   it('one of our classes within an hour of a party', async () => {
     const { createClass } = await import('@lib/classes/class-store')
     const { defaultRules } = await import('@lib/classes/validate')

@@ -239,6 +239,32 @@ describe('New class: the details, ported from the old class form', () => {
     expect(screen.getByRole('button', { name: /More options/ })).toHaveAttribute('aria-expanded', 'false')
   })
 
+  it('review M4: with several kinds of seat, a price error stays in the Prices box and More options stays shut; a way-to-book error opens it', () => {
+    vi.stubGlobal('fetch', server())
+    renderSheet(<NewClassSheet />)
+    fillBasics('Family Pottery')
+    const more = () => screen.getByRole('button', { name: /More options/ })
+    fireEvent.click(more())
+    const kinds = screen.getByRole('region', { name: 'Kinds of seat (like Adult and Kid)' })
+    fireEvent.click(within(kinds).getByRole('button', { name: '+ Add a kind of seat' }))
+    fireEvent.change(within(kinds).getByLabelText('Kind of seat 2'), { target: { value: 'Kid' } })
+    const prices = screen.getByRole('group', { name: 'Prices ($)' })
+    fireEvent.change(within(prices).getByLabelText('Full class Person price ($)'), { target: { value: '12.345' } })
+    fireEvent.click(more()) // fold it away
+    expect(more()).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
+    expect(within(screen.getByRole('group', { name: 'Prices ($)' })).getByText('Prices are dollar amounts, like 25 or 12.50.')).toBeInTheDocument()
+    expect(more()).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.change(within(screen.getByRole('group', { name: 'Prices ($)' })).getByLabelText('Full class Person price ($)'), { target: { value: '12' } })
+    fireEvent.click(more())
+    fireEvent.change(screen.getByLabelText('Way to book 1 name'), { target: { value: '' } })
+    fireEvent.click(more())
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
+    expect(more()).toHaveAttribute('aria-expanded', 'true')
+    expect(within(screen.getByRole('region', { name: 'Ways to book' })).getByText('Each way to book needs a name.')).toBeInTheDocument()
+  })
+
   it('photo: the file input is hidden behind Choose photo; the photo shows as a thumbnail with Remove, and on the card Preview', async () => {
     vi.stubGlobal('fetch', server())
     renderSheet(<NewClassSheet />)

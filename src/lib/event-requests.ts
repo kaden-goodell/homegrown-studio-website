@@ -92,7 +92,8 @@ export function checkRequest(body: any, now = new Date()): Checked {
     photos: decoded.photos,
     value: {
       event: {
-        kind: oneOf(e.kind, KINDS),
+        // Review M7 (3 Nov): a page cached before "birthday" became "celebration" still sends the old word.
+        kind: oneOf(e.kind === 'birthday' ? 'celebration' : e.kind, KINDS),
         kindOther: e.kind === 'other' ? str(e.kindOther, 120) : '',
         date,
         backupDate: realDay(backupDate) && backupDate >= today ? backupDate : '',

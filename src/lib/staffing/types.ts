@@ -70,7 +70,8 @@ export interface StaffableEvent {
   /** What /staff opens for it: the roster (`/api/staff/roster.json?kind&id&day`). Ids only, safe for crew. */
   roster: { kind: 'workshop' | 'party'; id: string; day: string }
   /** hostFirst: owners' views only (never sent to crew) */
-  detail: { seats?: string; guests?: number; hostFirst?: string | null }
+  /** `craft`: a party's craft (crew may see it); `hostFirst`: the host's first name, owners only. */
+  detail: { seats?: string; guests?: number; craft?: string; hostFirst?: string | null }
 }
 
 /** outside = they gave hours for that day ("Can, only 4–9 PM") and the event is outside them: not Can't, not Not said. */

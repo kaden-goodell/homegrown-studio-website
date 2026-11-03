@@ -174,6 +174,16 @@ describe('POST /api/staff/checkin.json', () => {
 // ─── HOM-214: SMS codes, authorized chips, ID checkbox, override, lockout ────
 
 describe('POST /api/staff/checkin.json — pickup completion (HOM-214)', () => {
+  it('the pickup-code text names the party by the host\'s own title, never the owners\' and crew\'s name (review M2)', async () => {
+    mockGetEvent.mockResolvedValue({ ...dropOffEvent, kind: 'party', id: 'party-9', title: 'Paige’s party · Decoupage Succulent Pots', publicTitle: 'Maya Turns 9' })
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    const res = await post({ kind: 'party', id: 'party-9', recordId: 'wvr_1', day: '2026-09-05', action: 'checkin', personIds: ['child:0'] })
+    expect(res.status).toBe(200)
+    const content: string = mockSendQuoText.mock.calls[0][0].content
+    expect(content).toContain('Maya Turns 9')
+    expect(content).not.toContain('Paige')
+  })
+
   it('checkin of a child on a drop-off event issues a code, texts it, logs code-sent with by', async () => {
     mockGetEvent.mockResolvedValue(dropOffEvent)
     mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
