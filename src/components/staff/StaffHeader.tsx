@@ -23,7 +23,7 @@ const btn = (primary = false): CSSProperties => ({
 })
 
 /** Shared top bar for every signed-in staff screen: the tabs (one row that
- *  scrolls sideways on a phone or an iPad held upright, on its own line, the
+ *  scrolls sideways when it must, on its own line whenever the header is narrow, the
  *  current tab scrolled into view; Kits only while kits are on), then a red
  *  🚑 Incident and the signed-in name, which opens Switch / Log out. The 🚑 Incident sheet is self-contained here so every
  *  screen gets it for free — `event`/`households`/`day` let a roster screen
@@ -84,10 +84,13 @@ export default function StaffHeader({
 
   return (
     <>
-      {/* Phones and an iPad held upright: the tabs get their own full-width row. */}
-      <style>{`@media (max-width: 1023px) { .staff-tabs-row { flex-basis: 100% !important; } }`}</style>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.6rem', marginBottom: '1.1rem', flexWrap: 'wrap' }}>
-        <div className="staff-tabs-row" style={{ flex: '1 1 0', minWidth: 0, position: 'relative' }}>
+      {/* The tabs get their own full-width row unless the header itself is wide
+          (a container query, not the screen width: the page is a narrow column
+          even on an iPad held sideways, crew review I4). Browsers without
+          container queries keep the own-row layout. */}
+      <style>{`.staff-header { container-type: inline-size; } @container (min-width: 60rem) { .staff-tabs-row { flex-basis: 0 !important; } }`}</style>
+      <div className="staff-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.6rem', marginBottom: '1.1rem', flexWrap: 'wrap' }}>
+        <div className="staff-tabs-row" style={{ flex: '1 1 100%', minWidth: 0, position: 'relative' }}>
           <div
             ref={stripRef}
             onScroll={checkEdge}
