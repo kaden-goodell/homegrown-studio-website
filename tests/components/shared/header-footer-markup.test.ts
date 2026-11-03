@@ -126,9 +126,14 @@ describe('footer band', () => {
     expect(footer).toMatch(/\.footer-link:focus-visible[^{]*\{[^}]*outline-color:\s*var\(--color-on-dark\)/)
   })
 
-  it('has the three columns: visit, hours, contact', () => {
+  it('has the three columns: visit, walk-in hours, contact', () => {
     const headings = [...footer.matchAll(/<h2 class="footer-heading">([^<]+)<\/h2>/g)].map((m) => m[1])
-    expect(headings).toEqual(['Visit', 'Hours', 'Contact'])
+    expect(headings).toEqual(['Visit', 'Walk-in hours', 'Contact'])
+  })
+
+  it('lists only the Craft Café walk-in hours, never the party and workshop hours', () => {
+    expect(footer).toContain('siteConfig.cafeHours.map')
+    expect(footer).not.toContain('siteConfig.hours.map')
   })
 })
 

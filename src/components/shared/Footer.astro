@@ -36,9 +36,12 @@ const phoneDigits = (siteConfig.contactPhone ?? '').replace(/[^+\d]/g, '')
       </div>
 
       <div class="footer-column footer-column-middle">
-        <h2 class="footer-heading">Hours</h2>
+        <h2 class="footer-heading">Walk-in hours</h2>
+        {/* Walk-in (Craft Café) hours only, so nobody reads a party or workshop
+            slot as "open" (Kaden, 2 Nov 2026). Google still gets the full
+            studio hours from siteConfig.hours. */}
         <dl class="footer-hours">
-          {siteConfig.hours.map((h) => (
+          {siteConfig.cafeHours.map((h) => (
             <div class="footer-hours-row">
               <dt>{h.days}</dt>
               <dd>{h.time}</dd>
@@ -46,7 +49,10 @@ const phoneDigits = (siteConfig.contactPhone ?? '').replace(/[^+\d]/g, '')
           ))}
         </dl>
         <p class="footer-note" data-walkin="before" hidden={walkInOpen}>
-          Craft Café walk-ins are Saturday mornings starting November 7th. Parties and workshops by booking.
+          Craft Café walk-ins start November 7th. Parties and workshops by booking.
+        </p>
+        <p class="footer-note" data-walkin="after" hidden={!walkInOpen}>
+          Parties and workshops by booking.
         </p>
       </div>
 
