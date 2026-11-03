@@ -34,6 +34,16 @@ describe('class confirmation email (M6)', () => {
     expect(ics).toContain('DTSTART:20261104T180000Z')
     expect(ics).not.toContain('DTSTART:20261103T180000Z')
     expect(ics).toContain('UID:class-20261102T180000Z@ourhometownstudio.com')
+    // Final review I21: Google's link holds one date, so several dates get no Google link at all.
+    expect(sent.last.googleCalendarUrl).toBeUndefined()
+  })
+
+  it('a single date keeps the Google Calendar link', async () => {
+    await sendClassConfirmation({
+      origin: 'https://x.test', bookingId: 'bkg_2', cls, sessionIds: ['ses_2'], seats: 1, seatsLabel: '1 seat',
+      email: 'a@b.co', givenName: 'Ada', receiptUrl: null, totalChargedCents: 1000,
+    })
+    expect(sent.last.googleCalendarUrl).toMatch(/^https:\/\/calendar\.google\.com/)
   })
 
   it('D2: every class confirmation links the booking’s own signed cancel page', async () => {

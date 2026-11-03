@@ -4,7 +4,6 @@
  * request to /api/admin/to-decide.json, recorded with who made it. Afterwards
  * the sheet shows "Done · what was done".
  */
-import { policyWindows } from '@config/policy-content'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { AskAnswer, ToDecideItem } from '@pages/api/admin/to-decide.json'
 import type { ClassBooking } from '@lib/classes/admin-actions'
@@ -513,7 +512,7 @@ function PartyChangeRequest({ item }: { item: ToDecideItem }) {
   return (
     <SheetFrame title={item.title} subtitle="To decide" footer={<button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'sorted' })}>{label(busy, 'sorted', 'Done', 'Saving…')}</button>}>
       <Head item={item} />
-      <p className="adm-note adm-gap-top">Nothing has changed on the party. Call or text them, then open the party to move it, cancel it or refund it by the party policy (full refund {policyWindows.partyFullRefundDays} or more days before, studio credit after that). Tap Done once it’s sorted.</p>
+      <p className="adm-note adm-gap-top">Nothing has changed on the party. Call or text them, then open the party to move it, cancel it or refund it by the party policy (full refund {String(d.refundDays ?? 14)} or more days before, studio credit after that). Tap Done once it’s sorted.</p>
       {phone && <a className="adm-btn is-ghost is-sm adm-gap-top" href={`tel:${phone.replace(/[^+\d]/g, '')}`}>Call {phone}</a>}
       <OpenParty item={item} />
       <ErrorLine text={error} />

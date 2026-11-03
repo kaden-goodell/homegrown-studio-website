@@ -81,6 +81,7 @@
  * decideRefundFlag, clearRefundRequest, freeSeatOnly, recordPos, setNames,
  * markCounterMatchChecked. Server only.
  */
+import { policyWindows } from '@config/policy-content'
 import { recordAudit } from '@lib/audit'
 import { decidedKv, minimumItemId, tokenOf } from './decided'
 import type { By } from '@lib/staff-auth'
@@ -543,7 +544,7 @@ async function partyChangeItems(skip: Set<string>, now: Date, parties: () => Pro
       at: req.at, className: partyLabel(r),
       head: `${first} asked to ${what} their party on ${whenText(r.startIso)}, ${days} ${days === 1 ? 'day' : 'days'} before it.${req.note ? ` Their note: “${req.note}”` : ''}`,
       hint: 'Call or text them, sort it out from the party, then tap Done',
-      detail: { partyId: r.bookingId, partyDay: studioDate(r.startIso), host: r.hostName, phone: r.hostPhone ?? '', email: r.hostEmail, want: req.want, note: req.note, daysBefore: days },
+      detail: { partyId: r.bookingId, partyDay: studioDate(r.startIso), host: r.hostName, phone: r.hostPhone ?? '', email: r.hostEmail, want: req.want, note: req.note, daysBefore: days, refundDays: policyWindows.partyFullRefundDays },
     })
   }
   return out

@@ -5,6 +5,7 @@
  */
 import { checkoutPolicySummary, POLICY_PATH, POLICY_ANCHORS } from '@config/policy-content'
 import { inviteContent } from '@config/invite-content'
+import { siteConfig } from '@config/site.config'
 import { sendWorkshopConfirmationEmail } from '@lib/email'
 import { buildIcs, googleCalendarUrl } from '@lib/party-share'
 import { formatDayAndSpan, formatSlotLabel, formatTimeSpan } from '@lib/studio-time'
@@ -108,7 +109,7 @@ export async function sendClassConfirmation(input: {
     title: `${cls.content.name} at Hometown Studio`,
     startIso: first.startIso,
     endIso: first.endIso,
-    details: `Your class at Hometown Studio.\n\nSign the participation agreement before you come: ${waiverUrl}`,
+    details: `Your class at Hometown Studio.\n\nSign the participation agreement before you come. ${waiverUrl}`,
     location: inviteContent.where,
   }
 
@@ -133,12 +134,15 @@ export async function sendClassConfirmation(input: {
     workshopUrl: classUrl,
     directionsUrl: `https://maps.google.com/?q=${encodeURIComponent('Hometown Studio, 525 Hughes Rd, Suite F, Madison, AL 35758')}`,
     // A free or not-yet-paid seat has nothing to refund; ask them to free it up instead.
-    policyLine: input.comped || input.free || input.dueAtStudioCents !== undefined
-      ? 'Can’t make it? Text or email us so we can pass your seat to someone else'
-      : checkoutPolicySummary.workshop,
+    policyLine: input.comped || input.dueAtStudioCents !== undefined
+      ? `Can’t make it? ${siteConfig.contactPhone ? `Text us at ${siteConfig.contactPhone}` : 'Let us know'} so we can pass your seat to someone else`
+      : input.free
+        ? 'Can’t make it? Cancel it below so we can pass your seat to someone else'
+        : checkoutPolicySummary.workshop,
     policyUrl: `${origin}${POLICY_PATH}#${POLICY_ANCHORS.workshops}`,
-    googleCalendarUrl: googleCalendarUrl(calendarEvent),
-    // Every session goes in the calendar file; Google's link can only hold one, so it stays the first.
+    // Google's link can hold one date only: a class on several dates gets the attached invite (every date) instead (I21).
+    ...(sessions.length === 1 ? { googleCalendarUrl: googleCalendarUrl(calendarEvent) } : {}),
+    // Every session goes in the calendar file.
     icsContent: buildIcs(sessions.map((s) => ({ ...calendarEvent, startIso: s.startIso, endIso: s.endIso })), { uidPrefix: 'class' }),
     bookingRef: input.bookingId,
     ...(sessions.length > 1 ? { sessionLines: sessions.map((s) => formatDayAndSpan(s.startIso, s.endIso)) } : {}),

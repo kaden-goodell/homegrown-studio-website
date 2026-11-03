@@ -509,32 +509,45 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
   const phone = siteConfig.contactPhone
   const summary = (input.summary ?? '').replace(/\r/g, '').trim()
 
+  const several = !!input.sessionLines && input.sessionLines.length > 1
+  // Final review I9: friends get a guest-safe note to pass on (when, where, the sign link), never this
+  // email itself, which carries the booking's cancel link and receipt.
+  const friendNote = [
+    `${input.workshopName}, ${several ? input.sessionLines!.join(', ') : `${input.whenLabel} (${input.timeRange})`}`,
+    `Hometown Studio, ${address}`,
+    `Please sign the participation agreement before you come ${input.waiverUrl}`,
+  ]
+  // A class on several dates: Google's link holds one date only, so the attached invite (every date) is the way (I21).
+  const calendarText = input.googleCalendarUrl
+    ? [``, `Add it to Google Calendar ${input.googleCalendarUrl}`, `On Apple or Outlook, open the attached invite (.ics).`]
+    : input.icsContent ? [``, `Open the attached invite (.ics) to add every date to your calendar.`] : []
+
   const text = [
     `You're booked, ${input.firstName}! ${input.workshopName}`,
     ``,
     ...(input.lead ? [input.lead, ``] : []),
-    `When: ${input.whenLabel} (${input.timeRange})`,
-    ...(input.sessionLines && input.sessionLines.length > 1 ? [`Your dates:`, ...input.sessionLines.map((l) => `  ${l}`)] : []),
-    `Where: Hometown Studio, ${address}`,
-    `Directions: ${input.directionsUrl}`,
-    `Seats: ${seatWord}, ${paidWords}`,
+    `${input.whenLabel} (${input.timeRange})`,
+    ...(several ? [`Your dates`, ...input.sessionLines!.map((l) => `  ${l}`)] : []),
+    `Hometown Studio, ${address}`,
+    `Get directions ${input.directionsUrl}`,
+    `${seatWord}, ${paidWords}`,
     ...(input.pickLines?.length
-      ? [``, `Your picks:`, ...input.pickLines.map((l) => `  ${l}`), ...(input.picksFinalLine ? [input.picksFinalLine] : [])]
+      ? [``, `Your picks`, ...input.pickLines.map((l) => `  ${l}`), ...(input.picksFinalLine ? [input.picksFinalLine] : [])]
       : []),
     ``,
     ...(summary ? [summary, ``] : []),
-    `Before you come: sign the participation agreement. It takes a minute.`,
+    `Please sign the participation agreement before you come. It takes a minute.`,
     input.waiverUrl,
-    ...(input.seats > 1 ? [`Coming with friends? Forward them that link so they can sign before they arrive.`] : []),
+    ...(input.seats > 1 ? [``, `Coming with friends? Send them this so they can sign too.`, ...friendNote.map((l) => `  ${l}`)] : []),
     ``,
     `Everything you need is here when you arrive. Just bring yourself.`,
-    ...(input.googleCalendarUrl ? [``, `Add to Google Calendar: ${input.googleCalendarUrl}`, `Apple/Outlook: open the attached invite (.ics)`] : []),
+    ...calendarText,
     ``,
     `Know someone who'd love this? ${input.workshopUrl}`,
     ``,
-    `Changing plans: ${input.policyLine}. Details: ${input.policyUrl}`,
-    ...(input.cancelUrl ? [`Can’t make it? Cancel or change your booking here ${input.cancelUrl}`] : []),
-    ...(input.receiptUrl ? [``, `Receipt: ${input.receiptUrl}`] : []),
+    `Changing plans? ${input.policyLine}. Full policy ${input.policyUrl}`,
+    ...(input.cancelUrl ? [`Can’t make it? Cancel your booking here ${input.cancelUrl}`] : []),
+    ...(input.receiptUrl ? [``, `View your receipt ${input.receiptUrl}`] : []),
     ``,
     `Questions? Text us at ${phone}.`,
     `Hometown Studio · ${address}`,
@@ -566,13 +579,14 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
   <div style="margin:18px 0 6px;">
     <a href="${esc(input.waiverUrl)}" style="display:inline-block;padding:11px 22px;background:#7a4a2e;color:#ffffff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">Sign the participation agreement &rarr;</a>
   </div>
-  <p style="${MUTED}">It takes a minute, and saves you doing it at the door.${input.seats > 1 ? ' Coming with friends? Forward them this email so they can sign too.' : ''}</p>
+  <p style="${MUTED}">It takes a minute, and saves you doing it at the door.</p>
+  ${input.seats > 1 ? `<div style="margin:12px 0 6px;padding:10px 12px;border:1px solid #e8e0d8;border-radius:8px;"><p style="${P}margin:0 0 4px;font-weight:600;">Coming with friends? Send them this so they can sign too.</p>${friendNote.slice(0, 2).map((l) => `<p style="${MUTED}margin:0 0 2px;">${esc(l)}</p>`).join('')}<p style="${MUTED}margin:0;">Please sign the participation agreement before you come <a href="${esc(input.waiverUrl)}" style="color:#7a4a2e;word-break:break-all;">${esc(input.waiverUrl)}</a></p></div>` : ''}
   <p style="${P}margin-top:12px;">Everything you need is here when you arrive. Just bring yourself.</p>
-  ${input.googleCalendarUrl ? `<p style="margin:14px 0 2px;"><a href="${esc(input.googleCalendarUrl)}" style="${LINK}">Add to Google Calendar</a></p><p style="${MUTED}">Apple or Outlook: open the attached invite.</p>` : ''}
+  ${input.googleCalendarUrl ? `<p style="margin:14px 0 2px;"><a href="${esc(input.googleCalendarUrl)}" style="${LINK}">Add to Google Calendar</a></p><p style="${MUTED}">On Apple or Outlook, open the attached invite.</p>` : input.icsContent ? `<p style="${MUTED}margin-top:14px;">Open the attached invite to add every date to your calendar.</p>` : ''}
   <p style="margin:14px 0 2px;font-size:14px;color:#3d3630;">Know someone who&rsquo;d love this?</p>
   <p style="margin:0 0 6px;"><a href="${esc(input.workshopUrl)}" style="color:#7a4a2e;font-size:13px;word-break:break-all;">${esc(input.workshopUrl)}</a></p>
-  <p style="${MUTED}margin-top:14px;"><strong>Changing plans:</strong> ${esc(input.policyLine)}. <a href="${esc(input.policyUrl)}" style="color:#7a4a2e;">Full policy</a></p>
-  ${input.cancelUrl ? `<p style="margin:4px 0 0;"><a href="${esc(input.cancelUrl)}" style="${LINK}font-size:13px;">Can&rsquo;t make it? Cancel or change your booking</a></p>` : ''}
+  <p style="${MUTED}margin-top:14px;"><strong>Changing plans?</strong> ${esc(input.policyLine)}. <a href="${esc(input.policyUrl)}" style="color:#7a4a2e;">Full policy</a></p>
+  ${input.cancelUrl ? `<p style="margin:4px 0 0;"><a href="${esc(input.cancelUrl)}" style="${LINK}font-size:13px;">Can&rsquo;t make it? Cancel your booking</a></p>` : ''}
   ${input.receiptUrl ? `<p style="margin:10px 0 0;"><a href="${esc(input.receiptUrl)}" style="color:#7a4a2e;font-size:13px;">View your receipt</a></p>` : ''}
   <p style="${P}margin-top:14px;">Questions? Text us at <strong>${esc(phone)}</strong>.</p>
   <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
