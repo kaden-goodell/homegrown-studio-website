@@ -13,7 +13,8 @@ import { earlyBirdRunning } from '@lib/classes/early-bird'
 import { shortDay } from '@lib/classes/chicago-day'
 import { notOnRegister, posPricesStale, registerSetupStale, type RegisterInForce } from '@lib/classes/pos-plan'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import type { ClassBooking, PersonToTell } from '@lib/classes/admin-actions'
+import type { BookedPerson, ClassBooking, PersonToTell } from '@lib/classes/admin-actions'
+import type { SeriesMember, SeriesSkip } from '@lib/classes/series'
 import { contentChanges, sameDetails } from '@lib/classes/content-diff'
 import type { ClassContent, ClassStatus, LibraryClass, ScheduledClass } from '@lib/classes/types'
 import { formatMoney } from '@lib/money'
@@ -69,6 +70,10 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
   const [tab, setTab] = useState<ClassTab>(staffOpen ? 'staff' : firstTab)
   const [staffKey, setStaffKey] = useState<string | null>(staffOpen?.staffKey ?? null)
   const [library, setLibrary] = useState<ClassContent | null>(null)
+  /** I3: the dates still to come in this class's Repeat series (this one too); null = not loaded or not in one. */
+  const [series, setSeries] = useState<SeriesMember[] | null>(null)
+  /** What the last "All dates in this series" did: changed dates, skipped ones and why, and who to tell after a cancel. */
+  const [seriesNote, setSeriesNote] = useState<{ text: string; skipped: SeriesSkip[]; cancelled?: { id: string; date: string; booked: BookedPerson[] }[] } | null>(null)
   const body = useRef<HTMLDivElement>(null)
 
   // Details
@@ -143,6 +148,14 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
   }
   useEffect(() => { loadLibrary() }, [libraryId])
 
+  const seriesId = data?.cls.seriesId ?? null
+  async function loadSeries() {
+    if (!seriesId) { setSeries(null); return }
+    const r = await api<{ members: SeriesMember[] }>(`${CLASSES}?series=${encodeURIComponent(id)}`)
+    setSeries(r.ok && r.data ? r.data.members : null)
+  }
+  useEffect(() => { loadSeries() }, [seriesId, id])
+
   if (loadError) return <SheetFrame title="Class"><Failed message={loadError} onRetry={() => load()} /></SheetFrame>
   if (!data || !f) return <SheetFrame title="Class"><Skeleton rows={4} label="Loading the class" /></SheetFrame>
 
@@ -197,7 +210,64 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     fill(saved, { details: true })
     if (alsoLibrary || r.data.libraryAdded) loadLibrary()
     bump()
-    toast(r.warning ?? (r.data.libraryAdded ? 'Saved. It’s in your library now.' : alsoLibrary ? 'Saved. The library has it too.' : 'Saved.'))
+    toast(r.warning ?? `${r.data.libraryAdded ? 'Saved. It’s in your library now.' : alsoLibrary ? 'Saved. The library has it too.' : 'Saved.'}${keptPriceNote(b.content)}`)
+  }
+
+  /** M5: a price change on a class with bookings says booked people keep what they paid. */
+  function keptPriceNote(next: ClassContent): string {
+    const priced = JSON.stringify(next.prices) !== JSON.stringify(cls.content.prices) || JSON.stringify(next.earlyBird ?? null) !== JSON.stringify(cls.content.earlyBird ?? null)
+    return priced && bookings.some(isComingBooking) ? ' People already booked keep the price they paid.' : ''
+  }
+
+  /** I3: Details › All dates in this series. This class saves as Save does; the others take the same changes where they safely can. */
+  async function saveSeries() {
+    if (!f) return
+    setStaleNote('')
+    setSeriesNote(null)
+    const b = build(f)
+    if (!b.ok) { setErrors(b.errors); requestAnimationFrame(() => focusFirstError(body.current, b.errors)); return }
+    setErrors({})
+    setSaving(true)
+    setBusy('series')
+    const r = await api<{ class: ScheduledClass; series: { changed: string[]; skipped: SeriesSkip[] } }>(CLASSES, { action: 'update-series', id: cls.id, expectedUpdatedAt: cls.updatedAt, content: b.content })
+    setSaving(false)
+    setBusy('')
+    if (!r.ok || !r.data) {
+      if (r.status === 409 && r.extra.stale === true) { await keepAfterStale(true); return }
+      const k = fieldOf(r.extra.field, f)
+      setErrors({ [k]: r.error ?? DIDNT_SAVE } as Errors)
+      return
+    }
+    const saved = r.data.class
+    setData((d) => (d ? { ...d, cls: saved } : d))
+    fill(saved, { details: true })
+    bump()
+    loadSeries()
+    const { changed, skipped } = r.data.series
+    const text = `Saved on this date${changed.length ? ` and ${changed.length} more (${changed.join(', ')})` : ''}.${keptPriceNote(b.content)}`
+    setSeriesNote({ text, skipped })
+    toast(r.warning ?? (skipped.length ? `${text} Some dates weren’t changed: see below.` : text))
+  }
+
+  /** I3: Dates › the seats for all dates in this series. */
+  async function saveSeriesCapacity(capacity: number) {
+    setDatesError('')
+    setSeriesNote(null)
+    setSaving(true)
+    setBusy('series')
+    const r = await api<{ class: ScheduledClass; series: { changed: string[]; skipped: SeriesSkip[] } }>(CLASSES, { action: 'series-capacity', id: cls.id, capacity })
+    setSaving(false)
+    setBusy('')
+    if (!r.ok || !r.data) { setDatesError(r.error ?? DIDNT_SAVE); return }
+    const saved = r.data.class
+    setData((d) => (d ? { ...d, cls: saved } : d))
+    fill(saved, { dates: true })
+    bump()
+    loadSeries()
+    const { changed, skipped } = r.data.series
+    const text = `${capacity} seats on ${changed.length === 1 ? '1 date' : `${changed.length} dates`}.`
+    setSeriesNote({ text, skipped })
+    toast(skipped.length ? `${text} Some dates weren’t changed: see below.` : text)
   }
 
   /**
@@ -285,6 +355,23 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     toast(r.warning ?? 'Cancelled. Here is who to contact.')
   }
 
+  /** I3: Cancel › All dates in this series (never refunds; who to contact on each date is listed after). */
+  async function doCancelSeries() {
+    setSaving(true)
+    setCancelError('')
+    const r = await api<{ class: ScheduledClass; series: { cancelled: { id: string; date: string; booked: BookedPerson[] }[]; skipped: SeriesSkip[] } }>(CLASSES, { action: 'cancel-series', id: cls.id })
+    setSaving(false)
+    if (!r.ok || !r.data) { setCancelError(r.error ?? DIDNT_SAVE); return }
+    setAsking(false)
+    await load({ refill: true })
+    bump()
+    loadSeries()
+    setTab('bookings')
+    const { cancelled: done, skipped } = r.data.series
+    setSeriesNote({ text: `Cancelled ${done.length === 1 ? '1 date' : `${done.length} dates`}. Nobody was refunded. Let the people below know.`, skipped, cancelled: done.filter((x) => x.id !== cls.id) })
+    toast(r.warning ?? `Cancelled ${done.length === 1 ? '1 date' : `all ${done.length} dates`}. Here is who to contact.`)
+  }
+
   // ── Refund everyone (after a cancel; never on its own) ────────────────
   const canRefund = (b: ClassBooking) => b.paidHere && b.refundableCents > 0 && !b.waiting && b.state !== 'held'
   const toRefund = bookings.filter(canRefund)
@@ -311,6 +398,17 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     bump()
   }
   const failed = Object.entries(results).filter(([, v]) => !v.ok).map(([k]) => bookings.find((b) => b.bookingId === k)).filter((b): b is ClassBooking => !!b && canRefund(b))
+
+  // ── Series (I3) ───────────────────────────────────────────────────────
+  const others = (series ?? []).filter((m) => m.id !== cls.id)
+  /** Only the seats changed on Dates (same days and times, one number for every date): that number, else null. */
+  const seatsOnly = (() => {
+    if (!datesDirty || status !== cls.status || rows.length !== baseRows.length) return null
+    const same = rows.every((r, i) => r.id === baseRows[i].id && r.day === baseRows[i].day && r.start === baseRows[i].start && r.end === baseRows[i].end)
+    const caps = new Set(rows.map((r) => r.capacity.trim()))
+    const n = Number([...caps][0])
+    return same && caps.size === 1 && Number.isInteger(n) && n > 0 ? n : null
+  })()
 
   // ── Footer per tab ────────────────────────────────────────────────────
   let footer: ReactNode = null
@@ -358,7 +456,16 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     footer = (
       <div className="adm-stack">
         {line && <p className="adm-footline" role="alert">{line}</p>}
-        {detailsDirty && differsFromLibrary
+        {detailsDirty && others.length > 0
+          ? (
+            <>
+              <button type="button" className="adm-btn is-pri" disabled={saving} onClick={() => saveDetails(false)}>{busy === 'only' ? 'Saving…' : 'Just this date'}</button>
+              <button type="button" className="adm-btn is-ghost" disabled={saving} onClick={saveSeries}>{busy === 'series' ? 'Saving…' : 'All dates in this series'}</button>
+              <span className="adm-small adm-muted">{`This class was repeated: ${others.length} other ${others.length === 1 ? 'date is' : 'dates are'} still to come. All dates in this series changes them too. People already booked keep what they paid.`}</span>
+              {differsFromLibrary && <button type="button" className="adm-btn is-ghost" disabled={saving} onClick={() => saveDetails(true)}>{busy === 'both' ? 'Saving…' : 'This class and the library'}</button>}
+            </>
+          )
+          : detailsDirty && differsFromLibrary
           ? (
             <>
               <button type="button" className="adm-btn is-pri" disabled={saving} onClick={() => saveDetails(false)}>{busy === 'only' ? 'Saving…' : 'Only this class'}</button>
@@ -381,7 +488,15 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
           </div>
         </div>
       )
-      : <button type="button" className="adm-btn is-pri" disabled={!datesDirty || saving} onClick={() => saveDates()}>{saving ? 'Saving…' : 'Save dates'}</button>
+      : seatsOnly !== null && others.length > 0
+        ? (
+          <div className="adm-stack">
+            <button type="button" className="adm-btn is-pri" disabled={saving} onClick={() => saveDates()}>{busy === 'dates' ? 'Saving…' : 'Just this date'}</button>
+            <button type="button" className="adm-btn is-ghost" disabled={saving} onClick={() => saveSeriesCapacity(seatsOnly)}>{busy === 'series' ? 'Saving…' : 'All dates in this series'}</button>
+            <span className="adm-small adm-muted">{`${seatsOnly} seats. All dates in this series gives the ${others.length} other ${others.length === 1 ? 'date' : 'dates'} still to come ${seatsOnly} seats too (never fewer than are booked).`}</span>
+          </div>
+        )
+        : <button type="button" className="adm-btn is-pri" disabled={!datesDirty || saving} onClick={() => saveDates()}>{saving ? 'Saving…' : 'Save dates'}</button>
   }
 
   const phones = [...new Set(live.map((b) => b.customer?.phone ?? '').filter(Boolean))]
@@ -413,12 +528,32 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
             </>
           )
           : <span>Nobody is booked.</span>}
+        {others.length > 0 && (
+          <>
+            <span>{`It was repeated: ${others.length} other ${others.length === 1 ? 'date is' : 'dates are'} still to come.`}</span>
+            <ul className="adm-plain" aria-label="Other dates in this series">
+              {others.map((m) => (
+                <li key={m.id}>{`${dayAndSpan(m.startIso, m.endIso)}: ${m.booked.length ? m.booked.map((p) => [p.name || 'No name', `${p.seats} ${p.seats === 1 ? 'seat' : 'seats'}`, p.phone].filter(Boolean).join(' · ')).join('; ') : 'nobody booked'}`}</li>
+              ))}
+            </ul>
+          </>
+        )}
         <span className="adm-small">It comes off the website and the register.</span>
         {cancelError && <p role="alert" className="adm-error">{cancelError}</p>}
-        <div className="adm-two">
-          <button type="button" className="adm-btn is-ghost" onClick={() => { setAsking(false); setCancelError('') }}>Keep it</button>
-          <button type="button" className="adm-btn is-danger" disabled={saving} onClick={doCancel}>Cancel class</button>
-        </div>
+        {others.length > 0
+          ? (
+            <div className="adm-stack">
+              <button type="button" className="adm-btn is-danger" disabled={saving} onClick={doCancel}>Just this date</button>
+              <button type="button" className="adm-btn is-danger" disabled={saving} onClick={doCancelSeries}>All dates in this series</button>
+              <button type="button" className="adm-btn is-ghost" onClick={() => { setAsking(false); setCancelError('') }}>Keep it</button>
+            </div>
+          )
+          : (
+            <div className="adm-two">
+              <button type="button" className="adm-btn is-ghost" onClick={() => { setAsking(false); setCancelError('') }}>Keep it</button>
+              <button type="button" className="adm-btn is-danger" disabled={saving} onClick={doCancel}>Cancel class</button>
+            </div>
+          )}
       </div>
     )
     : <button type="button" className="adm-btn is-danger adm-cancelbtn" onClick={() => setAsking(true)}>Cancel this class</button>
@@ -428,6 +563,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
       <div ref={body}>
         <Seg label="Show" value={tab} options={TABS} onChange={(t) => { setTab(t); setTexting(false) }} />
         <RegisterPanel cls={cls} register={data.register} onFixed={(saved) => { setData((d) => (d ? { ...d, cls: saved } : d)); bump() }} />
+        {seriesNote && <SeriesNote note={seriesNote} onClose={() => setSeriesNote(null)} />}
 
         {tab === 'bookings' && (
           <section aria-label="Bookings">
@@ -571,6 +707,27 @@ function ClassStaff({ cls, staffKey, onPick }: { cls: ScheduledClass; staffKey: 
       <p className="adm-small adm-muted adm-gap-top">{dayAndSpan(chosen.startIso, chosen.endIso)}</p>
       <StaffRow key={chosen.id} eventKey={keyOf(chosen.id)} startIso={chosen.startIso} days={days} />
     </section>
+  )
+}
+
+/** What "All dates in this series" did: which dates changed, which didn't and why, and after a cancel who to tell on each date. */
+function SeriesNote({ note, onClose }: { note: { text: string; skipped: SeriesSkip[]; cancelled?: { id: string; date: string; booked: BookedPerson[] }[] }; onClose: () => void }) {
+  return (
+    <div className={`adm-panel${note.skipped.length ? ' is-warn' : ''} adm-gap-top`} role="group" aria-label="All dates in this series">
+      <b>{note.text}</b>
+      {note.skipped.length > 0 && (
+        <ul className="adm-plain" aria-label="Dates not changed">
+          {note.skipped.map((x) => <li key={x.id}>{`${x.date}: ${x.reason}`}</li>)}
+        </ul>
+      )}
+      {(note.cancelled ?? []).filter((c) => c.booked.length).map((c) => (
+        <div key={c.id}>
+          <span className="adm-small">{c.date}</span>
+          <PeopleList people={c.booked.map((p) => ({ name: p.name, phone: p.phone, email: p.email, sessions: [] }))} label={`Booked on ${c.date}`} />
+        </div>
+      ))}
+      <button type="button" className="adm-quiet" onClick={onClose}>OK</button>
+    </div>
   )
 }
 

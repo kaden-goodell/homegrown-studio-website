@@ -417,6 +417,7 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
                 multi={rows.length > 1}
                 preview={preview}
                 error={repeatError}
+                earlyBirdUntil={f.ebOn && f.ebUntil ? f.ebUntil : undefined}
               />
             </DetailsFields>
             </fieldset>

@@ -113,7 +113,7 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'Change, move or reopen a class',
     points: [
       'Open the class (Calendar or Classes). The tabs: **Bookings**, **Details**, **Dates**.',
-      '**Details**: change anything, then **Save**. It asks **Only this class** or **This class and the library** (so next time starts from the new version too).',
+      '**Details**: change anything, then **Save**. It asks **Only this class** or **This class and the library** (so next time starts from the new version too). A class you repeated asks **Just this date** or **All dates in this series** instead.',
       '**Dates**: change a date or time, then **Save dates**. If people are booked it asks first: **Move and I’ll tell them**. Then it lists who to tell, with their numbers to tap, **Text everyone**, **Copy the numbers** and **Email everyone the new details** (each gets their confirmation again with the new time and a new calendar file that replaces the old one). Nothing is sent until you tap it.',
       '**Dates** tab › Status (under the dates): **Open** (people can book), **Closed** (on the website, sign-ups closed) or **Draft** (only you see it). Then **Save dates**.',
       '**Run it again on new dates** makes a new class from this one, a week on, for you to adjust.',
@@ -134,6 +134,7 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'Cancel a class',
     points: [
       'Open the class › **Cancel this class** (the red button at the bottom of the **Bookings** tab, or of **Details**) › it lists who’s booked › **Cancel class**. Sign-ups stop and the class comes off the website. It never refunds anyone on its own.',
+      'For a class you repeated every week, it also lists who’s booked on the other dates still to come, and asks **Just this date** or **All dates in this series**. Neither refunds anyone.',
       'Then it lists who to contact (**Text everyone**, **Copy the numbers**), and **Refund everyone…** if you want to give the money back: it shows each person and amount, then **Refund <N> people**.',
       'If some refunds don’t go through, **Try the ones that didn’t go through**.',
     ],

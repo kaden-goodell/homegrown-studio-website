@@ -302,3 +302,38 @@ describe('repeat', () => {
     expect(r.body.data.created.every((c: any) => c.class.libraryId === libraryId && c.class.libraryVersion === 1)).toBe(true)
   })
 })
+
+describe('a repeat is one series (final review I3)', () => {
+  const get = async (url: string) => {
+    const request = new Request(`https://x.test${url}`, { headers: { cookie: adminCookie().split(';')[0] } })
+    const res: Response = await classes.GET({ request, url: new URL(request.url) } as any)
+    return { status: res.status, body: await res.json() }
+  }
+
+  it('every date shares one series; All dates in this series changes the price on all of them; cancel all cancels them all', async () => {
+    const eb = { untilYmd: '2034-03-02', prices: { all: { person: 2500 } } }
+    const r = await post(classes, {
+      action: 'repeat', createKey: 'series-key-0001', status: 'open', content: content('Series Looms', { earlyBird: eb }),
+      sessions: [ses('2034-03-09', 18)], pattern: { every: 1, untilYmd: '2034-03-23' },
+    })
+    expect(r.status).toBe(200)
+    const made = r.body.data.created.map((c: any) => c.class)
+    expect(made).toHaveLength(3)
+    expect(new Set(made.map((c: any) => c.seriesId))).toEqual(new Set(['ser_series-key-0001']))
+    // M6: the early-bird ends 7 days before each date, not on the first date's day for all.
+    expect(made.map((c: any) => c.content.earlyBird?.untilYmd)).toEqual(['2034-03-02', '2034-03-09', '2034-03-16'])
+
+    const info = await get(`${URL_}?series=${made[1].id}`)
+    expect(info.body.data.members.map((m: any) => m.id)).toEqual(made.map((c: any) => c.id))
+
+    const first = (await getClass(made[0].id))!
+    const up = await post(classes, { action: 'update-series', id: first.id, expectedUpdatedAt: first.updatedAt, content: { ...first.content, prices: { all: { person: 3600 } } } })
+    expect(up.status).toBe(200)
+    expect(up.body.data.series.skipped).toEqual([])
+    for (const c of made) expect((await getClass(c.id))!.content.prices).toEqual({ all: { person: 3600 } })
+
+    const cx = await post(classes, { action: 'cancel-series', id: made[2].id })
+    expect(cx.status).toBe(200)
+    for (const c of made) expect((await getClass(c.id))!.status).toBe('cancelled')
+  })
+})

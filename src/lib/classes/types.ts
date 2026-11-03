@@ -65,6 +65,12 @@ export interface ScheduledClass {
   content: ClassContent      // the editable copy
   sessions: Session[]        // sorted by startIso
   status: ClassStatus
+  /**
+   * Final review I3: the weekly (or picked) dates one Repeat made share this
+   * id, so a change or a cancel can go to "All dates in this series". Absent
+   * on classes added one at a time (and on repeats made before this).
+   */
+  seriesId?: string | null
   /** POS item. variations key `${passId}:${ticketTypeId}` (seats) or `addon:${addOnId}` → variation id.
    *  imageUrl = the class image last uploaded to Square (re-uploaded only when it changes). */
   square: {

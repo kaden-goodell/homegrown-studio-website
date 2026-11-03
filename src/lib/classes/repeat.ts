@@ -8,7 +8,8 @@
  * ISO; shifting keeps the studio's local start and end, so a 6 PM class stays
  * 6 PM across a clock change (its UTC hour moves instead).
  */
-import type { Session } from './types'
+import { chicagoYmd } from './chicago-day'
+import type { EarlyBird, Session } from './types'
 import type { Result } from './validate'
 
 export type RepeatPattern = { every: 1 | 2; untilYmd: string } | { dates: string[] }
@@ -136,4 +137,17 @@ export function repeatDates(firstSessions: Session[], pattern: RepeatPattern, to
     for (let k = 0; k * step <= span; k++) offsets.push(k * step)
   }
   return { ok: true, value: offsets.map((o) => ({ ymd: addDaysYmd(first, o), sessions: shiftSessions(firstSessions, o) })).sort((a, b) => (a.ymd < b.ymd ? -1 : a.ymd > b.ymd ? 1 : 0)) }
+}
+
+/**
+ * The early-bird moved to the same number of days before another date (M6):
+ * ends 7 days before Nov 17 → ends 7 days before Dec 15. Null when that day
+ * has already passed (the regular price is all that date has left).
+ */
+export function shiftEarlyBird(eb: EarlyBird | null | undefined, fromStartIso: string, toStartIso: string, now = new Date()): EarlyBird | null {
+  if (!eb) return null
+  const from = chicagoYmd(new Date(fromStartIso)), to = chicagoYmd(new Date(toStartIso))
+  const days = Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000)
+  const until = addDaysYmd(eb.untilYmd, days)
+  return until < chicagoYmd(now) ? null : { ...eb, untilYmd: until }
 }

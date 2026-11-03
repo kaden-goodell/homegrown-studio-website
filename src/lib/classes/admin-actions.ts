@@ -31,7 +31,7 @@ import { cancelPathFor } from './self-cancel-token'
 import type { RegisterInForce } from './pos-plan'
 import { contentChanges } from './content-diff'
 import { chicagoYmd } from './chicago-day'
-import { readPattern, repeatDates } from './repeat'
+import { readPattern, repeatDates, shiftEarlyBird } from './repeat'
 import { dropEndedEarlyBird, dropUnchangedEndedEarlyBird } from './early-bird'
 import { bookingCap, describeRequest, isFreeBooking, remainingOn, sessionShare } from './refunds'
 import { isWaiting, listRefundRequests } from './refund-requests'
@@ -479,7 +479,7 @@ export async function linkClassToLibrary(body: { id?: unknown }, by: By = ADMIN_
  * saved first. A library failure never loses the class: it is added and the
  * reply warns.
  */
-export async function scheduleClass(body: { libraryId?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; createKey?: unknown }, by: By = ADMIN_BY, opts: { childKey?: string } = {}): Promise<Saved<{ class: ScheduledClass; replay?: true }>> {
+export async function scheduleClass(body: { libraryId?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; createKey?: unknown }, by: By = ADMIN_BY, opts: { childKey?: string; seriesId?: string } = {}): Promise<Saved<{ class: ScheduledClass; replay?: true }>> {
   // R35: the same Add sent again (a lost reply, a retry) finds what the first one made.
   const reserved = await reserveCreate(body.createKey, opts.childKey)
   if (reserved) {
@@ -539,7 +539,7 @@ export async function scheduleClass(body: { libraryId?: unknown; content?: unkno
 
   let created: ScheduledClass
   try {
-    created = await createClass({ ...(reserved ? { id: reserved.classId } : {}), content, sessions, ...(libraryId ? { libraryId } : {}), ...(libraryVersion !== undefined ? { libraryVersion } : {}), status, by })
+    created = await createClass({ ...(reserved ? { id: reserved.classId } : {}), ...(opts.seriesId ? { seriesId: opts.seriesId } : {}), content, sessions, ...(libraryId ? { libraryId } : {}), ...(libraryVersion !== undefined ? { libraryVersion } : {}), status, by })
   } catch (e) {
     if (e instanceof ClassExistsError) return finishCreate((await getClass(e.id))!, by)
     throw e
@@ -1091,6 +1091,10 @@ export async function repeatClass(body: {
   }
 
   const checks = new Map((await checkDates(wanted, await canShareOf({ libraryId, content }), now)).map((c) => [c.ymd, c]))
+  // I3: every date this repeat makes shares one series id, so later changes and cancels can go to all of them.
+  const seriesId = `ser_${body.createKey}`
+  // M6: an early-bird ends the same number of days before each date as it does before the first one.
+  const ebFirst = wanted[0]?.sessions[0]?.startIso
   const out: RepeatResult = { created: [], skipped: [], left: [], leftBecause: null, ...(libraryId ? { libraryId } : {}) }
   let slowest = 0
   for (let i = 0; i < wanted.length; i++) {
@@ -1103,10 +1107,13 @@ export async function repeatClass(body: {
     }
     const dateStarted = Date.now()
     try {
+      const own = content && typeof content === 'object' && (content as ClassContent).earlyBird && ebFirst
+        ? { ...(content as ClassContent), earlyBird: shiftEarlyBird((content as ClassContent).earlyBird, ebFirst, d.sessions[0].startIso, now) }
+        : content
       const r = await scheduleClass(
-        { libraryId, content, sessions: d.sessions, status, createKey: body.createKey, ...(body.alsoUpdateLibrary === true ? { alsoUpdateLibrary: true } : {}) },
+        { libraryId, content: own, sessions: d.sessions, status, createKey: body.createKey, ...(body.alsoUpdateLibrary === true ? { alsoUpdateLibrary: true } : {}) },
         by,
-        { childKey: d.ymd },
+        { childKey: d.ymd, seriesId },
       )
       slowest = Math.max(slowest, Date.now() - dateStarted)
       out.created.push({ ymd: d.ymd, class: r.data.class, ...(r.warning ? { warning: r.warning } : {}) })

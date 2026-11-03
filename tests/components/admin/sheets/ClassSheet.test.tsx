@@ -791,3 +791,52 @@ describe('class sheet › the early-bird and the register (stage 4)', () => {
     expect(within(row).getByText('Code GRANDOPENING')).toBeInTheDocument()
   })
 })
+
+describe('class sheet › a repeated class (final review I3)', () => {
+  const members = [
+    { id: 'cls_1', startIso: at('2031-03-12', '10:00'), endIso: at('2031-03-12', '11:30'), status: 'open', updatedAt: 'u1', booked: [] },
+    { id: 'cls_2', startIso: at('2031-03-19', '10:00'), endIso: at('2031-03-19', '11:30'), status: 'open', updatedAt: 'u2', booked: [{ name: 'Bo D', phone: '(256) 555-0111', email: 'bo@x.co', seats: 2 }] },
+  ]
+  function seriesServer(post: (b: any) => any) {
+    const the = { ...cls(), seriesId: 'ser_k' }
+    return vi.fn(async (url: string, init?: any) => {
+      const path = url.split('?')[0]
+      if (path === '/api/admin/classes/bookings.json') return ok({ data: { class: the, bookings: [], seatsTaken: {} } })
+      if (path === '/api/admin/classes/library.json') return ok({ data: { library: [], runs: {} } })
+      if (path === CLASSES && !init?.method) return ok({ data: { members } })
+      if (path === CLASSES && init?.method === 'POST') return post(JSON.parse(init.body))
+      throw new Error(`unexpected ${url}`)
+    })
+  }
+
+  it('Details: Just this date, or All dates in this series (which says what it did and what it skipped)', async () => {
+    const f = seriesServer((b) => ok({ data: { class: { ...cls(), seriesId: 'ser_k', content: b.content }, series: { changed: [], skipped: [{ id: 'cls_2', date: 'Wed Mar 19', reason: 'People are booked, so its kinds of seat weren’t changed. Change it on its own sheet.' }] } } }))
+    vi.stubGlobal('fetch', f)
+    renderSheet(<ClassSheet id="cls_1" tab="details" />)
+    await loaded()
+    fireEvent.change(await screen.findByLabelText('Price per seat ($)'), { target: { value: '35' } })
+    expect(await within(footer()).findByRole('button', { name: 'All dates in this series' })).toBeInTheDocument()
+    expect(within(footer()).getByRole('button', { name: 'Just this date' })).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'All dates in this series' }))
+    await waitFor(() => expect(posts(f, CLASSES)).toHaveLength(1))
+    expect(posts(f, CLASSES)[0].body).toMatchObject({ action: 'update-series', id: 'cls_1' })
+    const note = await screen.findByRole('group', { name: 'All dates in this series' })
+    expect(within(note).getByText(/Wed Mar 19: People are booked/)).toBeInTheDocument()
+  })
+
+  it('Cancel lists who is booked on each other date, then Just this date or All dates in this series', async () => {
+    const f = seriesServer((b) => ok({ data: { class: { ...cls(), seriesId: 'ser_k', status: 'cancelled' }, series: { cancelled: [{ id: 'cls_1', date: 'Wed Mar 12', booked: [] }, { id: 'cls_2', date: 'Wed Mar 19', booked: [{ bookingId: 'b', name: 'Bo D', email: 'bo@x.co', phone: '(256) 555-0111', seats: 2, paidCents: 0 }] }], skipped: [] } } }))
+    vi.stubGlobal('fetch', f)
+    renderSheet(<ClassSheet id="cls_1" tab="details" />)
+    await loaded()
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel this class' }))
+    const ask = screen.getByRole('group', { name: 'Cancel the class' })
+    expect(await within(ask).findByText(/Bo D · 2 seats · \(256\) 555-0111/)).toBeInTheDocument()
+    expect(within(ask).getByRole('button', { name: 'Just this date' })).toBeInTheDocument()
+    fireEvent.click(within(ask).getByRole('button', { name: 'All dates in this series' }))
+    await waitFor(() => expect(posts(f, CLASSES)).toHaveLength(1))
+    expect(posts(f, CLASSES)[0].body).toEqual({ action: 'cancel-series', id: 'cls_1' })
+    const note = await screen.findByRole('group', { name: 'All dates in this series' })
+    expect(within(note).getByRole('link', { name: '(256) 555-0111' })).toBeInTheDocument()
+  })
+})
