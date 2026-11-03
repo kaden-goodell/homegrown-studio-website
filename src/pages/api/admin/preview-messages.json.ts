@@ -13,7 +13,7 @@ const json = (status: number, body: unknown) =>
  * The sandbox end-to-end suite refuses to run unless `muted` is true.
  */
 export const GET: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const muted = messagesMuted()
   return json(200, { data: { muted, messages: muted ? await listMuted() : [] } })
 }

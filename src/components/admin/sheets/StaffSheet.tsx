@@ -36,7 +36,8 @@ type Week = 'this' | 'next' | 'pick'
 export function StaffSheet() {
   const { data } = useSheet()
   const toPasscode = !!data && typeof data === 'object' && (data as { passcode?: unknown }).passcode === true
-  const [part, setPart] = useState<Part>(toPasscode ? 'people' : 'board')
+  const toPeople = toPasscode || (!!data && typeof data === 'object' && (data as { part?: unknown }).part === 'people')
+  const [part, setPart] = useState<Part>(toPeople ? 'people' : 'board')
   const [linkOpen, setLinkOpen] = useState(false)
   const [mine, setMine] = useState<{ has: boolean } | null>(null)
   useEffect(() => {

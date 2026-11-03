@@ -18,7 +18,7 @@ const UNREADABLE = 'To decide couldn’t be loaded. Try again.'
  * Owners only.
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   try {
     const id = url.searchParams.get('id')
     if (id) {
@@ -45,9 +45,9 @@ export const GET: APIRoute = async ({ request, url }) => {
  * same saved refund goes to Square again (never a second refund).
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => null)
-  const by = adminActor(request)
+  const by = await adminActor(request)
   try {
     if (body?.action === 'names') {
       const names = Array.isArray(body.names) ? body.names.filter((n: any) => typeof n?.lineId === 'string' && typeof n?.name === 'string') : []

@@ -14,6 +14,7 @@ import { countUnstaffed, HOME_STAFF_DAYS } from './staffing/useUnstaffed'
 import { HomeStaffing } from './staffing/HomeStaffing'
 import { HomePasscodeAlert } from './staffing/HomePasscodeAlert'
 import { HomeBookingPaused } from './sheets/OnlineBookingSheet'
+import { HomeHealthAlert } from './HomeHealth'
 import { tagLookup, useBoard } from './staffing/api'
 import { dayStartIso } from './classes/dates'
 
@@ -122,6 +123,7 @@ export default function Home({ who, onOpen, onInbox }: {
         </button>
       </div>
       <HomeBookingPaused onOpen={onOpen} />
+      <HomeHealthAlert onOpen={onOpen} />
       <HomePasscodeAlert onOpen={onOpen} />
       <HomeStaffing onOpen={onOpen} />
     </div>

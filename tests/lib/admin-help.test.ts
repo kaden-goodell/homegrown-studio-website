@@ -110,7 +110,7 @@ describe('More › Help needs nobody else', () => {
   it('never says to tell or ask Kaden, nor sends her to the hosting dashboard, scripts, code or Claude', () => {
     for (const t of allText()) {
       expect(t, t).not.toMatch(/tell Kaden|ask Kaden|Kaden/i)
-      expect(t, t).not.toMatch(/netlify|\bscripts?\b|npx|terminal|developer|github|\bcode edit|claude/i)
+      expect(t, t).not.toMatch(/netlify|\bscripts?\b|npx|terminal|developer(?!\.squareup\.com)|github|\bcode edit|claude/i)
     }
   })
 

@@ -40,7 +40,7 @@ function allowed(request: Request): boolean {
  */
 export const POST: APIRoute = async ({ request, url }) => {
   const job = allowed(request)
-  const owner = !job && adminAuthorized(request)
+  const owner = !job && (await adminAuthorized(request))
   if (!job && !owner) return json({ error: 'Not allowed' }, 403)
   const force = owner && (url ?? new URL(request.url)).searchParams.get('force') === '1'
   const now = new Date()

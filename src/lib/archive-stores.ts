@@ -35,7 +35,11 @@
  * (Square's tax numbers for ended months, kept so /admin › Reports needn't
  * ask again; "Ask Square again" rebuilds them), and `craft-save-keys`
  * (which craft save already landed, so a retry says Saved; a day's worth
- * of no record value). `staff-people` keeps its `import-failures` counter next to the
+ * of no record value), `admin-access` (the /admin passcode's salted hash, its marker,
+ * recovery-link tokens and the wrong-passcode count), `outbound-keys` (the
+ * Gmail app password and Quo key pasted in /admin, encrypted) and
+ * `outbound-health` (whether emails, texts and Square are working).
+ * `staff-people` keeps its `import-failures` counter next to the
  * list; it is harmless in an export.
  */
 export interface ArchiveStoreEntry {

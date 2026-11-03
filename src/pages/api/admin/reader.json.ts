@@ -11,7 +11,7 @@ const logger = createLogger('api:admin:reader')
 
 /** GET (owners): Charge on the reader on or off, linked to the Square app or not. */
 export const GET: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   return json(200, { data: await readerStatus() })
 }
 
@@ -20,11 +20,11 @@ export const GET: APIRoute = async ({ request }) => {
  * Compare-and-set (409 when someone else just changed it), audited.
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => null)
   if (!body || typeof body.enabled !== 'boolean') return json(400, { error: 'Say on or off.' })
   const expected = typeof body.expectedUpdatedAt === 'string' ? body.expectedUpdatedAt : null
-  const by = adminActor(request)
+  const by = await adminActor(request)
   try {
     const data = await saveReaderSetting(body.enabled, by, expected)
     await recordAudit({

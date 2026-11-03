@@ -7,7 +7,7 @@ export const prerender = false
 
 /** GET ?from=&to= (ISO): blocked time in that range (all when no range). Owners only. */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const fromRaw = url.searchParams.get('from'), toRaw = url.searchParams.get('to')
   const from = fromRaw ? toIso(fromRaw) : null, to = toRaw ? toIso(toRaw) : null
   if ((fromRaw || toRaw) && (!from || !to)) return json(400, { error: 'Pick a start and an end for the range.' })
@@ -18,9 +18,9 @@ export const GET: APIRoute = async ({ request, url }) => {
  * POST { action: 'add', startIso, endIso, reason, confirm? } → { blocked, clashes };
  * over a class or party it is a 409 with the clashes unless confirm is true. Or { action: 'remove', id }. */
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => ({}))
-  const by = adminActor(request)
+  const by = await adminActor(request)
   return reply(async () => {
     switch (body?.action) {
       case 'add': return { data: await blockTime(body, by) }

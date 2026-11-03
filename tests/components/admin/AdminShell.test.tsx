@@ -212,6 +212,23 @@ describe('sign in', () => {
     expect(await screen.findByText('That passcode isn’t right.')).toBeInTheDocument()
   })
 
+  it('M3: Forgot the passcode? emails the owners a link from the sign-in page (nothing to type), and says what happens', async () => {
+    const base = server({ signedOut: true })
+    const f = vi.fn(async (url: string, init?: any) => {
+      if (url === '/api/admin/recover.json') return ok({ data: { message: 'A link is on its way to every owner’s email on the staff list. It works once, for 15 minutes. Check spam if it isn’t there in a minute.' } })
+      return base(url, init)
+    })
+    vi.stubGlobal('fetch', f)
+    render(<AdminShell />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Forgot the passcode?' }))
+    const panel = screen.getByRole('group', { name: 'Forgot the passcode?' })
+    expect(panel).toHaveTextContent('We’ll email a link to every owner’s email in Staff › People (an owner added or changed in the last 3 days isn’t sent one). It works once, for 15 minutes')
+    fireEvent.click(within(panel).getByRole('button', { name: 'Email the owners a link' }))
+    expect(await within(panel).findByRole('status')).toHaveTextContent('A link is on its way to every owner’s email')
+    const sent = f.mock.calls.find((c) => c[0] === '/api/admin/recover.json')!
+    expect(JSON.parse(sent[1].body)).toEqual({ action: 'request' })
+  })
+
   it('signed in already but nobody picked yet: asks who once', async () => {
     localStorage.clear()
     vi.stubGlobal('fetch', server())
@@ -219,6 +236,40 @@ describe('sign in', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Catherine' }))
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(await screen.findByRole('heading', { name: 'Good morning, Catherine' })).toBeInTheDocument()
+  })
+
+  it('the picker offers the owners from the staff list (as sign-in last heard); someone no longer an owner is asked again', async () => {
+    localStorage.setItem('admin-owners', JSON.stringify(['Catherine', 'Dana']))
+    localStorage.setItem('admin-who', 'Kaden')
+    const base = server({ signedOut: true })
+    const f = vi.fn(async (url: string, init?: any) => {
+      if (url === '/api/admin/login.json' && init?.method === 'POST') { await base(url, init); return ok({ data: { ok: true, owners: ['Catherine', 'Dana', 'Lee'] } }) }
+      return base(url, init)
+    })
+    vi.stubGlobal('fetch', f)
+    render(<AdminShell />)
+    await screen.findByLabelText('Passcode')
+    // Kaden is not on the list this device last heard, so nobody is picked; Dana (added later) is offered.
+    expect(screen.queryByRole('button', { name: 'Kaden' })).toBeNull()
+    fireEvent.change(screen.getByLabelText('Passcode'), { target: { value: 'owner-secret' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Dana' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(await screen.findByRole('heading', { name: 'Good morning, Dana' })).toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem('admin-owners')!)).toEqual(['Catherine', 'Dana', 'Lee'])
+  })
+
+  it('signed in, but the owner this device remembers was taken off: asks who is using it, from the owners now', async () => {
+    localStorage.setItem('admin-who', 'Kaden')
+    const base = server()
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: any) => (url === '/api/admin/admin-access.json'
+      ? ok({ data: { owners: [{ id: 'TM4', name: 'Catherine' }, { id: 'stf_1', name: 'Dana' }] } })
+      : base(url, init))))
+    render(<AdminShell />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Dana' }))
+    expect(screen.queryByRole('button', { name: 'Kaden' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByRole('heading', { name: 'Good morning, Dana' })).toBeInTheDocument()
+    expect(localStorage.getItem('admin-who')).toBe('Dana')
   })
 
   it('a 401 from anything, later, goes back to sign-in', async () => {
@@ -672,6 +723,15 @@ describe('More', () => {
     expect(await within(dialog()).findByText('Nothing new to add')).toBeInTheDocument()
     expect(window.location.hash).toBe('#more-import')
     expect(posts(f, '/api/admin/classes/import-square.json')).toEqual([{ dryRun: true }])
+  })
+
+  it('Owners and alerts: Admin access, Notifications, and Email, texts and Square', async () => {
+    await signedIn()
+    tab('More')
+    const owners = await screen.findByRole('list', { name: 'Owners and alerts' })
+    expect(within(owners).getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Admin access', 'Notifications', 'Email, texts and Square'])
+    fireEvent.click(within(owners).getByRole('button', { name: /Admin access/ }))
+    expect(window.location.hash).toBe('#more-access')
   })
 
   it('lists the setup pages; Staff says what it holds; Promotions is live (codes, early-bird)', async () => {

@@ -12,10 +12,10 @@ export const prerender = false
  * Owners only. Reads Square, never writes to it, never schedules a class.
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => ({}))
   const dryRun = body?.dryRun !== false
-  const by = adminActor(request)
+  const by = await adminActor(request)
   return reply(async () => {
     const result = await importSquareClasses({ dryRun, by })
     if (!dryRun) {

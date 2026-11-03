@@ -19,19 +19,19 @@ export const WRONG_PASSCODE = 'That passcode isn’t right.'
  *   Every download (and every refused passcode) is audited. Read-only.
  */
 export const GET: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   return json(200, { data: { lastArchive: await lastWeeklyArchive() } })
 }
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => ({}))
   const everything = body?.everything === true
   if (!everything) {
     const refused = rangeRefusal({ from: body?.from, to: body?.to })
     if (refused) return json(400, { error: refused, field: 'range' })
   }
-  const by = adminActor(request)
+  const by = await adminActor(request)
   const ip = clientAddress ?? 'unknown'
   // Only wrong passcodes count toward the limit.
   if (rateLimitFull(`records-passcode:${ip}`, 5, 15 * 60_000)) return json(429, { error: 'Too many wrong tries. Wait a few minutes.' })

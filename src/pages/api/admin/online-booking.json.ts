@@ -32,7 +32,7 @@ function view(state: SwitchState) {
  *   source 'setup' = nothing saved here yet (the hosting settings are in force).
  */
 export const GET: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   try {
     return json(200, { data: view(await getSwitchStateStrict()) })
   } catch (e) {
@@ -49,9 +49,9 @@ export const GET: APIRoute = async ({ request }) => {
  * saved first → 409 with `current`. Audited.
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => null)
-  const by = adminActor(request)
+  const by = await adminActor(request)
   try {
     const input = validateSwitchInput(body)
     if (!('expectedUpdatedAt' in body) || (body.expectedUpdatedAt !== null && typeof body.expectedUpdatedAt !== 'string')) {

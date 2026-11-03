@@ -13,7 +13,7 @@ beforeEach(() => vi.clearAllMocks())
 describe('announceBooking', () => {
   it('texts the owner phones and emails both owners', async () => {
     await announceBooking(news)
-    expect(alertOwners).toHaveBeenCalledWith('New class booking: Meredith Black, 1 seat, Bedazzled Pumpkin Pails, Sun, Oct 18 · 1:00 PM. $27.25 paid. Pumpkin color: Lavender ×1.')
+    expect(alertOwners).toHaveBeenCalledWith('New class booking: Meredith Black, 1 seat, Bedazzled Pumpkin Pails, Sun, Oct 18 · 1:00 PM. $27.25 paid. Pumpkin color: Lavender ×1.', 'booking-alerts')
     expect(siteConfig.ownerEmails).toEqual(['kaden@ourhometownstudio.com', 'catherine@ourhometownstudio.com'])
     expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'kaden@ourhometownstudio.com, catherine@ourhometownstudio.com' }))
   })

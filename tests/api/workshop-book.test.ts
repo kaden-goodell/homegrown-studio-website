@@ -145,7 +145,7 @@ describe('POST /api/workshops/book.json', () => {
       expect((await res.json()).data).toMatchObject({ bookingId: 'clsbk_1', emailSent: true })
       expect(later).toHaveLength(1)
       // The text to the owners went out alongside the still-sending email.
-      expect(mockAlertOwners).toHaveBeenCalledWith(expect.stringMatching(/^New class booking: Ada Lovelace, 2 seats, /))
+      expect(mockAlertOwners).toHaveBeenCalledWith(expect.stringMatching(/^New class booking: Ada Lovelace, 2 seats, /), 'booking-alerts')
       sendEmail({ sent: true })
       await Promise.all(later)
       expect(mockAlertOwners.mock.calls.filter((c) => !String(c[0]).startsWith('New '))).toEqual([])
@@ -354,9 +354,9 @@ describe('POST /api/workshops/book.json', () => {
       expect(mockRelease).not.toHaveBeenCalled()
     })
 
-    it('texts the owners that someone booked (both phones are in OWNER_ALERT_NUMBERS)', async () => {
+    it('texts the owners that someone booked (the Notifications row for booking alerts)', async () => {
       await POST(ctx(body()))
-      expect(mockAlertOwners).toHaveBeenCalledWith(expect.stringMatching(/^New class booking: Ada Lovelace, 2 seats, /))
+      expect(mockAlertOwners).toHaveBeenCalledWith(expect.stringMatching(/^New class booking: Ada Lovelace, 2 seats, /), 'booking-alerts')
     })
 
     it('charges under a key made from the attempt ID, the same on every retry', async () => {

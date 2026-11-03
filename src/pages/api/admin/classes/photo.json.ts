@@ -27,7 +27,7 @@ const TYPES: Record<string, (b: Buffer) => boolean> = {
 }
 
 export const POST: APIRoute = async ({ request, url }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const form = await request.formData().catch(() => null)
   const file = form?.get('file')
   if (!file || typeof file === 'string') return json(400, { error: 'Pick a photo to upload.' })
@@ -41,7 +41,7 @@ export const POST: APIRoute = async ({ request, url }) => {
   } catch {
     return json(503, { error: "The photo couldn't be saved. Try again." })
   }
-  await recordAudit({ by: { ...adminActor(request), role: 'owner' }, action: 'class-photo-upload', target: { kind: 'class-photo', id }, details: { bytes: bytes.length, type } })
+  await recordAudit({ by: { ...(await adminActor(request)), role: 'owner' }, action: 'class-photo-upload', target: { kind: 'class-photo', id }, details: { bytes: bytes.length, type } })
   return json(200, { data: { url: `${url.origin}/api/admin/classes/photo.json?id=${id}` } })
 }
 

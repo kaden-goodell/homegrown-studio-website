@@ -29,7 +29,7 @@ function monthRefusal(month: unknown): string | null {
  *   report list again ("Send it again"); audited.
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const params = (url ?? new URL(request.url)).searchParams
   const month = params.get('month')
   const refused = monthRefusal(month)
@@ -56,14 +56,14 @@ export const GET: APIRoute = async ({ request, url }) => {
 }
 
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => ({}))
   if (body?.action !== 'send') return json(400, { error: 'That didn’t work. Try again.' })
   const month = body?.month
   const refused = monthRefusal(month)
   if (refused) return json(400, { error: refused })
   if (rateLimited(`tax-report-send:${month}`, 5, 10 * 60_000)) return json(429, { error: 'It was just sent a few times. Check the inbox, or wait ten minutes.' })
-  const recipients = taxReportRecipients()
+  const recipients = await taxReportRecipients()
   const to = recipients.join(', ')
   let report
   try {
@@ -74,7 +74,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
   const email = renderTaxReport(month, report.summary, { partial: report.partial, classesCategoryMissing: report.classesCategoryMissing })
   const { sent } = await sendEmail({ to, ...email }).catch(() => ({ sent: false }))
-  const by = adminActor(request)
+  const by = await adminActor(request)
   await recordAudit({ by: { ...by, role: 'owner' }, action: 'tax-report-send', target: { kind: 'tax-report', id: month, label: email.subject }, details: { to, sent } })
   if (!sent) return json(502, { error: 'The email didn’t go. Download it instead, or try again later.' })
   const at = new Date().toISOString()

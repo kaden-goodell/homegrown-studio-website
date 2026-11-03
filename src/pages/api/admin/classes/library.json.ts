@@ -9,7 +9,7 @@ export const prerender = false
  * ran or next runs, and its latest class's times). Owners only.
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   return reply(async () => {
     const [library, runs] = await Promise.all([libraryList(url.searchParams.get('archived') === '1'), libraryRuns()])
     return { data: { library, runs } }
@@ -21,9 +21,9 @@ export const GET: APIRoute = async ({ request, url }) => {
  * { action: 'restore', id, version }; { action: 'archive', id, archived? }.
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => ({}))
-  const by = adminActor(request)
+  const by = await adminActor(request)
   return reply(async () => {
     switch (body?.action) {
       case 'save': {

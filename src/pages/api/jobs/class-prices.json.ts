@@ -36,7 +36,7 @@ function allowed(request: Request): boolean {
  * to /admin can run it now.
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!allowed(request) && !adminAuthorized(request)) return json({ error: 'Not allowed' }, 403)
+  if (!allowed(request) && !(await adminAuthorized(request))) return json({ error: 'Not allowed' }, 403)
   try {
     const data = await followCurrentPricesOnPos(new Date())
     if (data.updated.length || data.failed.length) logger.info('Class POS prices run', data)

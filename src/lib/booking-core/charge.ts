@@ -7,7 +7,7 @@
  * Server only.
  */
 import { providers } from '@config/providers'
-import { siteConfig } from '@config/site.config'
+import { emailsFor } from '@lib/notify-settings'
 import { attemptKey, chargeOutcomeOf, squareErrorCodes, type AttemptStep } from '@lib/checkout-attempt'
 import { sendEmail } from '@lib/email'
 import type { Payment } from '@providers/interfaces/payment'
@@ -62,7 +62,7 @@ export async function tellOwnersOfDrift(subject: string, ref: string, quoteCents
   const note = hint ? `${base.endsWith('.') ? base : `${base}.`} ${hint}` : base
   try {
     // The reference and hint can carry a customer-typed name: escaped in the HTML, plain in the text.
-    await sendEmail({ to: siteConfig.ownerEmails.join(', '), subject, text: note, html: `<p>${esc(note)}</p>` })
+    await sendEmail({ to: await emailsFor('warnings-email'), subject, text: note, html: `<p>${esc(note)}</p>` })
   } catch {
     /* the email is a courtesy; the booking goes on */
   }

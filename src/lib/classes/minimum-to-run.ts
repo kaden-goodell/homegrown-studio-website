@@ -16,7 +16,7 @@
  * the owner picked; its day and time are read back in studio time.
  */
 import { makeKvStore } from '@lib/blob-store'
-import { siteConfig } from '@config/site.config'
+import { emailsFor } from '@lib/notify-settings'
 import { sendEmail } from '@lib/email'
 import { alertOwners } from '@lib/owner-alert'
 import { addDays } from '@lib/kit-dates'
@@ -106,7 +106,7 @@ export async function runMinimumToRunAlerts(now: Date): Promise<MinimumRun> {
     const body = [line, '', 'Decide on /admin whether it runs. Nothing has been cancelled.']
     const [text, email] = await Promise.all([
       alertOwners(`${line}. Decide on /admin. Nothing has been cancelled.`).then((r) => r.sent > 0).catch(() => false),
-      sendEmail({ to: siteConfig.ownerEmails.join(', '), subject: line, text: body.join('\n'), html: body.filter(Boolean).map((l) => `<p>${esc(l)}</p>`).join('') })
+      sendEmail({ to: await emailsFor('warnings-email'), subject: line, text: body.join('\n'), html: body.filter(Boolean).map((l) => `<p>${esc(l)}</p>`).join('') })
         .then((r) => r.sent)
         .catch(() => false),
     ])

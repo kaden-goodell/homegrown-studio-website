@@ -1,12 +1,12 @@
 /**
- * "Someone just booked" — a text to every owner phone (OWNER_ALERT_NUMBERS)
- * and an email to every owner address (siteConfig.ownerEmails), for each paid
+ * "Someone just booked" — a text and an email to the owners picked in /admin ›
+ * More › Notifications (the site setup until then), for each paid
  * class seat and party. Kaden, 11 Oct 2026: bookings must reach Catherine too,
  * not only whoever Square happens to notify.
  *
  * Never throws: a booking is never failed by its announcement.
  */
-import { siteConfig } from '@config/site.config'
+import { emailsFor } from '@lib/notify-settings'
 import { alertOwners } from '@lib/owner-alert'
 import { sendEmail } from '@lib/email'
 import { formatMoney } from '@lib/money'
@@ -47,9 +47,9 @@ async function announce(b: BookingNews): Promise<void> {
   const line = bookingNewsText(b)
   const contact = [b.email, b.phone].filter(Boolean).join(' · ')
   await Promise.allSettled([
-    (async () => alertOwners(line))(),
+    (async () => alertOwners(line, 'booking-alerts'))(),
     (async () => sendEmail({
-      to: siteConfig.ownerEmails.join(', '),
+      to: await emailsFor('booking-alerts'),
       subject: `New ${b.kind} booking — ${b.who}, ${b.when}`,
       text: `${line}\n\n${contact}`,
       html: `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;color:#2b2420;line-height:1.5;">

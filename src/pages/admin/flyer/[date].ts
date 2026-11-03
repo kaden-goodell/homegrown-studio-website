@@ -25,7 +25,7 @@ function plain(status: number, title: string, text: string): Response {
  * its announcement, else its name). Replaces running scripts/make-day-flyer.ts.
  */
 export const GET: APIRoute = async ({ request, params }) => {
-  if (!adminAuthorized(request)) return new Response(null, { status: 302, headers: { Location: '/admin', 'Cache-Control': 'no-store' } })
+  if (!(await adminAuthorized(request))) return new Response(null, { status: 302, headers: { Location: '/admin', 'Cache-Control': 'no-store' } })
   const date = String(params.date ?? '')
   if (!YMD.test(date)) return plain(404, 'No flyer for that date', 'That isn’t a date the site knows.')
   let days

@@ -21,7 +21,7 @@ const logger = createLogger('api:staff-passcode')
  *   out of /staff. Someone else changed it first → 409. Audited (never the passcode).
  */
 export const GET: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   try {
     const [status, failedToday] = await Promise.all([passcodeStatus(), failedSignInsToday()])
     return json(200, { data: { ...status, readOnly: !!classWritesRefusal(), failedToday, manyFailed: failedToday >= MANY_FAILED_SIGNINS } })
@@ -32,10 +32,10 @@ export const GET: APIRoute = async ({ request }) => {
 }
 
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => null)
   if (!body || typeof body !== 'object') return json(400, { error: "We couldn't read that. Try again." })
-  const by = adminActor(request)
+  const by = await adminActor(request)
   try {
     const passcode = cleanPasscode(body.passcode, body.again)
     const expected = typeof body.expectedUpdatedAt === 'string' ? body.expectedUpdatedAt : null

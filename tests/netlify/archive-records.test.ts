@@ -145,3 +145,48 @@ describe('netlify/functions/archive-records', () => {
     expect(mockCreateTransport).not.toHaveBeenCalled()
   })
 })
+
+describe('who gets the archive (G5)', () => {
+  const staff = JSON.stringify({ people: [
+    { id: 'TM1', givenName: 'Kaden', role: 'owner', active: true, email: 'kaden@example.com', phone: null },
+    { id: 'TM4', givenName: 'Catherine', role: 'owner', active: true, email: 'cat@example.com', phone: null },
+    { id: 'TM2', givenName: 'Jess', role: 'crew', active: true, email: 'jess@example.com', phone: null },
+  ] })
+  const notify = (rows: Record<string, string[]>) => JSON.stringify({ v: 1, rows, updatedAt: '2026-11-02T15:00:00Z', by: { id: 'owner-catherine', name: 'Catherine' }, history: [] })
+  const load = async () => { vi.resetModules(); return (await import('../../netlify/functions/archive-records')).archiveTo }
+
+  it('the owners picked in More › Notifications, by their staff list email', async () => {
+    const archiveTo = await load()
+    const read = async (store: string) => (store === 'notify-settings' ? notify({ archive: ['TM4'] }) : staff)
+    expect(await archiveTo(read)).toBe('cat@example.com')
+  })
+  it('M1: an owner made (or whose email changed) under 24 hours ago doesn’t get it yet; the others do', async () => {
+    const archiveTo = await load()
+    const fresh = JSON.stringify({ people: [
+      { id: 'TM1', givenName: 'Kaden', role: 'owner', active: true, email: 'kaden@example.com', phone: null },
+      { id: 'TM9', givenName: 'Dana', role: 'owner', active: true, email: 'thief@example.com', phone: null, contactSince: new Date(Date.now() - 3600_000).toISOString() },
+      { id: 'TM8', givenName: 'Bea', role: 'owner', active: true, email: 'bea@example.com', phone: null, contactSince: new Date(Date.now() - 25 * 3600_000).toISOString() },
+    ] })
+    expect(await archiveTo(async (store: string) => (store === 'notify-settings' ? notify({}) : fresh))).toBe('kaden@example.com, bea@example.com')
+    // Only the new one picked: the site setup gets it until the day is up.
+    delete process.env.ARCHIVE_TO
+    expect(await archiveTo(async (store: string) => (store === 'notify-settings' ? notify({ archive: ['TM9'] }) : fresh))).toBe('kaden@ourhometownstudio.com, catherine@ourhometownstudio.com')
+  })
+  it('a row never set goes to every owner (never crew)', async () => {
+    const archiveTo = await load()
+    expect(await archiveTo(async (store: string) => (store === 'notify-settings' ? notify({}) : staff))).toBe('kaden@example.com, cat@example.com')
+  })
+  it('nothing saved there: ARCHIVE_TO; with no ARCHIVE_TO, both owners (never one mailbox)', async () => {
+    const archiveTo = await load()
+    expect(await archiveTo(async () => null)).toBe('kaden@example.com')
+    delete process.env.ARCHIVE_TO
+    expect(await archiveTo(async () => null)).toBe('kaden@ourhometownstudio.com, catherine@ourhometownstudio.com')
+    expect(await archiveTo(async () => { throw new Error('blobs down') })).toBe('kaden@ourhometownstudio.com, catherine@ourhometownstudio.com')
+  })
+  it('the function emails whoever that is', async () => {
+    mockGet.mockImplementation(async (key: string) => (key === 'settings' ? notify({ archive: ['TM1', 'TM4'] }) : key === 'people' ? staff : null))
+    const run = await loadFn()
+    expect((await run()).status).toBe(200)
+    expect((sendMailImpl as any).mock.calls[0][0].to).toBe('kaden@example.com, cat@example.com')
+  })
+})

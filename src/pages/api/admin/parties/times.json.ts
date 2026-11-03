@@ -20,7 +20,7 @@ const MAX_DAYS = 62
  * (unless a package is named). Fails closed: 503 when anything can't be read.
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const from = url.searchParams.get('from') ?? ''
   const to = url.searchParams.get('to') ?? from
   if (!YMD.test(from) || !YMD.test(to) || to < from) return json(400, { error: 'Pick the days.' })

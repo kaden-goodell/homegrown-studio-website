@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro'
 import { rateLimited } from '@lib/rate-limit'
 import { createLogger } from '@lib/logger'
 import { staffIdStatus } from '@lib/staff-directory'
+import { ownerStatus } from '@lib/admin-owners'
 import { findFeed, touchFeed } from '@lib/staffing/feed-store'
 import { feedFor, studioLocation } from '@lib/staffing/feed-events'
 import { buildFeed } from '@lib/staffing/ics-feed'
@@ -37,6 +38,14 @@ export const GET: APIRoute = async ({ params, request, clientAddress }) => {
       const status = record.staffId ? await staffIdStatus(record.staffId) : 'no'
       if (status === 'unknown') {
         logger.warn('Calendar link: the team list could not be read')
+        return tryAgain()
+      }
+      if (status === 'no') record = null
+    } else if (record && record.scope === 'all') {
+      // An owner's whole-studio link stops when they are no longer an owner (More › Staff › People).
+      const status = record.owner ? await ownerStatus(record.owner) : 'no'
+      if (status === 'unknown') {
+        logger.warn('Calendar link: the owner list could not be read')
         return tryAgain()
       }
       if (status === 'no') record = null

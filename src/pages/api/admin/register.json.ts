@@ -55,7 +55,7 @@ async function choices(): Promise<{ choices: RegisterChoices | null; choicesErro
  * upcoming classes not on the register yet.
  */
 export const GET: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   let setup
   try {
     setup = await getRegisterSetupView()
@@ -80,9 +80,9 @@ export const GET: APIRoute = async ({ request }) => {
  *     the sheet gave up on this run (M-e: 5 failures each), left for their own Update the register.
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => null)
-  const by = adminActor(request)
+  const by = await adminActor(request)
   try {
     if (body?.action === 'create-tax' || body?.action === 'create-category') {
       const tax = body.action === 'create-tax'

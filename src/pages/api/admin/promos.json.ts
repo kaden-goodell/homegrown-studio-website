@@ -110,7 +110,7 @@ async function viewOf(code: string, now = new Date()): Promise<PromoView | null>
  * it (and uses given back). Owners only.
  */
 export const GET: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const now = new Date()
   const asked = new URL(request.url).searchParams.get('code')
   try {
@@ -141,9 +141,9 @@ export const GET: APIRoute = async ({ request }) => {
  * Every change is in the audit log (promo.save, promo.active, promo.give-back).
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => null)
-  const by = adminActor(request)
+  const by = await adminActor(request)
   const audit = (action: string, code: string, details: Record<string, string | number | boolean | null>) =>
     recordAudit({ by: { ...by, role: 'owner' }, action, target: { kind: 'promo', id: code, label: `Code ${code}` }, details })
   const expected = body?.expectedUpdatedAt

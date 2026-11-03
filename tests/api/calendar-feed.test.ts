@@ -38,6 +38,8 @@ vi.mock('@lib/staff-directory', () => ({
   staffIdForOwner: vi.fn(async (owner: string) => src.team.find((p) => p.role === 'owner' && p.givenName === owner)?.id ?? null),
   FALLBACK_IDS: new Set(['kaden', 'catherine']),
   staffListReadable: vi.fn(async () => !src.teamDown),
+  // The owners (admin-owners.ts): the team's Owners from the saved list.
+  savedOwners: vi.fn(async () => { if (src.teamDown) throw new Error('down'); return src.team.filter((p) => p.role === 'owner' && p.active) }),
 }))
 
 import * as feedRoute from '@pages/api/calendar/feed/[token].ics'

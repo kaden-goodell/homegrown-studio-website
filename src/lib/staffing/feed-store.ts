@@ -17,7 +17,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { makeKvStore } from '@lib/blob-store'
 import { assertClassWritesAllowed, classWritesRefusal } from '@lib/classes/test-site-guard'
 import { createLogger } from '@lib/logger'
-import { ownerOf, type Owner } from '@lib/admin-who'
+import { ownerNameOf, type Owner } from '@lib/admin-who'
 import type { By } from '@lib/staff-auth'
 import { BUSY_SAVING, StaffingError } from './errors'
 import { storableStaffId } from './ids'
@@ -47,7 +47,8 @@ function whoKey(who: Who): string {
     if (!storableStaffId(who.staffId)) throw new StaffingError(403, "That person isn't on the staff list.")
     return `who-staff-${who.staffId}`
   }
-  const owner = ownerOf(who.owner)
+  // The caller has checked they are an owner now (admin-owners); here only that the name is a safe key.
+  const owner = ownerNameOf(who.owner)
   if (!owner) throw new StaffingError(403, 'Only an owner can have the whole-studio calendar.')
   return `who-owner-${owner}`
 }
@@ -100,7 +101,7 @@ export async function makeFeed(who: Who, by: By): Promise<{ token: string; recor
     hash,
     scope: 'staffId' in who ? 'mine' : 'all',
     staffId: 'staffId' in who ? who.staffId : null,
-    owner: 'owner' in who ? ownerOf(who.owner) : null,
+    owner: 'owner' in who ? ownerNameOf(who.owner) : null,
     createdAt: new Date().toISOString(),
     by,
     lastUsedAt: null,

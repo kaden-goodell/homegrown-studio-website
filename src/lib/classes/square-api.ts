@@ -4,6 +4,7 @@
  * Server only: reads the access token from the site config.
  */
 import { siteConfig, type SquareConfig } from '@config/site.config'
+import { noteSquareAnswer, squareAnswerKind } from '@lib/outbound-health'
 
 export const SQUARE_API_VERSION = '2026-01-22'
 
@@ -41,11 +42,13 @@ export async function squareFetch<T = any>(path: string, init: RequestInit = {})
   const text = await res.text()
   let body: any = null
   try { body = text ? JSON.parse(text) : null } catch { body = null }
+  // Home warns when Square refuses the site's key (G2); a missing permission on one endpoint doesn't count (H1).
+  await noteSquareAnswer(res.status, body)
   if (!res.ok) {
     const detail = body?.errors?.[0]?.detail || body?.errors?.[0]?.code
     const err = new Error(detail ? `Square said: ${detail}` : `Square answered with an error (${res.status}).`)
     // `errors`: Square's codes (CARD_DECLINED, NOT_FOUND…), for callers that sort a refusal (stage 4 saved cards).
-    throw Object.assign(err, { status: res.status, errors: Array.isArray(body?.errors) ? body.errors : [] })
+    throw Object.assign(err, { status: res.status, errors: Array.isArray(body?.errors) ? body.errors : [], keyRefused: squareAnswerKind(res.status, body) === 'refused' })
   }
   return body as T
 }

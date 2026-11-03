@@ -52,7 +52,7 @@ async function waiversFor(kind: EventKind, id: string): Promise<SignedWaiver[] |
  * blocked time, closed) as plain lines. Owners only. Read only.
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const day = url.searchParams.get('day') ?? ''
   if (!DAY_RE.test(day)) return json(400, { error: 'Pick a day.' })
   try {

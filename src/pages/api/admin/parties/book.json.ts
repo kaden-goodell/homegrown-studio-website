@@ -33,10 +33,10 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
  * from the attempt id, so a retry never charges twice.
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => null)
   if (!body || typeof body !== 'object') return json(400, { error: 'Nothing to book.' })
-  const by = adminActor(request)
+  const by = await adminActor(request)
 
   const pay = body.pay
   if (!pay || (pay.kind !== 'link' && pay.kind !== 'card')) return json(400, { error: 'Pick how they pay.', field: 'pay' })

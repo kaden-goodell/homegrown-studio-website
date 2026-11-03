@@ -1,18 +1,45 @@
 import type { APIRoute } from 'astro'
 import { rateLimited } from '@lib/rate-limit'
-import { adminConfigured, checkAdminPasscode, adminCookie, clearAdminCookie } from '@lib/admin-auth'
+import { adminDoor, checkAdminPasscode, adminSignInCookie, clearAdminCookie } from '@lib/admin-auth'
+import { ownerNames } from '@lib/admin-owners'
+import { ADMIN_PASSCODE_BUCKET, ADMIN_PASSCODE_MAX_TRIES, ADMIN_PASSCODE_WINDOW_MS, TOO_MANY_TRIES } from '@lib/admin-passcode'
+import { adminSlowdown, noteAdminFailedSignIn } from '@lib/admin-signin-failures'
 
 export const prerender = false
 const json = (status: number, body: unknown, cookie?: string) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(cookie ? { 'Set-Cookie': cookie } : {}) } })
 
-/** POST { passcode } signs the owner in to /admin; DELETE signs out. */
+export const LOGIN_MESSAGES = {
+  wrong: 'That passcode isn’t right.',
+  /** L3: nothing is trimmed, so say so when the typed one has a space at an end. */
+  wrongSpaces: 'That passcode isn’t right. It starts or ends with a space: check for that.',
+  unreadable: 'We couldn’t check the passcode just now. Try again in a minute.',
+  damaged: 'The saved admin passcode is damaged, so it can’t be checked. Tap “Forgot the passcode?” to set a new one by email.',
+  none: 'There’s no admin passcode yet. Tap “Forgot the passcode?” to set one by email.',
+} as const
+
+/**
+ * POST { passcode } signs the owner in to /admin → { ok, owners } (the
+ * owners' names, for "Who's using this?"). DELETE signs out.
+ * 503 { error, door: 'unreadable' | 'damaged' | 'none' } when nobody can sign
+ * in, with a different message for each (M3). Wrong passcodes count per
+ * address (memory) and for the whole site (store, L1); a day with very many
+ * slows passcode tries down site-wide, never stops them (N2).
+ */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
-  if (rateLimited(`admin-login:${clientAddress}`, 8, 15 * 60_000)) return json(429, { error: 'Too many tries. Wait a few minutes.' })
-  if (!adminConfigured()) return json(503, { error: 'The admin passcode isn’t set up yet.' })
+  if (rateLimited(ADMIN_PASSCODE_BUCKET(clientAddress), ADMIN_PASSCODE_MAX_TRIES, ADMIN_PASSCODE_WINDOW_MS)) return json(429, { error: TOO_MANY_TRIES })
+  const slow = await adminSlowdown()
+  if (slow) return json(429, { ...slow, slowed: true })
+  const door = await adminDoor()
+  if (door !== 'open') return json(503, { error: LOGIN_MESSAGES[door], door })
   const body = await request.json().catch(() => ({}))
-  if (!checkAdminPasscode(String(body?.passcode ?? ''))) return json(401, { error: 'That passcode isn’t right.' })
-  return json(200, { data: { ok: true } }, adminCookie())
+  const typed = typeof body?.passcode === 'string' ? body.passcode : ''
+  if (!(await checkAdminPasscode(typed))) {
+    await noteAdminFailedSignIn()
+    return json(401, { error: typed && typed !== typed.trim() ? LOGIN_MESSAGES.wrongSpaces : LOGIN_MESSAGES.wrong })
+  }
+  const cookie = await adminSignInCookie()
+  return json(200, { data: { ok: true, owners: await ownerNames() } }, cookie)
 }
 
 export const DELETE: APIRoute = async () => json(200, { data: { ok: true } }, clearAdminCookie())

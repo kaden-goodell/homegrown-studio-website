@@ -5,6 +5,8 @@
  * promise an email it can't verify was attempted.
  */
 import { messagesMuted, outboundEnv, previewEmail, recordMuted } from '@lib/preview-outbound'
+import { emailFailureKind, noteFailure, noteOk } from '@lib/outbound-health'
+import { storedKey, storedKeyKnown } from '@lib/outbound-keys'
 import { createLogger } from '@lib/logger'
 import { siteConfig } from '@config/site.config'
 import { partyInviteMailto, partyInviteIcsUrl } from '@lib/party-share'
@@ -16,19 +18,52 @@ import { keepConfirmationCopy, type BookingKind, type ConfirmationMessage } from
 
 const logger = createLogger('email')
 
-function creds() {
+function envCreds(): { user: string; pass: string } {
   const env: any = (typeof import.meta !== 'undefined' && (import.meta as any).env) || {}
-  const user = env.GMAIL_USER || process.env.GMAIL_USER || ''
-  const pass = env.GMAIL_APP_PASSWORD || process.env.GMAIL_APP_PASSWORD || ''
-  return user && pass ? { user, pass } : null
+  return { user: env.GMAIL_USER || process.env.GMAIL_USER || '', pass: env.GMAIL_APP_PASSWORD || process.env.GMAIL_APP_PASSWORD || '' }
 }
 
-/** Whether email can be sent at all. The scheduled sign-up emails check this before promising anything. */
-export function emailReady(): boolean {
-  return creds() !== null
+/** The sending account stays the site setup's GMAIL_USER; the password pasted in /admin wins over the setup's (outbound-keys.ts). */
+async function creds(): Promise<{ user: string; pass: string } | null> {
+  const { user, pass } = envCreds()
+  if (!user) return null
+  const stored = await storedKey('gmail')
+  const p = stored ?? pass
+  return p ? { user, pass: p } : null
 }
+
+/** The sending Google account (GMAIL_USER), '' when not set. Not a secret. */
+export function gmailUser(): string {
+  return envCreds().user
+}
+
+/**
+ * Whether email is set up (sync, for quick checks): the site setup's, or a
+ * password pasted in /admin that this server has already read.
+ * emailReadyNow() always reads the store.
+ */
+export function emailReady(): boolean {
+  const { user, pass } = envCreds()
+  return !!user && (!!pass || storedKeyKnown('gmail'))
+}
+
+/** Whether email can be sent at all, counting a password pasted in /admin. The scheduled sign-up emails check this before promising anything. */
+export async function emailReadyNow(): Promise<boolean> {
+  return (await creds()) !== null
+}
+
+/** A one-off Gmail connection (the "Test it" of a pasted password): never the shared one. */
+export async function gmailTransport(user: string, pass: string): Promise<any> {
+  const nm = await import('nodemailer')
+  return (nm.default ?? nm).createTransport({ host: 'smtp.gmail.com', port: 465, secure: true, auth: { user, pass } })
+}
+
+/** From = the public contact address (see sendEmail). */
+export const fromHeader = () => `"${siteConfig.email.fromName}" <${siteConfig.email.fromAddress}>`
 
 let _transport: any = null
+/** The password the shared connection was made with: a newly pasted one gets a fresh connection. */
+let _transportPass = ''
 
 export async function sendEmail(input: {
   to: string; subject: string; html: string; text: string
@@ -49,30 +84,33 @@ export async function sendEmail(input: {
   }
   // A preview with PREVIEW_MESSAGES=on emails Kaden only.
   input = previewEmail(input, outEnv)
-  const c = creds()
+  const c = await creds()
   if (!c) {
     logger.warn('Email not configured — skipping send', { subject: input.subject })
     return { sent: false }
   }
   try {
-    if (!_transport) {
-      const nm = await import('nodemailer')
-      _transport = (nm.default ?? nm).createTransport({
-        host: 'smtp.gmail.com', port: 465, secure: true,
-        auth: { user: c.user, pass: c.pass },
-      })
+    if (!_transport || _transportPass !== c.pass) {
+      _transport = await gmailTransport(c.user, c.pass)
+      _transportPass = c.pass
     }
     await _transport.sendMail({
       // From = the public contact address. Gmail honors it only if it's a verified
       // "Send mail as" alias of GMAIL_USER; otherwise Gmail rewrites From to GMAIL_USER.
-      from: `"${siteConfig.email.fromName}" <${siteConfig.email.fromAddress}>`,
+      from: fromHeader(),
       to: input.to, subject: input.subject, html: input.html, text: input.text,
       ...(input.replyTo ? { replyTo: input.replyTo } : {}),
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     })
+    await noteOk('email')
     return { sent: true }
   } catch (err) {
     logger.error('Email send failed', { error: err instanceof Error ? err.message : String(err) })
+    // Home warns when emails stop (G2); a new password needs a fresh connection, so drop this one.
+    _transport = null
+    // Only a refused login or Gmail being unreachable counts; one rejected recipient doesn't (H1).
+    const kind = emailFailureKind(err)
+    if (kind) await noteFailure('email', kind)
     return { sent: false }
   }
 }

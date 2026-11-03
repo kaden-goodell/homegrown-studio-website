@@ -20,6 +20,13 @@ const ROWS: [MorePage, string, string][] = [
   ['records', 'Records', 'Download waivers, check-ins and who did what'],
 ]
 
+/** Owner-only access and alerts (G2, G4, G5). */
+const OWNER_ROWS: [MorePage, string, string][] = [
+  ['access', 'Admin access', 'Who the owners are, and the /admin passcode'],
+  ['notify', 'Notifications', 'Who gets texts, warnings, the tax split and the records archive'],
+  ['connections', 'Email, texts and Square', 'Check they’re getting through, and what to do if not'],
+]
+
 /** More: the setup pages, reports, who's using this, and sign out. */
 export default function More({ onOpen, onSignOut }: { onOpen: (s: Sheet) => void; onSignOut: () => void }) {
   const { who } = useContext(WhoContext)
@@ -59,6 +66,16 @@ export default function More({ onOpen, onSignOut }: { onOpen: (s: Sheet) => void
             </li>
           )
         })}
+      </ul>
+      <ul className="adm-mlist" aria-label="Owners and alerts">
+        {OWNER_ROWS.map(([page, title, sub]) => (
+          <li key={page}>
+            <button type="button" className="adm-mrow" onClick={() => onOpen({ kind: 'more', page })}>
+              <span className="adm-rm"><b>{title}</b><small>{sub}</small></span>
+              <span className="adm-chev" aria-hidden="true">›</span>
+            </button>
+          </li>
+        ))}
       </ul>
       <ul className="adm-mlist" aria-label="Help">
         <li>

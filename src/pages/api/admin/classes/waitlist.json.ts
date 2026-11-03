@@ -34,7 +34,7 @@ async function view(cls: ScheduledClass) {
  * choices that fit (read only; asking never charges or changes anything).
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   try {
     const cls = await getClass(url.searchParams.get('id') ?? '')
     if (!cls) return json(404, { error: 'That class is gone. Reload the page.' })
@@ -57,20 +57,20 @@ export const GET: APIRoute = async ({ request, url }) => {
  * (the 10-minute sweep keeps trying too). Never charges or emails anyone.
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => null)
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   try {
     if (body?.action === 'remove') {
       const cls = await getClass(str(body.classId))
       if (!cls) return json(404, { error: 'That class is gone. Reload the page.' })
-      await removeFromWaitlist(cls.id, str(body.entryId), adminActor(request))
+      await removeFromWaitlist(cls.id, str(body.entryId), await adminActor(request))
       return json(200, { data: await view(cls) })
     }
     if (body?.action === 'run') {
       const cls = await getClass(str(body.classId))
       if (!cls) return json(404, { error: 'That class is gone. Reload the page.' })
-      const by = adminActor(request)
+      const by = await adminActor(request)
       const run = await runWaitlist(cls.id, { reason: 'owner', by, origin: new URL(request.url).origin })
       await recordAudit({ by: { ...by, role: 'owner' }, action: 'waitlist-run', target: { kind: 'class', id: cls.id, label: cls.content.name }, details: { added: run.added, declined: run.declined, stopped: run.stopped } })
       return json(200, { data: { ...(await view(cls)), run } })
@@ -81,7 +81,7 @@ export const POST: APIRoute = async ({ request }) => {
       const entry = (await getWaitlist(cls.id)).entries.find((e) => e.id === str(body.entryId))
       if (!entry) return json(404, { error: 'They aren’t on this waitlist any more. Reload the page.' })
       if (entry.state === 'waiting' || entry.state === 'charging') return json(409, { error: 'They’re still on the waitlist, so their card stays on file. Remove them first if they shouldn’t be.' })
-      const by = adminActor(request)
+      const by = await adminActor(request)
       const off = await cardOffAndNote(cls.id, entry)
       await recordAudit({ by: { ...by, role: 'owner' }, action: 'waitlist-card-off', target: { kind: 'class', id: cls.id, label: cls.content.name }, details: { entryId: entry.id, off } })
       if (!off) return json(502, { error: 'Square didn’t take the card off just now. Nothing was charged. Try again in a few minutes; it’s also retried every 10 minutes by itself.' })

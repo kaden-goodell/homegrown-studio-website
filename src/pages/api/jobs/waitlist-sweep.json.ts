@@ -36,7 +36,7 @@ function allowed(request: Request): boolean {
  * (an expired checkout hold). An owner signed in to /admin can run it now.
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!allowed(request) && !adminAuthorized(request)) return json({ error: 'Not allowed' }, 403)
+  if (!allowed(request) && !(await adminAuthorized(request))) return json({ error: 'Not allowed' }, 403)
   try {
     const data = await sweepWaitlists(new Date())
     if (data.classes) logger.info('Waitlist sweep', data)

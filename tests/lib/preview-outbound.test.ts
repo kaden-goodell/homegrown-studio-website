@@ -67,6 +67,15 @@ describe('the muted list', () => {
     expect(capped).toHaveLength(MUTED_KEEP)
     expect(capped[0].firstLine).toBe(`n${MUTED_KEEP + 2}`)
   })
+
+  it('N5: never keeps more than the first line, and a web address in it becomes [link]', async () => {
+    const body = 'Pay here: https://ourhometownstudio.com/party/pay/pty_1?k=secret-key-123 thanks\nhttps://ourhometownstudio.com/admin/recover?t=TOKENTOKEN'
+    const e = await recordMuted({ kind: 'text', to: '+12565550123', body })
+    expect(e.firstLine).toBe('Pay here: [link] thanks')
+    const stored = JSON.stringify(await listMuted())
+    expect(stored).not.toContain('secret-key-123')
+    expect(stored).not.toContain('TOKENTOKEN')
+  })
 })
 
 describe('the senders', () => {

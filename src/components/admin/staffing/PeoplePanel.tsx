@@ -23,6 +23,7 @@ import { DIDNT_SAVE, useToast } from '../shell/Toast'
 import { useRefresh } from '../shell/data'
 import { OWNER_FEED, PEOPLE, PASSCODE, phoneWords } from './api'
 import { ContactRow } from './StaffRow'
+import { OwnerRemovedPrompt } from '../sheets/OwnerSheets'
 
 export interface PersonView {
   id: string
@@ -62,6 +63,8 @@ export function PeoplePanel({ focusPasscode = false }: { focusPasscode?: boolean
   const [confirm, setConfirm] = useState<Confirm>(null)
   const [freshAsk, setFreshAsk] = useState(false)
   const [busy, setBusy] = useState('')
+  /** M2: an owner was just taken off; offer to change the admin passcode. */
+  const [ownerGone, setOwnerGone] = useState<string | null>(null)
   const live = useRef(true)
   useEffect(() => () => { live.current = false }, [])
   const [passDirty, setPassDirty] = useState(false)
@@ -99,6 +102,7 @@ export function PeoplePanel({ focusPasscode = false }: { focusPasscode?: boolean
     setBusy('')
     if (r.ok && r.data) {
       toast(editing === 'new' ? `${full(form)} is on the staff list.` : 'Saved.')
+      if (person && person.role === 'owner' && form.role !== 'owner') setOwnerGone(person.name)
       setEditing(null)
       bump()
       reload()
@@ -124,6 +128,7 @@ export function PeoplePanel({ focusPasscode = false }: { focusPasscode?: boolean
     if (!r.ok) { toast(r.error ?? DIDNT_SAVE); return }
     const done = active ? `${p.name} is working here again.` : `${p.name} is no longer on the staff list.`
     toast(r.warning ? `${done} ${r.warning}` : done)
+    if (!active && p.role === 'owner') setOwnerGone(p.name)
     bump()
     reload()
   }
@@ -200,6 +205,7 @@ export function PeoplePanel({ focusPasscode = false }: { focusPasscode?: boolean
 
   return frame(
     <>
+      {ownerGone && <OwnerRemovedPrompt name={ownerGone} onClose={() => setOwnerGone(null)} />}
       {readOnly
         ? <p className="adm-note">This is a test site, and it shares the live staff list. So nothing on the list can be changed here. Make changes on the live site.</p>
         : !saved && <p className="adm-note">This test site shows the team read only. Changes are made on the live site.</p>}
@@ -402,7 +408,7 @@ function PersonForm({ form, error, busy, title, onChange, onSave, onCancel }: {
         <label className="adm-fld"><span>Last name</span><input value={form.familyName} maxLength={40} autoComplete="off" aria-invalid={bad('familyName')} onChange={(e) => onChange({ ...form, familyName: e.target.value })} /></label>
       </div>
       <Seg label="Owner or crew" value={form.role} options={[['crew', 'Crew'], ['owner', 'Owner']]} onChange={(role) => onChange({ ...form, role })} />
-      <p className="adm-small adm-muted" style={{ margin: '0.25rem 0 0.75rem' }}>Pick Owner only for Catherine and Kaden. Everyone else is Crew.</p>
+      <p className="adm-small adm-muted" style={{ margin: '0.25rem 0 0.75rem' }}>Owners can use /admin and get the alerts picked for them in More › Notifications. Everyone else is Crew.</p>
       <label className="adm-fld"><span>Mobile phone (for shift texts)</span><input type="tel" inputMode="tel" value={form.phone} autoComplete="off" aria-invalid={bad('phone')} onChange={(e) => onChange({ ...form, phone: e.target.value })} /></label>
       <label className="adm-fld"><span>Email (for shift emails)</span><input type="email" inputMode="email" value={form.email} autoComplete="off" aria-invalid={bad('email')} onChange={(e) => onChange({ ...form, email: e.target.value })} /></label>
       {error && <p className="adm-error" role="alert">{error.text}</p>}

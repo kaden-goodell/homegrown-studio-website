@@ -53,7 +53,7 @@ export function taxFailureEmail(month: string, error: string): { subject: string
 /**
  * Run on the 1st by netlify/functions/tax-report.ts: last month's tax,
  * split into use tax and sales tax (src/lib/tax-report.ts), emailed to
- * the tax report list. Built the same way /admin › More › Reports builds it
+ * the owners picked in More › Notifications (both owners by default). Built the same way /admin › More › Reports builds it
  * (src/lib/tax-report-store.ts). A report that can't be built emails too, so
  * a missing email never quietly means "nothing to report". Read-only.
  */
@@ -61,7 +61,7 @@ export const POST: APIRoute = async ({ request }) => {
   if (!allowed(request)) return json({ error: 'Not allowed' }, 403)
   const body = await request.json().catch(() => ({}))
   const month = typeof body?.month === 'string' && /^\d{4}-\d{2}$/.test(body.month) ? body.month : previousMonth()
-  const to = taxReportRecipients().join(', ')
+  const to = (await taxReportRecipients()).join(', ')
   try {
     const built = await buildTaxMonth(month, { fresh: true })
     const report = renderTaxReport(month, built.summary, { partial: built.partial, classesCategoryMissing: built.classesCategoryMissing })

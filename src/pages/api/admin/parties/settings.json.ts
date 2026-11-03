@@ -40,7 +40,7 @@ async function remaining(now: Date): Promise<{ count: number; lastIso: string | 
  * Owners only.
  */
 export const GET: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   try {
     const now = new Date()
     const settings = await getPartySettings({ strict: true, fresh: true })
@@ -63,9 +63,9 @@ export const GET: APIRoute = async ({ request }) => {
  * Never writes Square (R38).
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => null)
-  const by = adminActor(request)
+  const by = await adminActor(request)
   const now = new Date()
   try {
     const refusal = partyWritesRefusal(request)

@@ -319,6 +319,80 @@ export const HELP_SECTIONS: HelpSection[] = [
       'Crew set when they can work and ask to work things on /staff › My shifts.',
     ],
   },
+  {
+    id: 'connections',
+    title: 'Emails, texts and Square',
+    intro: 'The website sends emails through the studio’s Google account, texts through Quo, and takes payments through Square. If one stops, Home says so.',
+    points: [
+      'More › **Email, texts and Square** shows whether each one is working, with **Send me a test email**, **Send me a test text** and **Check Square**. The test email and text go to your own email and mobile in More › Staff › People.',
+      'When one stops, Home shows a warning with the same buttons and **What to do**. The owners also hear the other way: a text when emails stop, an email when texts stop. That alert comes at most once every 12 hours for each one, so a service that keeps stopping and starting doesn’t fill your phone. The warning clears by itself as soon as one goes through.',
+      'Nothing booked is lost while one is down. Call or text anyone waiting on an email, and take payments on the Square app on the iPad if the website can’t.',
+    ],
+  },
+  {
+    id: 'email-broken',
+    title: 'If emails stop going out',
+    intro: 'Usually because the password of the Google account that sends them changed, or its 2-Step Verification was turned off. Then no confirmations, payment links, refund emails or morning emails go out.',
+    points: [
+      'First tap **Send me a test email**. If it arrives, it’s working again.',
+      'If not, make a new app password: sign in to the sending Google account on a computer › myaccount.google.com › Security › check 2-Step Verification is on › App passwords › create one called Website › copy the 16 letters.',
+      'Then put it in the website: More › **Email, texts and Square** › **Paste a new Gmail app password** › paste the 16 letters › **Test it** (it signs in to Google and sends a test email to your own email) › type the admin passcode you use now › **Save it**. It works at once, it’s never shown again, and every owner gets an email and a text saying it was changed.',
+      'A password pasted here wins over the one in the hosting settings. So if someone changes GMAIL_APP_PASSWORD in the hosting settings later, first tap **Use the hosting setting instead** under the pasted one, or the pasted one keeps being used.',
+      'Only if that screen says it can’t keep a password safely: sign in to the website’s hosting account on a computer (the login is on the studio’s accounts sheet) › Site configuration › Environment variables › GMAIL_APP_PASSWORD › Edit › paste it as the Production value › Save, then Deploys › Trigger deploy › Deploy site. Settings only count after that, and it takes about 3 minutes.',
+      'Tap **Send me a test email** again. Until it works, call or text customers who are waiting on an email.',
+    ],
+  },
+  {
+    id: 'texts-broken',
+    title: 'If texts stop going out',
+    intro: 'Texts go out from the studio number through Quo. They stop when the Quo key stops working or the Quo plan runs out.',
+    points: [
+      'First tap **Send me a test text**.',
+      'If not: open Quo on a computer (quo.com, signed in as the account owner) › check the plan and credits are paid › Settings › API › create a new key › copy it.',
+      'Then put it in the website: More › **Email, texts and Square** › **Paste a new Quo key** › paste it › **Test it** (it checks the key belongs to the studio’s number and sends a test text to your own mobile) › type the admin passcode you use now › **Save it**. It works at once, it’s never shown again, and every owner gets an email and a text saying it was changed.',
+      'A key pasted here wins over the one in the hosting settings. So if someone changes QUO_API_KEY in the hosting settings later, first tap **Use the hosting setting instead** under the pasted one, or the pasted one keeps being used.',
+      'Only if that screen says it can’t keep a key safely: sign in to the website’s hosting account on a computer (the login is on the studio’s accounts sheet) › Site configuration › Environment variables › QUO_API_KEY › Edit › paste it as the Production value › Save, then Deploys › Trigger deploy › Deploy site. Settings only count after that, and it takes about 3 minutes.',
+      'Tap **Send me a test text** again. Until it works, text customers from the studio phone yourself.',
+    ],
+  },
+  {
+    id: 'square-broken',
+    title: 'If Square refuses the website',
+    intro: 'The website uses one Square key to take payments, refund and read bookings. It doesn’t run out by itself. It stops only if someone replaced it, removed the studio’s app in Square, or the Square account owner changed.',
+    points: [
+      'First tap **Check Square**. Square sometimes has a bad few minutes; if it answers, all is well.',
+      'The Square key can’t be pasted in /admin, on purpose: whoever has it could send the studio’s payments somewhere else. It stays in the hosting settings.',
+      'If Square keeps refusing: sign in at developer.squareup.com on a computer as the Square account owner › Applications › the studio’s app › Credentials › Production › copy the access token. Only tap Replace if there’s no token to copy: it stops the old one at once.',
+      'Then put it in the website: sign in to the website’s hosting account on a computer (the login is on the studio’s accounts sheet) › Site configuration › Environment variables › SQUARE_ACCESS_TOKEN › Edit › paste it as the Production value › Save, then Deploys › Trigger deploy › Deploy site. Settings only count after that, and it takes about 3 minutes.',
+      'Tap **Check Square** again. Until it works, take payments on the Square app on the iPad and write bookings down.',
+    ],
+  },
+  {
+    id: 'admin-access',
+    title: 'Owners and the admin passcode',
+    points: [
+      'More › **Admin access** shows who the owners are and when the /admin passcode was last changed.',
+      'The owners are the people marked **Owner** in More › Staff › People. To add an owner, add them (or edit them) as Owner. To take someone off, edit them to **Crew** or tap **No longer working here**. **Change who’s an owner** opens that list. There’s always at least one owner. Each owner picks their name under “Who’s using this?”, and gets the alerts picked for them in More › **Notifications**.',
+      '**Change the admin passcode**: type the one you use now, then the new one twice (at least 8 letters or numbers, no space at the start or end, and not the staff passcode), then **Save new admin passcode**. Every other phone or iPad signed in to /admin is signed out. The one you’re on stays signed in. Change it when an owner leaves, a phone is lost, or someone else saw it, and write it somewhere safe. Every owner (you too) gets an email and a text saying it was changed.',
+      'Taking an owner off in Staff › People (made **Crew**, or **No longer working here**) asks **Change the admin passcode now?** right there, because their phone may still be signed in to /admin. **Change it now** shows the form; **Not now** leaves it.',
+      'When someone is made an owner, an owner is taken off, or an owner’s email or mobile changes, every owner gets an email and a text at the email and mobile they had before (the one taken off or changed too, and you, even if you made the change). It says it came from a signed-in /admin device and which name that device picked, since anyone holding a signed-in phone can pick any name. If you get one you didn’t expect, check Staff › People and **Notifications**, and change the admin passcode.',
+      'After 8 wrong passcodes from one place, /admin makes that place wait 15 minutes before trying again. After 20 wrong ones in a day from anywhere, the owners get a text and an email, and **Admin access** says so. After 50 in a day, every try has to wait a few seconds after the last wrong one (never more than 30 seconds), so sign-in slows down but never closes. The email link under **Forgot the passcode?** works too.',
+      'Forgot the passcode? On the /admin sign-in page tap **Forgot the passcode?** › **Email the owners a link**. A link goes to every owner’s email in Staff › People (an owner added, or whose email changed, in the last 3 days doesn’t get one). Asking again while that link still works sends nothing new: use the email that came. Open it on the phone or iPad you want to use, type a new passcode twice, **Save new admin passcode**. The link works once, for 15 minutes; every other phone or iPad is signed out, and every owner gets an email and a text saying it was reset. A link that ran out or was used says so: ask for a new one.',
+      'If nobody remembers the passcode and email isn’t working either (the last resort): whoever holds the website’s hosting login (it’s on the studio’s accounts sheet) sets the ADMIN_PASSCODE setting there to a new one of at least 8 letters or numbers and redeploys the site. Sign in with that one, then save a new one in **Admin access**. Every owner gets an email and a text when that happens. A setting that was in force at one of the last changes here never works again, even if it’s put back.',
+    ],
+  },
+  {
+    id: 'notifications',
+    title: 'Who gets texts, emails and reports',
+    points: [
+      'More › **Notifications** decides who gets each of these: texts when something needs you, “someone just booked”, the morning warnings and heads-up emails, the monthly tax split, and the weekly records archive.',
+      'Tick the owners for each one, then **Save notifications**. They go to each owner’s email and mobile in More › Staff › People (**Edit emails and mobiles** opens it).',
+      'Until you save here, everything goes where the site was set up to send it, and the screen shows where. The tax split and the records archive go to both owners.',
+      'Someone who stops being an owner stops getting them. If nobody picked for one is left, it goes to every owner. An owner with no mobile on file gets no texts; only when nobody picked has a mobile do the texts go to the phone numbers the site was set up with.',
+      'The weekly records archive waits a day before it goes to a new owner, or to an owner’s new email. The screen shows when it starts. Saving this screen sends the other owners an email and a text saying what changed.',
+      'Keep the weekly archive emails: they are the record of every waiver, check-in and incident.',
+    ],
+  },
   // ── Stage 4 (extras): promotions, repeating dates, Register setup, waitlists, customers' own cancels, the reader ──
   ...STAGE4_HELP_SECTIONS,
 ]
@@ -377,6 +451,14 @@ export const HELP_ROWS: HelpRow[] = [
   { id: 'staffing-unreadable', see: 'Couldn’t check staffing', where: HOME_STAFF, means: 'The staffing check couldn’t run just now.', tap: '**Try again**, or **Open Staff** to look yourself.', buttons: ['Try again', 'Open Staff'], comingWith: 'staffing' },
   { id: 'staff-passcode-guesses', see: 'Lots of wrong staff passcodes today', where: 'Home “Needs you”', means: 'Someone typed the wrong /staff passcode many times today. It may be someone guessing.', tap: '**Change the staff passcode**, then tell the crew the new one.', buttons: ['Change the staff passcode'], comingWith: 'staffing' },
   { id: 'staff-passcode-damaged', see: 'The staff passcode can’t be read', where: 'Home “Needs you”', means: 'Nobody can sign in to /staff until a new passcode is set.', tap: '**Set a new staff passcode**, type it twice, **Save new passcode**.', buttons: ['Set a new staff passcode', 'Save new passcode'], comingWith: 'staffing' },
+
+  // Emails, texts and Square (G2): shown on Home, not on the warnings list.
+  { id: 'email-failing', see: 'Emails aren’t going out', where: 'Home “Needs you”, a text to the owners', means: 'The website can’t send emails: customers aren’t getting confirmations, payment links or refund emails.', tap: '**Send me a test email**. If it doesn’t arrive, **What to do** has the steps (a new app password for the studio’s Google account, pasted in with **Paste a new Gmail app password**).', buttons: ['Send me a test email', 'What to do'] },
+  { id: 'texts-failing', see: 'Texts aren’t going out', where: 'Home “Needs you”, an email to the owners', means: 'The website can’t send texts (Quo).', tap: '**Send me a test text**. If it doesn’t arrive, **What to do** has the steps (a new Quo key pasted in with **Paste a new Quo key**, or pay the Quo plan).', buttons: ['Send me a test text', 'What to do'] },
+  { id: 'square-failing', see: 'Square is refusing the website', where: 'Home “Needs you”, a text and an email to the owners', means: 'Online bookings, payments and refunds can’t go through.', tap: '**Check Square**. If it still refuses, **What to do** has the steps (copy the key from Square into the website).', buttons: ['Check Square', 'What to do'] },
+  { id: 'admin-reset-notice', see: 'The /admin passcode was reset / changed, or The studio’s owners changed', where: 'An email and a text to the owners', means: 'Someone reset the admin passcode (with the emailed link, the hosting settings, or in Admin access), or changed who the owners are, their emails or mobiles, or who gets alerts.', tap: 'If it was one of you, nothing to do. If not: on the /admin sign-in page tap **Forgot the passcode?**, set a new one, then check More › Staff › People and **Notifications**.', buttons: ['Forgot the passcode?'] },
+  { id: 'admin-many-wrong', see: 'Lots of wrong /admin passcodes today', where: 'An email and a text to the owners, More › Admin access', means: 'Someone typed a wrong /admin passcode 20 times today.', tap: 'If it wasn’t one of you, **Change the admin passcode** in More › Admin access.', buttons: ['Change the admin passcode'] },
+  { id: 'service-not-set', see: 'Emails / Texts / Square aren’t set up on this site', where: 'Home “Needs you”', means: 'The website has no password or key for it, so nothing goes out that way.', tap: '**What to do** has the steps for each.', buttons: ['What to do'] },
 
   // Stage 4 (extras): admin-help-stage4.ts
   ...STAGE4_HELP_ROWS,

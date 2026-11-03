@@ -1,0 +1,15 @@
+---
+export const prerender = false
+
+import Layout from '@layouts/Layout.astro'
+import AdminRecover from '@components/admin/AdminRecover'
+
+// The emailed "set a new /admin passcode" link (M3). Never cached, never sent on as a referrer,
+// no analytics at all; the page strips the link's key from the address bar before anything else.
+Astro.response.headers.set('Cache-Control', 'no-store, private')
+Astro.response.headers.set('Referrer-Policy', 'no-referrer')
+---
+
+<Layout title="Set a new admin passcode" description="Hometown Studio admin." noindex bare noAnalytics>
+  <AdminRecover client:load />
+</Layout>

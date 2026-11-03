@@ -6,6 +6,6 @@ export const prerender = false
 
 /** GET ?id=cls_…: the class and its bookings (ledger lines grouped by booking). Owners only. */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   return reply(async () => ({ data: await classBookings(url.searchParams.get('id') ?? '') }))
 }

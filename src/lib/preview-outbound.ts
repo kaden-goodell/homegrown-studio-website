@@ -70,7 +70,7 @@ export interface MutedMessage {
   to: string
   /** emails only */
   subject?: string
-  /** the first line of the body, trimmed */
+  /** the first line of the body, trimmed, web addresses replaced by "[link]" */
   firstLine: string
   at: string
 }
@@ -80,8 +80,14 @@ export const MUTED_KEEP = 200
 const KEY = 'log'
 const kv = makeKvStore('preview-messages', 'preview-messages')
 
+/**
+ * Only the first line is ever kept (list and log), and any web address in it
+ * becomes "[link]": a muted message's links and tokens (a recovery link, a
+ * payment link) are never stored, so they can't be used from More › Messages.
+ * On purpose: don't widen this to the whole body (N5).
+ */
 function firstLineOf(body: string): string {
-  const line = String(body ?? '').split(/\r?\n/).map((l) => l.trim()).find((l) => l) ?? ''
+  const line = (String(body ?? '').split(/\r?\n/).map((l) => l.trim()).find((l) => l) ?? '').replace(/\bhttps?:\/\/\S+/gi, '[link]')
   return line.length > 200 ? `${line.slice(0, 199)}…` : line
 }
 

@@ -83,7 +83,7 @@ export function monthReport(ledgers: Ledger[], parties: PartyRecord[], now: Date
  * own records hold: the tax split from Square is tax-report.json. Owners only.
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const now = new Date()
   const asked = (url ?? new URL(request.url)).searchParams.get('period')
   if (asked !== null && !PERIOD_RE.test(asked)) return json(400, { error: 'Pick a month or a year.' })

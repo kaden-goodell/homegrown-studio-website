@@ -49,7 +49,7 @@ function input(body: any): CraftInput {
  * Every change is audited.
  */
 export const GET: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   try {
     const { crafts, markers, tax } = await listAdminCrafts()
     return json(200, { data: { crafts, markers, refusal: craftWritesRefusal(request), taxRefusal: 'refusal' in tax ? tax.refusal : null } })
@@ -60,9 +60,9 @@ export const GET: APIRoute = async ({ request }) => {
 }
 
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => ({}))
-  const by = adminActor(request)
+  const by = await adminActor(request)
   const who = { ...by, role: 'owner' as const }
   try {
     switch (body?.action) {
