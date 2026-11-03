@@ -24,6 +24,9 @@ vi.mock('@lib/owner-alert', () => ({ alertOwners: owners }))
 const setupAlert = vi.hoisted(() => vi.fn(async () => true))
 vi.mock('@lib/saved-card-alerts', () => ({ alertCardSetupOnce: setupAlert }))
 vi.mock('@lib/audit', () => ({ recordAudit: vi.fn(async () => undefined) }))
+/** Audit A I2: classes & workshops open/paused online (More › Online booking). */
+const gate = vi.hoisted(() => ({ open: true }))
+vi.mock('@lib/bookings-gate', () => ({ waitlistChargesAllowedNow: async () => gate.open }))
 
 import { MockPaymentProvider } from '@providers/mock/payment'
 import { getLedger, hold, release } from '@lib/classes/seat-ledger'
@@ -87,6 +90,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
   vi.clearAllMocks()
+  gate.open = true
   h.square = new MockPaymentProvider()
   h.square.prices = { VAR: 2000 }
   h.findOrCreate.mockImplementation(async (p: any) => ({ id: `cust-${p.givenName}`, email: p.email }))
@@ -391,6 +395,48 @@ describe('runWaitlist', () => {
     expect(h.square.chargeSavedCardCalls).toHaveLength(0)
     await book.afterWrite!({ freeSeat: true } as any, [{ sessionIds: ['ses_1'] }] as any)
     expect(h.square.chargeSavedCardCalls).toHaveLength(1)
+  })
+
+  it('audit A I2: classes paused online → a freed seat charges nobody; once reopened the next run adds them', async () => {
+    const cls = makeClass()
+    const other = await fill(cls)
+    await join(cls, 'Jane')
+    await release(cls.id, other)
+    gate.open = false
+    const r = await runWaitlist(cls.id, { reason: 'seat-freed' }, NOW)
+    expect(r).toMatchObject({ ran: true, added: 0, stopped: 'paused' })
+    expect(r.note).toMatch(/paused online, so nobody was charged/)
+    expect(h.square.chargeSavedCardCalls).toHaveLength(0)
+    expect((await entries(cls))[0].state).toBe('waiting')
+
+    gate.open = true
+    const again = await runWaitlist(cls.id, { reason: 'sweep' }, NOW)
+    expect(again).toMatchObject({ added: 1, stopped: null })
+    expect(h.square.chargeSavedCardCalls).toHaveLength(1)
+  })
+
+  it('audit A I2: an unanswered try is never resent while paused; the same try goes once reopened', async () => {
+    const cls = makeClass()
+    const other = await fill(cls)
+    await join(cls, 'Jane', 'TIMEOUT_LATER')
+    await release(cls.id, other)
+    expect(await runWaitlist(cls.id, { reason: 'seat-freed' }, NOW)).toMatchObject({ stopped: 'unknown' })
+    let [jane] = await entries(cls)
+    h.square.savedCards.get(jane.square.cardId).behaviour = 'ok'
+    gate.open = false
+    const later = new Date(NOW.getTime() + 11 * 60_000)
+    vi.setSystemTime(later)
+    expect(await runWaitlist(cls.id, { reason: 'sweep' }, later)).toMatchObject({ stopped: 'paused', added: 0 })
+    expect(h.square.chargeSavedCardCalls).toHaveLength(1)
+    ;[jane] = await entries(cls)
+    expect(jane.state).toBe('charging')
+    expect((await getLedger(cls.id)).lines.find((l) => l.bookingId === jane.attempts[0].bookingId)?.state).toBe('held')
+
+    gate.open = true
+    expect(await runWaitlist(cls.id, { reason: 'sweep' }, later)).toMatchObject({ added: 1 })
+    const calls = h.square.chargeSavedCardCalls
+    expect(calls).toHaveLength(2)
+    expect(calls[1]).toEqual(calls[0])
   })
 
   it('cancelling closes the list without charging; cards come off', async () => {

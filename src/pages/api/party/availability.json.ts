@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
+import { bookingsOpenNow, bookingsClosedResponse } from '@lib/bookings-gate'
 import { partyStartsOnDate, PARTY_TIMES_UNREADABLE } from '@lib/parties/open-times'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
@@ -26,7 +26,7 @@ function addOnsOf(raw: unknown): Record<string, number> | undefined {
  * answer is 503 and no time is shown (never "every time").
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
-  if (!bookingsOpen(request, 'parties')) return bookingsClosedResponse()
+  if (!await bookingsOpenNow(request, 'parties')) return await bookingsClosedResponse()
   if (rateLimited(`party-avail:${clientAddress}`, 30, 60_000)) {
     return json({ error: 'Too many requests — give it a minute.' }, 429)
   }

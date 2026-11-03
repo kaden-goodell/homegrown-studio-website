@@ -7,6 +7,9 @@ import { createLogger } from '@lib/logger'
 import { cafeSquareDeps, cafeWritesAllowed, settingsBooked } from '@lib/settings-effects'
 import { rewriteCafeWindows, TEST_SITE_SKIP, windowsFor, type CafeSquareResult } from '@lib/cafe-windows'
 import { forget } from '@lib/short-memory'
+import { purgeBookingPages } from '@lib/booking-cache'
+import { getPartySettings } from '@lib/parties/settings-store'
+import { partyTimesOutsideHours } from '@lib/parties/party-times'
 import { studioDate } from '@lib/studio-time'
 import {
   addedClosures, getSettingsView, getStudioDays, saveStudioSettings, SettingsError, StaleSettingsError, toStudioDays, validateSettings,
@@ -17,7 +20,7 @@ const logger = createLogger('api:admin:settings')
 
 const UNREADABLE = 'The studio settings couldn’t be reached. Try again.'
 
-/** GET: Craft Café's hours, special days and the closed days, as saved (or the config, until an owner first saves). Owners only. */
+/** GET: the studio hours, Craft Café's hours, special days and the closed days, as saved (or the config, until an owner first saves). Owners only. */
 export const GET: APIRoute = async ({ request }) => {
   if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
   try {
@@ -72,9 +75,26 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   try {
-    const input = validateSettings(body)
+    let current
+    try {
+      current = await getSettingsView()
+    } catch {
+      return json(503, { error: UNREADABLE })
+    }
+    const input = validateSettings(body, current)
     if (!body || !('expectedUpdatedAt' in body) || (body.expectedUpdatedAt !== null && typeof body.expectedUpdatedAt !== 'string')) {
       throw new SettingsError(400, 'Reload the page and try again.')
+    }
+    // New studio hours must still hold every party time set in Parties setup (nothing booked is touched).
+    if (JSON.stringify(input.studioWeekly) !== JSON.stringify(current.studioWeekly)) {
+      let parties
+      try {
+        parties = await getPartySettings({ strict: true, fresh: true })
+      } catch {
+        return json(503, { error: 'Parties setup couldn’t be checked against the new hours. Try again.' })
+      }
+      const clash = partyTimesOutsideHours(parties, input.studioWeekly, new Date(), current.studioWeekly)
+      if (clash) throw new SettingsError(409, clash, 'studioWeekly')
     }
     const { saved, before, changed } = await saveStudioSettings(input, { expectedUpdatedAt: body.expectedUpdatedAt, by })
     await recordAudit({
@@ -88,6 +108,10 @@ export const POST: APIRoute = async ({ request }) => {
     const today = studioDate(new Date().toISOString())
     const cafeChanged = windowsFor(toStudioDays(before), today) !== windowsFor(toStudioDays(saved), today)
     const square = cafeChanged ? await squareFrom(toStudioDays(saved), request) : null
+    // The kept copies of /api/cafe-hours.json (footer hours, Google's business
+    // details, the special-day bar and cards) and the calendar clear at once
+    // (best effort; other servers' one-minute memory of the hours still applies).
+    await purgeBookingPages()
     return json(200, { data: { settings: saved, changed, booked: booked.list, ...(booked.failed ? { bookedUnknown: true } : {}), square } })
   } catch (e) {
     if (e instanceof StaleSettingsError) return json(409, { error: e.message, stale: true, current: e.current })

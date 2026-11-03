@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { btn, card, field } from '@components/staff/ui'
 import { useStaffNav } from '@components/staff/nav'
-import { STUDIO_HOURS, type Weekday } from '@config/hours'
+import { CONFIG_STUDIO_WEEKLY, type CafeWeekly, type Weekday } from '@config/hours'
 import { addDays } from '@lib/kit-dates'
 import { formatCalendarDay, studioDate } from '@lib/studio-time'
 import { MAX_MARKS_PER_DAY, MAX_NOTE } from '@lib/staffing/rules'
@@ -25,14 +25,12 @@ const PLURAL: Record<Weekday, string> = {
   Sunday: 'Sundays', Monday: 'Mondays', Tuesday: 'Tuesdays', Wednesday: 'Wednesdays', Thursday: 'Thursdays', Friday: 'Fridays', Saturday: 'Saturdays',
 }
 
-/** The studio's open days, Monday-first (Thu, Fri, Sat, Sun today), with their hours. */
-export function openDays(): { index: string; name: Weekday; opens: string; closes: string }[] {
+/** The studio's open days, Monday-first, with their hours: the studio hours in force (the owners' on /admin; the config's by default). */
+export function openDays(studio: CafeWeekly[] = CONFIG_STUDIO_WEEKLY): { index: string; name: Weekday; opens: string; closes: string }[] {
   const out = new Map<string, { index: string; name: Weekday; opens: string; closes: string }>()
-  for (const h of STUDIO_HOURS) {
-    for (const d of h.days) {
-      const index = String(WEEKDAYS.indexOf(d))
-      if (!out.has(index)) out.set(index, { index, name: d, opens: h.opens, closes: h.closes })
-    }
+  for (const h of studio) {
+    const index = String(WEEKDAYS.indexOf(h.weekday))
+    if (!out.has(index)) out.set(index, { index, name: h.weekday, opens: h.opens, closes: h.closes })
   }
   return [...out.values()].sort((a, b) => ((Number(a.index) + 6) % 7) - ((Number(b.index) + 6) % 7))
 }
@@ -112,9 +110,9 @@ function KindButtons({ value, onChange, name, allowNone }: { value: DayMark['kin
 const sameTimes = (a: Pick<Availability, 'weekly' | 'dates'>, b: Pick<Availability, 'weekly' | 'dates'>) =>
   JSON.stringify([a.weekly, a.dates]) === JSON.stringify([b.weekly, b.dates])
 
-export default function AvailabilityEditor({ initial, onSaved }: { initial: Availability; onSaved?: (a: Availability) => void }) {
+export default function AvailabilityEditor({ initial, onSaved, studioHours }: { initial: Availability; onSaved?: (a: Availability) => void; studioHours?: CafeWeekly[] }) {
   const today = studioDate(new Date().toISOString())
-  const days = useMemo(openDays, [])
+  const days = useMemo(() => openDays(studioHours), [studioHours])
   const ids = useId()
   const nav = useStaffNav()
   const [base, setBase] = useState<Availability>(initial)

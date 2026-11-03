@@ -53,6 +53,7 @@ import { randomUUID } from 'node:crypto'
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
 import { recordAudit } from '@lib/audit'
+import { waitlistChargesAllowedNow } from '@lib/bookings-gate'
 import { judgeDrift, tellOwnersOfDrift } from '@lib/booking-core/charge'
 import { idFor } from '@lib/booking-core/ids'
 import { chargeOutcomeOf, squareErrorCodes } from '@lib/checkout-attempt'
@@ -104,7 +105,7 @@ export interface RunResult {
   closed: number
   unknown: number
   /** Why the run stopped early, if it did. */
-  stopped: null | 'busy' | 'unknown' | 'setup' | 'error' | 'register'
+  stopped: null | 'busy' | 'unknown' | 'setup' | 'error' | 'register' | 'paused'
   /** One plain line for the owner who pressed "Run the waitlist now". */
   note: string
 }
@@ -191,6 +192,8 @@ interface Ctx {
   origin: string
   result: RunResult
   by: By | null
+  /** Audit A I2 (owner decision): false while classes & workshops are paused online — no card is charged this run. */
+  chargesAllowed: boolean
 }
 
 const blank = (): RunResult => ({ ran: false, added: 0, declined: 0, skipped: 0, closed: 0, unknown: 0, stopped: null, note: '' })
@@ -242,7 +245,9 @@ export async function runWaitlist(classId: string, opts: { reason: RunReason; or
   try {
     const cls = await getClass(classId)
     if (!cls) return result
-    const ctx: Ctx = { cls, now, origin: opts.origin ?? siteOrigin(), result, by: opts.by ?? null }
+    // Paused online (More › Online booking) → no saved card is charged; the run is left for later.
+    const chargesAllowed = await waitlistChargesAllowedNow().catch(() => false)
+    const ctx: Ctx = { cls, now, origin: opts.origin ?? siteOrigin(), result, by: opts.by ?? null, chargesAllowed }
     await run(ctx, opts.reason)
   } catch (err) {
     logger.error('Waitlist run failed partway', { classId, reason: opts.reason, error: err instanceof Error ? err.message : String(err) })
@@ -265,6 +270,7 @@ function noteOf(r: RunResult): string {
   if (r.stopped === 'setup') bits.push('Square refused the request, so nobody was charged. People can book the free seat normally meanwhile.')
   if (r.stopped === 'register') bits.push('The register’s price for this class doesn’t match, so nobody was charged. Tap Update the register on this class, then run it again.')
   if (r.stopped === 'error') bits.push('Square couldn’t be reached, so nobody was charged. Try again in a few minutes.')
+  if (r.stopped === 'paused') bits.push('Classes & workshops are paused online, so nobody was charged. The waitlist picks up again once you open them in More › Online booking.')
   if (!bits.length) bits.push('Nobody on the waitlist fits the free seats right now.')
   return bits.join(' ')
 }
@@ -297,6 +303,11 @@ async function run(ctx: Ctx, reason: RunReason): Promise<void> {
 
   // 3. Add the next people who fit (OWNER-S4-1: the first whose whole group fits; earlier ones keep their place).
   if (cls.status !== 'open') return
+  // Audit A I2: paused online → nobody is charged; the next run (once reopened) carries on.
+  if (!ctx.chargesAllowed) {
+    result.stopped = 'paused'
+    return
+  }
   let tries = 0
   while (tries < INLINE_BUDGET) {
     list = await getWaitlist(cls.id)
@@ -448,6 +459,13 @@ async function settleCharging(ctx: Ctx, entry: WaitlistEntry): Promise<Go> {
       await backToWaiting(ctx, entry, a, 'error', 'What they asked for can’t be priced any more. Still waiting; nothing was sent.')
       return 'next'
     }
+    if (!ctx.chargesAllowed) {
+      // Paused online: the charge is never sent now. Their seat is freed and they wait their turn again.
+      await letGoOf(cls.id, a.bookingId)
+      await backToWaiting(ctx, entry, a, 'error', 'Classes & workshops are paused online. Still waiting; nothing was sent.')
+      ctx.result.stopped = 'paused'
+      return 'next'
+    }
     return proceed(ctx, entry, a, priced.value)
   }
 
@@ -487,6 +505,12 @@ async function settleCharging(ctx: Ctx, entry: WaitlistEntry): Promise<Go> {
       ctx.result.unknown++
       ctx.result.stopped = 'unknown'
       return 'stop'
+    }
+    if (!ctx.chargesAllowed) {
+      // Paused online: no resend now. The seat stays held and the same try is resent once classes reopen.
+      await keepHeld(ctx, entry, a)
+      ctx.result.stopped = 'paused'
+      return 'next'
     }
     return proceed(ctx, entry, a, priced.value)
   }
@@ -935,7 +959,7 @@ export async function decideUnclear(classId: string, entryId: string, choice: 'a
     const found = unclearOf((await getWaitlist(classId)).entries, entryId)
     if (!cls || !found) throw new UnclearError('This isn’t waiting on Square any more.')
     const { e, a } = found
-    const ctx: Ctx = { cls, now, origin: siteOrigin(), result: blank(), by }
+    const ctx: Ctx = { cls, now, origin: siteOrigin(), result: blank(), by, chargesAllowed: false } // never charges here
     if (choice === 'add') {
       const st = await askOrder(a, e)
       if (st.state !== 'paid' || !st.payment) throw new UnclearError('Square no longer shows it paid. Check again.')

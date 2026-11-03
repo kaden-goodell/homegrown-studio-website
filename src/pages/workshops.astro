@@ -7,8 +7,7 @@ import WorkshopExplorer from '@components/workshops/WorkshopExplorer'
 import NotifyMe from '@components/shared/NotifyMe'
 import { providers } from '@config/providers'
 import { partyConfig } from '@config/party.config'
-import { OPENING_DATE } from '@config/opening'
-import { longDate, workshopNotifyContext } from '@lib/notify-context'
+import { workshopNotifyContext } from '@lib/notify-context'
 import { summarize } from '@lib/seo'
 import { formatMoney } from '@lib/money'
 import { canBeBooked } from '@lib/workshop-rules'
@@ -16,24 +15,22 @@ import { siteConfig } from '@config/site.config'
 import type { Workshop } from '@providers/interfaces/workshop'
 
 const siteName = siteConfig.name
-import { envBookingsOpen, previewToken, hasValidPreviewCookie, previewQueryMatches, previewCookieName } from '@lib/bookings-gate'
+import { bookingPageGate } from '@lib/bookings-gate'
 
 // Workshops are fetched client-side (via /api/workshops.json) so this page renders
 // instantly instead of blocking navigation on the (sometimes slow) Square Classes API.
 
-// Pre-opening gate: hide the live booking flow from the public; owner can preview
-// with ?preview=<PREVIEW_TOKEN> (drops a cookie that unlocks this browser).
-const _previewMatch = previewQueryMatches(Astro.url)
-if (_previewMatch) {
-  Astro.cookies.set(previewCookieName, previewToken(), { path: '/', httpOnly: true, sameSite: 'lax', maxAge: 60 * 60 * 24 * 30 })
-}
-const bookingsOpen = envBookingsOpen('workshops') || _previewMatch || hasValidPreviewCookie(Astro.request)
+// The owners' online booking switch (/admin › More › Online booking): while
+// classes are paused the booking list is hidden and the pause note shows; the
+// owners' test link (?preview=…) unlocks this browser.
+const gate = await bookingPageGate({ url: Astro.url, request: Astro.request, setCookie: (n, v, o) => Astro.cookies.set(n, v, o) }, 'workshops')
+if (gate.redirect) return Astro.redirect(gate.redirect, 302) // the test link: cookie set, secret out of the address
+const bookingsOpen = gate.open
 
 // A link to one workshop (?w=<id>, from the calendar or a shared link) should
 // preview as that workshop, and while booking is closed the sign-up panel
 // should name it. The lookup gets a short leash so a slow Square call can
 // never hold up the page; on any failure both fall back to the page defaults.
-const openingLabel = longDate(OPENING_DATE)
 let tapped: Workshop | null = null
 const wantedId = Astro.url.searchParams.get('w') ?? ''
 if (/^[A-Za-z0-9_-]{6,64}$/.test(wantedId)) {
@@ -95,9 +92,9 @@ const preview = tapped
       <WorkshopExplorer client:load />
     ) : (
       <div class="notice-panel tone-workshop" id="notify">
-        <p class="eyebrow mb-3">Opening soon</p>
-        <h2 class="text-2xl sm:text-3xl font-heading font-bold" style="color: var(--color-dark);">
-          Booking opens with our grand opening, planned for {openingLabel}
+        <p class="eyebrow mb-3">Online booking</p>
+        <h2 class="text-2xl sm:text-3xl font-heading font-bold" style="color: var(--color-dark);" data-pause-note>
+          {gate.note}
         </h2>
         <p class="mt-4 mb-6 text-base" style="color: var(--color-text);">
           {lookingAt && <Fragment>You were looking at <strong>{lookingAt}</strong>. </Fragment>}

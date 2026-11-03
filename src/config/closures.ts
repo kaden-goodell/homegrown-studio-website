@@ -7,8 +7,10 @@
  * /admin (More › Closed days); this list is what the site uses until they
  * first save there (see src/lib/studio-settings.ts).
  *
- * Client-safe: no imports, no env.
+ * Client-safe: no env, no server imports.
  */
+import { STUDIO_HOURS, WEEKDAYS } from './hours'
+
 export interface Closure {
   /** Set on closed days saved on /admin (More › Closed days); the config list has none. */
   id?: string
@@ -35,8 +37,12 @@ export const closures: Closure[] = [
   { from: '2026-12-21', to: '2027-01-01', name: 'the Christmas holidays', holiday: 'christmas' },
 ]
 
-/** The studio opens Thursday to Sunday (0 = Sunday). */
-export const OPEN_WEEKDAYS: ReadonlySet<number> = new Set([0, 4, 5, 6])
+/**
+ * The weekdays the config's studio hours open (0 = Sunday): Thursday to
+ * Sunday. Once owners save studio hours on /admin, the open weekdays are the
+ * days with saved hours (openWeekdaysOf / isStudioOpenOn in studio-days.ts).
+ */
+export const OPEN_WEEKDAYS: ReadonlySet<number> = new Set(STUDIO_HOURS.flatMap((h) => h.days.map((d) => WEEKDAYS.indexOf(d))))
 
 function weekdayOf(ymd: string): number {
   const [y, m, d] = ymd.split('-').map(Number)
@@ -54,9 +60,14 @@ export function closureOn(ymd: string, list: Closure[] = closures): Closure | nu
   return list.find((c) => ymd >= c.from && ymd <= c.to) ?? null
 }
 
-/** Open for business: a usual open weekday that is not inside a closure. */
-export function studioOpenOn(ymd: string, list: Closure[] = closures): boolean {
-  return OPEN_WEEKDAYS.has(weekdayOf(ymd)) && !closureOn(ymd, list)
+/**
+ * Open for business: a usual open weekday that is not inside a closure.
+ * `weekdays`: the open weekdays in force (the owners' studio hours); the
+ * config's by default. isStudioOpenOn (studio-days.ts) also counts a café
+ * special day.
+ */
+export function studioOpenOn(ymd: string, list: Closure[] = closures, weekdays: ReadonlySet<number> = OPEN_WEEKDAYS): boolean {
+  return weekdays.has(weekdayOf(ymd)) && !closureOn(ymd, list)
 }
 
 /** Every day of a closure, first to last. */
@@ -68,9 +79,9 @@ export function daysOf(closure: Closure): string[] {
 }
 
 /** The first open day after a closure ends. */
-export function reopensOn(closure: Closure, list: Closure[] = closures): string {
+export function reopensOn(closure: Closure, list: Closure[] = closures, weekdays: ReadonlySet<number> = OPEN_WEEKDAYS): string {
   let day = dayAfter(closure.to)
   // A year of days is far more than any run of closures; the bound only guards a bad list.
-  for (let i = 0; i < 366 && !studioOpenOn(day, list); i++) day = dayAfter(day)
+  for (let i = 0; i < 366 && !studioOpenOn(day, list, weekdays); i++) day = dayAfter(day)
   return day
 }

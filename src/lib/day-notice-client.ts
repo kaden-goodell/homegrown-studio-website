@@ -4,11 +4,15 @@
  * the instants it shows between; the bar also stays off the staff, waiver
  * and party-host pages.
  *
- * The build uses the config's café hours; while a notice is showing, the live
- * notices (the owners' saved café hours, from /api/cafe-hours.json) are
- * swapped in: a day removed or closed on /admin since the build goes away,
- * and changed hours show. A failed request leaves the page as it was.
+ * The build uses the config's café days; the live notices (the owners' saved
+ * special days and their announcements, from /api/cafe-hours.json through
+ * @lib/site-live) are applied on every page load: a day announced on /admin
+ * since the build is added from the page's `<template data-day-notice-template>`,
+ * a changed headline or hours show, and a day removed, closed or no longer
+ * announced goes away. A failed request leaves the page as it was built.
  */
+import { liveSite } from '@lib/site-live'
+
 const QUIET_PATHS = ['/waiver', '/staff', '/admin', '/party/']
 
 /** What /api/cafe-hours.json sends for each announced day (see special-day-notice.ts). */
@@ -18,54 +22,100 @@ export interface LiveDayNotice {
   regularHours: string
   showFromIso: string
   showUntilIso: string
+  /** Sent since announcements became editable on /admin; older answers leave the built words. */
+  headline?: string
+  weekday?: string
+  monthDay?: string
+  shortDate?: string
 }
 
+/**
+ * Shows the notices whose window holds `now`, but only ONE day per kind (bar,
+ * card): the soonest, as the server's activeDayNotice picks. Two announced
+ * days with overlapping windows never stack two bars or two cards.
+ */
 export function showDayNotices(now = Date.now(), path = window.location.pathname): void {
   const quiet = QUIET_PATHS.some((p) => path.startsWith(p))
-  document.querySelectorAll<HTMLElement>('[data-day-notice]').forEach((el) => {
+  const els = [...document.querySelectorAll<HTMLElement>('[data-day-notice]')]
+  const inWindow = (el: HTMLElement) => {
     const from = Date.parse(el.dataset.from ?? '')
     const until = Date.parse(el.dataset.until ?? '')
-    const inWindow = now >= from && now < until
-    el.hidden = !inWindow || (el.dataset.dayNotice === 'bar' && quiet)
+    return now >= from && now < until
+  }
+  // The soonest day showing, per kind ('' sorts first: a built notice without a date).
+  const soonest = new Map<string, string>()
+  for (const el of els) {
+    if (!inWindow(el)) continue
+    const kind = el.dataset.dayNotice ?? ''
+    const date = el.dataset.date ?? ''
+    const cur = soonest.get(kind)
+    if (cur === undefined || date < cur) soonest.set(kind, date)
+  }
+  for (const el of els) {
+    const kind = el.dataset.dayNotice ?? ''
+    const show = inWindow(el) && soonest.get(kind) === (el.dataset.date ?? '')
+    el.hidden = !show || (kind === 'bar' && quiet)
+  }
+}
+
+const FIELDS: [keyof LiveDayNotice, string][] = [
+  ['hours', 'data-day-notice-hours'],
+  ['regularHours', 'data-day-notice-regular-hours'],
+  ['headline', 'data-day-notice-headline'],
+  ['weekday', 'data-day-notice-weekday'],
+  ['monthDay', 'data-day-notice-month-day'],
+  ['shortDate', 'data-day-notice-short-date'],
+]
+
+function fill(el: HTMLElement, live: LiveDayNotice): void {
+  el.dataset.from = live.showFromIso
+  el.dataset.until = live.showUntilIso
+  for (const [key, attr] of FIELDS) {
+    const value = live[key]
+    if (typeof value !== 'string') continue
+    el.querySelectorAll(`[${attr}]`).forEach((s) => { s.textContent = value })
+  }
+  el.querySelectorAll<HTMLElement>('[data-day-notice-regular]').forEach((s) => { s.hidden = !live.regularHours })
+  if (live.headline && live.shortDate && el.hasAttribute('aria-label')) el.setAttribute('aria-label', `${live.headline}, ${live.shortDate}`)
+}
+
+/** Adds a bar or card for each live notice the page was built without (from the page's templates). */
+function addMissing(notices: LiveDayNotice[]): void {
+  document.querySelectorAll<HTMLTemplateElement>('template[data-day-notice-template]').forEach((tpl) => {
+    const kind = tpl.dataset.dayNoticeTemplate
+    for (const live of notices) {
+      if (!live.headline) continue // an older answer can't fill a new one
+      if (document.querySelector(`[data-day-notice="${kind}"][data-date="${live.date}"]`)) continue
+      const node = tpl.content.firstElementChild?.cloneNode(true) as HTMLElement | undefined
+      if (!node) continue
+      node.dataset.date = live.date
+      node.hidden = true
+      tpl.parentNode?.insertBefore(node, tpl)
+    }
   })
 }
 
-/** Puts the live notices into the page's bar and cards, then shows the right ones. */
+/** Puts the live notices into the page's bars and cards (adding any the build didn't have), then shows the right ones. */
 export function applyLiveDayNotices(notices: LiveDayNotice[], now = Date.now(), path = window.location.pathname): void {
+  addMissing(notices)
   document.querySelectorAll<HTMLElement>('[data-day-notice][data-date]').forEach((el) => {
     const live = notices.find((n) => n.date === el.dataset.date)
     if (!live) {
-      // Removed (or closed) since the build: never shown.
+      // Removed, closed or no longer announced since the build: never shown.
       el.dataset.from = ''
       el.dataset.until = ''
       return
     }
-    el.dataset.from = live.showFromIso
-    el.dataset.until = live.showUntilIso
-    el.querySelectorAll('[data-day-notice-hours]').forEach((s) => { s.textContent = live.hours })
-    el.querySelectorAll('[data-day-notice-regular-hours]').forEach((s) => { s.textContent = live.regularHours })
-    el.querySelectorAll<HTMLElement>('[data-day-notice-regular]').forEach((s) => { s.hidden = !live.regularHours })
+    fill(el, live)
   })
   showDayNotices(now, path)
 }
 
-let live: Promise<LiveDayNotice[] | null> | null = null
-
-/** The live notices, asked for once per page load (view transitions keep the answer). */
-function liveNotices(): Promise<LiveDayNotice[] | null> {
-  live ??= fetch('/api/cafe-hours.json')
-    .then((res) => (res.ok ? res.json() : null))
-    .then((json) => (Array.isArray(json?.data?.notices) ? (json.data.notices as LiveDayNotice[]) : null))
-    .catch(() => null)
-  return live
-}
-
 async function refresh(): Promise<void> {
   showDayNotices()
-  // Only while a notice is up (a few weeks a year): no request on ordinary days.
-  if (!document.querySelector('[data-day-notice][data-date]:not([hidden])')) return
-  const notices = await liveNotices()
-  if (notices) applyLiveDayNotices(notices)
+  if (!document.querySelector('[data-day-notice], template[data-day-notice-template]')) return
+  const site = await liveSite()
+  if (site && Array.isArray(site.notices)) applyLiveDayNotices(site.notices as LiveDayNotice[])
 }
 
 if (typeof document !== 'undefined') document.addEventListener('astro:page-load', () => { void refresh() })

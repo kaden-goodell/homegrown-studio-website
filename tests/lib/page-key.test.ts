@@ -42,6 +42,24 @@ describe('PAGE_KEY_SCRIPT', () => {
     expect(rememberedPageKey('/party/pty_2')).toBe('secret-host')
   })
 
+  it('takes the booking test link out of the address bar on any page, before GA4 and the Meta Pixel load', () => {
+    history.replaceState(null, '', '/workshops?w=abc123&preview=s3cret#top')
+    run()
+    expect(location.pathname + location.search + location.hash).toBe('/workshops?w=abc123#top')
+    history.replaceState(null, '', '/book?preview=s3cret')
+    run()
+    expect(location.search).toBe('')
+  })
+
+  it('both layouts run it first in <head>', () => {
+    for (const f of ['Layout.astro', 'StaticLayout.astro']) {
+      const src = readFileSync(resolve(__dirname, `../../src/layouts/${f}`), 'utf8')
+      const head = src.slice(src.indexOf('<head>'))
+      expect(head.indexOf('set:html={PAGE_KEY_SCRIPT}'), f).toBeGreaterThan(-1)
+      expect(head.indexOf('set:html={PAGE_KEY_SCRIPT}'), f).toBeLessThan(head.indexOf('<PostHog'))
+    }
+  })
+
   it('leaves every other page alone', () => {
     history.replaceState(null, '', '/book?package=pkg_test')
     run()
@@ -90,6 +108,15 @@ describe('PostHog key scrubber (window.__hsScrubKeys)', () => {
     expect(ev.properties.other).toBe('/workshops?w=abc&y=2')
     expect(ev.properties.n).toBe(4)
     expect(JSON.stringify(ev)).not.toMatch(/host123|pay456|zzz/)
+  })
+
+  it('drops the booking test link (preview=) too', () => {
+    run()
+    const scrub = (window as any).__hsScrubKeys
+    const ev = scrub({ properties: { $current_url: 'https://ourhometownstudio.com/book?preview=s3cret&date=2026-12-05', $referrer: 'https://ourhometownstudio.com/workshops?preview=s3cret' } })
+    expect(ev.properties.$current_url).toBe('https://ourhometownstudio.com/book?date=2026-12-05')
+    expect(ev.properties.$referrer).toBe('https://ourhometownstudio.com/workshops')
+    expect(JSON.stringify(ev)).not.toMatch(/s3cret/)
   })
 
   it('PostHog runs it on every event', () => {

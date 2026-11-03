@@ -49,9 +49,9 @@ export function monthLabel(ymd: string): string {
   return new Date(`${ymd}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'long', year: 'numeric' })
 }
 
-/** The first day on or after `from` the studio opens (not a usual closed weekday, not a closure). */
-export function nextOpenDay(from = today(), closed: Closure[] = configClosures): string {
+/** The first day on or after `from` the studio opens (not a usual closed weekday, not a closure). `open`: the open weekdays in force. */
+export function nextOpenDay(from = today(), closed: Closure[] = configClosures, open: ReadonlySet<number> = OPEN_WEEKDAYS): string {
   let d = from
-  for (let i = 0; i < 400 && (!OPEN_WEEKDAYS.has(weekday(d)) || closureOn(d, closed)); i++) d = addDays(d, 1)
+  for (let i = 0; i < 400 && (!open.has(weekday(d)) || closureOn(d, closed)); i++) d = addDays(d, 1)
   return d
 }

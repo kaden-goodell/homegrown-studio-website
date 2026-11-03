@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro'
+import { getStudioDays } from '@lib/studio-settings'
 import { adminActor, adminAuthorized } from '@lib/admin-auth'
 import { recordAudit } from '@lib/audit'
 import { createLogger } from '@lib/logger'
@@ -69,7 +70,14 @@ export const POST: APIRoute = async ({ request }) => {
   try {
     const refusal = partyWritesRefusal(request)
     if (refusal) return json(503, { error: refusal })
-    const input = validatePartySettings(body, { now })
+    // Party times are checked against the studio hours in force (More › Hours & Craft Café).
+    let studio
+    try {
+      studio = (await getStudioDays({ strict: true, fresh: true })).studio
+    } catch {
+      return json(503, { error: UNREADABLE })
+    }
+    const input = validatePartySettings(body, { now, studio })
     if (!('expectedUpdatedAt' in body) || (body.expectedUpdatedAt !== null && typeof body.expectedUpdatedAt !== 'string')) {
       throw new SettingsError(400, 'Reload the page and try again.')
     }

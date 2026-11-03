@@ -2,6 +2,8 @@
 import { siteConfig } from '@config/site.config'
 import { buildNav, flatNav } from '@lib/nav'
 import { OPEN_STUDIO_START_DATE } from '@config/opening'
+import { formatHours, weeklyEntries } from '@config/hours'
+import { getStudioDays } from '@lib/studio-settings'
 
 // Every page in the header's menu, groups opened up (see @lib/nav).
 const navItems = flatNav(buildNav(siteConfig, { kitsVisible: siteConfig.features.kits.enabled || import.meta.env.DEV }))
@@ -11,6 +13,11 @@ const navItems = flatNav(buildNav(siteConfig, { kitsVisible: siteConfig.features
 // the bottom shows the right one. Build time picks the default; the script
 // corrects it on the day, so prerendered pages don't need a deploy to switch.
 const walkInOpen = new Date() >= new Date(OPEN_STUDIO_START_DATE + 'T00:00:00-06:00')
+
+// Studio hours as the owners set them on /admin (the config until they save).
+// A page rendered on request reads them now; a prerendered page ships the
+// config's and @lib/site-live swaps in the saved ones when it loads.
+const hours = Astro.isPrerendered ? siteConfig.hours : formatHours(weeklyEntries((await getStudioDays()).studio))
 
 const currentYear = new Date().getFullYear()
 const { street, city, state, zip } = siteConfig.address
@@ -37,8 +44,8 @@ const phoneDigits = (siteConfig.contactPhone ?? '').replace(/[^+\d]/g, '')
 
       <div class="footer-column footer-column-middle">
         <h2 class="footer-heading">Hours</h2>
-        <dl class="footer-hours">
-          {siteConfig.hours.map((h) => (
+        <dl class="footer-hours" data-studio-hours>
+          {hours.map((h) => (
             <div class="footer-hours-row">
               <dt>{h.days}</dt>
               <dd>{h.time}</dd>
@@ -75,6 +82,7 @@ const phoneDigits = (siteConfig.contactPhone ?? '').replace(/[^+\d]/g, '')
   </div>
 </footer>
 
+<script>import '@lib/site-live'</script>
 <script is:inline data-astro-rerun define:vars={{ walkInStart: OPEN_STUDIO_START_DATE }}>
   // Central time, standard offset: the Craft Café start date (see opening.ts).
   var walkInOpen = new Date() >= new Date(walkInStart + 'T00:00:00-06:00')

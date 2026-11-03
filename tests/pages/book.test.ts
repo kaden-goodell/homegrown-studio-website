@@ -62,7 +62,7 @@ describe('/book page', () => {
   it('keeps the closed notice and its sign-up', () => {
     expect(template).toContain('id="notify"')
     expect(template).toContain('interest={interest}')
-    expect(template).toContain('holds a date once booking opens.')
+    expect(template).toContain('holds a date once online booking is back.')
   })
 
   it('does not import the server-only site config into anything the browser gets', () => {

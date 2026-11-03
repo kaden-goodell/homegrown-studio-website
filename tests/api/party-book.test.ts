@@ -390,7 +390,7 @@ describe('POST /api/party/book.json: one order, one charge, no Square booking', 
     try {
       const { status } = await post(body(at('2027-04-18', '13:00')))
       const { bookingsClosedResponse } = await import('@lib/bookings-gate')
-      expect(status).toBe(bookingsClosedResponse().status)
+      expect(status).toBe((await bookingsClosedResponse()).status)
       expect(m.createOrder).not.toHaveBeenCalled()
     } finally {
       process.env.BOOKINGS_OPEN = before
@@ -408,7 +408,7 @@ describe('POST /api/party/book.json: one order, one charge, no Square booking', 
       expect(again.status).toBe(200)
       expect(again.json.data).toMatchObject({ bookingId: first.json.data.bookingId, hostToken: first.json.data.hostToken, replayed: true })
       const { bookingsClosedResponse } = await import('@lib/bookings-gate')
-      expect((await post(body(at('2027-04-18', '15:30')))).status).toBe(bookingsClosedResponse().status)
+      expect((await post(body(at('2027-04-18', '15:30')))).status).toBe((await bookingsClosedResponse()).status)
       expect(m.processPayment).toHaveBeenCalledTimes(1)
     } finally {
       process.env.BOOKINGS_OPEN = before

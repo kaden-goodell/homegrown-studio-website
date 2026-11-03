@@ -5,7 +5,7 @@ import { api, SETTINGS } from '../classes/api'
 import { useRefresh } from './data'
 
 /**
- * The studio's closed days and Craft Café hours as the owners saved them
+ * The studio's hours, closed days and Craft Café hours as the owners saved them
  * (More › Hours & Craft Café, Closed days), for every /admin screen that
  * draws a closed day or the café: Home, the calendar, the day and café
  * sheets, New class's first open day. Until they load (or if they can't),
@@ -25,8 +25,11 @@ const StudioContext = createContext<StudioState>({ view: null, days: CONFIG_STUD
 export const useStudio = () => useContext(StudioContext)
 
 export function daysOfView(v: SettingsView): StudioDays {
-  return { closures: v.closures, cafe: { weekly: v.cafeWeekly, special: v.cafeSpecialDays } }
+  return { closures: v.closures, cafe: { weekly: v.cafeWeekly, special: v.cafeSpecialDays }, studio: v.studioWeekly ?? CONFIG_STUDIO_DAYS.studio }
 }
+
+/** A reply from before studio hours were editable has none: the config's are in force. */
+const withStudio = (v: SettingsView): SettingsView => (Array.isArray(v.studioWeekly) ? v : { ...v, studioWeekly: CONFIG_STUDIO_DAYS.studio })
 
 export function StudioProvider({ children }: { children: ReactNode }) {
   const { version } = useRefresh()
@@ -38,12 +41,12 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setError('')
     api<{ settings: SettingsView }>(SETTINGS).then((r) => {
       if (!live) return
-      if (r.ok && r.data?.settings) setView(r.data.settings)
+      if (r.ok && r.data?.settings) setView(withStudio(r.data.settings))
       else setError(r.error ?? 'The studio settings didn’t load.')
     })
     return () => { live = false }
   }, [version, tries])
-  const replace = useCallback((v: SettingsView) => setView(v), [])
+  const replace = useCallback((v: SettingsView) => setView(withStudio(v)), [])
   const value = useMemo<StudioState>(() => ({
     view, error, replace,
     days: view ? daysOfView(view) : CONFIG_STUDIO_DAYS,

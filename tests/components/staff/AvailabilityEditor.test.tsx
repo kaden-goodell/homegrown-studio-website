@@ -21,6 +21,13 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 const body = (i = 0) => JSON.parse(fetchMock.mock.calls[i][1].body)
 
 describe('AvailabilityEditor', () => {
+  it('follows the studio hours the owners set: a Wednesday opening shows as a usual day', () => {
+    const studio = [{ weekday: 'Wednesday' as const, opens: '16:00', closes: '21:00' }, { weekday: 'Saturday' as const, opens: '09:00', closes: '21:00' }]
+    expect(openDays(studio).map((d) => d.name)).toEqual(['Wednesday', 'Saturday'])
+    render(<AvailabilityEditor initial={empty()} studioHours={studio} />)
+    expect(screen.getAllByRole('group').filter((g) => g.tagName === 'FIELDSET').map((g) => g.querySelector('legend')!.textContent))
+      .toEqual(['Wednesdays', 'Saturdays'])
+  })
   it('the usual week shows the studio’s open days, Thursday first', () => {
     expect(openDays().map((d) => d.name)).toEqual(['Thursday', 'Friday', 'Saturday', 'Sunday'])
     render(<AvailabilityEditor initial={empty()} />)

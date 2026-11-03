@@ -4,12 +4,14 @@ export const prerender = false
 import Layout from '@layouts/Layout.astro'
 import { publicPageHeaders } from '@lib/cache-headers'
 import WhatsOnCalendar from '@components/calendar/WhatsOnCalendar'
-import { envBookingsOpen, hasValidPreviewCookie, previewQueryMatches } from '@lib/bookings-gate'
+import { bookingPageGate } from '@lib/bookings-gate'
 
 // Only promise "tap to book" when tapping can actually book.
-const preview = previewQueryMatches(Astro.url) || hasValidPreviewCookie(Astro.request)
-const partiesOpen = envBookingsOpen('parties') || preview
-const workshopsOpen = envBookingsOpen('workshops') || preview
+const partyGate = await bookingPageGate({ url: Astro.url, request: Astro.request, setCookie: (n, v, o) => Astro.cookies.set(n, v, o) }, 'parties')
+if (partyGate.redirect) return Astro.redirect(partyGate.redirect, 302) // the test link: cookie set, secret out of the address
+const workshopGate = await bookingPageGate({ url: Astro.url, request: Astro.request }, 'workshops')
+const partiesOpen = partyGate.open
+const workshopsOpen = workshopGate.open
 
 // Let Netlify keep a ready copy of this page (see cache-headers.ts).
 const pageCache = publicPageHeaders(Astro.request, Astro.url)
@@ -28,8 +30,10 @@ if (pageCache) for (const [k, v] of Object.entries(pageCache)) Astro.response.he
         {partiesOpen && workshopsOpen
           ? 'Workshops and open party dates. Tap one to book it.'
           : partiesOpen
-            ? 'Open party dates and upcoming workshops. Tap a party date to book it. Workshop booking opens with our grand opening.'
-            : 'Here’s what’s coming. Booking opens with our grand opening, and you can ask to be told the day it does.'}
+            ? 'Open party dates and upcoming workshops. Tap a party date to book it. Online workshop booking is paused for now.'
+            : workshopsOpen
+              ? 'Upcoming workshops. Tap one to book it. Online party booking is paused for now.'
+              : `Here’s what’s coming. ${partyGate.note}`}
       </p>
     </div>
     <WhatsOnCalendar client:load />

@@ -73,6 +73,7 @@ export const STAGE4_HELP_SECTIONS: HelpSection[] = [
       'If the waitlist has stopped, a line says why with the button that fixes it (**Put it on the register**, **Update the register** or **Try the waitlist again**). Until then anyone can book the free seat normally.',
       'A row that says “taking their card off file” is retried every 10 minutes by itself. **Take the card off now** tries straight away.',
       'Refunding someone but keeping their seat never starts the waitlist.',
+      'While classes & workshops are paused (More › **Online booking**), the waitlist doesn’t charge anyone’s saved card, even when a seat frees up. It picks up again once you open them.',
     ],
   },
   {

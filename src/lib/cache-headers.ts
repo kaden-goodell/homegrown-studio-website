@@ -12,6 +12,7 @@
  * Booking and payment endpoints do not use this. They are never cached.
  */
 import { previewCookieName } from '@lib/bookings-gate'
+import { BOOKING_CACHE_TAG } from '@lib/booking-cache'
 
 const FRESH_SECONDS = 60
 const SERVE_WHILE_REFRESHING_SECONDS = 600
@@ -32,6 +33,8 @@ export function publicListHeaders(request: Request, options: { failed?: boolean 
     'Cache-Control': `public, max-age=${FRESH_SECONDS}`,
     'Netlify-CDN-Cache-Control': `public, durable, max-age=${FRESH_SECONDS}, stale-while-revalidate=${SERVE_WHILE_REFRESHING_SECONDS}`,
     'Netlify-Vary': `query,cookie=${previewCookieName}`,
+    // Cleared at once when the owners flip online booking (booking-cache.ts).
+    'Netlify-Cache-Tag': BOOKING_CACHE_TAG,
   }
 }
 
@@ -55,5 +58,6 @@ export function publicPageHeaders(request: Request, url: URL): Record<string, st
     'Cache-Control': 'public, max-age=0, must-revalidate',
     'Netlify-CDN-Cache-Control': `public, durable, max-age=${PAGE_FRESH_SECONDS}, stale-while-revalidate=${PAGE_SERVE_WHILE_REFRESHING_SECONDS}`,
     'Netlify-Vary': `query,cookie=${previewCookieName}`,
+    'Netlify-Cache-Tag': BOOKING_CACHE_TAG,
   }
 }

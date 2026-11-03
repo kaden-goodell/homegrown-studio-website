@@ -1,17 +1,19 @@
 /**
- * Studio settings the owners edit on /admin: Craft Café's weekly hours, its
- * special days, and the closed days. One document, written compare-and-set,
+ * Studio settings the owners edit on /admin: the studio's weekly hours (which
+ * also say which weekdays it opens), Craft Café's weekly hours, its special
+ * days, and the closed days. One document, written compare-and-set,
  * with the last 50 changes kept (who, when, what, and what it was before).
  *
  * Until an owner first saves, there is no document and everything reads the
  * config (src/config/hours.ts, src/config/closures.ts): production behaves
- * exactly as it did before this existed.
+ * exactly as it did before this existed. A document saved before studio hours
+ * were editable has none: the config's studio hours apply until a save adds them.
  *
  * Readers on the server call getStudioDays() (or getClosures()/getCafeHours())
  * and pass the answer to the pure date rules (closureOn, studioOpenOn,
  * cafeHoursOn, cafeRunsOn, partyStartsForDate…). The answer is remembered for
  * 60 seconds per server instance; a save replaces it at once on the instance
- * that saved. Studio opening hours (STUDIO_HOURS) stay config.
+ * that saved.
  *
  * Server only.
  */
@@ -20,7 +22,7 @@ import { assertClassWritesAllowed } from '@lib/classes/test-site-guard'
 import { createLogger } from '@lib/logger'
 import type { By } from '@lib/staff-auth'
 import type { Closure, Holiday } from '@config/closures'
-import { WEEKDAYS, type CafeSpecialDay, type CafeWeekly, type Weekday } from '@config/hours'
+import { CONFIG_STUDIO_WEEKLY, WEEKDAYS, type CafeSpecialDay, type CafeWeekly, type Weekday } from '@config/hours'
 import { CONFIG_STUDIO_DAYS, type StudioDays } from '@config/studio-days'
 import type { CafeHours } from '@config/hours'
 import { SettingsError } from '@lib/settings-error'
@@ -39,6 +41,8 @@ export interface StoredClosure extends Closure { id: string }
 
 /** What an owner edits. */
 export interface SettingsInput {
+  /** The studio's weekly hours: one row per open weekday. */
+  studioWeekly: CafeWeekly[]
   cafeWeekly: CafeWeekly[]
   cafeSpecialDays: CafeSpecialDay[]
   closures: StoredClosure[]
@@ -71,6 +75,7 @@ export { SettingsError }
 /** The config as editable settings. Config closures get a stable id from their first day. */
 export function configSettings(): SettingsInput {
   return {
+    studioWeekly: CONFIG_STUDIO_DAYS.studio.map((w) => ({ ...w })),
     cafeWeekly: CONFIG_STUDIO_DAYS.cafe.weekly.map((w) => ({ ...w })),
     cafeSpecialDays: CONFIG_STUDIO_DAYS.cafe.special.map((d) => ({ ...d })),
     closures: CONFIG_STUDIO_DAYS.closures.map((c) => ({ ...c, id: c.id ?? `cfg-${c.from}` })),
@@ -81,6 +86,7 @@ export function toStudioDays(s: SettingsInput): StudioDays {
   return {
     closures: s.closures,
     cafe: { weekly: s.cafeWeekly, special: s.cafeSpecialDays },
+    studio: s.studioWeekly,
   }
 }
 
@@ -113,9 +119,10 @@ function name(v: unknown, field: string, fallback: string): string {
 }
 
 /**
- * A special day's announcement (hours.ts `announce`: the site-wide bar and the
- * big card). Not edited on /admin, but kept when the owners save, so a save
- * never silently drops an announced day. Anything malformed is left off.
+ * A special day's announcement (the site-wide bar and the big card, and the
+ * flyer's headline): owners set it in /admin › Hours & Craft Café ("Announce it
+ * on the website": a headline up to 60 characters, shown from 0–90 days
+ * before). Anything malformed is left off.
  */
 function announceOf(v: any): CafeSpecialDay['announce'] | undefined {
   const headline = str(v?.headline).replace(/\s+/g, ' ')
@@ -136,8 +143,24 @@ const dayCount = (from: string, to: string) => Math.round((Date.parse(`${to}T12:
  * Checks and tidies what an owner sent. Throws a SettingsError naming the
  * field (`cafeWeekly.0`, `cafeSpecialDays.2`, `closures.1`) on the first problem.
  */
-export function validateSettings(body: any): SettingsInput {
+export function validateSettings(body: any, current: { studioWeekly: CafeWeekly[] } = { studioWeekly: CONFIG_STUDIO_WEEKLY }): SettingsInput {
   if (!body || typeof body !== 'object') throw new SettingsError(400, 'Nothing to save.')
+  // A page loaded before studio hours were editable sends none: keep what's in force.
+  const studioIn = Array.isArray(body.studioWeekly) ? body.studioWeekly : body.studioWeekly === undefined ? current.studioWeekly : null
+  if (!studioIn) throw new SettingsError(400, 'Send the studio hours.', 'studioWeekly')
+  if (studioIn.length > 7) throw new SettingsError(400, 'That is more rows than the studio needs.', 'studioWeekly')
+  const studioWeekly: CafeWeekly[] = studioIn.map((w: any, i: number) => {
+    const field = `studioWeekly.${i}`
+    if (!WEEKDAYS.includes(w?.weekday)) throw new SettingsError(400, 'Pick a day of the week.', field)
+    return { weekday: w.weekday as Weekday, ...times(w.opens, w.closes, field) }
+  })
+  const seenStudio = new Set<string>()
+  studioWeekly.forEach((w, i) => {
+    if (seenStudio.has(w.weekday)) throw new SettingsError(400, `${w.weekday} is in the list twice.`, `studioWeekly.${i}`)
+    seenStudio.add(w.weekday)
+  })
+  if (!studioWeekly.length) throw new SettingsError(400, 'Keep at least one open day. To close for a while, add closed days instead.', 'studioWeekly')
+  studioWeekly.sort((a, b) => WEEK_ORDER.indexOf(a.weekday) - WEEK_ORDER.indexOf(b.weekday))
   const weeklyIn = Array.isArray(body.cafeWeekly) ? body.cafeWeekly : null
   const specialIn = Array.isArray(body.cafeSpecialDays) ? body.cafeSpecialDays : null
   const closuresIn = Array.isArray(body.closures) ? body.closures : null
@@ -153,6 +176,12 @@ export function validateSettings(body: any): SettingsInput {
   cafeWeekly.forEach((w, i) => {
     if (seenDays.has(w.weekday)) throw new SettingsError(400, `${w.weekday} is in the list twice.`, `cafeWeekly.${i}`)
     seenDays.add(w.weekday)
+    // Weekly café runs inside the studio's hours; a special day can be any day.
+    const open = studioWeekly.find((s) => s.weekday === w.weekday)
+    if (!open) throw new SettingsError(400, `The studio is closed on ${w.weekday}s. Add ${w.weekday} studio hours first, or make it a special day.`, `cafeWeekly.${i}`)
+    if (w.opens < open.opens || w.closes > open.closes) {
+      throw new SettingsError(400, `Craft Café on ${w.weekday}s has to be inside the studio hours (${clock(open.opens)} – ${clock(open.closes)}).`, `cafeWeekly.${i}`)
+    }
   })
 
   const cafeSpecialDays: CafeSpecialDay[] = specialIn.map((d: any, i: number) => {
@@ -183,7 +212,15 @@ export function validateSettings(body: any): SettingsInput {
     return { id, from: c.from, to, name: name(c.name, field, 'a break'), ...(holiday ? { holiday } : {}) }
   })
   closures.sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to))
-  return { cafeWeekly, cafeSpecialDays, closures }
+  return { studioWeekly, cafeWeekly, cafeSpecialDays, closures }
+}
+
+const WEEK_ORDER: Weekday[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+/** 09:00 → "9 AM", 13:30 → "1:30 PM". */
+function clock(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number)
+  return `${h % 12 === 0 ? 12 : h % 12}${m ? `:${String(m).padStart(2, '0')}` : ''} ${h < 12 ? 'AM' : 'PM'}`
 }
 
 // ---------------------------------------------------------------- what changed
@@ -203,11 +240,13 @@ export function addedClosures(before: Closure[], after: StoredClosure[]): Stored
 export function describeChanges(before: SettingsInput, after: SettingsInput): string[] {
   const out: string[] = []
   const wk = (l: CafeWeekly[]) => JSON.stringify([...l].sort((a, b) => a.weekday.localeCompare(b.weekday)))
+  if (wk(before.studioWeekly ?? CONFIG_STUDIO_WEEKLY) !== wk(after.studioWeekly)) out.push('Studio hours')
   if (wk(before.cafeWeekly) !== wk(after.cafeWeekly)) out.push('Craft Café weekly hours')
   for (const d of after.cafeSpecialDays) {
     const was = before.cafeSpecialDays.find((x) => x.date === d.date)
     if (!was) out.push(`Added a special day: ${label(d.date)}`)
     else if (was.opens !== d.opens || was.closes !== d.closes || was.name !== d.name) out.push(`Changed a special day: ${label(d.date)}`)
+    else if (JSON.stringify(was.announce ?? null) !== JSON.stringify(d.announce ?? null)) out.push(`${d.announce ? 'Announced' : 'Stopped announcing'} a special day: ${label(d.date)}`)
   }
   for (const d of before.cafeSpecialDays) if (!after.cafeSpecialDays.some((x) => x.date === d.date)) out.push(`Removed a special day: ${label(d.date)}`)
   const sameClosure = (a: Closure, b: Closure) => a.from === b.from && a.to === b.to && a.name === b.name && (a.holiday ?? '') === (b.holiday ?? '')
@@ -222,7 +261,7 @@ let cached: { at: number; days: StudioDays } | null = null
 
 function parse(json: string): StudioSettings {
   const s = JSON.parse(json) as StudioSettings
-  return { ...s, cafeWeekly: s.cafeWeekly ?? [], cafeSpecialDays: s.cafeSpecialDays ?? [], closures: s.closures ?? [], history: s.history ?? [] }
+  return { ...s, studioWeekly: s.studioWeekly ?? CONFIG_STUDIO_WEEKLY.map((w) => ({ ...w })), cafeWeekly: s.cafeWeekly ?? [], cafeSpecialDays: s.cafeSpecialDays ?? [], closures: s.closures ?? [], history: s.history ?? [] }
 }
 
 /**
@@ -306,7 +345,7 @@ export async function saveStudioSettings(
       throw new StaleSettingsError(cur ?? { ...configSettings(), updatedAt: null, by: null, history: [] })
     }
     const before: SettingsInput = cur
-      ? { cafeWeekly: cur.cafeWeekly, cafeSpecialDays: cur.cafeSpecialDays, closures: cur.closures }
+      ? { studioWeekly: cur.studioWeekly, cafeWeekly: cur.cafeWeekly, cafeSpecialDays: cur.cafeSpecialDays, closures: cur.closures }
       : configSettings()
     const changed = describeChanges(before, input)
     const now = opts.now ?? new Date()

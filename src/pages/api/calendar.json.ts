@@ -1,8 +1,9 @@
 import type { APIRoute } from 'astro'
-import { bookingsOpen } from '@lib/bookings-gate'
+import { bookingsOpenNow } from '@lib/bookings-gate'
 import { OPENING_DATE, GRAND_OPENING_DATE } from '@config/opening'
 import { closureOn, daysOf, reopensOn } from '@config/closures'
 import { getStudioDays } from '@lib/studio-settings'
+import { openWeekdaysOf } from '@config/studio-days'
 import { longDate } from '@lib/notify-context'
 import { providers } from '@config/providers'
 import { partyConfig } from '@config/party.config'
@@ -166,7 +167,7 @@ export const GET: APIRoute = async ({ url, request }) => {
   //    would then refuse. Real created content (workshops, open studio, booked
   //    parties) still shows as "what's coming". A Grand Opening marker anchors
   //    the opening month.
-  const includePartySlots = bookingsOpen(request, 'parties')
+  const includePartySlots = await bookingsOpenNow(request, 'parties')
   const built = buildCalendarEvents(
     workshops,
     openStudioWindows,
@@ -192,7 +193,7 @@ export const GET: APIRoute = async ({ url, request }) => {
   // Days the studio has closed: a row on every one of them, so a whole
   // closed week reads as a whole closed week.
   for (const closure of closures) {
-    const reopens = `We reopen ${longDate(reopensOn(closure, closures))}.`
+    const reopens = `We reopen ${longDate(reopensOn(closure, closures, openWeekdaysOf(studio.studio)))}.`
     for (const day of daysOf(closure)) {
       if (day < OPENING_DATE || !inRange(day)) continue
       events.push({
@@ -210,7 +211,10 @@ export const GET: APIRoute = async ({ url, request }) => {
   const shut = closures
     .filter((c) => c.to >= `${month}-01` && c.from < `${afterLast}-01`)
     .map((c) => ({ from: c.from, to: c.to, name: c.name, ...(c.holiday ? { holiday: c.holiday } : {}) }))
-  return new Response(JSON.stringify({ events, closures: shut, ...(failed ? { incomplete: true } : {}) }), {
+  // The weekdays the studio opens (its hours, as the owners set them) and the café special days, which open a usually closed day.
+  const openWeekdays = [...openWeekdaysOf(studio.studio)].sort()
+  const openDates = studio.cafe.special.map((d) => d.date).filter((d) => d >= `${month}-01` && d < `${afterLast}-01`)
+  return new Response(JSON.stringify({ events, closures: shut, openWeekdays, openDates, ...(failed ? { incomplete: true } : {}) }), {
     status: 200,
     headers: publicListHeaders(request, { failed }),
   })

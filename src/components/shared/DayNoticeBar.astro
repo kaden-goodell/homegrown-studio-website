@@ -2,7 +2,7 @@
 import { cafeDayNotices, activeDayNotice } from '@lib/special-day-notice'
 
 // A slim bar above the header for an announced Craft Café special day
-// (hours.ts `announce`), e.g. "🎉 Grand Opening Day Sat Nov 7 · Craft Café 9 AM – 8 PM →".
+// (announced in /admin › Hours & Craft Café; hours.ts `announce` until then), e.g. "🎉 Grand Opening Day Sat Nov 7 · Craft Café 9 AM – 8 PM →".
 const notices = cafeDayNotices()
 const active = activeDayNotice(new Date(), notices)
 ---
@@ -18,9 +18,15 @@ const active = activeDayNotice(new Date(), notices)
     hidden={active?.date !== n.date}
     class="day-notice-bar"
   >
-    <span aria-hidden="true">{'🎉 '}</span><strong>{n.headline}</strong>{` ${n.shortDate} · `}<span class="nowrap">{'Craft Café '}<span data-day-notice-hours>{n.hours}</span>{' '}<span aria-hidden="true">→</span></span>
+    <span aria-hidden="true">{'🎉 '}</span><strong data-day-notice-headline>{n.headline}</strong>{' '}<span data-day-notice-short-date>{n.shortDate}</span>{' · '}<span class="nowrap">{'Craft Café '}<span data-day-notice-hours>{n.hours}</span>{' '}<span aria-hidden="true">→</span></span>
   </a>
 ))}
+{/* A day announced on /admin after this page was built is added from this (day-notice-client). */}
+<template data-day-notice-template="bar">
+  <a href="/craft-cafe" data-day-notice="bar" data-track-cta="day_notice_bar" class="day-notice-bar" hidden>
+    <span aria-hidden="true">{'🎉 '}</span><strong data-day-notice-headline></strong>{' '}<span data-day-notice-short-date></span>{' · '}<span class="nowrap">{'Craft Café '}<span data-day-notice-hours></span>{' '}<span aria-hidden="true">→</span></span>
+  </a>
+</template>
 <script>import '@lib/day-notice-client'</script>
 
 <style>

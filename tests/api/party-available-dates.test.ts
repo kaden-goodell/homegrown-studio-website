@@ -9,7 +9,7 @@ vi.mock('@config/providers', () => ({
   },
 }))
 vi.mock('@lib/bookings-gate', () => ({
-  bookingsOpen: () => true,
+  bookingsOpenNow: async () => true,
   bookingsClosedResponse: () => new Response('closed', { status: 403 }),
 }))
 

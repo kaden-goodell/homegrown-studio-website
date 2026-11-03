@@ -18,6 +18,7 @@ import { addDays, dayLabel, nextOpenDay, partsOf, today } from '../classes/dates
 import { closureOn, closures as configClosures, type Closure } from '@config/closures'
 import { useStudio } from '../shell/studio'
 import RepeatSection, { NO_REPEAT, patternOf, tickedDates, useRepeatPreview, type Repeat } from '../classes/RepeatSection'
+import { openWeekdaysOf } from '@config/studio-days'
 import { latestOf, priceOf, ranText } from '../classes/labels'
 import { useLibraryList } from '../classes/library-data'
 import { useRefresh } from '../shell/data'
@@ -42,12 +43,12 @@ interface Picked { libraryId: string | null; content: ClassContent | null; name:
 export { nextOpenDay }
 
 /** A week out, then on to the next day the studio opens. `closed`: the owners' closed days (useStudio). */
-export function defaultDay(now = today(), closed: Closure[] = configClosures): string {
-  return nextOpenDay(addDays(now, 7), closed)
+export function defaultDay(now = today(), closed: Closure[] = configClosures, open?: ReadonlySet<number>): string {
+  return nextOpenDay(addDays(now, 7), closed, open)
 }
 
-function freshRows(day: string | undefined, closed: Closure[]): DateRow[] {
-  return [newDateRow({ day: day ?? defaultDay(today(), closed), start: '18:00', end: '20:00', capacity: 12 })]
+function freshRows(day: string | undefined, closed: Closure[], open?: ReadonlySet<number>): DateRow[] {
+  return [newDateRow({ day: day ?? defaultDay(today(), closed, open), start: '18:00', end: '20:00', capacity: 12 })]
 }
 
 function newKey(): string {
@@ -56,10 +57,10 @@ function newKey(): string {
 }
 
 /** A library class's details, at its usual time and seats, on `day` (or a week from today). */
-function fromLibrary(lib: LibraryClass, run: LibraryRun | undefined, day: string | undefined, closed: Closure[]): { form: Form; rows: DateRow[]; picked: Picked } {
+function fromLibrary(lib: LibraryClass, run: LibraryRun | undefined, day: string | undefined, closed: Closure[], open?: ReadonlySet<number>): { form: Form; rows: DateRow[]; picked: Picked } {
   const c = latestOf(lib).content
   const start = run ? partsOf(run.startIso).time : '18:00'
-  const d = day ?? defaultDay(today(), closed)
+  const d = day ?? defaultDay(today(), closed, open)
   const end = run ? partsOf(run.endIso).time : endAfter(d, start, c.defaultMinutes)
   return {
     form: toForm(c),
@@ -86,8 +87,10 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
   const body = useRef<HTMLDivElement>(null)
 
   const snapshot = (form: Form, r: DateRow[]) => JSON.stringify([form, r.map(({ key: _k, ...x }) => x)])
-  const closed = useStudio().days.closures
-  const [first] = useState(() => ({ form: toForm(blankContent()), rows: freshRows(day, closed) }))
+  const studioDays = useStudio().days
+  const closed = studioDays.closures
+  const openDays = openWeekdaysOf(studioDays.studio)
+  const [first] = useState(() => ({ form: toForm(blankContent()), rows: freshRows(day, closed, openDays) }))
   const [src, setSrc] = useState<'fresh' | 'past'>(from ? 'past' : 'fresh')
   const [f, setF] = useState<Form>(first.form)
   const [rows, setRows] = useState<DateRow[]>(first.rows)
@@ -125,7 +128,7 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
       if (!list) return
       const lib = list.find((l) => l.id === from.id)
       if (!lib) { setLoadError('That class isn’t in the library any more.'); return }
-      const x = fromLibrary(lib, runs[lib.id], day, closed)
+      const x = fromLibrary(lib, runs[lib.id], day, closed, openDays)
       begin(x.form, x.rows, x.picked)
       return
     }
@@ -137,7 +140,7 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
       const cls = r.data.class
       const lib = cls.libraryId ? list.find((l) => l.id === cls.libraryId) : undefined
       // R37 (RM1): a week on from its dates, but never before the next day the studio opens from today.
-      begin(toForm(cls.content), onOrAfter(weekLater(cls.sessions), nextOpenDay(today(), closed), (d) => !!closureOn(d, closed)), { libraryId: lib?.id ?? null, content: lib ? latestOf(lib).content : null, name: cls.content.name, startedFrom: cls.content })
+      begin(toForm(cls.content), onOrAfter(weekLater(cls.sessions), nextOpenDay(today(), closed, openDays), (d) => !!closureOn(d, closed)), { libraryId: lib?.id ?? null, content: lib ? latestOf(lib).content : null, name: cls.content.name, startedFrom: cls.content })
     })
     return () => { live = false }
   }, [from?.kind, from?.id, list, ready])
@@ -149,7 +152,7 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
   }
   function pick(lib: LibraryClass) {
     setReplacing(null)
-    const x = fromLibrary(lib, runs[lib.id], day ?? rows[0]?.day, closed)
+    const x = fromLibrary(lib, runs[lib.id], day ?? rows[0]?.day, closed, openDays)
     setF(x.form)
     setRows(x.rows)
     setPicked(x.picked)
@@ -165,7 +168,7 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
       const now = build(f)
       if (picked.content && (!now.ok || sameDetails(now.content, picked.content))) {
         setF(toForm(blankContent()))
-        setRows(freshRows(day ?? rows[0]?.day, closed))
+        setRows(freshRows(day ?? rows[0]?.day, closed, openDays))
       }
       setPicked(null)
     }

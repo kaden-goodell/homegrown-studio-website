@@ -21,7 +21,7 @@ vi.mock('@config/providers', () => ({
 }))
 vi.mock('@lib/party-store', () => ({ getPartyRecord: vi.fn(async () => null) }))
 vi.mock('@lib/audit', () => ({ recordAudit: vi.fn(async () => undefined) }))
-vi.mock('@lib/bookings-gate', () => ({ previewCookieName: 'hg_preview', bookingsOpen: () => true, bookingsClosedResponse: () => new Response('closed', { status: 403 }) }))
+vi.mock('@lib/bookings-gate', () => ({ previewCookieName: 'hg_preview', bookingsOpenNow: async () => true, bookingsClosedResponse: () => new Response('closed', { status: 403 }) }))
 vi.mock('@lib/classes/square-catalog', () => ({ syncClassToSquare: vi.fn(async () => ({ itemId: 'i', variations: {}, imageUrl: null })), archiveClassInSquare: vi.fn(), CLASS_TAX_NOT_SET: 'x' }))
 vi.mock('@lib/classes/square-api', () => ({ squareFetch: vi.fn(async () => { throw new Error('no Square in tests') }), squareSettings: () => ({ environment: 'sandbox' }) }))
 vi.mock('@lib/staff-auth', async (orig) => ({ ...(await orig<typeof import('@lib/staff-auth')>()), staffAuthorized: () => ({ id: 't', name: 'Test', role: 'crew' }) }))
@@ -180,5 +180,57 @@ describe('café hours saved on /admin', () => {
       expect.objectContaining({ date: '2026-11-07', hours: '9 AM – 8 PM', regularHours: 'Saturdays 9 AM – 1 PM' }),
     ])
     expect((await getSettingsView()).closures).toEqual(configSettings().closures)
+  })
+})
+
+describe('studio hours saved on /admin (G3)', () => {
+  const WED = '2026-11-18' // a Wednesday: usually closed
+  const withWednesday = (s: SettingsInput): SettingsInput => ({ ...s, studioWeekly: [...s.studioWeekly, { weekday: 'Wednesday', opens: '16:00', closes: '21:00' }] })
+
+  it('a café special day on a Wednesday shows everywhere, though the studio is usually closed', async () => {
+    await saveSettings((s) => ({ ...s, cafeSpecialDays: [...s.cafeSpecialDays, { date: WED, opens: '10:00', closes: '14:00', name: 'Midweek café' }] }))
+    expect((await get(cafeHours, '/api/cafe-hours.json')).body.data.special).toEqual(expect.arrayContaining([{ date: WED, name: 'Midweek café', time: '10 AM – 2 PM' }]))
+    const busy = await busyBetween(localToUtcISO(WED, '00:00'), localToUtcISO('2026-11-19', '00:00'))
+    expect(busy.find((b) => b.kind === 'cafe')).toMatchObject({ startIso: localToUtcISO(WED, '10:00'), endIso: localToUtcISO(WED, '14:00') })
+    expect((await get(events, `/api/staff/events.json?date=${WED}`)).body.data.cafeOpen).toBe(true)
+    const pub = await get(calendar, '/api/calendar.json?month=2026-11')
+    expect(pub.body.openDates).toContain(WED)
+    expect(pub.body.openWeekdays).toEqual([0, 4, 5, 6])
+  })
+
+  it('the footer and Google get the saved hours; the calendar opens Wednesdays', async () => {
+    const before = (await get(cafeHours, '/api/cafe-hours.json')).body.data
+    expect(before.studio).toEqual([
+      { days: 'Thursday', time: '6 – 8 PM' }, { days: 'Friday', time: '4 – 9 PM' }, { days: 'Saturday', time: '9 AM – 9 PM' }, { days: 'Sunday', time: '1 – 8 PM' },
+    ])
+    await saveSettings(withWednesday)
+    resetStudioDaysCache()
+    forgetAll()
+    const data = (await get(cafeHours, '/api/cafe-hours.json')).body.data
+    expect(data.studio[0]).toEqual({ days: 'Wednesday & Friday', time: '4 – 9 PM' })
+    expect(data.studioHours).toEqual(expect.arrayContaining([{ days: ['Wednesday', 'Friday'], opens: '16:00', closes: '21:00' }]))
+    const pub = await get(calendar, '/api/calendar.json?month=2026-11')
+    expect(pub.body.openWeekdays).toEqual([0, 3, 4, 5, 6])
+  })
+
+  it('a party on a Wednesday is a closed-day warning until Wednesday has hours', async () => {
+    expect((await holdTime({ partyId: 'pty_wednesday00000001', startIso: localToUtcISO(WED, '17:00'), endIso: localToUtcISO(WED, '18:30'), ttlMinutes: null }, [], new Date())).ok).toBe(true)
+    expect((await listWarnings({ from: WED, to: WED })).map((w) => w.code)).toContain('party-on-closed-day')
+    await saveSettings(withWednesday)
+    expect((await listWarnings({ from: WED, to: WED })).map((w) => w.code)).not.toContain('party-on-closed-day')
+  })
+})
+
+describe('special-day announcement saved on /admin (G9)', () => {
+  it('a newly announced day goes out with everything the bar and card need; un-announcing takes it away', async () => {
+    const MARKET = '2026-12-12'
+    await saveSettings((s) => ({ ...s, cafeSpecialDays: [...s.cafeSpecialDays, { date: MARKET, opens: '10:00', closes: '16:00', name: 'Holiday market', announce: { headline: 'Holiday Market Day', daysBefore: 14 } }] }))
+    const notices = (await get(cafeHours, '/api/cafe-hours.json')).body.data.notices
+    expect(notices).toEqual(expect.arrayContaining([expect.objectContaining({
+      date: MARKET, headline: 'Holiday Market Day', weekday: 'SAT', monthDay: 'DEC 12', shortDate: 'Sat Dec 12', hours: '10 AM – 4 PM',
+      showFromIso: localToUtcISO('2026-11-28', '00:00'), showUntilIso: localToUtcISO(MARKET, '16:00'),
+    })]))
+    await saveSettings((s) => ({ ...s, cafeSpecialDays: s.cafeSpecialDays.map((d) => (d.date === MARKET ? { date: d.date, opens: d.opens, closes: d.closes, name: d.name } : d)) }))
+    expect((await get(cafeHours, '/api/cafe-hours.json')).body.data.notices.map((n: any) => n.date)).not.toContain(MARKET)
   })
 })

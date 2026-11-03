@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
-import { closureOn, OPEN_WEEKDAYS } from '@config/closures'
+import { closureOn } from '@config/closures'
+import { isStudioOpenOn } from '@config/studio-days'
 import { cafeHoursEntries, cafeHoursOn } from '@config/hours'
 import { useStudio } from '../shell/studio'
 import { timeSpan as formatTimeSpan, clockRange } from '../shell/time'
@@ -50,7 +51,7 @@ export function DaySheet({ day }: { day: string }) {
   const things = list.filter((i) => i.kind !== 'closed')
   const { days } = useStudio()
   const closure = closureOn(day, days.closures)
-  const shut = !!closure || !OPEN_WEEKDAYS.has(weekday(day))
+  const shut = !isStudioOpenOn(day, days)
   const weekdayName = new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long' })
   return (
     <SheetFrame title={dayLabel(day)} subtitle={items && things.length ? (things.length === 1 ? '1 thing on' : `${things.length} things on`) : undefined}>

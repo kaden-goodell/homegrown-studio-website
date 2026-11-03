@@ -46,6 +46,7 @@ const CATHERINE = { id: 'owner-catherine', name: 'Catherine' }
 const KADEN = { id: 'owner-kaden', name: 'Kaden' }
 
 const base = (): SettingsInput => ({
+  studioWeekly: CONFIG_STUDIO_DAYS.studio.map((w) => ({ ...w })),
   cafeWeekly: [{ weekday: 'Saturday', opens: '09:00', closes: '12:00' }],
   cafeSpecialDays: [{ date: '2026-11-07', opens: '09:00', closes: '21:00', name: 'Craft Café grand opening' }],
   closures: [{ id: 'clo_a', from: '2026-11-26', to: '2026-11-27', name: 'Thanksgiving', holiday: 'thanksgiving' }],
@@ -203,6 +204,30 @@ describe('validation', () => {
     bad({ cafeSpecialDays: [{ date: '2026-11-07', opens: '21:00', closes: '09:00', name: 'x' }] }, 'cafeSpecialDays.0', /close after/)
   })
 
+  it('studio hours (G3): a weekday once, close after open, at least one open day', () => {
+    bad({ studioWeekly: [{ weekday: 'Sunday', opens: '13:00', closes: '12:00' }] }, 'studioWeekly.0', /close after it opens/)
+    bad({ studioWeekly: [{ weekday: 'Sunday', opens: '13:00', closes: '20:00' }, { weekday: 'Sunday', opens: '10:00', closes: '12:00' }] }, 'studioWeekly.1', /twice/)
+    bad({ studioWeekly: [], cafeWeekly: [] }, 'studioWeekly', /at least one open day/)
+    bad({ studioWeekly: 'all week' }, 'studioWeekly', /studio hours/)
+    // A Sunday that opens at 10 AM, and Wednesdays: fine
+    const ok = validateSettings({ ...base(), studioWeekly: [{ weekday: 'Sunday', opens: '10:00', closes: '20:00' }, { weekday: 'Saturday', opens: '09:00', closes: '21:00' }, { weekday: 'Wednesday', opens: '16:00', closes: '21:00' }] })
+    expect(ok.studioWeekly.map((w) => w.weekday)).toEqual(['Wednesday', 'Saturday', 'Sunday']) // week order, Monday first
+  })
+
+  it('weekly Craft Café only on open days and inside their hours; special days any day', () => {
+    bad({ cafeWeekly: [{ weekday: 'Wednesday', opens: '10:00', closes: '12:00' }] }, 'cafeWeekly.0', /The studio is closed on Wednesdays\. Add Wednesday studio hours first, or make it a special day\./)
+    bad({ cafeWeekly: [{ weekday: 'Sunday', opens: '10:00', closes: '12:00' }] }, 'cafeWeekly.0', /inside the studio hours \(1 PM – 8 PM\)/)
+    const wed = validateSettings({ ...base(), cafeSpecialDays: [{ date: '2026-11-18', opens: '10:00', closes: '14:00', name: 'Midweek café' }] })
+    expect(wed.cafeSpecialDays[0].date).toBe('2026-11-18')
+  })
+
+  it('a page from before studio hours were editable keeps the hours in force', () => {
+    const { studioWeekly: _drop, ...old } = base()
+    void _drop
+    const current = [{ weekday: 'Saturday' as const, opens: '09:00', closes: '21:00' }]
+    expect(validateSettings(old, { studioWeekly: current }).studioWeekly).toEqual(current)
+  })
+
   it('days of the week once each; real dates; one special day per date', () => {
     bad({ cafeWeekly: [{ weekday: 'Caturday', opens: '09:00', closes: '12:00' }] }, 'cafeWeekly.0', /day of the week/)
     bad({ cafeWeekly: [{ weekday: 'Saturday', opens: '09:00', closes: '12:00' }, { weekday: 'Saturday', opens: '13:00', closes: '14:00' }] }, 'cafeWeekly.1', /twice/)
@@ -243,6 +268,7 @@ describe('what changed, in plain words', () => {
   it('names each special day and closed day added, changed or removed', () => {
     const before = base()
     const after: SettingsInput = {
+      studioWeekly: CONFIG_STUDIO_DAYS.studio.map((w) => ({ ...w })),
       cafeWeekly: [{ weekday: 'Saturday', opens: '09:00', closes: '13:00' }, { weekday: 'Sunday', opens: '13:00', closes: '15:00' }],
       cafeSpecialDays: [{ date: '2026-11-07', opens: '09:00', closes: '20:00', name: 'Craft Café grand opening' }, { date: '2026-12-12', opens: '09:00', closes: '17:00', name: 'Holiday market' }],
       closures: [],

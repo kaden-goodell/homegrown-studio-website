@@ -31,6 +31,7 @@ import { PreviewMessagesSheet, ReportsSheet, SandboxSheet, WhoContext, WhoSheet 
 import { HelpSheet } from './sheets/HelpSheet'
 import { PromoSheet, PromosSheet } from './promos/PromosSheet'
 import { ClosedDaysSheet, HoursSheet, RegisterSetupSheet } from './sheets/SettingsSheets'
+import { OnlineBookingSheet } from './sheets/OnlineBookingSheet'
 import { ImportSquareSheet } from './sheets/ImportSquareSheet'
 import { StudioProvider } from './shell/studio'
 
@@ -430,6 +431,7 @@ function SheetContent({ sheet: s }: { sheet: Sheet }) {
     case 'promo': return <PromoSheet id={s.id} />
     case 'more':
       switch (s.page) {
+        case 'booking': return <OnlineBookingSheet />
         case 'parties': return <PartiesSetupSheet />
         case 'hours': return <HoursSheet />
         case 'closed': return <ClosedDaysSheet />

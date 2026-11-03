@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
+import { bookingsOpenNow, bookingsClosedResponse } from '@lib/bookings-gate'
 import { isAttemptId } from '@lib/checkout-attempt'
 import { CONTACT_MESSAGES, isPhone } from '@lib/contact-rules'
 import { createLogger } from '@lib/logger'
@@ -43,7 +43,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     }
     if (body.action !== 'join') return fail(400, 'invalid', WAITLIST_MESSAGES.unavailable)
 
-    if (!bookingsOpen(request, 'workshops')) return bookingsClosedResponse()
+    if (!await bookingsOpenNow(request, 'workshops')) return await bookingsClosedResponse()
     if (rateLimited(`waitlist-join:${clientAddress}`, 5, 60_000)) return fail(429, 'unavailable', 'That’s a lot of tries in a row. Give it a minute, then try again.')
     const classId = typeof body.classId === 'string' ? body.classId : ''
     const passId = typeof body.passId === 'string' ? body.passId : ''

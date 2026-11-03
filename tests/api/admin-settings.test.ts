@@ -8,7 +8,9 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   upsert: vi.fn(),
   sandbox: false,
+  purge: vi.fn(async () => true),
 }))
+vi.mock('@lib/booking-cache', async (orig) => ({ ...(await orig<typeof import('@lib/booking-cache')>()), purgeBookingPages: mocks.purge }))
 vi.mock('@config/providers', () => ({
   providers: {
     booking: { listBookings: mocks.listBookings },
@@ -106,6 +108,34 @@ describe('POST: save', () => {
       details: { changed: 'Craft Café weekly hours' },
     }))
     expect((await loaded()).updatedAt).toBe(r.body.data.settings.updatedAt)
+  })
+
+  it('studio hours (G3): a 10 AM Sunday and Wednesday hours save, say so, and change no café window in Square', async () => {
+    const hours = [
+      { weekday: 'Wednesday', opens: '16:00', closes: '21:00' }, { weekday: 'Thursday', opens: '18:00', closes: '20:00' },
+      { weekday: 'Friday', opens: '16:00', closes: '21:00' }, { weekday: 'Saturday', opens: '09:00', closes: '21:00' }, { weekday: 'Sunday', opens: '10:00', closes: '20:00' },
+    ]
+    const r = await save({ studioWeekly: hours })
+    expect(r.body.error).toBeUndefined()
+    expect(r.status).toBe(200)
+    expect(r.body.data.changed).toEqual(['Studio hours'])
+    expect(r.body.data.settings.studioWeekly).toEqual(hours)
+    expect(mocks.upsert).not.toHaveBeenCalled()
+    expect((await loaded()).studioWeekly).toEqual(hours)
+  })
+
+  it('studio hours that would leave a party time out are refused, saying which and what to do', async () => {
+    const hours = (await loaded()).studioWeekly.map((w: any) => (w.weekday === 'Sunday' ? { ...w, opens: '14:00' } : w))
+    mocks.purge.mockClear()
+    const r = await save({ studioWeekly: hours })
+    expect(mocks.purge).not.toHaveBeenCalled() // refused: nothing to clear
+    expect(r).toEqual({ status: 409, body: { error: 'There’s a party time at 1 PM on Sundays, before the studio would open at 2 PM. Move it in Parties setup first, or keep the studio hours as they are.', field: 'studioWeekly' } })
+    expect((await loaded()).updatedAt).toBeNull()
+  })
+
+  it('a café day on a day the studio is closed is refused (no more saving a café that never shows)', async () => {
+    const r = await save({ cafeWeekly: [{ weekday: 'Saturday', opens: '09:00', closes: '12:00' }, { weekday: 'Tuesday', opens: '10:00', closes: '12:00' }] })
+    expect(r).toEqual({ status: 400, body: { error: 'The studio is closed on Tuesdays. Add Tuesday studio hours first, or make it a special day.', field: 'cafeWeekly.1' } })
   })
 
   it('refuses bad input with the field to fix', async () => {

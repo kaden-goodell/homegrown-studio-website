@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
-import { closureOn, OPEN_WEEKDAYS } from '@config/closures'
+import { closureOn } from '@config/closures'
+import { isStudioOpenOn } from '@config/studio-days'
 import { useStudio } from './shell/studio'
 import { addDays, dayLabel, today, weekday } from './classes/dates'
 import { useCalendar } from './shell/data'
@@ -12,6 +13,7 @@ import type { InboxSegment } from './inbox/Inbox'
 import { countUnstaffed, HOME_STAFF_DAYS } from './staffing/useUnstaffed'
 import { HomeStaffing } from './staffing/HomeStaffing'
 import { HomePasscodeAlert } from './staffing/HomePasscodeAlert'
+import { HomeBookingPaused } from './sheets/OnlineBookingSheet'
 import { tagLookup, useBoard } from './staffing/api'
 import { dayStartIso } from './classes/dates'
 
@@ -51,7 +53,7 @@ export default function Home({ who, onOpen, onInbox }: {
 
   const todays = (days?.get(day) ?? []).filter((i) => i.kind !== 'closed')
   const closure = closureOn(day, studio.days.closures)
-  const shut = !!closure || !OPEN_WEEKDAYS.has(weekday(day))
+  const shut = !isStudioOpenOn(day, studio.days)
   /** The first thing on after today, for "Next up" on a closed day. */
   const next = (() => {
     for (let n = 1; n < 7; n++) {
@@ -119,6 +121,7 @@ export default function Home({ who, onOpen, onInbox }: {
           <small>{unstaffed.error ? 'Couldn’t check staffing. Tap to open Staff.' : 'Need someone on, next 2 weeks'}</small>
         </button>
       </div>
+      <HomeBookingPaused onOpen={onOpen} />
       <HomePasscodeAlert onOpen={onOpen} />
       <HomeStaffing onOpen={onOpen} />
     </div>

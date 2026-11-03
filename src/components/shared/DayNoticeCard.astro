@@ -10,8 +10,8 @@ interface Props {
 }
 const { where, menuHref = '/craft-cafe#menu' } = Astro.props
 
-// The big "blowout" card for an announced Craft Café special day (hours.ts
-// `announce`). Copy approved by Kaden, 1 Nov 2026.
+// The big "blowout" card for an announced Craft Café special day (announced in
+// /admin › Hours & Craft Café; hours.ts `announce` until then). Copy approved by Kaden, 1 Nov 2026.
 const notices = cafeDayNotices()
 const active = activeDayNotice(new Date(), notices)
 const { street, city, state, zip } = siteConfig.address
@@ -28,11 +28,11 @@ const directionsUrl = `https://maps.google.com/?q=${encodeURIComponent(`${siteCo
     class="day-notice-card glass-strong"
     aria-label={`${n.headline}, ${n.shortDate}`}
   >
-    <p class="day-notice-eyebrow"><span aria-hidden="true">{'✦ '}</span>{n.headline}<span aria-hidden="true">{' ✦'}</span></p>
+    <p class="day-notice-eyebrow"><span aria-hidden="true">{'✦ '}</span><span data-day-notice-headline>{n.headline}</span><span aria-hidden="true">{' ✦'}</span></p>
     <div class="day-notice-when">
       <div class="day-notice-date" aria-hidden="true">
-        <span>{n.weekday}</span>
-        <strong>{n.monthDay}</strong>
+        <span data-day-notice-weekday>{n.weekday}</span>
+        <strong data-day-notice-month-day>{n.monthDay}</strong>
       </div>
       <div>
         <p class="day-notice-what">Craft Café open</p>
@@ -47,6 +47,28 @@ const directionsUrl = `https://maps.google.com/?q=${encodeURIComponent(`${siteCo
     <p class="day-notice-note" data-day-notice-regular hidden={!n.regularHours}>One day only. Regular Craft Café hours are <span data-day-notice-regular-hours>{n.regularHours}</span>.</p>
   </section>
 ))}
+{/* A day announced on /admin after this page was built is added from this (day-notice-client). */}
+<template data-day-notice-template="card">
+  <section data-day-notice="card" class="day-notice-card glass-strong" aria-label="Craft Café special day" hidden>
+    <p class="day-notice-eyebrow"><span aria-hidden="true">{'✦ '}</span><span data-day-notice-headline></span><span aria-hidden="true">{' ✦'}</span></p>
+    <div class="day-notice-when">
+      <div class="day-notice-date" aria-hidden="true">
+        <span data-day-notice-weekday></span>
+        <strong data-day-notice-month-day></strong>
+      </div>
+      <div>
+        <p class="day-notice-what">Craft Café open</p>
+        <p class="day-notice-hours" data-day-notice-hours></p>
+      </div>
+    </div>
+    <p class="day-notice-body">Walk in any time that day. Pick a craft, grab a seat, pay for what you make. No booking needed.</p>
+    <div class="day-notice-actions">
+      <a class="btn btn-primary" href={menuHref} data-track-cta={`day_notice_${where}_menu`}>See the craft menu</a>
+      <a class="btn btn-quiet" href={directionsUrl} target="_blank" rel="noopener" data-track-cta={`day_notice_${where}_directions`}>Get directions</a>
+    </div>
+    <p class="day-notice-note" data-day-notice-regular hidden>One day only. Regular Craft Café hours are <span data-day-notice-regular-hours></span>.</p>
+  </section>
+</template>
 <script>import '@lib/day-notice-client'</script>
 
 <style>

@@ -35,6 +35,11 @@ describe('ClassPage (/classes/<id>)', () => {
     render(<ClassPage workshop={toPublicClass(cls(), { classId: 'cls_1', lines: [] }, NOW)} bookingsOpen={false} />)
     expect(screen.queryByTestId('class-panel')).toBeNull()
     expect(screen.queryByRole('button', { name: /book/i })).toBeNull()
-    expect(screen.getByText('Booking opens soon. Check back, or see what’s on the calendar.')).toBeInTheDocument()
+    expect(screen.getByText('Online booking is paused for now. Check back soon, or see what’s on the calendar.')).toBeInTheDocument()
+  })
+  it('a paused class shows the owners’ pause note', () => {
+    render(<ClassPage workshop={toPublicClass(cls(), { classId: 'cls_1', lines: [] }, NOW)} bookingsOpen={false} closedNote="Back online Monday. Call us to book." />)
+    expect(screen.getByText('Back online Monday. Call us to book.')).toBeInTheDocument()
+    expect(screen.queryByText(/grand opening/i)).toBeNull()
   })
 })

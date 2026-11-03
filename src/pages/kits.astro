@@ -5,6 +5,7 @@ import Layout from '@layouts/Layout.astro'
 import KitLanding from '@components/kits/KitLanding'
 import { siteConfig } from '@config/site.config'
 import { kitContent } from '@config/kit-content'
+import { bookingPageGate } from '@lib/bookings-gate'
 
 // Pre-launch safety: kits live behind a feature flag. Until it flips, /kits is
 // not a real page — send visitors to the party flow rather than a dead product.
@@ -14,6 +15,14 @@ import { kitContent } from '@config/kit-content'
 if (!siteConfig.features.kits.enabled && !import.meta.env.DEV) {
   return Astro.redirect('/book')
 }
+
+// The owners' online booking switch (/admin › More › Online booking): while
+// kits are paused the order flow is hidden and the pause note shows, instead
+// of a customer filling in four steps only to be refused at payment. The
+// owners' test link unlocks this browser.
+const gate = await bookingPageGate({ url: Astro.url, request: Astro.request, setCookie: (n, v, o) => Astro.cookies.set(n, v, o) }, 'kits')
+if (gate.redirect) return Astro.redirect(gate.redirect, 302) // the test link: cookie set, secret out of the address
+Astro.response.headers.set('Cache-Control', 'private, no-store')
 
 const { hero, howItWorks } = kitContent
 ---
@@ -52,6 +61,18 @@ const { hero, howItWorks } = kitContent
       ))}
     </div>
 
-    <KitLanding client:load />
+    {gate.open ? (
+      <KitLanding client:load />
+    ) : (
+      <div class="notice-panel tone-kit" id="notify">
+        <p class="eyebrow mb-3">Online ordering</p>
+        <h2 class="text-2xl sm:text-3xl font-heading font-bold" style="color: var(--color-dark);" data-pause-note>
+          {gate.note}
+        </h2>
+        <p class="mt-6 text-sm">
+          <a href="/calendar" class="underline" style="color: var(--color-primary);">See the calendar</a>
+        </p>
+      </div>
+    )}
   </section>
 </Layout>
