@@ -669,3 +669,20 @@ describe('stage 4: discounted seats keep their list price, discounts and Square\
     expect(paidOn({ priceCents: 3000, taxCents: 270, addOnCents: 0, addOnTaxCents: 0, square: {} })).toBe(3270)
   })
 })
+
+describe('confirm fills in Square’s per-seat numbers later (concurrency minor 7)', () => {
+  it('confirmed first by the notice with no line totals; the request’s own confirm then saves Square’s per-seat net and tax', async () => {
+    const cls = make(4)
+    const quoteOf = q(cls, { tickets: { person: 2 } })
+    const inp = input()
+    await hold(cls, quoteOf, inp, NOW)
+    await confirm(cls.id, inp.bookingId, { orderId: 'o1', paymentId: 'p1', chargedCents: 6540 }, { cls, quote: quoteOf, input: inp }, NOW)
+    let lines = (await getLedger(cls.id)).lines.filter((l) => l.bookingId === inp.bookingId)
+    expect(lines.every((l) => l.square.lineNetCents === undefined)).toBe(true)
+    await confirm(cls.id, inp.bookingId, { orderId: 'o1', paymentId: 'p1', chargedCents: 6540, lineTotals: [{ totalCents: 3269, taxCents: 269 }, { totalCents: 3271, taxCents: 271 }] }, { cls, quote: quoteOf, input: inp }, NOW)
+    lines = (await getLedger(cls.id)).lines.filter((l) => l.bookingId === inp.bookingId).sort((a, b) => a.seat - b.seat)
+    expect(lines.map((l) => [l.square.lineNetCents, l.square.lineTaxCents])).toEqual([[3000, 269], [3000, 271]])
+    expect(lines).toHaveLength(2)
+  })
+})
+

@@ -297,7 +297,18 @@ export async function confirmBooking(
     const hasHeld = cur.lines.some((l) => l.bookingId === bookingId && l.state === 'held')
     const paid = cur.lines.filter(isPaid)
     const none = { next: null, result: { lines: [] as LedgerLine[], changed: false } }
-    if (!hasHeld && paid.length) return { next: null, result: { lines: paid, changed: false } }
+    if (!hasHeld && paid.length) {
+      // Concurrency minor 7: confirmed first by Square's notice (no per-seat totals): a later confirm that has
+      // Square's per-seat numbers fills them in (refunds then use Square's numbers, not our quote's). Nothing else changes.
+      const bySeat = paid.every((l) => typeof l.square.lineNetCents !== 'number') && paid.every((l) => l.square.orderId === square.orderId)
+        ? squareTotalsBySeat(square, fallback.quote, bookingId) : null
+      if (!bySeat) return { next: null, result: { lines: paid, changed: false } }
+      const lines = cur.lines.map((l) => {
+        const mine = isPaid(l) ? bySeat.get(l.seat - 1) : undefined
+        return mine ? { ...l, square: { ...l.square, lineNetCents: mine.net, lineTaxCents: mine.tax } } : l
+      })
+      return { next: { ...cur, lines }, result: { lines: lines.filter(isPaid), changed: false } }
+    }
     if (opts.requireLiveHold && !cur.lines.some((l) => l.bookingId === bookingId && l.state === 'held' && !isExpiredHold(l, now))) {
       return none
     }
