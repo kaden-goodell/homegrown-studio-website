@@ -360,7 +360,8 @@ export default function BookingPanel({
                 </p>
                 </span>
                 <span style={{ fontSize: '0.8125rem', color: 'var(--color-text)', whiteSpace: 'nowrap' }}>
-                  Step {stepNumber} of {stepCount}
+                  {/* Phones: "2 of 3" leaves room for Back and the step name on one line. */}
+                  {sheet ? `${stepNumber} of ${stepCount}` : `Step ${stepNumber} of ${stepCount}`}
                 </span>
               </div>
               <div style={{ height: '3px', background: 'var(--color-line)', borderRadius: '2px', overflow: 'hidden' }}>
