@@ -45,8 +45,10 @@ describe('host hint', () => {
 })
 
 describe('host edge cases', () => {
-  it('treats a per-deploy permalink as production (which deploy is unknown)', () => {
-    expect(contextFromHost('65f1a2b3c4d5e6f708192a3b--iridescent-croissant-494fc3.netlify.app')).toBe('production')
+  it('treats a per-deploy permalink as unknown (previews have them too), so test-site guards fail safe', () => {
+    expect(contextFromHost('65f1a2b3c4d5e6f708192a3b--iridescent-croissant-494fc3.netlify.app')).toBe('unknown')
+    expect(resolveDeployContext({ dev: false, host: '65f1a2b3c4d5e6f708192a3b--site.netlify.app' }).context).toBe('unknown')
+    expect(resolveDeployContext({ dev: false, netlify: 'production', host: '65f1a2b3c4d5e6f708192a3b--site.netlify.app' }).context).toBe('production')
   })
   it('still sees branch and preview hosts, any case', () => {
     expect(contextFromHost('dev--site.netlify.app')).toBe('branch-deploy')

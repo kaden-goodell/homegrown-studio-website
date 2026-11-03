@@ -14,6 +14,7 @@
  */
 import { makeKvStore } from '@lib/blob-store'
 import { createLogger } from '@lib/logger'
+import { deployContext, type DeployContext } from '@lib/deploy-context'
 
 export const PREVIEW_EMAIL_TO = 'kaden.goodell@gmail.com'
 export const PREVIEW_SMS_TO = '+14029802907'
@@ -37,25 +38,48 @@ export function outboundEnv(): OutboundEnv {
 }
 
 /**
+ * A Netlify deploy preview or branch deploy with NO store namespace of its own
+ * (M9): it shares the live stores, so anything it sends would reach real
+ * customers. It is muted like the sandbox preview, whatever its Square.
+ */
+function bareTestSite(env: OutboundEnv, context: DeployContext): boolean {
+  if (previewNamespace(env)) return false
+  const fromEnv = (env.CONTEXT ?? '').trim()
+  if (fromEnv === 'production') return false
+  return fromEnv === 'deploy-preview' || fromEnv === 'branch-deploy' || context === 'deploy-preview' || context === 'branch-deploy'
+}
+
+function messagesOn(env: OutboundEnv): boolean {
+  return (env.PREVIEW_MESSAGES ?? '').trim().toLowerCase() === 'on'
+}
+
+/**
  * True on the sandbox preview: a store namespace of its own, Square in the
  * sandbox (unset counts as sandbox, as the site's Square config reads it), and
- * not a production deploy, unless PREVIEW_MESSAGES is 'on'.
+ * not a production deploy, unless PREVIEW_MESSAGES is 'on'. Also true on any
+ * preview or branch deploy without a namespace (M9).
  */
-export function messagesMuted(env: OutboundEnv = outboundEnv()): boolean {
+export function messagesMuted(env: OutboundEnv = outboundEnv(), context: DeployContext = deployContext()): boolean {
+  if (bareTestSite(env, context)) return !messagesOn(env)
   if (!previewNamespace(env)) return false
   if ((env.CONTEXT ?? '').trim() === 'production') return false
   if (((env.SQUARE_ENVIRONMENT ?? '').trim() || 'sandbox') !== 'sandbox') return false
-  return (env.PREVIEW_MESSAGES ?? '').trim().toLowerCase() !== 'on'
+  return !messagesOn(env)
 }
 
-export function previewEmail<T extends { to: string; subject: string }>(msg: T, env: OutboundEnv): T {
-  const ns = previewNamespace(env)
+/** The label a rerouted message carries: the namespace, or 'test-site' for a bare preview. */
+function rerouteLabel(env: OutboundEnv, context: DeployContext): string {
+  return previewNamespace(env) || (bareTestSite(env, context) ? 'test-site' : '')
+}
+
+export function previewEmail<T extends { to: string; subject: string }>(msg: T, env: OutboundEnv, context: DeployContext = deployContext()): T {
+  const ns = rerouteLabel(env, context)
   if (!ns) return msg
   return { ...msg, to: PREVIEW_EMAIL_TO, subject: `[${ns} → ${msg.to}] ${msg.subject}` }
 }
 
-export function previewText(msg: { to: string; content: string }, env: OutboundEnv): { to: string; content: string } {
-  const ns = previewNamespace(env)
+export function previewText(msg: { to: string; content: string }, env: OutboundEnv, context: DeployContext = deployContext()): { to: string; content: string } {
+  const ns = rerouteLabel(env, context)
   if (!ns) return msg
   return { to: PREVIEW_SMS_TO, content: `[${ns} → ${msg.to}] ${msg.content}` }
 }

@@ -54,6 +54,23 @@ describe('messagesMuted', () => {
   })
 })
 
+describe('M9: a preview or branch deploy with no store of its own is muted too', () => {
+  it('mutes by runtime context or CONTEXT, never production or local dev', () => {
+    expect(messagesMuted({ SQUARE_ENVIRONMENT: 'production' }, 'deploy-preview')).toBe(true)
+    expect(messagesMuted({}, 'branch-deploy')).toBe(true)
+    expect(messagesMuted({ CONTEXT: 'deploy-preview' }, 'unknown')).toBe(true)
+    expect(messagesMuted({}, 'production')).toBe(false)
+    expect(messagesMuted({}, 'dev')).toBe(false)
+    expect(messagesMuted({ CONTEXT: 'production' }, 'deploy-preview')).toBe(false)
+  })
+  it('PREVIEW_MESSAGES=on there reroutes to Kaden, never the customer', () => {
+    expect(messagesMuted({ PREVIEW_MESSAGES: 'on' }, 'deploy-preview')).toBe(false)
+    expect(previewEmail({ to: 'jane@x.com', subject: 'Hi' }, { PREVIEW_MESSAGES: 'on' }, 'deploy-preview').to).toBe('kaden.goodell@gmail.com')
+    expect(previewText({ to: '+12565550123', content: 'Hi' }, {}, 'branch-deploy').to).toBe('+14029802907')
+    expect(previewEmail({ to: 'jane@x.com', subject: 'Hi' }, {}, 'production').to).toBe('jane@x.com')
+  })
+})
+
 describe('the muted list', () => {
   it('keeps the newest, capped, with to / subject / first line / when', async () => {
     const before = (await listMuted()).length
