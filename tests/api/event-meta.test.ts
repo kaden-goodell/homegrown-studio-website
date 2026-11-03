@@ -131,6 +131,14 @@ describe('POST /api/staff/event-meta.json', () => {
     expect(mockSetEventMeta.mock.calls.map((c) => c[2])).toEqual([{ signupCutoffHours: 48 }, { signupCutoffHours: null }])
   })
 
+  it('UI review: saves "questions close" hours (was script-only), or null for "with sign-ups"; refuses bad values and parties', async () => {
+    await POST(postCtx({ kind: 'workshop', id: 'cs1', optionsCloseHours: 168 }))
+    await POST(postCtx({ kind: 'workshop', id: 'cs1', optionsCloseHours: null }))
+    expect(mockSetEventMeta.mock.calls.map((c) => c[2])).toEqual([{ optionsCloseHours: 168 }, { optionsCloseHours: null }])
+    expect((await POST(postCtx({ kind: 'workshop', id: 'cs1', optionsCloseHours: 2.5 }))).status).toBe(400)
+    expect((await POST(postCtx({ kind: 'party', id: 'p1', optionsCloseHours: 24 }))).status).toBe(400)
+  })
+
   it('refuses a cutoff that is not whole hours 0–336', async () => {
     for (const signupCutoffHours of [2.5, -1, 337, '24']) {
       expect((await POST(postCtx({ kind: 'workshop', id: 'cs1', signupCutoffHours }))).status).toBe(400)

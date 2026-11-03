@@ -12,7 +12,7 @@ import {
   type SeatOption,
 } from '@lib/seat-options'
 
-type EventPatch = { dropOff?: boolean; days?: string[] | null; options?: SeatOption[]; signupCutoffHours?: number | null; capacity?: number | null; madeToOrder?: boolean }
+type EventPatch = { dropOff?: boolean; days?: string[] | null; options?: SeatOption[]; signupCutoffHours?: number | null; optionsCloseHours?: number | null; capacity?: number | null; madeToOrder?: boolean }
 
 const ENDPOINT = '/api/staff/event-meta.json'
 
@@ -259,6 +259,9 @@ export default function EventSettingsSheet({
 
         {event.kind === 'workshop' && (
           <SeatQuestions saved={event.options ?? []} busy={busy} onSave={(options) => save({ options })} />
+        )}
+        {event.kind === 'workshop' && (event.options?.length ?? 0) > 0 && (
+          <QuestionsClose event={event} busy={busy} onSave={(hours) => save({ optionsCloseHours: hours })} />
         )}
         {event.kind === 'workshop' && (
           <MadeToOrder on={event.madeToOrder === true} busy={busy} onSave={(madeToOrder) => save({ madeToOrder })} />
@@ -542,6 +545,37 @@ function SignupCutoff({ event, busy, onSave }: { event: StudioEvent; busy: boole
               Yes, save
             </button>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * "Questions close" (UI review, 3 Nov; was script-only): the seat questions stop this many hours before the
+ * class (shirt sizes ordered a week out) while seats keep selling; later bookers just don't pick. Blank = with sign-ups.
+ */
+function QuestionsClose({ event, busy, onSave }: { event: StudioEvent; busy: boolean; onSave: (hours: number | null) => Promise<void> }) {
+  const saved = event.optionsCloseHours ?? null
+  const [value, setValue] = useState(saved === null ? '' : String(saved))
+  useEffect(() => { setValue(saved === null ? '' : String(saved)) }, [saved])
+  const parsed = value.trim() === '' ? null : Number(value)
+  const valid = parsed === null || (Number.isInteger(parsed) && parsed >= 0 && parsed <= MAX_CUTOFF_HOURS)
+  const inputId = `qclose-${event.id}`
+  return (
+    <div style={{ marginTop: '1.1rem' }}>
+      <label htmlFor={inputId} style={{ ...sectionTitle, display: 'block' }}>Questions close</label>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        <input id={inputId} type="number" inputMode="numeric" min={0} max={MAX_CUTOFF_HOURS} step={1} value={value}
+          placeholder="With sign-ups" disabled={busy} onChange={(e) => setValue(e.target.value)} style={{ ...textInput, width: '7.5rem' }} />
+        <span style={{ fontSize: '0.85rem', color: 'var(--color-dark)' }}>hours before it starts</span>
+      </div>
+      <p style={hint}>
+        {!valid ? `Whole hours, 0 to ${MAX_CUTOFF_HOURS}.` : 'For things ordered ahead, like shirt sizes (168 hours is a week). People can still book after that; they just don’t pick. Blank: the questions stay open as long as sign-ups do.'}
+      </p>
+      {valid && parsed !== saved && (
+        <div style={{ marginTop: '0.5rem' }}>
+          <button type="button" onClick={() => void onSave(parsed)} disabled={busy} style={btn(true)}>Save</button>
         </div>
       )}
     </div>

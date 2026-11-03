@@ -190,3 +190,19 @@ describe('EventSettingsSheet — drop-off locked mid-event (crew review M10)', (
     expect(screen.getByText('Turn off drop-off for this event? Kids will leave without a pickup code.')).toBeInTheDocument()
   })
 })
+
+describe('EventSettingsSheet — questions close (UI review: was script-only)', () => {
+  it('shows only when the class asks questions', async () => {
+    serve(CLASS)
+    await open()
+    expect(screen.queryByLabelText('Questions close')).toBeNull()
+    vi.restoreAllMocks()
+  })
+  it('saves 168 hours for a class still run from Square', async () => {
+    const spy = serve({ ...CLASS, options: [PAILS] })
+    await open({ ...CLASS, options: [PAILS] })
+    fireEvent.change(screen.getByLabelText('Questions close'), { target: { value: '168' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(posted(spy)).toEqual([{ kind: 'workshop', id: 'clssch_pails', optionsCloseHours: 168 }]))
+  })
+})

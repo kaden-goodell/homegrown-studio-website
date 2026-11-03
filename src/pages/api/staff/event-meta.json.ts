@@ -4,7 +4,7 @@ import { recordAudit } from '@lib/audit'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 import { getEvent, EVENT_KIND_RE, type EventKind } from '@lib/events'
 import { setEventMeta, type EventMetaPatch } from '@lib/event-meta'
-import { SeatSettingsError, validateCapacity, validateCutoffHours, validateOptions } from '@lib/seat-options'
+import { SeatSettingsError, validateCapacity, validateCutoffHours, validateOptions, validateOptionsCloseHours } from '@lib/seat-options'
 import { DROP_OFF_LOCKED_MSG, dropOffLocked } from '@lib/drop-off-lock'
 
 export const prerender = false
@@ -44,7 +44,7 @@ function parseDaysPatch(body: any): { ok: true; value?: string[] | null } | { ok
 }
 
 /**
- * Staff-only. `POST { kind, id, dropOff?, days?, options?, signupCutoffHours?, capacity?, madeToOrder? }` patches the event-meta
+ * Staff-only. `POST { kind, id, dropOff?, days?, options?, signupCutoffHours?, optionsCloseHours?, capacity?, madeToOrder? }` patches the event-meta
  * overlay (drop-off, multi-day, per-seat questions, sign-up cutoff, class capacity, made to order) and returns the merged event.
  * `GET ?kind=&id=` reads the current merged event without changing anything —
  * used by the settings sheet to show "Last changed by …" on open.
@@ -67,7 +67,7 @@ export const POST: APIRoute = async ({ request }) => {
   if (typeof body.dropOff === 'boolean') patch.dropOff = body.dropOff
   if ('value' in daysPatch) patch.days = daysPatch.value
 
-  if ('options' in body || 'signupCutoffHours' in body || 'madeToOrder' in body) {
+  if ('options' in body || 'signupCutoffHours' in body || 'optionsCloseHours' in body || 'madeToOrder' in body) {
     if (kind !== 'workshop') return bad('Seat questions and sign-up cutoffs apply to classes only.')
   }
   if ('capacity' in body) {
@@ -83,6 +83,12 @@ export const POST: APIRoute = async ({ request }) => {
     if (!checked.ok) return bad(checked.error)
     patch.signupCutoffHours = checked.value
   }
+  // UI review (3 Nov): "Questions close" was only settable by script for classes still run from Square.
+  if ('optionsCloseHours' in body) {
+    const checked = validateOptionsCloseHours(body.optionsCloseHours)
+    if (!checked.ok) return bad(checked.error)
+    patch.optionsCloseHours = checked.value
+  }
   if ('madeToOrder' in body) {
     if (typeof body.madeToOrder !== 'boolean') return bad('Made to order is on or off.')
     patch.madeToOrder = body.madeToOrder
@@ -93,7 +99,7 @@ export const POST: APIRoute = async ({ request }) => {
     patch.capacity = checked.value
   }
 
-  if (patch.dropOff === undefined && patch.days === undefined && patch.options === undefined && patch.signupCutoffHours === undefined && patch.capacity === undefined && patch.madeToOrder === undefined) {
+  if (patch.dropOff === undefined && patch.days === undefined && patch.options === undefined && patch.signupCutoffHours === undefined && patch.optionsCloseHours === undefined && patch.capacity === undefined && patch.madeToOrder === undefined) {
     return bad('Nothing to update.')
   }
 
@@ -123,6 +129,7 @@ export const POST: APIRoute = async ({ request }) => {
         ...(dropOffChanged ? { dropOff: patch.dropOff } : {}),
         ...(patch.capacity !== undefined ? { capacity: patch.capacity ?? null } : {}),
         ...(patch.signupCutoffHours !== undefined ? { signupCutoffHours: patch.signupCutoffHours ?? null } : {}),
+        ...(patch.optionsCloseHours !== undefined ? { optionsCloseHours: patch.optionsCloseHours ?? null } : {}),
         ...(patch.madeToOrder !== undefined ? { madeToOrder: patch.madeToOrder } : {}),
       },
       ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),

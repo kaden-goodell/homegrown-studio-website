@@ -47,6 +47,8 @@ export interface StudioEvent {
   options?: SeatOption[]
   /** The class's own sign-up cutoff in hours; null = the default. */
   signupCutoffHours?: number | null
+  /** Seat questions close this many hours before the start while seats keep selling; null = with sign-ups. */
+  optionsCloseHours?: number | null
   /** Made ahead for each person: sign-ups close 24 h early by default (classes only). */
   madeToOrder?: boolean
   /** Seats the class holds in all: Square's figure, else the class's own setting. */
@@ -215,6 +217,7 @@ function workshopEvent(id: string, w: Workshop, meta: EventMeta | null): StudioE
     priceCents: w.priceCents,
     options: meta?.options ?? [],
     signupCutoffHours: meta?.signupCutoffHours ?? null,
+    optionsCloseHours: meta?.optionsCloseHours ?? null,
     madeToOrder: meta?.madeToOrder ?? false,
     ...(capacity !== undefined ? { capacity } : {}),
     ...(meta ? { updatedAt: meta.updatedAt, by: meta.by } : {}),
