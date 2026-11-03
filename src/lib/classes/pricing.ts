@@ -3,6 +3,7 @@ import { orderLineTaxes } from '@lib/tax'
 import { promoRefusal } from '@lib/promos/rules'
 import type { PromoCode } from '@lib/promos/types'
 import { earlyBirdCents } from './early-bird'
+import { openQuestions } from './questions-close'
 import type { Cents, ScheduledClass } from './types'
 import type { Result } from './validate'
 
@@ -165,7 +166,10 @@ export function quote(cls: ScheduledClass, req: BookingRequest, now: Date, taxPe
     }
   }
 
-  const needsSeats = content.questions.length > 0 || content.addOns.length > 0
+  // Questions that have closed (a tee size a week out) aren't asked; an answer to one is ignored here
+  // (the booking route refuses a page that still sends one; the waitlist drops it).
+  const questions = openQuestions(cls, sess.value, now)
+  const needsSeats = questions.length > 0 || content.addOns.length > 0
   if (needsSeats && (req.seats?.length ?? 0) !== seatTypes.length) {
     return fail('Details are needed for every seat.', 'seats')
   }
@@ -175,7 +179,7 @@ export function quote(cls: ScheduledClass, req: BookingRequest, now: Date, taxPe
   const drafts: Draft[] = []
   for (let i = 0; i < seatTypes.length; i++) {
     const seat = req.seats?.[i]
-    for (const q of content.questions) {
+    for (const q of questions) {
       const a = seat?.answers?.[q.id]
       if (a === undefined || a === '') return fail(`Seat ${i + 1} needs a ${q.label.toLowerCase()}.`, 'seats')
       if (!q.choices.includes(a)) return fail(`Seat ${i + 1} has a ${q.label.toLowerCase()} we don't offer.`, 'seats')

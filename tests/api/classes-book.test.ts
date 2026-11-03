@@ -634,6 +634,20 @@ describe('POST /api/classes/book.json', () => {
     expect((await linesOf(cls))[0].answers).toEqual({ color: 'Blue' })
   })
 
+  it('questions that closed a week out: a late booking books with no pick; a page still sending one is refused, nothing charged', async () => {
+    const cls = makeClass({ content: { rules: { ...defaultRules(), signupCutoffHours: 0, questionsCloseHours: 168 }, questions: [{ id: 'tee', label: 'Tee size', choices: ['Youth S', 'Youth M'] }] } })
+    vi.setSystemTime(new Date('2026-10-11T17:00:00.000Z')) // 145 hours before Saturday: the questions closed at 168
+    const stale = await POST(ctx(body(cls, { tickets: { adult: 1 }, seats: [{ answers: { tee: 'Youth S' } }] })))
+    expect(stale.status).toBe(400)
+    expect((await stale.json()).detail).toMatch(/questions for this class have closed.*Nothing was charged/)
+    expect(mockProcessPayment).not.toHaveBeenCalled()
+    newAttempt()
+    squareTotal(6540)
+    const res = await POST(ctx(body(cls, { tickets: { adult: 1 } })))
+    expect(res.status).toBe(200)
+    expect((await linesOf(cls))[0].answers).toEqual({})
+  })
+
   it('a link-only class is bookable by its id', async () => {
     const cls = makeClass({ content: { rules: { ...defaultRules(), linkOnly: true } } })
     const res = await POST(ctx(body(cls)))

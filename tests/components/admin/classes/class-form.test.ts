@@ -43,3 +43,19 @@ describe('class form: the early-bird round-trips (review Important 5)', () => {
     expect(b.ok && 'earlyBird' in b.content).toBe(false)
   })
 })
+
+describe('class form: questions can close before sign-ups do (Kaden, 2 Nov 2026)', () => {
+  const tee = content({ questions: [{ id: 'q_tee', label: 'Tee size', choices: ['Youth S', 'Youth M'] }] })
+  it('168 hours round-trips; blank is "with sign-ups"', () => {
+    const b = build({ ...toForm(tee), questionsClose: '168' })
+    expect(b.ok && b.content.rules.questionsCloseHours).toBe(168)
+    expect(toForm(b.ok ? b.content : tee).questionsClose).toBe('168')
+    const blank = build({ ...toForm(tee), questionsClose: '' })
+    expect(blank.ok && 'questionsCloseHours' in blank.content.rules).toBe(false)
+  })
+  it('names what to fix; a class without questions never keeps a close time', () => {
+    expect(build({ ...toForm(tee), questionsClose: '1000' })).toMatchObject({ ok: false, errors: { questions: 'The questions close 0 to 720 hours before the class.' } })
+    const none = build({ ...toForm(content()), questionsClose: '168' })
+    expect(none.ok && 'questionsCloseHours' in none.content.rules).toBe(false)
+  })
+})

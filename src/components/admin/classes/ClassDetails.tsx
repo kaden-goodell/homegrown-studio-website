@@ -347,6 +347,12 @@ function MoreOptions({ f, set, errors, sessions, setPrice }: {
           </div>
         ))}
         <button type="button" className="adm-btn is-ghost is-sm" onClick={() => patch({ questions: [...f.questions, { id: newId('q'), label: '', choices: '' }] })}>+ Add a question</button>
+        {f.questions.length > 0 && (
+          <>
+            <label className="adm-fld"><span>Questions close (hours before)</span><input inputMode="numeric" value={f.questionsClose} placeholder="With sign-ups" onChange={(e) => patch({ questionsClose: e.target.value })} /></label>
+            <p className="adm-small adm-muted">For things you order ahead, like shirt sizes. 168 hours is a week. People can still book after that, they just don’t pick. Leave it blank and the questions stay open as long as sign-ups do.</p>
+          </>
+        )}
       </Sub>
 
       <Sub title="Ages and booking rules" field="rules" error={errors.rules}>

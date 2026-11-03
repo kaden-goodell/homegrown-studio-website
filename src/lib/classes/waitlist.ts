@@ -27,6 +27,7 @@ import { fitsNow, waitlistClosesIso, waitlistOpen } from './waitlist-rules'
 import { getClass } from './class-store'
 import { agreedLinesOf, quote, type BookingRequest } from './pricing'
 import { getLedger } from './seat-ledger'
+import { answersClosedQuestion, QUESTIONS_CLOSED_MESSAGE } from './questions-close'
 import type { ScheduledClass } from './types'
 import {
   cardStillOn, getWaitlist, isOnList, mutateWaitlist, updateEntry, type Waitlist, type WaitlistEntry,
@@ -165,6 +166,8 @@ export async function joinWaitlist(input: JoinInput, now = new Date()): Promise<
     throw priced.field ? new WaitlistError(400, 'invalid', priced.error) : new WaitlistError(409, 'not_open', `${priced.error} Nothing was charged.`)
   }
   const q = priced.value
+  // Questions that closed before sign-ups do: a page still asking them is out of date (as at checkout).
+  if (answersClosedQuestion(cls, req.seats, q.sessionIds, now)) throw new WaitlistError(400, 'invalid', QUESTIONS_CLOSED_MESSAGE)
   if (!waitlistOpen(cls, q.sessionIds, now)) throw new WaitlistError(409, 'closed', WAITLIST_MESSAGES.closed)
   if (q.totalCents <= 0) throw new WaitlistError(409, 'not_open', WAITLIST_MESSAGES.notOpen)
 

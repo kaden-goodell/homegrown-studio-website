@@ -13,9 +13,11 @@ import { formatDayAndSpan } from '@lib/studio-time'
 import { seatsLeftLabel } from '@lib/workshop-rules'
 import { quote, type BookingRequest, type Quote } from '@lib/classes/pricing'
 import { asScheduledClass, currentPriceCents, type OwnClassData, type PublicPass } from '@lib/classes/public-class'
+import { openQuestions } from '@lib/classes/questions-close'
 import { shortDay } from '@lib/classes/chicago-day'
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 import BookingPanel, { PAYMENT_GOING_THROUGH } from '@components/shared/BookingPanel'
+import EmailMeThisClass from '@components/workshops/EmailMeThisClass'
 import { pluralWord } from '@lib/ticket-types'
 import BookingConfirmed, { ConfirmedBlock } from '@components/shared/BookingConfirmed'
 import ContactFields, { type ContactFieldsHandle } from '@components/shared/ContactFields'
@@ -273,16 +275,22 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   // Seats in ticket type order, each type repeated by its count (the order `quote` uses).
   const seatTypes = own.ticketTypes.flatMap((t) => Array.from({ length: counts[t.id] ?? 0 }, () => t))
   const total = seatTypes.length
-  const needsSeats = own.questions.length > 0 || own.addOns.length > 0
+  // Questions can close before sign-ups do (a tee size a week out): after that, new seats come without a pick.
+  const askedSessionIds = choose ? picked : pass?.sessionIds ?? []
+  const questions = openQuestions(cls, askedSessionIds, new Date())
+  const needsSeats = questions.length > 0 || own.addOns.length > 0
   const steps: Step[] = needsSeats ? ['details', 'seats', 'pay'] : ['details', 'pay']
   /** Seat i (in ticket type order) → its ticket type and its place among that type. */
   const seatSlot = (i: number) => {
     const t = seatTypes[i]
     return { typeId: t.id, k: seatTypes.slice(0, i).filter((x) => x.id === t.id).length }
   }
+  const openIds = new Set(questions.map((qu) => qu.id))
   const seats = seatTypes.map((_, i) => {
     const { typeId, k } = seatSlot(i)
-    return seatInfo[typeId]?.[k] ?? EMPTY_SEAT
+    const info = seatInfo[typeId]?.[k] ?? EMPTY_SEAT
+    // Only answers to questions still open are sent.
+    return Object.keys(info.answers).every((id) => openIds.has(id)) ? info : { ...info, answers: Object.fromEntries(Object.entries(info.answers).filter(([id]) => openIds.has(id))) }
   })
 
   // Seats left on every session this booking needs.
@@ -1100,6 +1108,12 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           </div>
         </div>
         {problem && <p role="alert" className="field-error" style={{ marginTop: '0.75rem' }}>{problem}</p>}
+        {/* "Not ready to book? Email me this class." One quiet line, never at the door (the studio iPad). */}
+        {!door && (
+          <div style={{ marginTop: '1.5rem' }}>
+            <EmailMeThisClass classId={own.classId} className={workshop.name} />
+          </div>
+        )}
       </div>
     )
   }
@@ -1111,7 +1125,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
         {seats.map((s, i) => (
           <fieldset key={i} style={{ border: 0, padding: 0, margin: 0, display: 'grid', gap: '0.625rem' }}>
             <legend style={{ padding: 0, marginBottom: '0.5rem', fontSize: '1rem', fontWeight: 700, color: 'var(--color-dark)' }}>{seatName(i)}</legend>
-            {own.questions.map((qu) => {
+            {questions.map((qu) => {
               const id = `${formId}-q-${i}-${qu.id}`
               return (
                 <div key={qu.id}>

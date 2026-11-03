@@ -843,3 +843,40 @@ describe('ClassBookingPanel — leaving during payment can never charge twice (f
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).confirmRepeat).toBe(true)
   })
 })
+
+describe('ClassBookingPanel — carried from the live site (2 Nov 2026)', () => {
+  it('"Not ready to book? Email me this class." sits quietly under step 1 and emails this class by its own id', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: { sent: true } }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    open()
+    expect(screen.getByText(/Not ready to book\?/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Email me this class.' }))
+    fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'mom@example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send it' }))
+    expect(await screen.findByText('Sent. Check your inbox.')).toBeInTheDocument()
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/workshops/email-me.json')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ email: 'mom@example.com', classId: 'cls_1', alsoNews: false })
+  })
+
+  it('never at the door (the studio iPad)', () => {
+    const cls = make()
+    const workshop = toPublicClass(cls, { classId: cls.id, lines: [] }, NOW, { door: true })
+    render(<ClassBookingPanel workshop={workshop} onClose={vi.fn()} door syncUrl={false} />)
+    expect(screen.queryByText(/Not ready to book\?/)).toBeNull()
+  })
+
+  it('questions that have closed (a tee size a week out) are not asked: straight to paying, no pick sent', async () => {
+    const TEE = { id: 'tee', label: 'Tee size', choices: ['Youth S', 'Youth M'] }
+    // NOW is Oct 20; the Oct 24 class's questions closed 168 hours before (Oct 17).
+    const closed = make({ questions: [TEE], rules: { ...defaultRules(), signupCutoffHours: 0, questionsCloseHours: 168 } })
+    open(closed)
+    cont()
+    await screen.findByTestId('payment-form')
+    expect(screen.queryByLabelText('Tee size')).toBeNull()
+    cleanup()
+    // Still open (no close time): asked for each seat first.
+    open(make({ questions: [TEE], rules: { ...defaultRules(), signupCutoffHours: 0 } }))
+    cont()
+    expect(await screen.findByLabelText('Tee size')).toBeInTheDocument()
+  })
+})

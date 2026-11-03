@@ -14,6 +14,9 @@ const mockSend = vi.fn()
 vi.mock('@lib/class-link-email', () => ({ sendClassLinkEmail: (...a: any[]) => mockSend(...a) }))
 const mockEvent = vi.fn()
 vi.mock('@lib/posthog-server', () => ({ reportServerEvent: (...a: any[]) => mockEvent(...a) }))
+// Our own classes come from our class store.
+const mockGetClass = vi.fn()
+vi.mock('@lib/classes/class-store', () => ({ getClass: (...a: any[]) => mockGetClass(...a) }))
 
 const earrings = { id: 'clsschi_abc', name: 'Christmas Earring Bar', description: 'x', startAt: '2026-11-13T00:00:00.000Z', durationMinutes: 120, priceCents: 3500 }
 
@@ -98,4 +101,49 @@ describe('POST /api/workshops/email-me.json', () => {
     expect((await POST(ctx({ email: 'target@example.com', classId: 'clsschi_abc' }))).status).toBe(429)
     expect(mockSend).toHaveBeenCalledTimes(3)
   })
+
+  describe('our own classes (cls_…)', () => {
+    const own = (over: Record<string, any> = {}) => ({
+      id: 'cls_tee1', libraryId: null, libraryVersion: null, status: 'open',
+      content: {
+        name: 'Christmas Embroidery 101', description: 'Stitch a tree.\n\nEveryone picks colours.', imageUrl: 'https://img/tee.jpg', instructor: null,
+        rules: { joinPartway: false, linkOnly: true },
+        ticketTypes: [{ id: 'person', label: 'Person' }], passes: [{ id: 'all', label: 'Full class', covers: { kind: 'all' } }],
+        prices: { all: { person: 4000 } }, questions: [], addOns: [], defaultCapacity: 10, defaultMinutes: 120,
+      },
+      sessions: [{ id: 'ses_1', startIso: '2099-12-13T00:00:00.000Z', endIso: '2099-12-13T02:00:00.000Z', capacity: 10 }],
+      square: { itemId: null, variations: {} }, createdAt: '', updatedAt: '', by: { id: '', name: '' }, history: [],
+      ...over,
+    })
+
+    it('emails one of our classes (link-only too) with a link to its own page, never asking Square', async () => {
+      mockGetClass.mockResolvedValue(own())
+      const res = await POST(ctx({ email: 'mom@example.com', classId: 'cls_tee1' }))
+      expect(res.status).toBe(200)
+      expect(mockGetClass).toHaveBeenCalledWith('cls_tee1')
+      expect(mockListWorkshops).not.toHaveBeenCalled()
+      expect(mockSend).toHaveBeenCalledWith('mom@example.com', expect.objectContaining({
+        id: 'cls_tee1', name: 'Christmas Embroidery 101', startAt: '2099-12-13T00:00:00.000Z', durationMinutes: 120,
+        path: '/classes/cls_tee1', priceLabel: '$40', imageUrl: 'https://img/tee.jpg',
+      }), 'https://ourhometownstudio.com')
+    })
+
+    it.each([
+      ['a draft', { status: 'draft' }],
+      ['a cancelled class', { status: 'cancelled' }],
+      ['a class that has already started', { sessions: [{ id: 'ses_1', startIso: '2020-01-01T00:00:00.000Z', endIso: '2020-01-01T02:00:00.000Z', capacity: 10 }] }],
+    ])('%s is no longer listed: 404, nothing sent', async (_name, over) => {
+      mockGetClass.mockResolvedValue(own(over))
+      const res = await POST(ctx({ email: 'mom@example.com', classId: 'cls_tee1' }))
+      expect(res.status).toBe(404)
+      expect(mockSend).not.toHaveBeenCalled()
+    })
+
+    it('an unknown class: 404', async () => {
+      mockGetClass.mockResolvedValue(null)
+      const res = await POST(ctx({ email: 'mom@example.com', classId: 'cls_nope1' }))
+      expect(res.status).toBe(404)
+    })
+  })
 })
+

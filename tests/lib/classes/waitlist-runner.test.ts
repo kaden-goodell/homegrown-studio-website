@@ -133,6 +133,36 @@ describe('runWaitlist', () => {
     expect(h.square.chargeSavedCardCalls).toHaveLength(1)
   })
 
+  it('questions that closed since they joined (a tee size a week out): they are added with no pick, like anyone booking then', async () => {
+    const cls = makeClass()
+    const other = await fill(cls)
+    cls.content.questions = [{ id: 'tee', label: 'Tee size', choices: ['Youth S', 'Youth M'] }]
+    cls.content.rules = { ...cls.content.rules, signupCutoffHours: 0, questionsCloseHours: 168 }
+    const request = { passId: 'all', tickets: { person: 1 }, seats: [{ answers: { tee: 'Youth S' } }] }
+    const q = quote(cls, request, NOW, 9)
+    if (!q.ok) throw new Error(q.error)
+    const c = consentFor(cls, q.value.sessionIds, q.value.totalCents)!
+    await joinWaitlist({
+      classId: cls.id, attemptId: attempt(), request, customer: person('Jane'),
+      cardToken: 'cnon:card-nonce-ok', verificationToken: null, consent: true,
+      consentShown: { maxCents: q.value.totalCents, closesIso: c.closesIso, text: c.text }, ip: '1.2.3.4', origin: 'https://ourhometownstudio.com',
+    }, NOW)
+    const [jane] = await entries(cls)
+    expect(jane.request.seats).toEqual([{ answers: { tee: 'Youth S' } }])
+
+    const later = new Date('2026-10-20T17:00:00.000Z') // the questions closed Oct 17; the waitlist runs to Oct 22
+    vi.setSystemTime(later)
+    await release(cls.id, other)
+    const r = await runWaitlist(cls.id, { reason: 'seat-freed' }, later)
+    expect(r).toMatchObject({ added: 1 })
+    const [added] = await entries(cls)
+    expect(added.state).toBe('added')
+    const lines = (await getLedger(cls.id)).lines.filter((l) => l.waitlistEntryId === jane.id)
+    expect(lines).toHaveLength(1)
+    expect(lines[0].answers).toEqual({})
+    expect(JSON.stringify(h.square.classOrderCalls.at(-1))).not.toMatch(/Youth S/)
+  })
+
   it('two runners: the refund route, the webhook and the sweep at once → one payment', async () => {
     const cls = makeClass()
     const other = await fill(cls)

@@ -61,6 +61,10 @@ function validateRules(raw: unknown): Result<ClassRules> {
     if (!inRange(raw.signupCutoffHours, 0, 720)) return fail('The sign-up cutoff is 0 to 720 hours.', 'rules.signupCutoffHours')
     r.signupCutoffHours = raw.signupCutoffHours
   }
+  if (raw.questionsCloseHours !== undefined && raw.questionsCloseHours !== null) {
+    if (!inRange(raw.questionsCloseHours, 0, 720)) return fail('The questions close 0 to 720 hours before the class.', 'rules.questionsCloseHours')
+    r.questionsCloseHours = raw.questionsCloseHours
+  }
   if (raw.waitlistCutoffHours !== undefined) {
     if (!inRange(raw.waitlistCutoffHours, 0, 720)) return fail('The waitlist cutoff is 0 to 720 hours.', 'rules.waitlistCutoffHours')
     r.waitlistCutoffHours = raw.waitlistCutoffHours

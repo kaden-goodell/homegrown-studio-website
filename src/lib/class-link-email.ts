@@ -21,23 +21,29 @@ export interface ClassForEmail {
   priceCents: number
   imageUrl?: string
   flyerUrl?: string
+  /** Our own classes: their own page (/classes/<id>), so a link-only class works too. Default: /workshops?w=<id>. */
+  path?: string
+  /** Our own classes: the price as the card says it ("$35", "$20 child · $30 adult", "From $35"). Default: "$X a seat". */
+  priceLabel?: string
+  /** Our own classes that meet more than once: "4 sessions · starts Sat Oct 24", after the first date. */
+  sessionsLabel?: string
 }
 
 const ADDRESS_SHORT = '525 Hughes Rd, Madison'
 const ADDRESS_FULL = '525 Hughes Rd, Suite F, Madison, AL 35758'
 
-export function classLinkUrl(siteUrl: string, classId: string): string {
-  return withUtm(`${siteUrl.replace(/\/$/, '')}/workshops?w=${encodeURIComponent(classId)}`, {
+export function classLinkUrl(siteUrl: string, classId: string, path?: string): string {
+  return withUtm(`${siteUrl.replace(/\/$/, '')}${path ?? `/workshops?w=${encodeURIComponent(classId)}`}`, {
     source: 'email', medium: 'email', campaign: 'class_link',
   })
 }
 
 export function buildClassLinkEmail(c: ClassForEmail, siteUrl: string): { subject: string; html: string; text: string } {
   const end = new Date(new Date(c.startAt).getTime() + c.durationMinutes * 60_000).toISOString()
-  const when = formatDayAndSpan(c.startAt, end)
-  const url = classLinkUrl(siteUrl, c.id)
-  const priced = c.priceCents > 0
-  const factLine = priced ? `${formatMoney(c.priceCents)} a seat · ${ADDRESS_SHORT}` : ADDRESS_SHORT
+  const when = [formatDayAndSpan(c.startAt, end), c.sessionsLabel].filter(Boolean).join(' · ')
+  const url = classLinkUrl(siteUrl, c.id, c.path)
+  const price = c.priceLabel ?? (c.priceCents > 0 ? `${formatMoney(c.priceCents)} a seat` : '')
+  const factLine = price ? `${price} · ${ADDRESS_SHORT}` : ADDRESS_SHORT
   const paragraphs = c.description.split(/\n\s*\n|\n/).map((p) => p.trim()).filter(Boolean)
   const photo = c.imageUrl ?? c.flyerUrl
   const phone = siteConfig.contactPhone

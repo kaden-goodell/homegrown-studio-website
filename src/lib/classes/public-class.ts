@@ -105,7 +105,9 @@ export function lowestPrice(own: Pick<OwnClassData, 'passes' | 'ticketTypes' | '
 }
 
 /** Every price on sale, pass by pass, ticket types in order (as `sellableCells`). */
-function cells(own: Pick<OwnClassData, 'passes' | 'ticketTypes' | 'prices'>): { passId: string; ticketTypeId: string; cents: Cents }[] {
+/** The price table as the card reads it (a class's content or the browser's copy). */
+type PriceCells = { passes: { id: string }[]; ticketTypes: { id: string; label: string }[]; prices: Record<string, Record<string, Cents>> }
+function cells(own: PriceCells): { passId: string; ticketTypeId: string; cents: Cents }[] {
   return own.passes.flatMap((p) =>
     own.ticketTypes
       .filter((t) => own.prices[p.id]?.[t.id] !== undefined)
@@ -114,7 +116,7 @@ function cells(own: Pick<OwnClassData, 'passes' | 'ticketTypes' | 'prices'>): { 
 }
 
 /** "$15", "$20 adult · $15 kid" (one pass, up to three ticket types) or "From $15". */
-export function ownPriceLabel(own: Pick<OwnClassData, 'passes' | 'ticketTypes' | 'prices'>, currency = 'USD'): string {
+export function ownPriceLabel(own: PriceCells, currency = 'USD'): string {
   const all = cells(own)
   if (!all.length) return ''
   const distinct = new Set(all.map((c) => c.cents))
@@ -128,7 +130,7 @@ export function ownPriceLabel(own: Pick<OwnClassData, 'passes' | 'ticketTypes' |
 }
 
 /** "4 sessions · starts Sat Oct 24" for a class that meets more than once; '' for one session. */
-export function sessionsLine(own: Pick<OwnClassData, 'sessions'>): string {
+export function sessionsLine(own: { sessions: { startIso: string }[] }): string {
   if (own.sessions.length <= 1) return ''
   return `${own.sessions.length} sessions · starts ${formatDay(own.sessions[0].startIso).replace(',', '')}`
 }

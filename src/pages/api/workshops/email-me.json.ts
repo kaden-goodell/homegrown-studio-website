@@ -5,12 +5,15 @@ import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { remember } from '@lib/short-memory'
 import { reportServerEvent } from '@lib/posthog-server'
-import { sendClassLinkEmail } from '@lib/class-link-email'
+import { sendClassLinkEmail, type ClassForEmail } from '@lib/class-link-email'
+import { getClass } from '@lib/classes/class-store'
+import { ownClassForEmail } from '@lib/classes/class-for-email'
 
 export const prerender = false
 const logger = createLogger('api:workshops:email-me')
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const OWN_CLASS_ID = /^cls_[a-z0-9]{4,40}$/
 
 const json = (body: unknown, status: number) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
@@ -18,13 +21,13 @@ const json = (body: unknown, status: number) =>
 /**
  * "Not ready to book? Email me this class." Sends one email about one class to
  * the address given, and (only if they ticked the box) adds them to the
- * new-classes list. The class comes from Square by id, never from the request,
+ * new-classes list. The class is looked up by id, never taken from the request,
  * so this can't be used to email anyone words of our choosing — and an
  * address only gets a few of these a day, so it can't flood someone's inbox.
  *
- * OWN-BOOKING-SYSTEM: when classes leave Square, look the class up from our
- * own class store here instead of providers.workshop.listWorkshops() — the
- * id the pop-up sends will be our class id, not a Square instance id.
+ * Our own classes (ids `cls_…`) are read from our class store: open or
+ * stopped, link-only too (the visitor is on its page), with a date still to
+ * come; the email links to its own page. Anything else is a Square class.
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (rateLimited(`class-email:${clientAddress}`, 5, 10 * 60_000)) {
@@ -42,10 +45,14 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     return json({ error: 'We have already sent a few of these to that address today.' }, 429)
   }
 
-  let found
+  let found: ClassForEmail | undefined
   try {
-    const list = await remember('workshops:list', 30_000, () => providers.workshop.listWorkshops())
-    found = list.find((w) => w.id === classId)
+    if (OWN_CLASS_ID.test(classId)) {
+      found = ownClassForEmail(await getClass(classId), new Date())
+    } else {
+      const list = await remember('workshops:list', 30_000, () => providers.workshop.listWorkshops())
+      found = list.find((w) => w.id === classId)
+    }
   } catch (err) {
     logger.error('Class list unreadable for email-me', { classId, error: err instanceof Error ? err.message : String(err) })
     return json({ error: 'Could not send' }, 502)

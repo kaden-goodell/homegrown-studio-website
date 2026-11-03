@@ -237,6 +237,19 @@ describe('class sheet › Details', () => {
     expect(await screen.findByRole('button', { name: /More options/ })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByLabelText('Extra 1')).toHaveValue('Second mug')
   })
+
+  it('a class with questions can close them before sign-ups do (a tee size a week out)', async () => {
+    const f = server({ the: cls({ content: content({ questions: [{ id: 'q_tee', label: 'Tee size', choices: ['Youth S', 'Youth M'] }] }) }) })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<ClassSheet id="cls_1" tab="details" />)
+    const close = await screen.findByLabelText('Questions close (hours before)')
+    expect(close).toHaveValue('')
+    expect(screen.getByText(/168 hours is a week\. People can still book after that, they just don’t pick\./)).toBeInTheDocument()
+    fireEvent.change(close, { target: { value: '168' } })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(posts(f, CLASSES)).toHaveLength(1))
+    expect(posts(f, CLASSES)[0].body).toMatchObject({ action: 'update', content: { rules: { questionsCloseHours: 168 } } })
+  })
 })
 
 describe('class sheet › Cancel', () => {

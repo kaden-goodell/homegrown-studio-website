@@ -101,6 +101,8 @@ export function contentFromSquare(w: Workshop, meta: EventMeta | null): ClassCon
       madeToOrder: meta?.madeToOrder ?? false,
       taxable: !taxFree(w),
       signupCutoffHours: meta?.signupCutoffHours ?? null,
+      // Questions that close before sign-ups do (a tee size a week out) come across too.
+      ...(meta?.optionsCloseHours != null && meta.options?.length ? { questionsCloseHours: meta.optionsCloseHours } : {}),
     },
     ticketTypes: [{ id: 'person', label: 'Person' }],
     passes: [{ id: 'all', label: 'Full class', covers: { kind: 'all' } }],

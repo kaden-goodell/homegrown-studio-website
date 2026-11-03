@@ -47,6 +47,7 @@ import { byOf, staffAuthorized } from '@lib/staff-auth'
 import { classWritesRefusal } from '@lib/classes/test-site-guard'
 import type { SaleOptions } from '@lib/classes/pricing'
 import { earlyBirdRunning } from '@lib/classes/early-bird'
+import { answersClosedQuestion, QUESTIONS_CLOSED_MESSAGE, withoutClosedAnswers } from '@lib/classes/questions-close'
 import { countUse, extendUse, getPromo, getUses, releaseUse, reserveUse } from '@lib/promos/promo-store'
 import { normalizeCode, promoRefusal, PROMO_REFUSALS, usesLeft } from '@lib/promos/rules'
 import { getWaitlist } from '@lib/classes/waitlist-store'
@@ -261,6 +262,10 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   setQuote(cls, priced.value)
   const cutoff = door ? null : cutoffRefusal(cls, q!.sessionIds, now)
   if (cutoff) return fail(409, 'not_open', cutoff)
+  // Questions that closed before sign-ups do (a tee size a week out): a page that still asks them is out of date.
+  // At the door the answer is just dropped. Either way no closed answer reaches the ledger or the order.
+  if (!door && answersClosedQuestion(cls, req.seats, q!.sessionIds, now)) return fail(400, 'invalid', QUESTIONS_CLOSED_MESSAGE)
+  req.seats = withoutClosedAnswers(cls, req.seats, q!.sessionIds, now)
 
   // C2: booked this class minutes ago → ask before a second booking. Run 3 (scenario 6): only when there is room
   // for these seats; a full class answers sold_out (with the waitlist) from the hold below, never "book more?".

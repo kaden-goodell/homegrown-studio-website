@@ -17,6 +17,8 @@ export interface ClassRules {
   taxable: boolean        // default true
   maxPerBooking: number   // default 10
   signupCutoffHours: number | null // null = default (0, or 24 when madeToOrder or questions)
+  /** Seat questions close this many hours before the start while seats keep selling (Kaden 2 Nov 2026); absent/null = with sign-ups. */
+  questionsCloseHours?: number | null
   minimumToRun: { count: number; decideByIso: string } | null
   linkOnly: boolean
   joinPartway: boolean    // when false, a 'remaining' pass is never offered once the first session starts

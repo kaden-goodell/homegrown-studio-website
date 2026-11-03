@@ -73,6 +73,7 @@ import { claimConfirmation, releaseConfirmation, sendClassConfirmation } from '.
 import { agreedLinesOf, atAgreedPrices, quote, type AgreedLine, type Quote } from './pricing'
 import { confirm, extendHold, getLedger, hold, release, type HoldInput } from './seat-ledger'
 import { isLiveHold } from './seat-status'
+import { withoutClosedAnswers } from './questions-close'
 import type { ScheduledClass } from './types'
 import { cardOffAndNote, closeEntries, nameOfEntry, siteOrigin, waitlistSeatsWords, waitlistWhen } from './waitlist'
 import { fitsNow, waitlistOpen } from './waitlist-rules'
@@ -361,10 +362,21 @@ function agreedOf(cls: ScheduledClass, entry: WaitlistEntry): AgreedLine[] | nul
   return then.ok && then.value.totalCents === entry.maxCents ? agreedLinesOf(then.value) : null
 }
 
-const holdInputFor = (entry: WaitlistEntry, a: WaitlistAttempt): HoldInput => ({
-  bookingId: a.bookingId, passId: entry.request.passId, source: 'online', customer: { ...entry.customer },
-  ttlMinutes: WAITLIST_HOLD_MINUTES, ...(entry.request.seats ? { seats: entry.request.seats } : {}), waitlistEntryId: entry.id,
-})
+/**
+ * The entry's seat answers as of this try: answers to questions that have
+ * closed since they joined (a tee size a week out) are dropped, as for anyone
+ * booking then. Counted at the try's own time, so a resumed try sends Square
+ * the same order lines.
+ */
+const seatsAt = (cls: ScheduledClass, entry: WaitlistEntry, at: Date) => withoutClosedAnswers(cls, entry.request.seats, entry.sessionIds, at)
+
+const holdInputFor = (cls: ScheduledClass, entry: WaitlistEntry, a: WaitlistAttempt): HoldInput => {
+  const seats = seatsAt(cls, entry, new Date(a.at))
+  return {
+    bookingId: a.bookingId, passId: entry.request.passId, source: 'online', customer: { ...entry.customer },
+    ttlMinutes: WAITLIST_HOLD_MINUTES, ...(seats ? { seats } : {}), waitlistEntryId: entry.id,
+  }
+}
 
 /** A new try for an entry that is waiting and fits. */
 async function tryToAdd(ctx: Ctx, entry: WaitlistEntry, reason: RunReason): Promise<Go> {
@@ -417,7 +429,7 @@ async function tryToAdd(ctx: Ctx, entry: WaitlistEntry, reason: RunReason): Prom
     return 'next'
   }
   const q = priced.value
-  const lines = orderLinesFor(cls, q, entry.request.seats)
+  const lines = orderLinesFor(cls, q, seatsAt(cls, entry, now))
   if (!lines.ok) {
     // I3: written down on the entry (nothing sent), so the public isn't refused while the waitlist can't take the seat.
     const n = entry.attempts.length + 1
@@ -534,7 +546,7 @@ async function settleCharging(ctx: Ctx, entry: WaitlistEntry): Promise<Go> {
 /** Hold → order → R14 → amount written down → charge → outcome. Shared by a new try and a resumed one. */
 async function proceed(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, q: Quote): Promise<Go> {
   const { cls, now } = ctx
-  const holdInput = holdInputFor(entry, a)
+  const holdInput = holdInputFor(cls, entry, a)
   const sentBefore = a.amountCents !== null
 
   // The seat: this try's hold if it is still running, else a new hold under the same booking.
@@ -564,7 +576,7 @@ async function proceed(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, q: Qu
   }
 
   // The order (same key every time for this try: Square hands back the same order).
-  const lines = orderLinesFor(cls, q, entry.request.seats)
+  const lines = orderLinesFor(cls, q, seatsAt(cls, entry, new Date(a.at)))
   if (!lines.ok && !sentBefore) {
     await letGoOf(cls.id, a.bookingId)
     await backToWaiting(ctx, entry, a, 'register', 'The class isn’t on the register, so nobody was charged.')
@@ -715,7 +727,7 @@ async function finishPaid(
 ): Promise<Go> {
   const { cls, now, result } = ctx
   const chargedCents = payment.amount || a.amountCents || q?.totalCents || 0
-  const holdInput: HoldInput = input ?? holdInputFor(entry, a)
+  const holdInput: HoldInput = input ?? holdInputFor(cls, entry, a)
   // R4: cancelled meanwhile (by an owner while this run charged)? Read it again before telling anyone they're in.
   const reread = await getClass(cls.id).then((c) => ({ c }), () => null)
   const cancelled = cls.status === 'cancelled' || (reread !== null && (reread.c === null || reread.c.status === 'cancelled'))

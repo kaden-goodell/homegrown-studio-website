@@ -50,4 +50,15 @@ describe('class link email', () => {
   it('says it is the only one', () => {
     expect(buildClassLinkEmail(earrings, SITE).text).toContain('This is the only email you will get about it.')
   })
+
+  it('our own classes: links to the class’s own page, says the card’s price and how many sessions', () => {
+    const own = { ...earrings, id: 'cls_tee1', priceCents: 0, path: '/classes/cls_tee1', priceLabel: '$20 kid · $30 adult', sessionsLabel: '4 sessions · starts Thu Nov 12' }
+    const { html, text } = buildClassLinkEmail(own, SITE)
+    expect(classLinkUrl(SITE, 'cls_tee1', '/classes/cls_tee1')).toBe('https://ourhometownstudio.com/classes/cls_tee1?utm_source=email&utm_medium=email&utm_campaign=class_link')
+    expect(text).toContain('Book your seat: https://ourhometownstudio.com/classes/cls_tee1?utm_source=email')
+    expect(text).toContain('$20 kid · $30 adult · 525 Hughes Rd, Madison')
+    expect(text).toContain('Thu, Nov 12 · 6–8 PM · 4 sessions · starts Thu Nov 12')
+    expect(html).not.toContain('a seat')
+  })
 })
+

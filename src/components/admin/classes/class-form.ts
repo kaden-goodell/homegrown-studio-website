@@ -25,6 +25,8 @@ export interface Form {
   addOns: AddOnRow[]
   rules: ClassRules
   cutoff: string
+  /** Hours before the class that its questions close (sign-ups keep going); '' = with sign-ups. */
+  questionsClose: string
   maxPerBooking: string
   /** "How many they pick" per 'choose' pass, as typed. */
   chooseCounts: Record<string, string>
@@ -94,6 +96,7 @@ export function toForm(content: ClassContent): Form {
     addOns: content.addOns.map((a) => ({ id: a.id, label: a.label, price: dollars(a.priceCents), maxPerSeat: String(a.maxPerSeat) })),
     rules: { ...r },
     cutoff: r.signupCutoffHours === null ? '' : String(r.signupCutoffHours),
+    questionsClose: r.questionsCloseHours == null ? '' : String(r.questionsCloseHours),
     maxPerBooking: String(r.maxPerBooking),
     chooseCounts: Object.fromEntries(content.passes.flatMap((p) => (p.covers.kind === 'choose' ? [[p.id, String(p.covers.count)]] : []))),
     minCount: r.minimumToRun ? String(r.minimumToRun.count) : '',
@@ -118,8 +121,8 @@ export function hasMore(f: Form): boolean {
     || f.questions.length > 0
     || f.addOns.length > 0
     || !!f.instructor.trim()
-    || !!f.cutoff.trim() || !!f.minCount.trim() || !!f.minDay
-    || JSON.stringify({ ...f.rules, ages: '', signupCutoffHours: null, minimumToRun: null, maxPerBooking: 10 }) !== JSON.stringify({ ...defaultRules(), signupCutoffHours: null, minimumToRun: null })
+    || !!f.cutoff.trim() || !!f.questionsClose.trim() || !!f.minCount.trim() || !!f.minDay
+    || JSON.stringify({ ...f.rules, ages: '', signupCutoffHours: null, questionsCloseHours: undefined, minimumToRun: null, maxPerBooking: 10 }) !== JSON.stringify({ ...defaultRules(), signupCutoffHours: null, minimumToRun: null })
     || f.maxPerBooking.trim() !== String(defaultRules().maxPerBooking)
 }
 
@@ -202,6 +205,14 @@ export function build(f: Form, opts: { usual?: boolean } = {}): Built {
     if (!(n >= 0 && n <= 720)) errors.rules = 'Sign-ups close 0 to 720 hours before.'
     else rules.signupCutoffHours = n
   } else rules.signupCutoffHours = null
+  // Questions can close before sign-ups do (a tee size a week out); blank = with sign-ups.
+  const qClose = f.questionsClose.trim()
+  delete rules.questionsCloseHours
+  if (qClose && questions.length) {
+    const n = intOf(qClose)
+    if (!(n >= 0 && n <= 720)) errors.questions = 'The questions close 0 to 720 hours before the class.'
+    else rules.questionsCloseHours = n
+  }
   if (f.minCount.trim() || f.minDay || f.minTime) {
     const n = intOf(f.minCount)
     if (!(n >= 1 && n <= 999) || !f.minDay || !f.minTime) errors.rules = 'The minimum to run needs how many, a day and a time.'
