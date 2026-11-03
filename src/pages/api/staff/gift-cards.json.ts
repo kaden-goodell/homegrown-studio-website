@@ -5,6 +5,7 @@ import { providers } from '@config/providers'
 import { alertOwners } from '@lib/owner-alert'
 import { createLogger } from '@lib/logger'
 import { recordAudit } from '@lib/audit'
+import { classWritesRefusal } from '@lib/classes/test-site-guard'
 import {
   listMintedGiftCards, saveMintedGiftCard, validateMint, newGiftCardRecordId,
   type MintedGiftCard,
@@ -41,6 +42,9 @@ export const GET: APIRoute = async ({ request }) => {
 export const POST: APIRoute = async ({ request }) => {
   const member = await staffAuthorized(request)
   if (!member) return json({ error: 'Unauthorized' }, 401)
+  // R41 (I1): a test site sharing the live stores and Square never makes a real gift card.
+  const refusal = classWritesRefusal(request)
+  if (refusal) return json({ error: refusal, code: 'NO_TEST_STORE' }, 503)
 
   let body: unknown
   try { body = await request.json() } catch { body = null }

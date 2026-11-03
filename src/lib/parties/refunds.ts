@@ -17,6 +17,7 @@
  * Server only.
  */
 import { recordAudit } from '@lib/audit'
+import { classWritesRefusal, TestSiteStoreError } from '@lib/classes/test-site-guard'
 import { sendRefundEmail } from '@lib/email'
 import { formatMoney } from '@lib/money'
 import type { By } from '@lib/staff-auth'
@@ -330,6 +331,9 @@ export async function partyRefundRequestsReply(url: URL): Promise<Response> {
  * partyId, requestId, outcome }` takes the step that fits (booking-core/ask-square).
  */
 export async function partyRefundReply(request: Request, actor: { by: By; role: 'owner' | 'crew' }, opts: { reasonRequired: boolean }): Promise<Response> {
+  // R41 (I1): first thing, before the body is read or Square is asked anything.
+  const refusal = classWritesRefusal(request)
+  if (refusal) return json(503, { error: refusal, code: 'NO_TEST_STORE' })
   try {
     const body = await request.json().catch(() => null)
     if (body && typeof body === 'object' && (body.action === 'ask-request' || body.action === 'request-decide')) {
@@ -345,6 +349,7 @@ export async function partyRefundReply(request: Request, actor: { by: By; role: 
     return json(200, { data: await refundParty(ask, actor) })
   } catch (e) {
     if (e instanceof RefundError) return json(e.status, { error: e.message, ...(e.extra ?? {}) })
+    if (e instanceof TestSiteStoreError) return json(503, { error: e.message, code: 'NO_TEST_STORE' })
     console.error(`[parties/refund] ${e instanceof Error ? e.message : String(e)}`)
     return json(503, { error: UNREACHABLE })
   }

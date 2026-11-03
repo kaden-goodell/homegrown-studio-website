@@ -14,6 +14,7 @@ import { recordAudit } from '@lib/audit'
 import { sendRefundEmail } from '@lib/email'
 import { formatMoney } from '@lib/money'
 import type { By } from '@lib/staff-auth'
+import { assertClassWritesAllowed } from './test-site-guard'
 import { PAID_NOT_SEATED_SCOPE, retrySavedRequest, runRefund, type RefundBook } from '@lib/booking-core/refund-runner'
 import { RefundError, refundKeyRaw } from '@lib/booking-core/refund-words'
 import { alreadyRefundedText, backText, PaidElsewhereError, refundedNote, squareSays, unfinishedRefund } from '@lib/parties/paid-elsewhere'
@@ -121,6 +122,7 @@ export async function paidNotSeatedRefundBook(
 export async function refundPaidNotSeated(
   paidId: string, reason: string, by: By, opts: { cents?: Cents; now?: Date } = {},
 ): Promise<{ cents: Cents; emailed: boolean; firstName: string; email: string }> {
+  assertClassWritesAllowed()
   const entry = await waiting(paidId)
   const saved = await listRefundRequests(PAID_NOT_SEATED_SCOPE, paidId)
   if (!entry) {

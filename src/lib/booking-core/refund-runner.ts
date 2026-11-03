@@ -28,6 +28,7 @@ import {
   releaseRequestEmail, resendRefundRequest, sameAsk, saveRefundRequest, type SavedRefundRequest,
 } from '@lib/classes/refund-requests'
 import type { Cents } from '@lib/classes/types'
+import { assertClassWritesAllowed } from '@lib/classes/test-site-guard'
 
 /** Square's limit on a refund's reason. */
 const SQUARE_REASON_MAX = 192
@@ -223,6 +224,8 @@ export async function runRefund<W>(
   ask: { attempt?: string; again?: { of: string; token: string }; reason: string },
   actor: Actor,
 ): Promise<RefundResult<W>> {
+  // R41 (I1): first, before any read, plan or Square call. A test site sharing the live stores and Square refunds nobody.
+  assertClassWritesAllowed()
   const { classId, bookingId } = book.scope
   const now = new Date()
   const again = ask.again ?? null
@@ -288,6 +291,7 @@ export async function runRefund<W>(
  * again as a new try while it still fits. A finished one answers as done.
  */
 export async function retrySavedRequest<W>(book: RefundBook<W>, requestId: string, actor: Actor): Promise<RefundResult<W>> {
+  assertClassWritesAllowed()
   const { classId, bookingId } = book.scope
   const rec = (await listRefundRequests(classId, bookingId)).find((r) => r.id === requestId)
   if (!rec) throw new RefundError(404, 'That refund isn’t on the booking any more.')
@@ -298,6 +302,7 @@ export async function retrySavedRequest<W>(book: RefundBook<W>, requestId: strin
 
 /** The shared tail: Square (unless already answered), the book's write, done, the email once, the audit once. */
 async function sendAndFinish<W>(book: RefundBook<W>, rec: SavedRefundRequest, actor: Actor): Promise<RefundResult<W>> {
+  assertClassWritesAllowed()
   const { classId, bookingId } = book.scope
   const checked = checkedButUnfinished(rec)
   let refundId: string | null = rec.status === 'sent' ? rec.squareRefundId : null
@@ -389,6 +394,7 @@ export async function claimSquareRefundWith(
   bookings: { classId: string; bookingId: string; label?: string }[],
   opts: { requestIds?: string[]; exactOnly?: boolean; how?: 'checked-in-square' | 'square-webhook' } = {},
 ): Promise<boolean> {
+  assertClassWritesAllowed()
   let found: SavedRefundRequest | null = null
   let label: string | undefined
   for (const b of bookings) {
@@ -441,6 +447,7 @@ export async function clearRequest<W>(
   reason: string,
   actor: Actor,
 ): Promise<RefundResult<W> | null> {
+  assertClassWritesAllowed()
   if (outcome !== 'went-through' && outcome !== 'did-not-go-through') throw new RefundError(400, 'Pick whether it went through in Square.')
   const { classId, bookingId } = book.scope
   const rec = (await listRefundRequests(classId, bookingId)).find((r) => r.id === requestId)

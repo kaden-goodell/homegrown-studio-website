@@ -21,6 +21,7 @@
  */
 import { createHash } from 'node:crypto'
 import { makeKvStore } from '@lib/blob-store'
+import { assertClassWritesAllowed } from './test-site-guard'
 import type { By } from '@lib/staff-auth'
 import type { Cents } from './types'
 
@@ -121,6 +122,8 @@ export type SaveOutcome =
  * refund saved since `seen` was read (the plan may be stale) → refused.
  */
 export async function saveRefundRequest(rec: SavedRefundRequest, opts: { seen: string[]; againOf: string | null }): Promise<SaveOutcome> {
+  // R41 (I1): never saved on a test site sharing the live stores; the runner refuses before this too.
+  assertClassWritesAllowed()
   return update<SaveOutcome>(rec.classId, rec.bookingId, (list) => {
     const have = list.find((r) => r.id === rec.id)
     if (have) return { next: null, result: { kind: 'mine', rec: have } }

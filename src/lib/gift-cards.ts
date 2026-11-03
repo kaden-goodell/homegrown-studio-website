@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { createLogger } from '@lib/logger'
 import { isPreviewOrDev } from '@lib/deploy-context'
 import { makeKvStore } from '@lib/blob-store'
+import { assertClassWritesAllowed } from '@lib/classes/test-site-guard'
 import type { By } from '@lib/staff-auth'
 
 const logger = createLogger('gift-cards')
@@ -39,6 +40,7 @@ export function newGiftCardRecordId(): string {
 }
 
 export async function saveMintedGiftCard(r: MintedGiftCard): Promise<void> {
+  assertClassWritesAllowed()
   await kv.set(giftCardKey(r.id), JSON.stringify(r))
   logger.info('Gift card recorded', { id: r.id, amountCents: r.amountCents })
 }
