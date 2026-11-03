@@ -86,7 +86,7 @@ describe('/api/staff/gift-cards', () => {
     // tapped again: the same key goes to Square (it hands back the same card if it was made)
     mint.mockResolvedValueOnce({ id: 'sq2', gan: '5678', balanceCents: 3000, state: 'ACTIVE' })
     await post({ amountDollars: 30, forWhom: 'Megan', pressId: 'press-9999abcd' })
-    expect(mint.mock.calls.at(-1)[0].idempotencyKey).toBe(mint.mock.calls.at(-2)[0].idempotencyKey)
+    expect(mint.mock.calls.at(-1)![0].idempotencyKey).toBe(mint.mock.calls.at(-2)![0].idempotencyKey)
   })
 
   it('lists with live balance, null when lookup throws', async () => {

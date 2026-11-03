@@ -4,6 +4,7 @@ const mockFindOrCreate = vi.fn()
 const mockCreateClassOrder = vi.fn()
 const mockProcessPayment = vi.fn()
 const mockFindOrderPayment = vi.fn()
+const mockFromNonce = vi.fn()
 
 vi.mock('@config/providers', () => ({
   providers: {
@@ -13,6 +14,7 @@ vi.mock('@config/providers', () => ({
       processPayment: (...a: any[]) => mockProcessPayment(...a),
       findOrderPayment: (...a: any[]) => mockFindOrderPayment(...a),
     },
+    giftcard: { fromNonce: (...a: any[]) => mockFromNonce(...a) },
   },
 }))
 
@@ -133,6 +135,7 @@ beforeEach(async () => {
   }))
   mockProcessPayment.mockResolvedValue({ id: 'PAY1', orderId: 'ORDER1', amount: TOTAL, status: 'completed', receiptUrl: 'https://squareup.com/r/PAY1' })
   mockFindOrderPayment.mockResolvedValue(null)
+  mockFromNonce.mockResolvedValue({ id: 'gc', state: 'ACTIVE', balanceCents: 1_000_000 })
   mockAlertOwners.mockResolvedValue({ attempted: 1, sent: 1 })
   mockSendEmail.mockResolvedValue({ sent: true })
   mockOwnerEmail.mockResolvedValue({ sent: true })
@@ -359,17 +362,32 @@ describe('POST /api/classes/book.json', () => {
     expect(mockAlertOwners).not.toHaveBeenCalled()
   })
 
-  it('Square a cent higher: charged, owners emailed (not texted)', async () => {
+  it('M3: Square a cent higher (within a cent per line of rounding): charged quietly; more than that: owners emailed (not texted)', async () => {
     const cls = makeClass()
     squareTotal(TOTAL + 1)
     const res = await POST(ctx(body(cls)))
     expect(res.status).toBe(200)
     expect(mockProcessPayment.mock.calls[0][0].amount).toBe(TOTAL + 1)
     expect((await res.json()).data.totalChargedCents).toBe(TOTAL + 1)
+    expect(mockOwnerEmail).not.toHaveBeenCalled()
+    const cls2 = makeClass()
+    newAttempt()
+    squareTotal(TOTAL + 4) // 3 lines: 3 cents of rounding at most
+    expect((await POST(ctx(body(cls2)))).status).toBe(200)
     expect(mockOwnerEmail).toHaveBeenCalledTimes(1)
-    const mail = mockOwnerEmail.mock.calls[0][0]
-    expect(mail.text).toBe(`Square total differed by $0.01 on booking ${bookingIdFor(ATTEMPT)} (quote $174.40, Square $174.41)`)
+    expect(mockOwnerEmail.mock.calls[0][0].text).toBe(`Square total differed by $0.04 on booking ${bookingIdFor(ATTEMPT)} (quote $174.40, Square $174.44)`)
     expect(mockAlertOwners).not.toHaveBeenCalled()
+  })
+
+  it('M1: never more than the Pay button said: Square a cent over the shown total → nothing charged, seats let go, owners texted', async () => {
+    const cls = makeClass()
+    squareTotal(TOTAL + 1)
+    const res = await POST(ctx(body(cls, { expectedTotalCents: TOTAL })))
+    expect(res.status).toBe(502)
+    expect(mockProcessPayment).not.toHaveBeenCalled()
+    mockProcessPayment.mockReset() // the unused queued answer must not leak into the next test
+    expect((await linesOf(cls)).every((l) => l.state === 'released')).toBe(true)
+    expect(mockAlertOwners.mock.calls[0][0]).toMatch(/was more than the \$174\.40 Ada was shown/)
   })
 
   it('Square more than a dollar over the quote: let go, 502, owners texted both numbers', async () => {
@@ -516,6 +534,24 @@ describe('POST /api/classes/book.json', () => {
       const res = await POST(ctx(body(cls, { paymentToken: 'cnon:retyped' })))
       expect(res.status).toBe(200)
       expect((await linesOf(cls)).filter((l) => l.state === 'confirmed')).toHaveLength(3)
+    })
+
+    it('M2: the early-bird ends between a lost answer and the retry: the retry rebuilds the first try’s order (same body) and finds it paid', async () => {
+      const cls = makeClass({ content: { earlyBird: { untilYmd: '2026-10-10', prices: { all: { adult: 5000 } } } } })
+      // Square's total for the early-bird order: 5000+5000+4000 + 9% = 15260
+      mockCreateClassOrder.mockImplementation(async (p: any) => ({ orderId: 'ORDER1', totalCents: p.lineDiscounts ? 15260 : TOTAL, lineUids: [], lineTotals: [] }))
+      mockProcessPayment.mockRejectedValueOnce(new Error('socket hang up'))
+      await POST(ctx(body(cls)))
+      const first = mockCreateClassOrder.mock.calls[0][0]
+      expect(first.lineDiscounts).toBeTruthy() // the first try had the early-bird
+      vi.setSystemTime(new Date('2026-10-11T16:00:00.000Z')) // the early-bird is over; the seats are still held (a day)
+      mockFindOrderPayment.mockResolvedValueOnce({ id: 'PAY1', orderId: 'ORDER1', amount: 15260, status: 'completed' })
+      const res = await POST(ctx(body(cls)))
+      expect(res.status).toBe(200)
+      const again = mockCreateClassOrder.mock.calls[1][0]
+      expect(again.lines).toEqual(first.lines)
+      expect(again.lineDiscounts).toEqual(first.lineDiscounts)
+      expect(mockProcessPayment).toHaveBeenCalledTimes(1)
     })
 
     it('a retry while held asks Square first: paid → booked', async () => {
@@ -863,6 +899,26 @@ describe('stage 4: codes, the shown total and free bookings at checkout', () => 
   }
   const usesOf = async (code: string) => (await import('@lib/promos/promo-store')).getUses(code)
   const one = (cls: ScheduledClass, over: Record<string, any> = {}) => body(cls, { tickets: { adult: 1 }, ...over })
+
+  it('M4: a code that leaves less than $1 to pay is refused in words (never a card decline); nothing held', async () => {
+    const cls = makeClass()
+    const code = await makeCode({ off: { kind: 'amount', cents: 5960, per: 'seat' } })
+    const res = await POST(ctx(one(cls, { promoCode: code })))
+    expect(res.status).toBe(409)
+    expect((await res.json()).detail).toMatch(/card can’t be charged less than \$1/)
+    expect(mockCreateClassOrder).not.toHaveBeenCalled()
+    expect(await linesOf(cls)).toHaveLength(0)
+  })
+
+  it('M6: a gift card short of the total is refused with its balance before anything is held', async () => {
+    const cls = makeClass()
+    mockFromNonce.mockResolvedValueOnce({ id: 'gc1', state: 'ACTIVE', balanceCents: 2500 })
+    const res = await POST(ctx(one(cls, { sourceKind: 'gift_card', paymentToken: 'cnon:gift' })))
+    expect(res.status).toBe(402)
+    expect(await res.json()).toMatchObject({ code: 'gift_card_short', balanceCents: 2500 })
+    expect(mockCreateClassOrder).not.toHaveBeenCalled()
+    expect(await linesOf(cls)).toHaveLength(0)
+  })
 
   it('a code: Square gets it as line discounts, the ledger keeps the net, the use is confirmed', async () => {
     await squareApplies()
