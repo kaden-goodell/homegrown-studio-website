@@ -47,6 +47,7 @@ import { normalizeCode, promoRefusal, PROMO_REFUSALS, usesLeft } from '@lib/prom
 import { getWaitlist } from '@lib/classes/waitlist-store'
 import { waitlistGoesFirst } from '@lib/classes/waitlist-rules'
 import type { PromoCode } from '@lib/promos/types'
+import { notePaidOnCancelled } from '@lib/classes/paid-on-cancelled'
 
 const logger = createLogger('api:classes:book')
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -367,6 +368,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
 
   // ── Paid. Nothing below may turn this into a failure. ───────────────────────
   const lines = await confirmPaid(cls, { orderId: order.orderId, paymentId: payment.id, chargedCents: charged, lineTotals: order.lineTotals })
+  await cancelledMeanwhile(cls, { orderId: order.orderId, paymentId: payment.id, chargedCents: charged })
   return finish({ cls, q: q!, lines, charged, receiptUrl: payment.receiptUrl ?? null, simulated: false, onFile })
 
   // ── helpers (closures over this request) ────────────────────────────────────
@@ -439,7 +441,37 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     logger.warn('An earlier try of this attempt was paid — recording the seats', { bookingId, orderId: order.orderId })
     const charged = found.amount || order.totalCents
     const confirmed = await confirmPaid(c, { orderId: order.orderId, paymentId: found.id, chargedCents: charged, lineTotals: order.lineTotals })
+    await cancelledMeanwhile(c, { orderId: order.orderId, paymentId: found.id, chargedCents: charged })
     return finish({ cls: c, q: q!, lines: confirmed, charged, receiptUrl: found.receiptUrl ?? null, simulated: false, onFile })
+  }
+
+  /**
+   * I-5: paid and confirmed, but an owner may have cancelled the class between this booking's hold and its
+   * charge (the cancel listed who was booked before this seat landed). Read the class again; cancelled →
+   * one To decide item (Refund them / It's already sorted) and one owners' text. Never refunds by itself.
+   */
+  async function cancelledMeanwhile(c: ScheduledClass, square: { orderId: string | null; paymentId: string | null; chargedCents: number }): Promise<void> {
+    let fresh: ScheduledClass | null
+    try {
+      fresh = await getClass(c.id)
+    } catch (err) {
+      logger.error('Class unreadable after a paid booking (cancel check skipped)', { bookingId, error: String(err) })
+      return
+    }
+    if (fresh && fresh.status !== 'cancelled') return
+    logger.error('PAID ONTO A CLASS CANCELLED MEANWHILE', { classId: c.id, bookingId, orderId: square.orderId })
+    try {
+      const first = await notePaidOnCancelled({
+        classId: c.id, className: c.content.name, bookingId, orderId: square.orderId, paymentId: square.paymentId,
+        chargedCents: square.chargedCents, customer: person, last4: '', at: new Date().toISOString(),
+      })
+      if (!first) return
+    } catch (err) {
+      logger.error('Paid-on-cancelled item not saved — texting the owners anyway', { bookingId, error: String(err) })
+    }
+    await alertOwners(
+      `${who} paid ${dollars(square.chargedCents)} for ${seatsLabel}, ${c.content.name}, just as it was cancelled. Nothing was refunded. Open /admin › To decide › Paid just as the class was cancelled to refund them.`,
+    ).catch(() => undefined)
   }
 
   /** The charge may have gone through: keep the seats a day, tell a person, say we're not sure. */

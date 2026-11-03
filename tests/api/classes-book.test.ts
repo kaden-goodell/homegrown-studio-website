@@ -186,6 +186,30 @@ describe('POST /api/classes/book.json', () => {
     expect(mockReport).toHaveBeenCalledWith(expect.objectContaining({ bookingId, amountCents: TOTAL }))
   })
 
+  it('I-5: an owner cancels the class while the customer is paying → booked, owners told once, a To decide item; nothing refunded', async () => {
+    const cls = makeClass()
+    mockProcessPayment.mockImplementationOnce(async () => {
+      classes.set(cls.id, { ...cls, status: 'cancelled' }) // the cancel lands between the hold and the charge
+      return { id: 'PAY1', orderId: 'ORDER1', amount: TOTAL, status: 'completed', receiptUrl: null }
+    })
+    const res = await POST(ctx(body(cls)))
+    expect(res.status).toBe(200)
+    expect((await linesOf(cls)).every((l) => l.state === 'confirmed')).toBe(true)
+    const texts = mockAlertOwners.mock.calls.map(([t]) => String(t)).filter((t) => /just as it was cancelled/.test(t))
+    expect(texts).toHaveLength(1)
+    expect(texts[0]).toMatch(/Nothing was refunded\. Open \/admin › To decide/)
+    const { listPaidOnCancelled } = await import('@lib/classes/paid-on-cancelled')
+    expect((await listPaidOnCancelled()).filter((p) => p.bookingId === bookingIdFor(ATTEMPT))).toEqual([
+      expect.objectContaining({ classId: cls.id, chargedCents: TOTAL, paymentId: 'PAY1', customer: expect.objectContaining({ email: 'ada@example.com' }) }),
+    ])
+  })
+
+  it('I-5: a class still open after the charge files nothing', async () => {
+    const cls = makeClass()
+    expect((await POST(ctx(body(cls)))).status).toBe(200)
+    expect(mockAlertOwners.mock.calls.some(([t]) => /just as it was cancelled/.test(String(t)))).toBe(false)
+  })
+
   it('stage 4 (I1): a running early-bird goes to Square as per-line discounts, so Square\'s total is the quote', async () => {
     const cls = makeClass({ content: { earlyBird: { untilYmd: '2026-10-12', prices: { all: { adult: 5000 } } } } })
     const { MockPaymentProvider } = await import('@providers/mock/payment')

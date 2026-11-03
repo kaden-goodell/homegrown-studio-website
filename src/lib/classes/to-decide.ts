@@ -131,6 +131,7 @@ import { siteConfig } from '@config/site.config'
 import { askSquareAboutCancel, cancelItems, CancelError, releaseSelfCancel, retrySelfCancel } from './self-cancel'
 import { cancelSplit } from './self-cancel-rules'
 import { refundClassBooking } from './refunds'
+import { listPaidOnCancelled } from './paid-on-cancelled'
 
 /** Every kind of To decide item (a runtime list, so /admin › More › Help can be checked against it). */
 export const TO_DECIDE_KINDS = [
@@ -138,7 +139,7 @@ export const TO_DECIDE_KINDS = [
   'pos-needs-days', 'below-minimum', 'door-unpaid', 'counter-match-check', 'party-paid-unclear', 'paid-not-seated', 'party-not-told',
   'party-payment-unclear', 'party-no-confirmation', 'party-hold-orphan',
   'waitlist-unknown', 'waitlist-declined', 'waitlist-refund', 'reader-waiting', 'reader-extra', 'reader-late',
-  'cancel-request', 'cancel-unclear',
+  'cancel-request', 'cancel-unclear', 'paid-on-cancelled',
 ] as const
 export type ToDecideKind = (typeof TO_DECIDE_KINDS)[number]
 
@@ -681,6 +682,20 @@ async function readerItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]
   }))
 }
 
+/** I-5: a booking paid just as its class was cancelled (the cancel's booked list was read before it landed). */
+async function paidOnCancelledItems(skip: Set<string>): Promise<ToDecideItem[]> {
+  return (await listPaidOnCancelled()).filter((p) => !skip.has(p.id)).map((p) => ({
+    id: p.id, kind: 'paid-on-cancelled' as const, at: p.at, classId: p.classId, className: p.className,
+    title: 'Paid just as the class was cancelled',
+    head: `${`${p.customer.givenName} ${p.customer.familyName}`.trim()} paid ${money(p.chargedCents)} for ${p.className} just as you cancelled it. They’re on its booked list. Nothing was refunded.`,
+    hint: 'Refund them',
+    detail: {
+      bookingId: p.bookingId, orderId: p.orderId, name: `${p.customer.givenName} ${p.customer.familyName}`.trim(),
+      email: p.customer.email, phone: p.customer.phone, cents: p.chargedCents, last4: p.last4,
+    },
+  }))
+}
+
 /** D2: customers' notes asking to cancel, and their own cancels Square didn't answer (or turned down). */
 async function cancelDecideItems(cache: ClassCache, skip: Set<string>, now: Date): Promise<ToDecideItem[]> {
   return (await cancelItems(skip, now, (id) => classOf(cache, id))).map((c) => ({
@@ -720,6 +735,7 @@ export async function listToDecide(now = new Date()): Promise<{ items: ToDecideI
     safe('waitlist', () => waitlistDecideItems(cache, skip, now)),
     safe('reader sales', () => readerItems(skip, now)),
     safe('cancels', () => cancelDecideItems(cache, skip, now)),
+    safe('paid on cancelled classes', () => paidOnCancelledItems(skip)),
   ])
   const open = groups.flat().sort((a, b) => b.at.localeCompare(a.at))
   // Notes on waiting items (R40: "Texted the people booked"), shown on the item.
@@ -768,6 +784,7 @@ const ACTIONS: Record<ToDecideKind, string[]> = {
   'reader-late': ['keep', 'refund'],
   'cancel-request': ['refund', 'free', 'keep'],
   'cancel-unclear': ['ask', 'seen', 'retry', 'release'],
+  'paid-on-cancelled': ['refund', 'sorted'],
 }
 
 async function record(item: ToDecideItem, what: string, by: By, action: string, undo?: Decided['undo']): Promise<Decided> {
@@ -1090,6 +1107,15 @@ async function decideItem(item: ToDecideItem, action: string, body: any, by: By,
       const r = await asRefund(() => refundClassBooking({
         classId: item.classId!, bookingId, kind: 'booking', freeSeat: true, reason: 'Waitlist charge on a cancelled class (To decide)',
         attempt: `wlr${item.id.replace(/[^A-Za-z0-9_-]/g, '')}`.slice(0, 80),
+      }, actor))
+      return { decided: await record(item, r.already ? r.already.message : `Refunded ${money(r.cents)} and freed the seat`, by, action) }
+    }
+    case 'paid-on-cancelled': {
+      // I-5: refunded through the class refund (the shared runner: Square never twice), freeing the seat.
+      if (action === 'sorted') return { decided: await record(item, 'Already sorted. Nothing was refunded here', by, action) }
+      const r = await asRefund(() => refundClassBooking({
+        classId: item.classId!, bookingId: str(d.bookingId), kind: 'booking', freeSeat: true, reason: 'Paid just as the class was cancelled (To decide)',
+        attempt: `poc${item.id.replace(/[^A-Za-z0-9_-]/g, '')}`.slice(0, 80),
       }, actor))
       return { decided: await record(item, r.already ? r.already.message : `Refunded ${money(r.cents)} and freed the seat`, by, action) }
     }
