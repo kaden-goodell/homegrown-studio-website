@@ -7,8 +7,8 @@ const labels = (items: { label: string }[]) => items.map((i) => i.label)
 describe('the site menu (Kaden picked option A, 17 Oct 2026)', () => {
   const nav = buildNav(siteConfig, { kitsVisible: false })
 
-  it('five items across the top: two groups and three pages', () => {
-    expect(labels(nav)).toEqual(['Parties & Events', 'Workshops', 'Craft Café', 'Calendar', 'About'])
+  it('six items across the top: two groups and four pages', () => {
+    expect(labels(nav)).toEqual(['Parties & Events', 'Workshops', 'Craft Café', 'Shop', 'Calendar', 'About'])
   })
 
   it('Parties & Events holds Parties and Private Events, each with its line', () => {
@@ -27,17 +27,17 @@ describe('the site menu (Kaden picked option A, 17 Oct 2026)', () => {
   })
 
   it('About holds Our Story, Teach a Class and Contact', () => {
-    expect(nav[4].children).toEqual([{ label: 'Our Story', href: '/about' }, { label: 'Teach a Class', href: '/teach' }, { label: 'Contact', href: '/contact' }])
+    expect(nav[5].children).toEqual([{ label: 'Our Story', href: '/about' }, { label: 'Teach a Class', href: '/teach' }, { label: 'Contact', href: '/contact' }])
   })
 
   it('the footer gets every page, in order, groups opened up', () => {
-    expect(flatNav(nav).map((i) => i.href)).toEqual(['/book', '/private-events', '/workshops', '/craft-cafe', '/calendar', '/about', '/teach', '/contact'])
+    expect(flatNav(nav).map((i) => i.href)).toEqual(['/book', '/private-events', '/workshops', '/craft-cafe', '/shop', '/calendar', '/about', '/teach', '/contact'])
   })
 
   it('a group holds the page you are on when any of its pages is it', () => {
     expect(navHoldsPath(nav[0], '/private-events/')).toBe(true)
     expect(navHoldsPath(nav[0], '/workshops')).toBe(false)
-    expect(navHoldsPath(nav[4], '/teach')).toBe(true)
+    expect(navHoldsPath(nav[5], '/teach')).toBe(true)
     expect(navHoldsPath(nav[1], '/workshops')).toBe(true)
   })
 

@@ -8,7 +8,7 @@ const SITE = 'https://ourhometownstudio.com'
 describe('sitemap', () => {
   it('lists every public page with a complete address', () => {
     const xml = sitemapXml(PUBLIC_PAGES, SITE)
-    for (const page of ['/book', '/workshops', '/calendar']) {
+    for (const page of ['/book', '/workshops', '/calendar', '/shop']) {
       expect(xml).toContain(`<loc>${SITE}${page}</loc>`)
     }
     expect(xml).toContain(`<loc>${SITE}/</loc>`)
