@@ -33,7 +33,9 @@ export interface KvStore {
    * Returns false when a conditional write lost the race.
    */
   setIfMatch(key: string, json: string, etag: string | null, exists: boolean): Promise<boolean>
-  list(): Promise<string[]>
+  list(prefix?: string): Promise<string[]>
+  /** Remove a key. Quiet when it does not exist. */
+  delete(key: string): Promise<void>
 }
 
 /**
@@ -189,19 +191,30 @@ export function makeKvStore(
       return res?.modified === true
     },
 
-    async list() {
+    async list(prefix) {
       const store = await resolveBlobStore()
       if (store) {
-        const { blobs } = await store.list()
+        const { blobs } = await store.list(prefix ? { prefix } : undefined)
         return blobs.map((b: { key: string }) => b.key)
       }
       try {
         const { readdir } = await import('node:fs/promises')
         const files = await readdir(await fsDir())
-        return files.filter((f) => f.endsWith('.json')).map((f) => f.replace(/\.json$/, ''))
+        return files.filter((f) => f.endsWith('.json')).map((f) => f.replace(/\.json$/, '')).filter((k) => !prefix || k.startsWith(prefix))
       } catch {
         return []
       }
+    },
+
+    async delete(key) {
+      const store = await resolveBlobStore()
+      if (store) {
+        await store.delete(key)
+        logger.info('kv delete', { key })
+        return
+      }
+      const { rm } = await import('node:fs/promises')
+      await rm(await fsPath(key), { force: true })
     },
   }
 }

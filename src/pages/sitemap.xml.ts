@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro'
 import { SITE_URL } from '@config/site-url'
 import { absoluteUrl } from '@lib/seo'
+import { shopLive } from '@config/shop.config'
 
 export const prerender = true
 
@@ -9,7 +10,7 @@ export const prerender = true
  * staff, host, invite and waiver pages must never appear here. Add a line
  * when a new public page goes live (kits, when that feature is switched on).
  */
-export const PUBLIC_PAGES = ['/', '/book', '/private-events', '/workshops', '/calendar', '/craft-cafe', '/about', '/teach', '/contact', '/policies']
+export const PUBLIC_PAGES = ['/', '/book', '/private-events', '/workshops', '/calendar', '/craft-cafe', '/shop', '/about', '/teach', '/contact', '/policies']
 
 export function sitemapXml(pages: string[], site: string): string {
   const urls = pages.map((p) => `  <url><loc>${absoluteUrl(p, site)}</loc></url>`).join('\n')
@@ -17,6 +18,6 @@ export function sitemapXml(pages: string[], site: string): string {
 }
 
 export const GET: APIRoute = () =>
-  new Response(sitemapXml(PUBLIC_PAGES, SITE_URL), {
+  new Response(sitemapXml(PUBLIC_PAGES.filter((p) => p !== '/shop' || shopLive()), SITE_URL), {
     headers: { 'Content-Type': 'application/xml; charset=utf-8' },
   })

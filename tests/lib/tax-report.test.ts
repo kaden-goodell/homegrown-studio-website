@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { summarizeTax, monthRange, previousMonth, bucketFor, renderTaxReport, type CatalogIndex } from '@lib/tax-report'
+import { summarizeTax, monthRange, previousMonth, bucketFor, renderTaxReport, BUCKET_TAX, BUCKET_LABEL, type CatalogIndex } from '@lib/tax-report'
 
 const index: CatalogIndex = new Map([
   ['V_CLASS', { productType: 'CLASS_TICKET', categoryNames: ['Workshop'] }],
   ['V_CRAFT', { productType: 'REGULAR', categoryNames: ['Crafts'] }],
   ['V_KIT', { productType: 'REGULAR', categoryNames: ['Take-Home Kits'] }],
+  ['V_MAGNET', { productType: 'REGULAR', categoryNames: ['Shop'] }],
   ['V_PARTY', { productType: 'APPOINTMENTS_SERVICE', categoryNames: ['Party'] }],
 ])
 const line = (id: string | undefined, total: number, tax: number) => ({ catalog_object_id: id, total_money: { amount: total }, total_tax_money: { amount: tax } })
@@ -53,7 +54,7 @@ describe('renderTaxReport', () => {
     const { subject, text } = renderTaxReport('2026-10', s)
     expect(subject).toBe('Tax collected, October 2026')
     expect(text).toContain('Use tax (classes, Craft Café, parties): $2.25')
-    expect(text).toContain('Sales tax (take-home kits): $4.50')
+    expect(text).toContain('Sales tax (take-home kits, photo magnets): $4.50')
   })
 })
 
@@ -71,5 +72,22 @@ describe('refunds', () => {
     const refund = { id: 'R1', returns: [{ source_order_id: 'O1', return_line_items: [{ total_money: { amount: 2725 }, total_tax_money: { amount: 0 } }] }] }
     const s = summarizeTax([refund], index, new Map([['O1', sale]]))
     expect(s.classes.taxCents).toBe(-225)
+  })
+})
+
+describe('shop bucket', () => {
+  it('puts Shop items in shop, reported as sales tax', () => {
+    expect(bucketFor({ productType: 'REGULAR', categoryNames: ['Shop'] })).toBe('shop')
+    expect(BUCKET_TAX.shop).toBe('sales')
+    expect(BUCKET_LABEL.shop).toBe('Shop (photo magnets)')
+    expect(bucketFor({ productType: 'REGULAR', categoryNames: ['Keychains & Clips'] })).toBe('cafe')
+  })
+  it('sums shop tax into the sales-tax line of the email', () => {
+    const s = summarizeTax([{ line_items: [line('V_MAGNET', 3924, 324), line('V_KIT', 5450, 450)] }], index)
+    expect(s.shop).toEqual({ salesCents: 3600, taxCents: 324, lines: 1 })
+    const { text, html } = renderTaxReport('2026-11', s)
+    expect(text).toContain('Sales tax (take-home kits, photo magnets): $7.74')
+    expect(text).toContain('Shop (photo magnets): sales $36.00, tax $3.24 — sales tax')
+    expect(html).toContain('Shop (photo magnets)')
   })
 })

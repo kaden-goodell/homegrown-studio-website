@@ -29,7 +29,15 @@ const request = (over: any = {}) => ({
  */
 const message = (over: any = {}) => ({ id: '2026-10-17-11111111', at: '2026-10-17T16:00:00Z', status: 'new', photos: 0, name: 'Sam Asker', email: 'sam@example.com', phone: '(256) 555-0177', topic: 'cafe', message: 'Are you open on Thanksgiving weekend?', ...over })
 
-function server({ apps = [app()], requests = [request()], messages = [message()], signedOut = false, passcodeOk = true }: any = {}) {
+const magnetOrder = (over: any = {}) => ({
+  id: 'M-ABC234', createdAt: '2026-11-09T18:00:00.000Z', status: 'new', draftId: '0f8fad5b-d9cb-469f-a165-70867728950e', sets: 1,
+  magnets: Array(6).fill('1700000000000-deadbeef'), delivery: 'pickup', address: null,
+  contact: { name: 'Mags Buyer', email: 'kaden+m@ourhometownstudio.com', phone: '4029802907' },
+  amounts: { subtotalCents: 1800, taxCents: 162, shippingCents: 0, totalCents: 1962 },
+  squareOrderId: 's', paymentId: 'p', receiptUrl: null, doneAt: null, photosDeletedAt: null, emailed: {}, ...over,
+})
+
+function server({ apps = [app()], requests = [request()], messages = [message()], orders = [magnetOrder()], moveOrderFails = false, signedOut = false, passcodeOk = true }: any = {}) {
   let out = signedOut
   return vi.fn(async (url: string, init?: any) => {
     if (url === '/api/admin/login.json') {
@@ -49,6 +57,14 @@ function server({ apps = [app()], requests = [request()], messages = [message()]
     if (url === '/api/admin/messages.json') {
       if (init?.method === 'POST') { const b = JSON.parse(init.body); return ok({ data: { message: { ...messages.find((m: any) => m.id === b.id), status: b.status } } }) }
       return ok({ data: { messages } })
+    }
+    if (url === '/api/admin/magnet-orders.json') {
+      if (init?.method === 'POST') {
+        if (moveOrderFails) return { ok: false, status: 409, json: async () => ({ error: 'The photos were deleted, so this order cannot move back.' }) }
+        const b = JSON.parse(init.body)
+        return ok({ data: { order: { ...orders.find((o: any) => o.id === b.id), status: b.status }, emailed: false } })
+      }
+      return ok({ data: { orders } })
     }
     throw new Error(`unexpected ${url}`)
   })
@@ -127,7 +143,7 @@ describe('AdminApp (/admin)', () => {
   })
 
   it('empty lists say where things come from', async () => {
-    vi.stubGlobal('fetch', server({ apps: [], requests: [], messages: [] }))
+    vi.stubGlobal('fetch', server({ apps: [], requests: [], messages: [], orders: [] }))
     render(<AdminApp />)
     expect(await screen.findByText(/ourhometownstudio.com\/private-events/)).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Private events' })).toBeInTheDocument()
@@ -154,5 +170,30 @@ describe('AdminApp (/admin)', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) })))
     render(<AdminApp />)
     expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument()
+  })
+
+  it('lists the Orders tab first, shows an order, and moves its status', async () => {
+    const fetchMock = server()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<AdminApp />)
+    await screen.findByText('Dana Planner · Rocket Co')
+    const tabs = screen.getAllByRole('tab').map((t) => t.textContent)
+    expect(tabs[0]).toBe('Orders (1 new)')
+    fireEvent.click(screen.getByRole('tab', { name: /^Orders/ }))
+    expect(screen.getByText(/Mags Buyer · M-ABC234/)).toBeInTheDocument()
+    const group = screen.getByRole('group', { name: 'Status for M-ABC234' })
+    fireEvent.click(within(group).getByRole('button', { name: 'Made' }))
+    expect(await within(group).findByRole('button', { name: 'Made', pressed: true })).toBeInTheDocument()
+    const post = fetchMock.mock.calls.find((c) => c[0] === '/api/admin/magnet-orders.json' && c[1]?.method === 'POST')!
+    expect(JSON.parse(post[1].body)).toEqual({ id: 'M-ABC234', status: 'made' })
+  })
+
+  it('shows the server message when an order cannot move', async () => {
+    vi.stubGlobal('fetch', server({ moveOrderFails: true }))
+    render(<AdminApp />)
+    await screen.findByText('Dana Planner · Rocket Co')
+    fireEvent.click(screen.getByRole('tab', { name: /^Orders/ }))
+    fireEvent.click(within(screen.getByRole('group', { name: 'Status for M-ABC234' })).getByRole('button', { name: 'Made' }))
+    expect((await screen.findByRole('alert')).textContent).toMatch(/photos were deleted/)
   })
 })
