@@ -1,0 +1,43 @@
+/**
+ * DRAFT customer copy for the shop — Kaden approves before prod (no colons,
+ * "Hometown Studio", plain and short).
+ */
+export const shopContent = {
+  pageEyebrow: 'Shop',
+  pageTitle: 'Little things you can take home',
+  pageLead: 'Made by us at the studio, from your photos.',
+  magnets: {
+    title: 'Photo Magnets',
+    blurb: 'Your favorite photos as 2 inch square fridge magnets. Sold in sets of 6.',
+    price: '$18 for a set of 6',
+    button: 'Make your magnets',
+    readyLine: 'Ready within 7 days. Pick up at the studio or we ship for $6.',
+  },
+  modal: {
+    title: 'Photo Magnets',
+    stepPhotos: 'Your photos',
+    stepDelivery: 'Pickup or shipping',
+    stepPay: 'Payment',
+    setsLabel: 'How many magnets',
+    photosHint: 'Pick a photo for each magnet. You can use the same photo more than once.',
+    closeUpHint: 'Photos with a little space around the subject work best. Anything past the dashed line may wrap around the edge.',
+    blurryWarning: 'This photo is small, so the magnet may print a little blurry.',
+    addPhoto: 'Add photo',
+    usePhotoAgain: 'Use again',
+    remove: 'Remove',
+    pickupLabel: 'Pick up at the studio',
+    pickupNote: 'Free. We email you when they are ready.',
+    shipLabel: 'Ship to me',
+    shipNote: '$6 shipping.',
+    addressLabel: 'Shipping address',
+    nameLabel: 'Your name',
+    emailLabel: 'Email',
+    phoneLabel: 'Phone',
+    leaveTitle: 'Leave without ordering?',
+    leaveBody: 'Your photos are not saved until you pay.',
+    keep: 'Keep going',
+    leave: 'Close',
+    uploading: 'Saving your photos…',
+    confirmedHeading: 'Your magnets are ordered',
+  },
+} as const
