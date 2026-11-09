@@ -22,9 +22,11 @@ export const shopConfig = {
     safeInset: 0.08,
     /** Filled by `scripts/seed-shop.ts --apply`. Empty = the order endpoint refuses (503). */
     square: {
-      itemId: '',
-      variationId: '',
-      shippingVariationId: '',
+      // Created 2026-11-09 by scripts/seed-shop.ts --apply (Kaden's go). Proven with orders/calculate:
+      // 2 sets + shipping = 4524, tax 324 on magnets, 0 on shipping.
+      itemId: 'OQ55HOQUPTO52WO7D2TOTQOH',
+      variationId: 'ZD2OIIQVAEU2TGU2KXVBUCNT',
+      shippingVariationId: 'MMWCGRPBR7OKBTA6CS3ADSWQ',
     },
   },
   maxPhotoBytes: 400_000,
