@@ -6,13 +6,15 @@ import { STATUS_LABEL as REQUEST_LABEL, STATUSES as REQUEST_STATUSES, type Reque
 import { EventRequestCard } from './EventRequestCard'
 import { StatusPills } from './StatusPills'
 import { MessageCard } from './MessageCard'
+import { MagnetOrderCard } from './MagnetOrderCard'
+import { STATUSES as ORDER_STATUSES, STATUS_LABEL as ORDER_LABEL, type MagnetOrder, type MagnetStatus } from '@lib/magnet-status'
 import { STATUSES as MESSAGE_STATUSES, STATUS_LABEL as MESSAGE_LABEL, type ContactMessage, type MessageStatus } from '@lib/contact-options'
 
 const STATUSES: [ApplicationStatus, string][] = [['new', 'New'], ['talking', 'Talking'], ['booked', 'Booked'], ['not-now', 'Not now']]
 const AUDIENCE: Record<string, string> = { kids: 'Kids & teens', adults: 'Adults', both: 'Both' }
 const OFTEN: Record<string, string> = { 'one-time': 'One-time', monthly: 'Monthly', series: 'A series' }
 
-type Tab = 'events' | 'messages' | 'teachers'
+type Tab = 'events' | 'messages' | 'teachers' | 'orders'
 
 /**
  * /admin: owner-only tools. Private event requests from /private-events
@@ -25,6 +27,8 @@ export default function AdminApp() {
   const [apps, setApps] = useState<ArtistApplication[]>([])
   const [requests, setRequests] = useState<EventRequest[]>([])
   const [messages, setMessages] = useState<ContactMessage[]>([])
+  const [orders, setOrders] = useState<MagnetOrder[]>([])
+  const [moveError, setMoveError] = useState('')
   const [tab, setTab] = useState<Tab>('events')
   const [passcode, setPasscode] = useState('')
   const [loginError, setLoginError] = useState('')
@@ -32,16 +36,18 @@ export default function AdminApp() {
   async function load() {
     setState('loading')
     try {
-      const [a, r, m] = await Promise.all([
+      const [a, r, m, o] = await Promise.all([
         fetch('/api/admin/applications.json', { cache: 'no-store' }),
         fetch('/api/admin/event-requests.json', { cache: 'no-store' }),
         fetch('/api/admin/messages.json', { cache: 'no-store' }),
+        fetch('/api/admin/magnet-orders.json', { cache: 'no-store' }),
       ])
-      if ([a, r, m].some((x) => x.status === 401)) return setState('signed-out')
-      if (![a, r, m].every((x) => x.ok)) throw new Error(`${a.status}/${r.status}/${m.status}`)
+      if ([a, r, m, o].some((x) => x.status === 401)) return setState('signed-out')
+      if (![a, r, m, o].every((x) => x.ok)) throw new Error(`${a.status}/${r.status}/${m.status}/${o.status}`)
       setApps((await a.json()).data.applications)
       setRequests((await r.json()).data.requests)
       setMessages((await m.json()).data.messages)
+      setOrders((await o.json()).data.orders)
       setState('ready')
     } catch {
       setState('error')
@@ -82,6 +88,14 @@ export default function AdminApp() {
     }
   }
 
+  async function moveOrder(id: string, status: MagnetStatus) {
+    setMoveError('')
+    const res = await fetch('/api/admin/magnet-orders.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status }) })
+    const body = await res.json().catch(() => ({}))
+    if (res.ok) setOrders((list) => list.map((o) => (o.id === id ? body.data.order : o)))
+    else setMoveError(body?.error ?? 'That didn’t work. Try again.')
+  }
+
   if (state === 'loading') return <p style={{ color: 'var(--color-muted)' }}>Loading…</p>
   if (state === 'error') return <p role="alert">Couldn’t load just now. <button type="button" className="btn btn-secondary" onClick={load}>Try again</button></p>
   if (state === 'signed-out') {
@@ -101,10 +115,20 @@ export default function AdminApp() {
   return (
     <div style={{ display: 'grid', gap: '1.25rem' }}>
       <div role="tablist" aria-label="Admin" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-        {([['events', tabLabel('Private events', requests)], ['messages', tabLabel('Messages', messages)], ['teachers', tabLabel('Teachers', apps)]] as [Tab, string][]).map(([t, l]) => (
+        {([['orders', tabLabel('Orders', orders)], ['events', tabLabel('Private events', requests)], ['messages', tabLabel('Messages', messages)], ['teachers', tabLabel('Teachers', apps)]] as [Tab, string][]).map(([t, l]) => (
           <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={tab === t ? 'btn btn-primary' : 'btn btn-secondary'}>{l}</button>
         ))}
       </div>
+      {moveError && <p role="alert" className="field-error">{moveError}</p>}
+      {tab === 'orders' && (
+        <StatusList
+          title="Orders"
+          items={orders}
+          statuses={ORDER_STATUSES.map((s) => [s, ORDER_LABEL[s]] as [MagnetStatus, string])}
+          empty="No magnet orders yet."
+          render={(o) => <MagnetOrderCard key={o.id} order={o} onMove={moveOrder} />}
+        />
+      )}
       {tab === 'events' && (
         <StatusList
           title="Private event requests"
