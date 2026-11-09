@@ -2,23 +2,28 @@
 // src/pages/admin/magnets-print.astro
 export const prerender = false
 import { adminAuthorized } from '@lib/admin-auth'
-import { getOrder } from '@lib/magnet-orders'
-import { layoutSheets, framePolygon, SHEET } from '@lib/magnet-sheet'
+import { getOrder, isReference } from '@lib/magnet-orders'
+import { layoutSheets, framePolygon, printItems, SHEET, EDGE_LABEL } from '@lib/magnet-sheet'
 
 if (!adminAuthorized(Astro.request)) return Astro.redirect('/admin')
-const order = await getOrder(Astro.url.searchParams.get('id') ?? '')
-if (!order) return new Response('Order not found', { status: 404 })
-const pages = layoutSheets(order.magnets)
+// ?id=M-XXXXXX (one order) or ?ids=M-AAA,M-BBB (a batch, printed back to back)
+const wanted = (Astro.url.searchParams.get('ids') ?? Astro.url.searchParams.get('id') ?? '').split(',').map((s) => s.trim()).filter(isReference).slice(0, 30)
+const found = (await Promise.all(wanted.map((id) => getOrder(id)))).filter((o) => o !== null)
+if (!found.length) return new Response('Order not found', { status: 404 })
+const orders = found.filter((o) => !o.photosDeletedAt)
+const skipped = found.filter((o) => o.photosDeletedAt)
+const pages = layoutSheets(printItems(orders))
 const poly = framePolygon().map(([x, y]) => `${x},${y}`).join(' ')
-const src = (photoId: string) => `/api/admin/magnet-photo?draft=${order.draftId}&photo=${photoId}`
+const src = (draftId: string, photoId: string) => `/api/admin/magnet-photo?draft=${draftId}&photo=${photoId}`
+const magnets = orders.reduce((n, o) => n + o.magnets.length, 0)
 ---
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="robots" content="noindex" />
-  <title>Print {order.id}</title>
-  <style define:vars={{ pageW: `${SHEET.pageW}in`, pageH: `${SHEET.pageH - 0.01}in`, frame: `${SHEET.frame}in`, inset: `${SHEET.photoInset}in`, photo: `${SHEET.photo}in` }}>
+  <title>Print {orders.map((o) => o.id).join(', ')}</title>
+  <style define:vars={{ pageW: `${SHEET.pageW}in`, pageH: `${SHEET.pageH - 0.01}in`, frame: `${SHEET.frame}in`, inset: `${SHEET.photoInset}in`, photo: `${SHEET.photo}in`, labelTop: `${EDGE_LABEL.top}in`, labelH: `${EDGE_LABEL.height}in`, labelPt: `${EDGE_LABEL.fontPt}pt`, labelColor: EDGE_LABEL.color }}>
     @page { size: letter; margin: 0; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: system-ui, sans-serif; background: #eee; }
@@ -29,20 +34,27 @@ const src = (photoId: string) => `/api/admin/magnet-photo?draft=${order.draftId}
     .cell { position: absolute; width: var(--frame); height: var(--frame); }
     .cell svg { position: absolute; inset: 0; width: 100%; height: 100%; }
     .cell img { position: absolute; left: var(--inset); top: var(--inset); width: var(--photo); height: var(--photo); object-fit: cover; outline: 1px solid #000; }
+    .cell .code { position: absolute; left: var(--inset); width: var(--photo); top: var(--labelTop); height: var(--labelH); line-height: var(--labelH); font-size: var(--labelPt); color: var(--labelColor); text-align: center; white-space: nowrap; overflow: hidden; }
+    .key { font-size: 14px; color: #444; }
     @media print { body { background: #fff; } .bar { display: none; } .sheet { margin: 0; } }
   </style>
 </head>
 <body>
   <div class="bar">
     <button type="button" id="print" disabled onclick="window.print()">Loading photos…</button>
-    <span>{order.id} · {order.magnets.length} magnets · {pages.length} page{pages.length === 1 ? '' : 's'}. Print at Actual size (100%).</span>
+    <span>{magnets} magnets · {pages.length} page{pages.length === 1 ? '' : 's'}. Print at Actual size (100%).</span>
   </div>
-  {order.photosDeletedAt ? <p style="padding:16px">These photos were deleted on {order.photosDeletedAt.slice(0, 10)}.</p> : pages.map((cells) => (
+  <div class="bar key">
+    {orders.map((o) => <span>{o.id} · {o.contact.name} · {o.magnets.length}</span>)}
+    {skipped.length > 0 && <span>Not printed (photos deleted): {skipped.map((o) => o.id).join(', ')}</span>}
+  </div>
+  {pages.map((cells) => (
     <section class="sheet">
       {cells.map((c) => (
         <div class="cell" style={`left:${c.left}in;top:${c.top}in`}>
           <svg viewBox={`0 0 ${SHEET.frame} ${SHEET.frame}`}><polygon points={poly} fill="none" stroke="#333" stroke-width="0.008" /></svg>
-          <img src={src(c.photoId)} alt="" />
+          <img src={src(c.item.draftId, c.item.photoId)} alt="" />
+          <div class="code">{c.item.label}</div>
         </div>
       ))}
     </section>

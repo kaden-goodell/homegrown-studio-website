@@ -6,6 +6,7 @@ import { STATUS_LABEL as REQUEST_LABEL, STATUSES as REQUEST_STATUSES, type Reque
 import { EventRequestCard } from './EventRequestCard'
 import { StatusPills } from './StatusPills'
 import { MessageCard } from './MessageCard'
+import { MagnetBatchPrint } from '@components/admin/MagnetBatchPrint'
 import { MagnetOrderCard } from './MagnetOrderCard'
 import { STATUSES as ORDER_STATUSES, STATUS_LABEL as ORDER_LABEL, type MagnetOrder, type MagnetStatus } from '@lib/magnet-status'
 import { STATUSES as MESSAGE_STATUSES, STATUS_LABEL as MESSAGE_LABEL, type ContactMessage, type MessageStatus } from '@lib/contact-options'
@@ -120,6 +121,7 @@ export default function AdminApp() {
         ))}
       </div>
       {moveError && <p role="alert" className="field-error">{moveError}</p>}
+      {tab === 'orders' && <MagnetBatchPrint orders={orders} onMarkMade={(ids) => { for (const id of ids) void moveOrder(id, 'made') }} />}
       {tab === 'orders' && (
         <StatusList
           title="Orders"
