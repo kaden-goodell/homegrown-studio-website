@@ -14,7 +14,7 @@ const HOST = 'https://us.i.posthog.com'
 
 export interface ServerBooking {
   requestUrl: string
-  kind: 'party' | 'workshop' | 'kit'
+  kind: 'party' | 'workshop' | 'kit' | 'shop'
   bookingId: string
   amountCents: number
   email: string
