@@ -28,9 +28,13 @@ export const shopConfig = {
     },
   },
   maxPhotoBytes: 400_000,
-  maxPhotosPerDraft: 60,
+  /** Room to re-crop: replaced photos still count until cleanup. */
+  maxPhotosPerDraft: 120,
   draftRetentionHours: 24,
   photoRetentionDays: 30,
 } as const
 
 export type Delivery = 'pickup' | 'ship'
+
+/** The shop shows on the live site only once its Square items exist (scripts/seed-shop.ts --apply). */
+export const shopLive = (): boolean => Boolean(shopConfig.magnets.square.variationId && shopConfig.magnets.square.shippingVariationId)

@@ -34,7 +34,7 @@ const src = (photoId: string) => `/api/admin/magnet-photo?draft=${order.draftId}
 </head>
 <body>
   <div class="bar">
-    <button type="button" onclick="window.print()">Print</button>
+    <button type="button" id="print" disabled onclick="window.print()">Loading photos…</button>
     <span>{order.id} · {order.magnets.length} magnets · {pages.length} page{pages.length === 1 ? '' : 's'}. Print at Actual size (100%).</span>
   </div>
   {order.photosDeletedAt ? <p style="padding:16px">These photos were deleted on {order.photosDeletedAt.slice(0, 10)}.</p> : pages.map((cells) => (
@@ -47,5 +47,13 @@ const src = (photoId: string) => `/api/admin/magnet-photo?draft=${order.draftId}
       ))}
     </section>
   ))}
+  <script is:inline>
+    (function () {
+      var btn = document.getElementById('print')
+      var imgs = Array.prototype.slice.call(document.querySelectorAll('.cell img'))
+      var ready = function () { btn.disabled = false; btn.textContent = 'Print' }
+      Promise.all(imgs.map(function (i) { return i.complete ? 0 : new Promise(function (r) { i.onload = i.onerror = r }) })).then(ready)
+    })()
+  </script>
 </body>
 </html>

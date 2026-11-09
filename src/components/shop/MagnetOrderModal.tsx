@@ -14,7 +14,8 @@ import { readAttribution } from '@lib/attribution'
 import { posthogId, trackBeginCheckout, trackPaymentCompleted, trackPaymentFailed, type AnalyticsItem } from '@lib/analytics'
 import type { Crop, Size } from '@lib/magnet-crop'
 
-export interface Slot { photoId: string | null; preview: string; quality: 'good' | 'low' }
+/** `upload` ties an in-flight upload to its slot, so a removed or replaced slot is never refilled by a late answer. */
+export interface Slot { photoId: string | null; preview: string; quality: 'good' | 'low'; upload?: string }
 type Step = 'photos' | 'delivery' | 'pay'
 const C = shopContent.modal
 const STEP_NAMES: Record<Step, string> = { photos: C.stepPhotos, delivery: C.stepDelivery, pay: C.stepPay }
@@ -55,27 +56,46 @@ export default function MagnetOrderModal({ onClose, initialSlots }: { onClose: (
   const quote = useMemo(() => quoteMagnets(sets, delivery), [sets, delivery])
   // A changed order is a new attempt — unless an earlier charge's outcome is still unknown.
   useEffect(() => { if (!unknownOutcome) setAttemptId(uuid()) }, [sets, delivery, address]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => setError(null), [step])
+  const go = (next: Step) => { setError(null); setStep(next) }
+  const uploading = slots.some((s) => s && !s.photoId)
   const changeSets = (n: number) => { const s = Math.min(shopConfig.magnets.maxSets, Math.max(1, n)); setSets(s); setSlots((cur) => slotsFor(s, cur)) }
 
-  function pickPhoto(index: number) { pickFor.current = index; fileRef.current?.click() }
+  function pickPhoto(index: number) { setError(null); pickFor.current = index; fileRef.current?.click() }
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
     const src = URL.createObjectURL(file)
-    const bmp = await createImageBitmap(file)
-    setEditing({ index: pickFor.current, src, size: { w: bmp.width, h: bmp.height } })
-    bmp.close()
+    try {
+      // Size from the same <img> the cropper draws, so EXIF rotation always agrees.
+      const img = new Image()
+      img.src = src
+      await img.decode()
+      setEditing({ index: pickFor.current, src, size: { w: img.naturalWidth, h: img.naturalHeight } })
+    } catch {
+      URL.revokeObjectURL(src)
+      setError(C.photoWontOpen)
+    }
+  }
+  function closeCropper() {
+    if (editing) URL.revokeObjectURL(editing.src)
+    setEditing(null)
   }
   async function onCropped(jpeg: string, _crop: Crop, quality: 'good' | 'low') {
     const index = editing!.index
-    setEditing(null)
-    setSlots((cur) => cur.map((s, i) => (i === index ? { photoId: null, preview: jpeg, quality } : s)))
-    const res = await fetch('/api/shop/magnet-photo.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ draftId, image: jpeg }) })
-    const body = await res.json().catch(() => ({}))
-    if (!res.ok) { setError(body?.error ?? 'We could not save that photo. Try again.'); setSlots((cur) => cur.map((s, i) => (i === index ? null : s))); return }
-    setSlots((cur) => cur.map((s, i) => (i === index ? { photoId: body.data.photoId, preview: jpeg, quality } : s)))
+    const upload = uuid()
+    closeCropper()
+    const mine = (s: Slot | null) => s?.upload === upload
+    setSlots((cur) => cur.map((s, i) => (i === index ? { photoId: null, preview: jpeg, quality, upload } : s)))
+    try {
+      const res = await fetch('/api/shop/magnet-photo.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ draftId, image: jpeg }) })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.error ?? C.uploadFailed)
+      setSlots((cur) => cur.map((s) => (mine(s) ? { ...s!, photoId: body.data.photoId } : s)))
+    } catch (err) {
+      setError(err instanceof Error && err.message !== 'Failed to fetch' ? err.message : C.uploadFailed)
+      setSlots((cur) => cur.map((s) => (mine(s) ? null : s)))
+    }
   }
   function useAgain(index: number) {
     const empty = slots.findIndex((s) => !s)
@@ -84,14 +104,21 @@ export default function MagnetOrderModal({ onClose, initialSlots }: { onClose: (
   const remove = (index: number) => setSlots((cur) => cur.map((s, i) => (i === index ? null : s)))
 
   const deliveryValid = contact.name.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email.trim()) &&
-    contact.phone.replace(/\D/g, '').length >= 10 && (delivery === 'pickup' || address.trim().length >= 8)
+    /^1?\d{10}$/.test(contact.phone.replace(/\D/g, '')) && (delivery === 'pickup' || address.trim().length >= 8)
 
   async function pay(e?: React.FormEvent, walletToken?: string) {
     e?.preventDefault()
     if (processing) return
     setProcessing(true); setError(null)
+    let token: string
     try {
-      const token = walletToken ?? (await payRef.current!.tokenize()).token
+      token = walletToken ?? (await payRef.current!.tokenize()).token
+    } catch {
+      setError('Check your card details and try again.')
+      setProcessing(false)
+      return
+    }
+    try {
       const res = await fetch('/api/shop/magnet-order.json', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ draftId, attemptId, sets, magnets: slots.map((s) => s!.photoId), delivery, address, contact, paymentToken: token, attribution: readAttribution(), posthogId: posthogId() }),
@@ -104,7 +131,7 @@ export default function MagnetOrderModal({ onClose, initialSlots }: { onClose: (
         if (Array.isArray(body?.missingPhotos)) {
           const gone = new Set<string>(body.missingPhotos)
           setSlots((cur) => cur.map((sl) => (sl?.photoId && gone.has(sl.photoId) ? null : sl)))
-          setStep('photos')
+          setStep('photos') // keep the error showing on the photos step
         }
         setUnknownOutcome(false)
         setAttemptId(uuid()) // we know nothing was charged
@@ -114,16 +141,18 @@ export default function MagnetOrderModal({ onClose, initialSlots }: { onClose: (
       trackPaymentCompleted(quote.totalCents / 100, { kind: 'shop', transactionId: body.data.reference, items: [magnetItem()], extra: { sets } })
       setDone({ reference: body.data.reference, emailSent: !!body.data.emailSent })
     } catch {
-      setError('Check your card details and try again.')
+      // The card was read; the order request never came back. It may or may not have charged.
+      setUnknownOutcome(true)
+      setError(C.connectionLost)
     } finally { setProcessing(false) }
   }
 
   const footer = done ? (
     <button type="button" className="btn btn-primary" onClick={onClose}>Done</button>
   ) : step === 'photos' ? (
-    <button type="button" className="btn btn-primary" disabled={!canContinueFromPhotos(slots)} onClick={() => setStep('delivery')}>Continue</button>
+    <button type="button" className="btn btn-primary" disabled={!canContinueFromPhotos(slots)} onClick={() => go('delivery')}>{uploading ? C.uploading : 'Continue'}</button>
   ) : step === 'delivery' ? (
-    <button type="button" className="btn btn-primary" disabled={!deliveryValid} onClick={() => { trackBeginCheckout('shop', quote.totalCents / 100, [magnetItem()], { sets }); setStep('pay') }}>Continue</button>
+    <button type="button" className="btn btn-primary" disabled={!deliveryValid} onClick={() => { trackBeginCheckout('shop', quote.totalCents / 100, [magnetItem()], { sets }); go('pay') }}>Continue</button>
   ) : (
     <button type="submit" form="magnet-pay" className="btn btn-primary" disabled={processing || !paymentReady}>{processing ? 'Processing…' : `Pay ${formatMoney(quote.totalCents)}`}</button>
   )
@@ -139,7 +168,7 @@ export default function MagnetOrderModal({ onClose, initialSlots }: { onClose: (
       stepNumber={done ? undefined : step === 'photos' ? 1 : step === 'delivery' ? 2 : 3}
       stepCount={done ? undefined : 3}
       summary={done ? undefined : <p style={{ margin: 0 }}>{quote.magnets} magnets · {formatMoney(quote.subtotalCents)}</p>}
-      onBack={!done && !editing && step !== 'photos' && !processing && !unknownOutcome ? () => setStep(step === 'pay' ? 'delivery' : 'photos') : undefined}
+      onBack={!done && !editing && step !== 'photos' && !processing && !unknownOutcome ? () => go(step === 'pay' ? 'delivery' : 'photos') : undefined}
       footer={editing ? undefined : footer}
       leavePrompt={askToLeave && !done ? { title: C.leaveTitle, body: C.leaveBody, keepLabel: C.keep, leaveLabel: C.leave, onKeep: () => setAskToLeave(false), onLeave: onClose } : null}
     >
@@ -147,10 +176,10 @@ export default function MagnetOrderModal({ onClose, initialSlots }: { onClose: (
       {error && <p role="alert" style={{ color: '#9a3412', margin: '0 0 0.75rem' }}>{error}</p>}
       {done ? (
         <BookingConfirmed heading={C.confirmedHeading} what={<>{quote.magnets} photo magnets · order {done.reference}</>} email={contact.email} emailSent={done.emailSent}>
-          <p>{shopContent.magnets.readyLine}</p>
+          <p>{delivery === 'pickup' ? C.readyPickup : C.readyShip}</p>
         </BookingConfirmed>
       ) : editing ? (
-        <MagnetCropper src={editing.src} size={editing.size} onDone={onCropped} onCancel={() => setEditing(null)} />
+        <MagnetCropper src={editing.src} size={editing.size} onDone={onCropped} onCancel={closeCropper} />
       ) : step === 'photos' ? (
         <div style={{ display: 'grid', gap: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -165,9 +194,9 @@ export default function MagnetOrderModal({ onClose, initialSlots }: { onClose: (
               <div key={i} style={{ position: 'relative' }}>
                 <img src={s.preview} alt={`Magnet ${i + 1}`} style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 6, opacity: s.photoId ? 1 : 0.5 }} />
                 {s.quality === 'low' && <span title={C.blurryWarning} style={{ position: 'absolute', top: 4, left: 4, background: '#fff7ed', color: '#9a3412', borderRadius: 999, padding: '0 6px', fontSize: 12 }}>!</span>}
-                <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
-                  <button type="button" className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', fontSize: 12 }} onClick={() => useAgain(i)} disabled={!s.photoId || slots.every(Boolean)}>{C.usePhotoAgain}</button>
-                  <button type="button" className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', fontSize: 12 }} onClick={() => remove(i)}>{C.remove}</button>
+                <div style={{ display: 'grid', gap: 4, marginTop: 4 }}>
+                  <button type="button" className="btn btn-secondary" style={{ padding: '0.45rem 0.5rem', fontSize: 13 }} onClick={() => useAgain(i)} disabled={!s.photoId || slots.every(Boolean)}>{C.usePhotoAgain}</button>
+                  <button type="button" className="btn btn-secondary" style={{ padding: '0.45rem 0.5rem', fontSize: 13 }} onClick={() => remove(i)}>{C.remove}</button>
                 </div>
               </div>
             ) : (

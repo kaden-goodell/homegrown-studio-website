@@ -16,6 +16,7 @@ export function MagnetOrderCard({ order: o, onMove }: { order: MagnetOrder; onMo
         {o.magnets.length} magnets · {o.delivery === 'pickup' ? 'Pickup' : `Ship to ${o.address}`} · {formatMoney(o.amounts.totalCents)}
       </p>
       <StatusPills name={o.id} current={o.status} statuses={(o.delivery === 'pickup' ? PICKUP : SHIP).map((s) => [s, STATUS_LABEL[s]] as [MagnetStatus, string])} onMove={(s) => onMove(o.id, s)} />
+      {o.status === 'cancelled' && <p style={{ margin: 0, fontSize: '0.85rem' }}>Cancelled here only. Refund it in Square.</p>}
       <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', fontSize: '0.9rem' }}>
         <a href={`mailto:${o.contact.email}`}>{o.contact.email}</a>
         <a href={`tel:${o.contact.phone}`}>{o.contact.phone}</a>

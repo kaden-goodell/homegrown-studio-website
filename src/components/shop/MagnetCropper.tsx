@@ -4,7 +4,8 @@ import { clampCrop, coverScale, printQuality, sourceRect, MAX_ZOOM, type Crop, t
 import { shopConfig } from '@config/shop.config'
 import { shopContent } from '@config/shop-content'
 
-const BOX = 280 // on-screen square, CSS px
+/** On-screen square, CSS px: 280, smaller on narrow phones. */
+const boxSize = () => (typeof window === 'undefined' ? 280 : Math.max(220, Math.min(280, window.innerWidth - 48)))
 
 export interface MagnetCropperProps {
   src: string
@@ -28,6 +29,7 @@ export async function renderMagnet(src: string, size: Size, crop: Crop): Promise
 }
 
 export default function MagnetCropper({ src, size, initial, onDone, onCancel }: MagnetCropperProps) {
+  const [BOX] = useState(boxSize)
   const [crop, setCrop] = useState<Crop>(initial ?? { zoom: 1, x: 0, y: 0 })
   const [busy, setBusy] = useState(false)
   const pointers = useRef(new Map<number, { x: number; y: number }>())

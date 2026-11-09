@@ -38,6 +38,11 @@ export const shopContent = {
     keep: 'Keep going',
     leave: 'Close',
     uploading: 'Saving your photos…',
+    uploadFailed: 'That photo did not save. Check your connection and add it again.',
+    photoWontOpen: 'That photo will not open here. Try a different one.',
+    connectionLost: 'We lost the connection. Check your email for a receipt before you try again.',
+    readyPickup: 'They will be ready within 7 days. We will email you when you can pick them up.',
+    readyShip: 'We will ship them within 7 days.',
     confirmedHeading: 'Your magnets are ordered',
   },
 } as const

@@ -60,7 +60,8 @@ describe('MagnetOrderModal checkout flow', () => {
   it('blocks Continue on the photos step until all 6 slots are saved', () => {
     const partial = [...full.slice(0, 5), { photoId: null, preview: 'x', quality: 'good' as const }]
     const { unmount } = render(<MagnetOrderModal onClose={vi.fn()} initialSlots={partial} />)
-    expect(btn(/continue/i).disabled).toBe(true)
+    // a photo still uploading: the button says so and stays off
+    expect(btn(/saving your photos/i).disabled).toBe(true)
     unmount()
     render(<MagnetOrderModal onClose={vi.fn()} initialSlots={full} />)
     expect(btn(/continue/i).disabled).toBe(false)
@@ -119,5 +120,19 @@ describe('MagnetOrderModal checkout flow', () => {
     await waitFor(() => expect(orderCalls(f)).toHaveLength(2))
     const [a, b] = orderCalls(f)
     expect(a.attemptId).not.toBe(b.attemptId)
+  })
+})
+
+describe('MagnetOrderModal photo errors', () => {
+  it('says so when a photo will not open', async () => {
+    const { container } = render(<MagnetOrderModal onClose={vi.fn()} />)
+    const OrigImage = globalThis.Image
+    globalThis.Image = class { src = ''; naturalWidth = 0; naturalHeight = 0; decode() { return Promise.reject(new Error('bad')) } } as any
+    URL.createObjectURL = vi.fn(() => 'blob:x'); URL.revokeObjectURL = vi.fn()
+    const input = container.ownerDocument.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['x'], 'a.heic', { type: 'image/heic' })] } })
+    expect(await screen.findByText(/will not open/i)).toBeTruthy()
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:x')
+    globalThis.Image = OrigImage
   })
 })
