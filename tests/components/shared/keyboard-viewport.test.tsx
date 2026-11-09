@@ -33,3 +33,30 @@ describe('useKeyboardViewport', () => {
     expect(renderHook(() => useKeyboardViewport(false)).result.current).toBeNull()
   })
 })
+
+import { render, screen } from '@testing-library/react'
+import BookingPanel from '@components/shared/BookingPanel'
+
+describe('BookingPanel while typing on a phone', () => {
+  it('hides the step bar, summary and footer while the keyboard is up', () => {
+    vi.stubGlobal('innerHeight', 800)
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('max-width'), media: q, addEventListener: () => {}, removeEventListener: () => {} }))
+    const vv = fakeViewport(800)
+    const ui = () => (
+      <BookingPanel title="Photo Magnets" onRequestClose={() => {}} stepKey="delivery" stepName="Pickup or shipping" stepNumber={2} stepCount={3}
+        summary={<p>6 magnets</p>} footer={<button type="button">Continue</button>}>
+        <input aria-label="Email" />
+      </BookingPanel>
+    )
+    render(ui())
+    expect(screen.getByText('6 magnets')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy()
+    act(() => vv.fire(420))
+    expect(screen.queryByText('6 magnets')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
+    expect(screen.queryByRole('progressbar')).toBeNull()
+    expect(screen.getByLabelText('Email')).toBeTruthy()
+    act(() => vv.fire(800))
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy()
+  })
+})

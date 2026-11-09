@@ -133,6 +133,8 @@ export default function BookingPanel({
   const keepRef = useRef<HTMLButtonElement>(null)
   const sheet = usePhoneSheet()
   const keyboard = useKeyboardViewport(sheet)
+  /** Keyboard up on a phone: give the field the room — title only, no step bar, summary or footer. */
+  const typing = keyboard !== null
   const reducedMotion = useReducedMotion()
 
   // Latest handlers, so the key listener never goes stale.
@@ -280,13 +282,13 @@ export default function BookingPanel({
         }}
       >
         {/* Fixed top: title, step, what's been chosen */}
-        <div style={{ padding: `${sheet ? '0.75rem' : '1.25rem'} ${pad} 0`, flexShrink: 0 }}>
+        <div style={{ padding: `${typing ? '0.5rem' : sheet ? '0.75rem' : '1.25rem'} ${pad} 0`, flexShrink: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
             <h2
               id={titleId}
               style={{
                 margin: 0,
-                fontSize: '1.25rem',
+                fontSize: typing ? '1rem' : '1.25rem',
                 lineHeight: 1.25,
                 fontFamily: 'var(--font-heading)',
                 fontWeight: 600,
@@ -295,7 +297,7 @@ export default function BookingPanel({
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 display: '-webkit-box',
-                WebkitLineClamp: 2,
+                WebkitLineClamp: typing ? 1 : 2,
                 WebkitBoxOrient: 'vertical',
               }}
             >
@@ -307,7 +309,7 @@ export default function BookingPanel({
             </button>
           </div>
 
-          {showProgress && (
+          {showProgress && !typing && (
             <div style={{ marginTop: '0.5rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.5rem', gap: '1rem' }}>
                 <p
@@ -339,8 +341,8 @@ export default function BookingPanel({
             </div>
           )}
 
-          {summary && <div style={{ marginTop: '0.75rem' }}>{summary}</div>}
-          <div style={{ height: '0.75rem' }} />
+          {summary && !typing && <div style={{ marginTop: '0.75rem' }}>{summary}</div>}
+          <div style={{ height: typing ? '0.5rem' : '0.75rem' }} />
         </div>
 
         {/* Scrolls */}
@@ -368,7 +370,7 @@ export default function BookingPanel({
         </div>
 
         {/* Fixed bottom: the button that moves the booking on */}
-        {footer && (
+        {footer && !typing && (
           <div
             className="booking-panel-footer"
             style={{
