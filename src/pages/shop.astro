@@ -1,7 +1,11 @@
 ---
 // src/pages/shop.astro
-export const prerender = true
+export const prerender = false
 import Layout from '@layouts/Layout.astro'
+import { shopLive } from '@config/shop.config'
+import { paymentBypassEnabled } from '@lib/dev-flags'
+// Hidden on the live site until the Square items exist; previews (simulated payments) can still try it.
+if (!shopLive() && !paymentBypassEnabled(Astro.request)) return Astro.redirect('/')
 import MagnetOrderButton from '@components/shop/MagnetOrderButton'
 import { shopContent as c } from '@config/shop-content'
 ---

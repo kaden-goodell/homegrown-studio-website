@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro'
 import { SITE_URL } from '@config/site-url'
 import { absoluteUrl } from '@lib/seo'
+import { shopLive } from '@config/shop.config'
 
 export const prerender = true
 
@@ -17,6 +18,6 @@ export function sitemapXml(pages: string[], site: string): string {
 }
 
 export const GET: APIRoute = () =>
-  new Response(sitemapXml(PUBLIC_PAGES, SITE_URL), {
+  new Response(sitemapXml(PUBLIC_PAGES.filter((p) => p !== '/shop' || shopLive()), SITE_URL), {
     headers: { 'Content-Type': 'application/xml; charset=utf-8' },
   })

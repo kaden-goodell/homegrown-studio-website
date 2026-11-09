@@ -1,7 +1,8 @@
 // src/pages/api/shop/magnet-photo.json.ts
 import type { APIRoute } from 'astro'
 import { rateLimited } from '@lib/rate-limit'
-import { shopConfig } from '@config/shop.config'
+import { shopConfig, shopLive } from '@config/shop.config'
+import { paymentBypassEnabled } from '@lib/dev-flags'
 import { isDraftId, savePhoto, draftPhotoIds } from '@lib/magnet-orders'
 import { createLogger } from '@lib/logger'
 
@@ -12,6 +13,7 @@ const json = (status: number, body: unknown) =>
 
 /** POST { draftId, image: data:image/jpeg;base64,… } → { data: { photoId } }. One finished 600×600 magnet photo. */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
+  if (!shopLive() && !paymentBypassEnabled(request)) return json(503, { error: 'Magnets are not available yet.' })
   if (rateLimited(`magnet-photo:${clientAddress}`, 80, 10 * 60_000)) return json(429, { error: 'Too many photos at once. Give it a minute.' })
   const body = await request.json().catch(() => null)
   if (!isDraftId(body?.draftId)) return json(400, { error: 'Missing order draft.' })

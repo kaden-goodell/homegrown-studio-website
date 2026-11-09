@@ -1,8 +1,11 @@
 // tests/api/shop-magnet-photo.test.ts
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+const { live, bypass } = vi.hoisted(() => ({ live: { on: true }, bypass: { on: false } }))
+vi.mock('@config/shop.config', async (orig) => ({ ...(await orig() as any), shopLive: () => live.on }))
+vi.mock('@lib/dev-flags', () => ({ paymentBypassEnabled: () => bypass.on }))
 import { POST } from '../../src/pages/api/shop/magnet-photo.json'
 import { getPhoto } from '@lib/magnet-orders'
 
@@ -33,5 +36,15 @@ describe('POST /api/shop/magnet-photo.json', () => {
   it('refuses a photo over 400 KB', async () => {
     const big = `data:image/jpeg;base64,${Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(400_001)]).toString('base64')}`
     expect((await call({ draftId: DRAFT, image: big })).status).toBe(413)
+  })
+})
+
+describe('before the shop is live', () => {
+  it('refuses uploads on the live site but allows previews', async () => {
+    live.on = false
+    expect((await call({ draftId: DRAFT, image: jpegUrl })).status).toBe(503)
+    bypass.on = true
+    expect((await call({ draftId: DRAFT, image: jpegUrl })).status).toBe(200)
+    live.on = true; bypass.on = false
   })
 })

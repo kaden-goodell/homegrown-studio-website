@@ -5,7 +5,7 @@ import { buildNav, flatNav, navHoldsPath } from '@lib/nav'
 const labels = (items: { label: string }[]) => items.map((i) => i.label)
 
 describe('the site menu (Kaden picked option A, 17 Oct 2026)', () => {
-  const nav = buildNav(siteConfig, { kitsVisible: false })
+  const nav = buildNav(siteConfig, { kitsVisible: false, shopVisible: true })
 
   it('six items across the top: two groups and four pages', () => {
     expect(labels(nav)).toEqual(['Parties & Events', 'Workshops', 'Craft Café', 'Shop', 'Calendar', 'About'])
@@ -49,5 +49,13 @@ describe('the site menu (Kaden picked option A, 17 Oct 2026)', () => {
   it('without a configured menu, falls back to the feature list', () => {
     const cfg = { ...siteConfig, nav: [] }
     expect(labels(buildNav(cfg, { kitsVisible: false }))).toContain('Home')
+  })
+})
+
+describe('shop in the menu', () => {
+  it('stays hidden until the shop is live', () => {
+    const hrefs = (n: ReturnType<typeof buildNav>) => n.map((i) => i.href)
+    expect(hrefs(buildNav(siteConfig, { kitsVisible: false, shopVisible: false }))).not.toContain('/shop')
+    expect(hrefs(buildNav(siteConfig, { kitsVisible: false, shopVisible: true }))).toContain('/shop')
   })
 })
