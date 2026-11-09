@@ -75,6 +75,29 @@ function usePhoneSheet(): boolean {
   return sheet
 }
 
+/**
+ * The part of the screen the on-screen keyboard leaves visible (phones only).
+ * iOS Safari overlays the keyboard without shrinking the layout viewport, so a
+ * bottom sheet sized to the screen ends up under the keyboard. Null = no keyboard.
+ */
+export function useKeyboardViewport(enabled: boolean): { top: number; height: number } | null {
+  const [vp, setVp] = useState<{ top: number; height: number } | null>(null)
+  useEffect(() => {
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null
+    if (!enabled || !vv) { setVp(null); return }
+    const update = () => {
+      // A keyboard takes well over 100px; smaller differences are browser chrome.
+      const covered = window.innerHeight - vv.height
+      setVp(covered > 100 ? { top: vv.offsetTop, height: vv.height } : null)
+    }
+    update()
+    vv.addEventListener('resize', update)
+    vv.addEventListener('scroll', update)
+    return () => { vv.removeEventListener('resize', update); vv.removeEventListener('scroll', update) }
+  }, [enabled])
+  return vp
+}
+
 function useReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false)
   useEffect(() => {
@@ -109,6 +132,7 @@ export default function BookingPanel({
   const stepHeadingRef = useRef<HTMLParagraphElement>(null)
   const keepRef = useRef<HTMLButtonElement>(null)
   const sheet = usePhoneSheet()
+  const keyboard = useKeyboardViewport(sheet)
   const reducedMotion = useReducedMotion()
 
   // Latest handlers, so the key listener never goes stale.
@@ -222,7 +246,7 @@ export default function BookingPanel({
       className="booking-panel-overlay"
       style={{
         position: 'fixed',
-        inset: 0,
+        ...(keyboard ? { left: 0, right: 0, top: keyboard.top, height: keyboard.height } : { inset: 0 }),
         zIndex: 1000,
         display: 'flex',
         alignItems: sheet ? 'flex-end' : 'center',
@@ -245,7 +269,7 @@ export default function BookingPanel({
           flexDirection: 'column',
           width: '100%',
           maxWidth: sheet ? 'none' : width === 'wide' ? '56rem' : '34rem',
-          maxHeight: sheet ? '94dvh' : 'min(90dvh, 52rem)',
+          maxHeight: keyboard ? keyboard.height : sheet ? '94dvh' : 'min(90dvh, 52rem)',
           margin: sheet ? 0 : '1rem',
           background: 'var(--color-surface)',
           border: '1px solid var(--color-line)',
@@ -322,6 +346,11 @@ export default function BookingPanel({
         {/* Scrolls */}
         <div
           ref={scrollRef}
+          onFocus={(e) => {
+            // Keep the field being typed in visible once the keyboard has opened.
+            const el = e.target as HTMLElement
+            if (sheet && el.matches('input, textarea, select')) setTimeout(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300)
+          }}
           className="booking-panel-scroll"
           style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', padding: `0.25rem ${pad} 1.25rem` }}
         >
