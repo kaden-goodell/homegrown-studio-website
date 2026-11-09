@@ -33,6 +33,25 @@ describe('SquarePaymentProvider', () => {
   })
 
   describe('createOrder', () => {
+    it('applies a catalog tax only to the lines that ask for it', async () => {
+      mockOrdersCreate.mockResolvedValue({ order: { id: 'o', version: 1, state: 'OPEN', totalMoney: { amount: BigInt(4524), currency: 'USD' } } })
+      await provider.createOrder({
+        locationId: 'loc-123', customerId: 'c',
+        lineItems: [
+          { catalogObjectId: 'var-mag', name: 'Magnets', quantity: 2, pricePerUnit: 1800, tax: { catalogObjectId: 'TAX9', percent: 9 } },
+          { catalogObjectId: 'var-ship', name: 'Shipping', quantity: 1, pricePerUnit: 600 },
+        ],
+      })
+      const order = mockOrdersCreate.mock.calls[0][0].order
+      expect(order.taxes).toEqual([{ uid: 'tax-TAX9', catalogObjectId: 'TAX9', scope: 'LINE_ITEM' }])
+      expect(order.lineItems[0].appliedTaxes).toEqual([{ taxUid: 'tax-TAX9' }])
+      expect(order.lineItems[1].appliedTaxes).toBeUndefined()
+    })
+    it('sends no taxes when no line asks', async () => {
+      mockOrdersCreate.mockResolvedValue({ order: { id: 'o', version: 1, state: 'OPEN', totalMoney: { amount: BigInt(100), currency: 'USD' } } })
+      await provider.createOrder({ locationId: 'loc-123', customerId: 'c', lineItems: [{ name: 'X', quantity: 1, pricePerUnit: 100 }] })
+      expect(mockOrdersCreate.mock.calls[0][0].order.taxes).toBeUndefined()
+    })
     it('maps line items to Square format with BigInt amounts', async () => {
       mockOrdersCreate.mockResolvedValue({
         order: {

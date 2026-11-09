@@ -34,6 +34,7 @@ export class MockPaymentProvider implements PaymentProvider {
       (sum, item) => sum + item.quantity * item.pricePerUnit,
       0,
     )
+    total += params.lineItems.reduce((t, item) => t + (item.tax ? Math.round((item.quantity * item.pricePerUnit * item.tax.percent) / 100) : 0), 0)
 
     for (const discount of discounts) {
       if (discount.type === 'percent') {

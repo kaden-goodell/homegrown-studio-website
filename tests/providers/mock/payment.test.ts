@@ -5,6 +5,14 @@ describe('MockPaymentProvider', () => {
   const provider = new MockPaymentProvider()
 
   describe('createOrder', () => {
+    it('adds tax for taxed lines only', async () => {
+      const o = await provider.createOrder({ locationId: 'l', customerId: 'c', lineItems: [
+        { name: 'Magnets', quantity: 2, pricePerUnit: 1800, tax: { catalogObjectId: 'T', percent: 9 } },
+        { name: 'Shipping', quantity: 1, pricePerUnit: 600 },
+      ] })
+      expect(o.totalAmount).toBe(4524)
+    })
+
     it('returns order with correct line items and total', async () => {
       const order = await provider.createOrder({
         locationId: 'loc-1',

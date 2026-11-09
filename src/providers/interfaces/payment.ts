@@ -3,6 +3,8 @@ export interface LineItem {
   name: string
   quantity: number
   pricePerUnit: number         // cents
+  /** Tax this line with a Square catalog tax. `percent` is for the mock provider and our own price checks. */
+  tax?: { catalogObjectId: string; percent: number }
 }
 
 export interface Discount {
