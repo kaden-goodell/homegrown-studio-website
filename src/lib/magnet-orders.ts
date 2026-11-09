@@ -69,6 +69,9 @@ async function deleteDraft(draftId: string): Promise<void> {
 export async function markPending(draftId: string, info: { attemptId: string; email: string; squareOrderId?: string }, now = new Date()): Promise<void> {
   await orders().set(`pending-${draftId}`, JSON.stringify({ ...info, at: now.toISOString() }))
 }
+export async function getPending(draftId: string): Promise<{ attemptId: string; email: string; squareOrderId?: string; at: string } | null> {
+  return parse(await orders().get(`pending-${draftId}`), `pending-${draftId}`)
+}
 export async function clearPending(draftId: string): Promise<void> {
   await orders().delete(`pending-${draftId}`)
 }

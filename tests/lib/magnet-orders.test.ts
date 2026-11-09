@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   savePhoto, getPhoto, draftPhotoIds, saveOrder, getOrder, listOrders, setOrderStatus, cleanup,
-  isDraftId, newReference, orderForDraft, markPending, clearPending, markEmailed,
+  isDraftId, newReference, orderForDraft, markPending, clearPending, getPending, markEmailed,
 } from '@lib/magnet-orders'
 import { STATUSES, type MagnetOrder } from '@lib/magnet-status'
 
@@ -112,5 +112,16 @@ describe('cleanup', () => {
     await clearPending(d)
     await cleanup(NOW)
     expect(await draftPhotoIds(d)).toEqual([])
+  })
+})
+
+describe('getPending', () => {
+  it('reads the marker back, and is null once cleared', async () => {
+    const d = '0f8fad5b-d9cb-469f-a165-70867728950e'
+    expect(await getPending(d)).toBeNull()
+    await markPending(d, { attemptId: 'a', email: 'kaden+m@ourhometownstudio.com', squareOrderId: 'sq-1' }, new Date('2026-11-01T00:00:00Z'))
+    expect(await getPending(d)).toMatchObject({ attemptId: 'a', squareOrderId: 'sq-1', at: '2026-11-01T00:00:00.000Z' })
+    await clearPending(d)
+    expect(await getPending(d)).toBeNull()
   })
 })
