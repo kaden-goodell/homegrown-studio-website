@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { layoutSheets, SHEET, framePolygon, printItems, EDGE_LABEL } from '@lib/magnet-sheet'
+import { layoutSheets, SHEET, framePolygon, printItems, EDGE_LABEL, PHOTO_BLEED } from '@lib/magnet-sheet'
 
 describe('layoutSheets', () => {
   it('puts 12 on a page, left to right then down', () => {
@@ -51,5 +51,12 @@ describe('edge code always wraps', () => {
   })
   it('is small', () => {
     expect(EDGE_LABEL.fontPt).toBeLessThanOrEqual(5)
+  })
+})
+
+describe('photo size', () => {
+  it('runs 2pt past the 2in face on each side, and stays well inside the cut line', () => {
+    expect(PHOTO_BLEED).toBeCloseTo(2 / 72, 6)
+    expect(SHEET.photoInset - PHOTO_BLEED).toBeGreaterThan(0.2)
   })
 })

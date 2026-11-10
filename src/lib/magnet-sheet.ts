@@ -15,6 +15,12 @@ export const SHEET = {
 } as const
 
 /**
+ * The printed photo grows this much past the 2" face on every side, covering where the old black
+ * outline sat (Kaden, 2026-11-10: the press put that line exactly on the magnet's edge). 2pt.
+ */
+export const PHOTO_BLEED = 2 / 72
+
+/**
  * The order code on each magnet's bottom fold (Kaden, 2026-11-09: "as long as it ALWAYS wraps").
  * It sits in the OUTER part of the ¼" fold band, at least 0.15" past the photo's edge, so after
  * pressing it lands on the back of the magnet, never the face or the visible side. Inches,

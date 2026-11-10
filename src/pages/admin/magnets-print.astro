@@ -3,7 +3,7 @@
 export const prerender = false
 import { adminAuthorized } from '@lib/admin-auth'
 import { getOrder, isReference } from '@lib/magnet-orders'
-import { layoutSheets, framePolygon, printItems, SHEET, EDGE_LABEL } from '@lib/magnet-sheet'
+import { layoutSheets, framePolygon, printItems, SHEET, EDGE_LABEL, PHOTO_BLEED } from '@lib/magnet-sheet'
 
 if (!adminAuthorized(Astro.request)) return Astro.redirect('/admin')
 // ?id=M-XXXXXX (one order) or ?ids=M-AAA,M-BBB (a batch, printed back to back)
@@ -23,7 +23,7 @@ const magnets = orders.reduce((n, o) => n + o.magnets.length, 0)
   <meta charset="utf-8" />
   <meta name="robots" content="noindex" />
   <title>Print {orders.map((o) => o.id).join(', ')}</title>
-  <style define:vars={{ pageW: `${SHEET.pageW}in`, pageH: `${SHEET.pageH - 0.01}in`, frame: `${SHEET.frame}in`, inset: `${SHEET.photoInset}in`, photo: `${SHEET.photo}in`, labelTop: `${EDGE_LABEL.top}in`, labelH: `${EDGE_LABEL.height}in`, labelPt: `${EDGE_LABEL.fontPt}pt`, labelColor: EDGE_LABEL.color }}>
+  <style define:vars={{ pageW: `${SHEET.pageW}in`, pageH: `${SHEET.pageH - 0.01}in`, frame: `${SHEET.frame}in`, inset: `${SHEET.photoInset - PHOTO_BLEED}in`, photo: `${SHEET.photo + 2 * PHOTO_BLEED}in`, labelLeft: `${SHEET.photoInset}in`, labelW: `${SHEET.photo}in`, labelTop: `${EDGE_LABEL.top}in`, labelH: `${EDGE_LABEL.height}in`, labelPt: `${EDGE_LABEL.fontPt}pt`, labelColor: EDGE_LABEL.color }}>
     @page { size: letter; margin: 0; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: system-ui, sans-serif; background: #eee; }
@@ -33,8 +33,8 @@ const magnets = orders.reduce((n, o) => n + o.magnets.length, 0)
     .sheet:last-of-type { break-after: auto; }
     .cell { position: absolute; width: var(--frame); height: var(--frame); }
     .cell svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-    .cell img { position: absolute; left: var(--inset); top: var(--inset); width: var(--photo); height: var(--photo); object-fit: cover; outline: 1px solid #000; }
-    .cell .code { position: absolute; left: var(--inset); width: var(--photo); top: var(--labelTop); height: var(--labelH); line-height: var(--labelH); font-size: var(--labelPt); color: var(--labelColor); text-align: center; white-space: nowrap; overflow: hidden; }
+    .cell img { position: absolute; left: var(--inset); top: var(--inset); width: var(--photo); height: var(--photo); object-fit: cover; }
+    .cell .code { position: absolute; left: var(--labelLeft); width: var(--labelW); top: var(--labelTop); height: var(--labelH); line-height: var(--labelH); font-size: var(--labelPt); color: var(--labelColor); text-align: center; white-space: nowrap; overflow: hidden; }
     .key { font-size: 14px; color: #444; }
     @media print { body { background: #fff; } .bar { display: none; } .sheet { margin: 0; } }
   </style>
