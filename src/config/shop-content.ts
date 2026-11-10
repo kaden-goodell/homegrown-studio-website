@@ -47,7 +47,7 @@ export const shopContent = {
   },
   silhouettes: {
     title: 'Framed Silhouettes',
-    blurb: 'A classic black silhouette of your child, made from a side profile photo and set in a little gold frame. Add a name and age underneath if you like.',
+    blurb: 'A classic black silhouette of your child, made from a side profile photo. The print is 2 by 3 inches, set in a little gold frame. Add a name and age underneath if you like.',
     price: '$25 each, framed',
     decorateLine: 'Want to decorate the frame yourself? Come by the studio and make it yours. It is included.',
     button: 'Make a silhouette',
