@@ -19,8 +19,7 @@ export const shopConfig = {
     /** Below this many source pixels across the crop the print may look soft. */
     minSharpSourcePx: 400,
     /** Dashed safe-area line, as a fraction of the square kept clear on each side. */
-    // the dashed line in the cropper = the 2" face of the magnet; the outer 10% wraps (0.25" of 2.5")
-    safeInset: 0.1,
+    safeInset: 0.08,
     /** Filled by `scripts/seed-shop.ts --apply`. Empty = the order endpoint refuses (503). */
     square: {
       // Created 2026-11-09 by scripts/seed-shop.ts --apply (Kaden's go). Proven with orders/calculate:

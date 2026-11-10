@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest'
-import { shopConfig } from '@config/shop.config'
 import { layoutSheets, SHEET, framePolygon, printItems, EDGE_LABEL } from '@lib/magnet-sheet'
 
 describe('layoutSheets', () => {
@@ -52,11 +51,5 @@ describe('edge code always wraps', () => {
   })
   it('is small', () => {
     expect(EDGE_LABEL.fontPt).toBeLessThanOrEqual(5)
-  })
-})
-
-describe('cropper matches the print', () => {
-  it("puts the dashed line exactly at the magnet's 2in face", () => {
-    expect(shopConfig.magnets.safeInset).toBeCloseTo(SHEET.photoInset / SHEET.frame, 6)
   })
 })

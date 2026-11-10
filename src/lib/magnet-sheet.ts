@@ -1,10 +1,6 @@
 /**
  * The Canva "fridge Magnet Template 01" page 1 (2×2), measured 2026-11-09.
  * All values in inches on a letter page.
- *
- * The printed photo fills the whole 2.5" cut shape (Kaden, 2026-11-10: no border, photo to the edge).
- * `photoInset` + `photo` describe the 2" FACE inside it; the ¼" band around the face wraps over the
- * sides and back when pressed.
  */
 export const SHEET = {
   pageW: 8.5,
@@ -20,7 +16,7 @@ export const SHEET = {
 
 /**
  * The order code on each magnet's bottom fold (Kaden, 2026-11-09: "as long as it ALWAYS wraps").
- * It sits on a small white chip in the OUTER part of the ¼" fold band, at least 0.15" past the face's edge, so after
+ * It sits in the OUTER part of the ¼" fold band, at least 0.15" past the photo's edge, so after
  * pressing it lands on the back of the magnet, never the face or the visible side. Inches,
  * measured from the top of the frame.
  */

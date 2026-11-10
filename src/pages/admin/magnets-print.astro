@@ -13,8 +13,7 @@ if (!found.length) return new Response('Order not found', { status: 404 })
 const orders = found.filter((o) => !o.photosDeletedAt)
 const skipped = found.filter((o) => o.photosDeletedAt)
 const pages = layoutSheets(printItems(orders))
-// the photo fills the whole cut shape, so its edge IS the cut line (no border, no white band)
-const clip = `polygon(${framePolygon().map(([x, y]) => `${(x / SHEET.frame) * 100}% ${(y / SHEET.frame) * 100}%`).join(', ')})`
+const poly = framePolygon().map(([x, y]) => `${x},${y}`).join(' ')
 const src = (draftId: string, photoId: string) => `/api/admin/magnet-photo?draft=${draftId}&photo=${photoId}`
 const magnets = orders.reduce((n, o) => n + o.magnets.length, 0)
 ---
@@ -24,7 +23,7 @@ const magnets = orders.reduce((n, o) => n + o.magnets.length, 0)
   <meta charset="utf-8" />
   <meta name="robots" content="noindex" />
   <title>Print {orders.map((o) => o.id).join(', ')}</title>
-  <style define:vars={{ pageW: `${SHEET.pageW}in`, pageH: `${SHEET.pageH - 0.01}in`, frame: `${SHEET.frame}in`, inset: `${SHEET.photoInset}in`, photo: `${SHEET.photo}in`, clip, labelTop: `${EDGE_LABEL.top}in`, labelH: `${EDGE_LABEL.height}in`, labelPt: `${EDGE_LABEL.fontPt}pt`, labelColor: EDGE_LABEL.color }}>
+  <style define:vars={{ pageW: `${SHEET.pageW}in`, pageH: `${SHEET.pageH - 0.01}in`, frame: `${SHEET.frame}in`, inset: `${SHEET.photoInset}in`, photo: `${SHEET.photo}in`, labelTop: `${EDGE_LABEL.top}in`, labelH: `${EDGE_LABEL.height}in`, labelPt: `${EDGE_LABEL.fontPt}pt`, labelColor: EDGE_LABEL.color }}>
     @page { size: letter; margin: 0; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: system-ui, sans-serif; background: #eee; }
@@ -33,9 +32,9 @@ const magnets = orders.reduce((n, o) => n + o.magnets.length, 0)
     .sheet { position: relative; width: var(--pageW); height: var(--pageH); margin: 16px auto; background: #fff; overflow: hidden; break-after: page; }
     .sheet:last-of-type { break-after: auto; }
     .cell { position: absolute; width: var(--frame); height: var(--frame); }
-    .cell img { position: absolute; inset: 0; width: var(--frame); height: var(--frame); object-fit: cover; clip-path: var(--clip); }
-    .cell .code { -webkit-print-color-adjust: exact; print-color-adjust: exact; position: absolute; left: var(--inset); width: var(--photo); top: var(--labelTop); height: var(--labelH); line-height: var(--labelH); font-size: var(--labelPt); color: var(--labelColor); text-align: center; white-space: nowrap; overflow: hidden; }
-    .cell .code span { background: #fff; padding: 0 0.03in; }
+    .cell svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .cell img { position: absolute; left: var(--inset); top: var(--inset); width: var(--photo); height: var(--photo); object-fit: cover; outline: 1px solid #000; }
+    .cell .code { position: absolute; left: var(--inset); width: var(--photo); top: var(--labelTop); height: var(--labelH); line-height: var(--labelH); font-size: var(--labelPt); color: var(--labelColor); text-align: center; white-space: nowrap; overflow: hidden; }
     .key { font-size: 14px; color: #444; }
     @media print { body { background: #fff; } .bar { display: none; } .sheet { margin: 0; } }
   </style>
@@ -53,8 +52,9 @@ const magnets = orders.reduce((n, o) => n + o.magnets.length, 0)
     <section class="sheet">
       {cells.map((c) => (
         <div class="cell" style={`left:${c.left}in;top:${c.top}in`}>
+          <svg viewBox={`0 0 ${SHEET.frame} ${SHEET.frame}`}><polygon points={poly} fill="none" stroke="#333" stroke-width="0.008" /></svg>
           <img src={src(c.item.draftId, c.item.photoId)} alt="" />
-          <div class="code"><span>{c.item.label}</span></div>
+          <div class="code">{c.item.label}</div>
         </div>
       ))}
     </section>
