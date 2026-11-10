@@ -35,8 +35,69 @@ export function cardLayout(text: SilText): { art: Box; nameY: number | null; dat
   return { art, nameY, dateY, nameSize, dateSize }
 }
 
-/** How far the bust cut's ends rise above its middle: a gentle smile-shaped bottom edge. */
-export const bustRise = (art: Box) => Math.round(art.h * 0.07)
+/**
+ * The bottom edge of the bust (Kaden, 2026-11-10): a gentle curve, or one angled wave that runs
+ * down to the right or down to the left.
+ */
+export type BottomStyle = 'curve' | 'wave-right' | 'wave-left'
+export const BOTTOM_STYLES: BottomStyle[] = ['wave-right', 'wave-left', 'curve']
+
+/** The cut-out's size, where the person is, and where the bust should end (all cut-out pixels). */
+export interface SilShape { w: number; h: number; person: Box; cutY: number }
+
+/** Edge height at t (0 = left end, 1 = right end), relative to the cut line `c`, for an art box this wide. */
+export function edgeOffset(style: BottomStyle, t: number, width: number): number {
+  if (style === 'curve') return -width * 0.07 * (2 * t - 1) ** 2 // ends rise, middle lowest
+  const u = style === 'wave-right' ? t : 1 - t
+  // A slope down toward one side, with one soft S riding on it.
+  return width * (0.14 * (u - 0.5) - 0.05 * Math.sin(2 * Math.PI * u))
+}
+
+/** How far the edge reaches below / above the cut line (positive numbers). */
+export function edgeExtent(style: BottomStyle, width: number): { below: number; above: number } {
+  let below = 0, above = 0
+  for (let i = 0; i <= 64; i++) {
+    const o = edgeOffset(style, i / 64, width)
+    below = Math.max(below, o)
+    above = Math.max(above, -o)
+  }
+  return { below, above }
+}
+
+/**
+ * Where the bust is cut: a set distance below the chin, so every portrait has the same proportions.
+ * Without a face to measure, just above where the photo ends.
+ */
+export function bustLine(person: Box, faceBottom: number | null): number {
+  const bottom = person.y + person.h
+  const limit = bottom - person.h * 0.03
+  if (faceBottom === null || faceBottom <= person.y) return limit
+  const head = faceBottom - person.y
+  return Math.min(limit, faceBottom + head * 0.75)
+}
+
+/** The cut line on the card. It moves with the silhouette, and always stays above the photo's own bottom edge and inside the safe area. */
+export function cardCutY(shape: SilShape, p: Placement, art: Box, style: BottomStyle): number {
+  const { below } = edgeExtent(style, art.w)
+  const wanted = p.y + shape.cutY * p.scale
+  const photoBottom = p.y + shape.h * p.scale - below - 2
+  return Math.min(wanted, photoBottom, art.y + art.h - below)
+}
+
+/**
+ * First placement: the visible shape (top of the head to the bottom edge) as big as fits,
+ * centred in the art area both ways.
+ */
+export function autoPlace(shape: SilShape, art: Box, style: BottomStyle): Placement {
+  const { below } = edgeExtent(style, art.w)
+  const top = shape.person.y
+  const h = shape.cutY - top
+  const scale = Math.min((art.h * 0.9 - below) / h, (art.w * 0.92) / shape.person.w)
+  const visible = h * scale + below
+  const x = art.x + art.w / 2 - (shape.person.x + shape.person.w / 2) * scale
+  const y = art.y + (art.h - visible) / 2 - top * scale
+  return { x, y, scale }
+}
 
 /** Person-probability (0..1 per pixel) → alpha (0..255) with a soft, anti-aliased edge. */
 export function maskToAlpha(person: Float32Array | number[], lo = 0.35, hi = 0.65): Uint8ClampedArray {
@@ -70,18 +131,10 @@ export function personShare(alpha: Uint8ClampedArray, min = 128): number {
   return alpha.length ? n / alpha.length : 0
 }
 
-/**
- * First placement, centred and as big as fits. When the body runs off the bottom of the photo
- * (the usual head-and-shoulders shot), its cut-off edge goes below the bust cut so the bottom is
- * the smooth curve, never a straight edge. Otherwise the head sits near the top of the art area.
- */
-export function autoPlace(person: Box, art: Box, imageH: number): Placement {
-  const rise = bustRise(art)
-  const scale = Math.min((art.h * 0.92 + rise) / person.h, (art.w * 0.95) / person.w)
-  const x = art.x + art.w / 2 - (person.x + person.w / 2) * scale
-  const cutOff = person.y + person.h >= imageH - 2
-  const y = cutOff ? art.y + art.h + rise - (person.y + person.h) * scale : art.y + art.h * 0.06 - person.y * scale
-  return { x, y, scale }
+/** Lowest row where `values` passes `min` (e.g. the chin, from the face-skin mask), or null. */
+export function lowestRow(values: Float32Array | number[], w: number, h: number, min = 0.5): number | null {
+  for (let y = h - 1; y >= 0; y--) for (let x = 0; x < w; x++) if (values[y * w + x] >= min) return y
+  return null
 }
 
 export const MIN_ZOOM = 0.4

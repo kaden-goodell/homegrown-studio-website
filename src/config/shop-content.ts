@@ -65,6 +65,8 @@ export const shopContent = {
     busy: 'The background is too busy to cut out. Try a photo against a plain wall.',
     loadFailed: 'The silhouette maker did not load. Check your connection and try again.',
     dragHint: 'Drag to move. Pinch or use the slider to zoom. Keep everything inside the dashed line.',
+    bottomLabel: 'Bottom edge',
+    bottoms: { 'wave-right': 'Wave right', 'wave-left': 'Wave left', curve: 'Curve' },
     nameLabel: 'Name (optional)',
     dateLabel: 'Age or date (optional)',
     datePlaceholder: 'Age 5',

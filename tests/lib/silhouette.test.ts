@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { CARD, cardLayout, maskToAlpha, personBox, personShare, autoPlace, bustRise } from '@lib/silhouette'
+import { CARD, cardLayout, maskToAlpha, personBox, personShare, autoPlace, bustLine, cardCutY, edgeOffset, edgeExtent, lowestRow } from '@lib/silhouette'
 
 describe('card', () => {
   it('is 2x3 at 400 dpi with a 1/8in safe margin', () => {
@@ -42,19 +42,52 @@ describe('mask', () => {
   })
 })
 
-describe('autoPlace', () => {
-  it('centres the person and puts the head near the top of the art area', () => {
-    const art = cardLayout({ name: 'Emma', date: '' }).art
-    const p = autoPlace({ x: 100, y: 50, w: 400, h: 600 }, art, 1000)
-    const left = p.x + 100 * p.scale, right = p.x + 500 * p.scale, top = p.y + 50 * p.scale, bottom = p.y + 650 * p.scale
-    expect((left + right) / 2).toBeCloseTo(art.x + art.w / 2)
-    expect(top).toBeCloseTo(art.y + art.h * 0.06)
-    expect(right - left).toBeLessThanOrEqual(art.w * 0.95 + 1e-6)
-    expect(bottom).toBeGreaterThan(art.y + art.h - bustRise(art)) // shoulders run past the bust cut
+describe('bust cut', () => {
+  const person = { x: 100, y: 50, w: 400, h: 900 }
+  it('ends the bust a set distance below the chin', () => {
+    expect(bustLine(person, 350)).toBeCloseTo(350 + 300 * 0.75)
   })
-  it('runs a body cut off by the photo edge down past the bust cut, even when the photo is wide', () => {
-    const art = cardLayout({ name: '', date: '' }).art
-    const p = autoPlace({ x: 0, y: 150, w: 820, h: 520 }, art, 670) // wide, touching the bottom
-    expect(p.y + 670 * p.scale).toBeCloseTo(art.y + art.h + bustRise(art))
+  it('stays above where the photo ends', () => {
+    expect(bustLine(person, 800)).toBeCloseTo(950 - 27)
+    expect(bustLine(person, null)).toBeCloseTo(950 - 27)
+  })
+  it('finds the chin row', () => {
+    expect(lowestRow([0, 0, 0.9, 0, 0.2, 0], 2, 3)).toBe(1)
+    expect(lowestRow([0, 0], 1, 2)).toBeNull()
+  })
+  it('waves slope down to the side they face, the curve dips in the middle', () => {
+    expect(edgeOffset('wave-right', 1, 700)).toBeGreaterThan(edgeOffset('wave-right', 0, 700))
+    expect(edgeOffset('wave-left', 0, 700)).toBeGreaterThan(edgeOffset('wave-left', 1, 700))
+    expect(edgeOffset('wave-left', 0.3, 700)).toBeCloseTo(edgeOffset('wave-right', 0.7, 700))
+    expect(edgeOffset('curve', 0.5, 700)).toBeGreaterThan(edgeOffset('curve', 0, 700))
+  })
+})
+
+describe('placement', () => {
+  const shape = { w: 900, h: 1200, person: { x: 200, y: 100, w: 500, h: 1100 }, cutY: 900 }
+  const art = cardLayout({ name: 'Emma', date: 'Age 6' }).art
+  it('centres the head-to-bust shape in the art area, both ways', () => {
+    for (const style of ['wave-right', 'wave-left', 'curve'] as const) {
+      const p = autoPlace(shape, art, style)
+      const { below } = edgeExtent(style, art.w)
+      const top = p.y + shape.person.y * p.scale
+      const bottom = cardCutY(shape, p, art, style) + below
+      expect(top - art.y).toBeCloseTo(art.y + art.h - bottom, 0)
+      expect(p.x + (shape.person.x + shape.person.w / 2) * p.scale).toBeCloseTo(art.x + art.w / 2)
+      expect(bottom).toBeLessThanOrEqual(art.y + art.h + 1e-6)
+    }
+  })
+  it('moves the bust edge with the silhouette when it is dragged up', () => {
+    const p = autoPlace(shape, art, 'wave-right')
+    const up = { ...p, y: p.y - 150 }
+    expect(cardCutY(shape, up, art, 'wave-right')).toBeCloseTo(cardCutY(shape, p, art, 'wave-right') - 150)
+  })
+  it('never lets the edge fall below the photo or the safe area', () => {
+    const p = autoPlace(shape, art, 'wave-right')
+    const { below } = edgeExtent('wave-right', art.w)
+    const down = { ...p, y: p.y + 400 }
+    expect(cardCutY(shape, down, art, 'wave-right') + below).toBeLessThanOrEqual(art.y + art.h + 1e-6)
+    const short = { ...shape, cutY: 1199 }
+    expect(cardCutY(short, p, art, 'wave-right') + below).toBeLessThan(p.y + 1200 * p.scale)
   })
 })

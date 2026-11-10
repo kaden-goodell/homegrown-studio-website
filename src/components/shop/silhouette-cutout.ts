@@ -5,7 +5,7 @@
  * silhouette card is uploaded. The model (~16 MB) and its runtime load from public CDNs the
  * first time someone makes a silhouette, then the browser caches them.
  */
-import { maskToAlpha, personBox, personShare, type Box } from '@lib/silhouette'
+import { maskToAlpha, personBox, personShare, bustLine, lowestRow, type SilShape } from '@lib/silhouette'
 
 const VERSION = '0.10.21' // keep in step with package.json
 const WASM = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VERSION}/wasm`
@@ -14,11 +14,10 @@ const MODEL = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/s
 /** Long side the photo is shrunk to before cutting: plenty for a 2"×3" print, fast on a phone. */
 const WORK_PX = 1200
 
-export interface Cutout {
+/** The shape's numbers are in `canvas` pixels. */
+export interface Cutout extends SilShape {
   /** Solid black person on transparent, WORK_PX on the long side. */
   canvas: HTMLCanvasElement
-  /** Box around the person, in `canvas` pixels. */
-  person: Box
 }
 export type CutoutProblem = 'nobody' | 'busy'
 
@@ -52,6 +51,7 @@ export async function cutOut(img: HTMLImageElement): Promise<Cutout | CutoutProb
   const seg = await loadSegmenter()
   const result = seg.segment(src)
   let alpha: Uint8ClampedArray
+  let chin: number | null = null
   let mw: number
   let mh: number
   try {
@@ -63,6 +63,8 @@ export async function cutOut(img: HTMLImageElement): Promise<Cutout | CutoutProb
     const person = new Float32Array(b.length)
     for (let i = 0; i < b.length; i++) person[i] = 1 - b[i]
     alpha = maskToAlpha(person)
+    const face = result.confidenceMasks?.[3]
+    if (face) chin = lowestRow(face.getAsFloat32Array(), mw, mh)
   } finally { result.close() }
 
   const share = personShare(alpha)
@@ -85,5 +87,6 @@ export async function cutOut(img: HTMLImageElement): Promise<Cutout | CutoutProb
   const box = personBox(alpha, mw, mh)!
   const sx = w / mw
   const sy = h / mh
-  return { canvas: out, person: { x: box.x * sx, y: box.y * sy, w: box.w * sx, h: box.h * sy } }
+  const person = { x: box.x * sx, y: box.y * sy, w: box.w * sx, h: box.h * sy }
+  return { canvas: out, w, h, person, cutY: bustLine(person, chin === null ? null : (chin + 1) * sy) }
 }
