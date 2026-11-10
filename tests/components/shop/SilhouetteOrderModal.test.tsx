@@ -21,7 +21,7 @@ import SilhouetteOrderModal, { canContinue, type SilhouetteItem } from '@compone
 
 const cut = { canvas: {} as HTMLCanvasElement, w: 10, h: 10, person: { x: 0, y: 0, w: 10, h: 10 }, cutY: 9 }
 const it1 = (key: string, photoId: string | null = `1700000000000-0000000${key}`): SilhouetteItem =>
-  ({ key, photoId, preview: 'x', cut, design: { placement: { x: 0, y: 0, scale: 1 }, text: { name: '', date: '' }, bottom: 'wave-right' as const } })
+  ({ key, photoId, preview: 'x', cut, design: { placement: { x: 0, y: 0, scale: 1 }, text: { name: '', date: '' }, bottom: 'wave-right' as const, length: 0 } })
 const btn = (name: RegExp) => screen.getByRole('button', { name }) as HTMLButtonElement
 const json = (status: number, body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status }))
 

@@ -82,6 +82,13 @@ describe('placement', () => {
     const up = { ...p, y: p.y - 150 }
     expect(cardCutY(shape, up, art, 'wave-right')).toBeCloseTo(cardCutY(shape, p, art, 'wave-right') - 150)
   })
+  it('Shorter / Longer nudges the edge up or down, still inside the limits', () => {
+    const p = autoPlace(shape, art, 'wave-right')
+    const mid = cardCutY(shape, p, art, 'wave-right')
+    expect(cardCutY(shape, p, art, 'wave-right', -0.1)).toBeCloseTo(mid - 0.1 * art.h)
+    const { below } = edgeExtent('wave-right', art.w)
+    expect(cardCutY(shape, p, art, 'wave-right', 0.15) + below).toBeLessThanOrEqual(art.y + art.h + 1e-6)
+  })
   it('never lets the edge fall below the photo or the safe area', () => {
     const p = autoPlace(shape, art, 'wave-right')
     const { below } = edgeExtent('wave-right', art.w)

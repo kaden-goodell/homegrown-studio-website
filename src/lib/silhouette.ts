@@ -76,10 +76,10 @@ export function bustLine(person: Box, faceBottom: number | null): number {
   return Math.min(limit, faceBottom + head * 0.75)
 }
 
-/** The cut line on the card. It moves with the silhouette, and always stays above the photo's own bottom edge and inside the safe area. */
-export function cardCutY(shape: SilShape, p: Placement, art: Box, style: BottomStyle): number {
+/** The cut line on the card (`length` = the customer's Shorter / Longer nudge). It moves with the silhouette, and always stays above the photo's own bottom edge and inside the safe area. */
+export function cardCutY(shape: SilShape, p: Placement, art: Box, style: BottomStyle, length = 0): number {
   const { below } = edgeExtent(style, art.w)
-  const wanted = p.y + shape.cutY * p.scale
+  const wanted = p.y + shape.cutY * p.scale + length * art.h
   const photoBottom = p.y + shape.h * p.scale - below - 2
   return Math.min(wanted, photoBottom, art.y + art.h - below)
 }
@@ -136,6 +136,9 @@ export function lowestRow(values: Float32Array | number[], w: number, h: number,
   for (let y = h - 1; y >= 0; y--) for (let x = 0; x < w; x++) if (values[y * w + x] >= min) return y
   return null
 }
+
+/** The "Shorter / Longer" slider moves the bottom edge this far either way, as a share of the art height. */
+export const LENGTH_RANGE = 0.15
 
 export const MIN_ZOOM = 0.4
 export const MAX_ZOOM = 3

@@ -1,6 +1,6 @@
 // src/components/shop/SilhouetteEditor.tsx
 import { useEffect, useRef, useState } from 'react'
-import { CARD, cardLayout, autoPlace, cardCutY, edgeOffset, BOTTOM_STYLES, MIN_ZOOM, MAX_ZOOM, NAME_MAX, DATE_MAX, type BottomStyle, type Placement, type SilText } from '@lib/silhouette'
+import { CARD, cardLayout, autoPlace, cardCutY, edgeOffset, BOTTOM_STYLES, LENGTH_RANGE, MIN_ZOOM, MAX_ZOOM, NAME_MAX, DATE_MAX, type BottomStyle, type Placement, type SilText } from '@lib/silhouette'
 import { shopContent } from '@config/shop-content'
 import type { Cutout } from '@components/shop/silhouette-cutout'
 
@@ -9,7 +9,7 @@ const FONT = '"Playfair Display", Georgia, serif'
 /** On-screen card width, CSS px. */
 const boxWidth = () => (typeof window === 'undefined' ? 220 : Math.max(180, Math.min(240, window.innerWidth - 64)))
 
-export interface SilhouetteDesign { placement: Placement; text: SilText; bottom: BottomStyle }
+export interface SilhouetteDesign { placement: Placement; text: SilText; bottom: BottomStyle; length: number }
 export const DEFAULT_BOTTOM: BottomStyle = 'wave-right'
 
 export async function loadCardFonts(): Promise<void> {
@@ -23,7 +23,7 @@ export function drawCard(ctx: CanvasRenderingContext2D, cut: Cutout, d: Silhouet
   ctx.fillStyle = '#fff'
   ctx.fillRect(0, 0, CARD.w, CARD.h)
   // Clip to the art area, its bottom replaced by the bust edge (it follows the silhouette).
-  const c = cardCutY(cut, d.placement, art, d.bottom)
+  const c = cardCutY(cut, d.placement, art, d.bottom, d.length)
   ctx.beginPath()
   ctx.moveTo(art.x, art.y)
   ctx.lineTo(art.x + art.w, art.y)
@@ -76,6 +76,7 @@ export default function SilhouetteEditor({ cut, initial, onDone, onCancel }: {
   const k = CARD.w / W // card px per screen px
   const [text, setText] = useState<SilText>(initial?.text ?? { name: '', date: '' })
   const [bottom, setBottom] = useState<BottomStyle>(initial?.bottom ?? DEFAULT_BOTTOM)
+  const [length, setLength] = useState(initial?.length ?? 0)
   const base = autoPlace(cut, cardLayout(text).art, bottom)
   const [placement, setPlacement] = useState<Placement>(initial?.placement ?? base)
   const [busy, setBusy] = useState(false)
@@ -87,8 +88,8 @@ export default function SilhouetteEditor({ cut, initial, onDone, onCancel }: {
   useEffect(() => { void loadCardFonts().then(() => setFontsReady(true)) }, [])
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d')
-    if (ctx) drawCard(ctx, cut, { placement, text, bottom }, true)
-  }, [cut, placement, text, bottom, fontsReady])
+    if (ctx) drawCard(ctx, cut, { placement, text, bottom, length }, true)
+  }, [cut, placement, text, bottom, length, fontsReady])
 
   /** Zoom about the centre of the art area so the silhouette stays where it is. */
   function zoomTo(scale: number) {
@@ -128,7 +129,7 @@ export default function SilhouetteEditor({ cut, initial, onDone, onCancel }: {
 
   async function done() {
     setBusy(true)
-    try { onDone(await renderCard(cut, { placement, text, bottom }), { placement, text, bottom }) } finally { setBusy(false) }
+    try { onDone(await renderCard(cut, { placement, text, bottom, length }), { placement, text, bottom, length }) } finally { setBusy(false) }
   }
 
   const field = { width: '100%', padding: '0.6rem 0.7rem', borderRadius: 10, border: '1px solid rgba(122,74,46,0.25)', fontSize: '1rem' } as const
@@ -154,6 +155,11 @@ export default function SilhouetteEditor({ cut, initial, onDone, onCancel }: {
             </button>
           ))}
         </div>
+        <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', width: Math.max(W, 240) }}>
+          <span style={{ fontSize: '0.85rem' }}>{C.shorter}</span>
+          <input type="range" aria-label={C.lengthLabel} min={-LENGTH_RANGE} max={LENGTH_RANGE} step={0.005} value={length} onChange={(e) => setLength(Number(e.target.value))} style={{ flex: 1 }} />
+          <span style={{ fontSize: '0.85rem' }}>{C.longer}</span>
+        </label>
       </div>
       <div style={{ display: 'grid', gap: '0.5rem', width: '100%', maxWidth: 320 }}>
         <label>{C.nameLabel}<input style={field} value={text.name} maxLength={NAME_MAX} onChange={(e) => setText({ ...text, name: e.target.value })} /></label>
