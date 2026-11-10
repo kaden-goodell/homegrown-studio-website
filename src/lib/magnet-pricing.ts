@@ -22,3 +22,18 @@ export function quoteMagnets(sets: number, delivery: Delivery): MagnetQuote {
   const shippingCents = delivery === 'ship' ? m.shippingCents : 0
   return { sets, magnets: sets * m.setSize, subtotalCents, taxCents: tax, shippingCents, totalCents: subtotalCents + tax + shippingCents }
 }
+
+export interface SilhouetteQuote { count: number; subtotalCents: number; taxCents: number; shippingCents: number; totalCents: number }
+
+export function isValidSilhouetteCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= shopConfig.silhouettes.maxCount
+}
+
+/** Framed silhouettes: $25 each, 9% tax on the silhouettes only, the same $6 shipping as magnets. */
+export function quoteSilhouettes(count: number, delivery: Delivery): SilhouetteQuote {
+  const s = shopConfig.silhouettes
+  const subtotalCents = count * s.priceCents
+  const tax = taxCents(subtotalCents, s.taxPercent)
+  const shippingCents = delivery === 'ship' ? shopConfig.magnets.shippingCents : 0
+  return { count, subtotalCents, taxCents: tax, shippingCents, totalCents: subtotalCents + tax + shippingCents }
+}

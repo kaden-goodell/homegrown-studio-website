@@ -127,7 +127,7 @@ export default function AdminApp() {
           title="Orders"
           items={orders}
           statuses={ORDER_STATUSES.map((s) => [s, ORDER_LABEL[s]] as [MagnetStatus, string])}
-          empty="No magnet orders yet."
+          empty="No shop orders yet."
           render={(o) => <MagnetOrderCard key={o.id} order={o} onMove={moveOrder} />}
         />
       )}

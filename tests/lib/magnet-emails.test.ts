@@ -35,3 +35,34 @@ describe('magnet emails', () => {
     expect((await sendMagnetStatusEmail(o, 'made')).sent).toBe(false)
   })
 })
+
+describe('silhouette emails', () => {
+  const one: MagnetOrder = { ...o, product: 'silhouettes', sets: 1, magnets: ['1700000000000-deadbeef'], amounts: { subtotalCents: 2500, taxCents: 225, shippingCents: 0, totalCents: 2725 } }
+  const two: MagnetOrder = { ...one, sets: 2, magnets: ['1700000000000-deadbeef', '1700000000001-deadbeef'], delivery: 'ship', address: '1 Main St, Madison AL' }
+  it('confirms one framed silhouette, offers decorating, says it not them', async () => {
+    await sendMagnetConfirmation(one)
+    const msg = send.mock.calls[0][0]
+    expect(msg.subject).toBe('Your framed silhouette is ordered (M-ABC234)')
+    expect(msg.text).toContain('1 framed silhouette from Hometown Studio')
+    expect(msg.text).toContain('pick it up')
+    expect(msg.text).toMatch(/decorate the frame/i)
+    expect(msg.text).not.toMatch(/magnet/i)
+  })
+  it('uses the plural and the address for a shipped pair', async () => {
+    await sendMagnetConfirmation(two)
+    expect(send.mock.calls[0][0].text).toContain('ship them within 7 days to 1 Main St, Madison AL')
+    await sendMagnetStatusEmail(two, 'shipped')
+    expect(send.mock.calls[1][0].subject).toBe('Your framed silhouettes shipped (M-ABC234)')
+    expect(send.mock.calls[1][0].text).toContain('are on their way')
+  })
+  it('ready email for one says it is ready', async () => {
+    await sendMagnetStatusEmail(one, 'ready')
+    expect(send.mock.calls[0][0].subject).toBe('Your framed silhouette is ready (M-ABC234)')
+    expect(send.mock.calls[0][0].text).toMatch(/decorate the frame/i)
+  })
+  it('tells the owners it is a silhouette order', async () => {
+    await sendMagnetOwnerNotice(two, 'https://x/admin')
+    expect(send.mock.calls[0][0].subject).toBe('New silhouette order M-ABC234')
+    expect(send.mock.calls[0][0].text).toContain('2 silhouettes')
+  })
+})

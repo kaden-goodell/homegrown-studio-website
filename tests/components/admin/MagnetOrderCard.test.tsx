@@ -23,3 +23,16 @@ describe('MagnetOrderCard', () => {
     expect(onMove).toHaveBeenCalledWith('M-ABC234', 'made')
   })
 })
+
+describe('MagnetOrderCard, silhouettes', () => {
+  it('shows each 2x3 card with its own Print button and no magnet sheet link', () => {
+    const s: MagnetOrder = { ...o, product: 'silhouettes', sets: 2, magnets: ['1700000000000-deadbeef', '1700000000001-deadbeef'] }
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})))
+    render(<MagnetOrderCard order={s} onMove={vi.fn()} />)
+    expect(screen.getByText(/Framed silhouettes · 2 silhouettes/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Print 1' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Print 2' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /print/i })).toBeNull()
+    vi.unstubAllGlobals()
+  })
+})

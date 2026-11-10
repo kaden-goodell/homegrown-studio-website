@@ -1,17 +1,15 @@
 // src/components/shop/MagnetOrderModal.tsx
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import BookingPanel from '@components/shared/BookingPanel'
 import BookingConfirmed from '@components/shared/BookingConfirmed'
-import AddressInput from '@components/shared/AddressInput'
-import PaymentForm, { type PaymentFormRef } from '@components/checkout/PaymentForm'
 import MagnetCropper from '@components/shop/MagnetCropper'
+import { DeliveryFields, PayButton, PayStep, deliveryValid, useShopPay, type Contact } from '@components/shop/shop-checkout'
 import { shopConfig, type Delivery } from '@config/shop.config'
 import { shopContent } from '@config/shop-content'
 import { quoteMagnets } from '@lib/magnet-pricing'
 import { formatMoney } from '@lib/money'
 import { newAttemptId } from '@lib/checkout-attempt'
-import { readAttribution } from '@lib/attribution'
-import { posthogId, trackBeginCheckout, trackPaymentCompleted, trackPaymentFailed, type AnalyticsItem } from '@lib/analytics'
+import { trackBeginCheckout, type AnalyticsItem } from '@lib/analytics'
 import type { Crop, Size } from '@lib/magnet-crop'
 
 /** `upload` ties an in-flight upload to its slot, so a removed or replaced slot is never refilled by a late answer. */
@@ -41,21 +39,20 @@ export default function MagnetOrderModal({ onClose, initialSlots }: { onClose: (
   const [editing, setEditing] = useState<{ index: number; src: string; size: Size } | null>(null)
   const [delivery, setDelivery] = useState<Delivery>('pickup')
   const [address, setAddress] = useState('')
-  const [contact, setContact] = useState({ name: '', email: '', phone: '' })
-  const [attemptId, setAttemptId] = useState(uuid)
-  const [processing, setProcessing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState<{ reference: string; emailSent: boolean } | null>(null)
+  const [contact, setContact] = useState<Contact>({ name: '', email: '', phone: '' })
   const [askToLeave, setAskToLeave] = useState(false)
-  const [paymentReady, setPaymentReady] = useState(false)
-  const payRef = useRef<PaymentFormRef>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const pickFor = useRef<number>(0)
 
-  const [unknownOutcome, setUnknownOutcome] = useState(false)
   const quote = useMemo(() => quoteMagnets(sets, delivery), [sets, delivery])
-  // A changed order is a new attempt — unless an earlier charge's outcome is still unknown.
-  useEffect(() => { if (!unknownOutcome) setAttemptId(uuid()) }, [sets, delivery, address]) // eslint-disable-line react-hooks/exhaustive-deps
+  const shop = useShopPay({
+    product: 'magnets', draftId, sets, items: slots.map((s) => s?.photoId ?? null), delivery, address, contact, quote, analyticsItem: magnetItem(),
+    onMissing: (gone) => {
+      setSlots((cur) => cur.map((sl) => (sl?.photoId && gone.has(sl.photoId) ? null : sl)))
+      setStep('photos') // keep the error showing on the photos step
+    },
+  })
+  const { processing, error, setError, unknownOutcome, done } = shop
   const go = (next: Step) => { setError(null); setStep(next) }
   const uploading = slots.some((s) => s && !s.photoId)
   const changeSets = (n: number) => { const s = Math.min(shopConfig.magnets.maxSets, Math.max(1, n)); setSets(s); setSlots((cur) => slotsFor(s, cur)) }
@@ -103,61 +100,15 @@ export default function MagnetOrderModal({ onClose, initialSlots }: { onClose: (
   }
   const remove = (index: number) => setSlots((cur) => cur.map((s, i) => (i === index ? null : s)))
 
-  const deliveryValid = contact.name.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email.trim()) &&
-    /^1?\d{10}$/.test(contact.phone.replace(/\D/g, '')) && (delivery === 'pickup' || address.trim().length >= 8)
-
-  async function pay(e?: React.FormEvent, walletToken?: string) {
-    e?.preventDefault()
-    if (processing) return
-    setProcessing(true); setError(null)
-    let token: string
-    try {
-      token = walletToken ?? (await payRef.current!.tokenize()).token
-    } catch {
-      setError('Check your card details and try again.')
-      setProcessing(false)
-      return
-    }
-    try {
-      const res = await fetch('/api/shop/magnet-order.json', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draftId, attemptId, sets, magnets: slots.map((s) => s!.photoId), delivery, address, contact, paymentToken: token, attribution: readAttribution(), posthogId: posthogId() }),
-      })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setError(body?.detail ?? 'Something went wrong. Try again.')
-        trackPaymentFailed(body?.code ?? `http_${res.status}`)
-        if (body?.code === 'unknown_outcome') { setUnknownOutcome(true); return } // keep the attempt id: a retry must find the same charge
-        if (Array.isArray(body?.missingPhotos)) {
-          const gone = new Set<string>(body.missingPhotos)
-          setSlots((cur) => cur.map((sl) => (sl?.photoId && gone.has(sl.photoId) ? null : sl)))
-          setStep('photos') // keep the error showing on the photos step
-        }
-        setUnknownOutcome(false)
-        setAttemptId(uuid()) // we know nothing was charged
-        return
-      }
-      setUnknownOutcome(false)
-      trackPaymentCompleted(quote.totalCents / 100, { kind: 'shop', transactionId: body.data.reference, items: [magnetItem()], extra: { sets } })
-      setDone({ reference: body.data.reference, emailSent: !!body.data.emailSent })
-    } catch {
-      // The card was read; the order request never came back. It may or may not have charged.
-      setUnknownOutcome(true)
-      setError(C.connectionLost)
-    } finally { setProcessing(false) }
-  }
-
   const footer = done ? (
     <button type="button" className="btn btn-primary" onClick={onClose}>Done</button>
   ) : step === 'photos' ? (
     <button type="button" className="btn btn-primary" disabled={!canContinueFromPhotos(slots)} onClick={() => go('delivery')}>{uploading ? C.uploading : 'Continue'}</button>
   ) : step === 'delivery' ? (
-    <button type="button" className="btn btn-primary" disabled={!deliveryValid} onClick={() => { trackBeginCheckout('shop', quote.totalCents / 100, [magnetItem()], { sets }); go('pay') }}>Continue</button>
+    <button type="button" className="btn btn-primary" disabled={!deliveryValid(delivery, address, contact)} onClick={() => { trackBeginCheckout('shop', quote.totalCents / 100, [magnetItem()], { sets }); go('pay') }}>Continue</button>
   ) : (
-    <button type="submit" form="magnet-pay" className="btn btn-primary" disabled={processing || !paymentReady}>{processing ? 'Processing…' : `Pay ${formatMoney(quote.totalCents)}`}</button>
+    <PayButton formId="magnet-pay" quote={quote} shop={shop} />
   )
-
-  const input = { width: '100%', padding: '0.7rem 0.8rem', borderRadius: 10, border: '1px solid rgba(122,74,46,0.25)', fontSize: '1rem' } as const
 
   return (
     <BookingPanel
@@ -205,30 +156,9 @@ export default function MagnetOrderModal({ onClose, initialSlots }: { onClose: (
           </div>
         </div>
       ) : step === 'delivery' ? (
-        <div style={{ display: 'grid', gap: '0.8rem' }}>
-          {(['pickup', 'ship'] as const).map((d) => (
-            <label key={d} style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start' }}>
-              <input type="radio" name="delivery" checked={delivery === d} onChange={() => setDelivery(d)} />
-              <span><strong>{d === 'pickup' ? C.pickupLabel : C.shipLabel}</strong><br /><small>{d === 'pickup' ? C.pickupNote : C.shipNote}</small></span>
-            </label>
-          ))}
-          {delivery === 'ship' && <label>{C.addressLabel}<AddressInput value={address} onChange={setAddress} style={input} /></label>}
-          <label>{C.nameLabel}<input style={input} value={contact.name} onChange={(e) => setContact({ ...contact, name: e.target.value })} autoComplete="name" /></label>
-          <label>{C.emailLabel}<input style={input} type="email" value={contact.email} onChange={(e) => setContact({ ...contact, email: e.target.value })} autoComplete="email" /></label>
-          <label>{C.phoneLabel}<input style={input} type="tel" value={contact.phone} onChange={(e) => setContact({ ...contact, phone: e.target.value })} autoComplete="tel" /></label>
-        </div>
+        <DeliveryFields delivery={delivery} setDelivery={setDelivery} address={address} setAddress={setAddress} contact={contact} setContact={setContact} />
       ) : (
-        <form id="magnet-pay" onSubmit={pay} style={{ display: 'grid', gap: '0.75rem' }}>
-          <dl style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.25rem 1rem', margin: 0 }}>
-            <dt>{quote.magnets} magnets</dt><dd style={{ margin: 0 }}>{formatMoney(quote.subtotalCents)}</dd>
-            <dt>Tax</dt><dd style={{ margin: 0 }}>{formatMoney(quote.taxCents)}</dd>
-            {quote.shippingCents > 0 && (<><dt>Shipping</dt><dd style={{ margin: 0 }}>{formatMoney(quote.shippingCents)}</dd></>)}
-            <dt><strong>Total</strong></dt><dd style={{ margin: 0 }}><strong>{formatMoney(quote.totalCents)}</strong></dd>
-          </dl>
-          <PaymentForm ref={payRef} bookingKind="shop" environmentOverride="production" onReadyChange={setPaymentReady}
-            wallet={{ amount: (quote.totalCents / 100).toFixed(2), label: 'Hometown Photo Magnets' }}
-            onWalletToken={(t) => pay(undefined, t)} canPayWithWallet={() => (processing ? 'Paying…' : null)} />
-        </form>
+        <PayStep formId="magnet-pay" itemsLine={`${quote.magnets} magnets`} quote={quote} shop={shop} walletLabel="Hometown Photo Magnets" />
       )}
     </BookingPanel>
   )

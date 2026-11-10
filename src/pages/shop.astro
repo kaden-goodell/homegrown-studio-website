@@ -2,14 +2,17 @@
 // src/pages/shop.astro
 export const prerender = false
 import Layout from '@layouts/Layout.astro'
-import { shopLive } from '@config/shop.config'
+import { shopLive, silhouettesLive } from '@config/shop.config'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 // Hidden on the live site until the Square items exist; previews (simulated payments) can still try it.
 if (!shopLive() && !paymentBypassEnabled(Astro.request)) return Astro.redirect('/')
 import MagnetOrderButton from '@components/shop/MagnetOrderButton'
+import SilhouetteOrderButton from '@components/shop/SilhouetteOrderButton'
+// Silhouettes join the live page once their Square item exists; previews always show them.
+const showSilhouettes = silhouettesLive() || paymentBypassEnabled(Astro.request)
 import { shopContent as c } from '@config/shop-content'
 ---
-<Layout title="Shop" description="Photo magnets made from your photos at Hometown Studio in Madison, AL.">
+<Layout title="Shop" description={showSilhouettes ? "Photo magnets and framed silhouettes made from your photos at Hometown Studio in Madison, AL." : "Photo magnets made from your photos at Hometown Studio in Madison, AL."}>
   <section class="max-w-4xl mx-auto px-4 sm:px-6 pb-20" style="padding-top: 5.5rem;">
     <div class="mb-8 md:text-center fade-in">
       <p class="eyebrow mb-2">{c.pageEyebrow}</p>
@@ -26,5 +29,18 @@ import { shopContent as c } from '@config/shop-content'
         <div><MagnetOrderButton client:visible /></div>
       </div>
     </article>
+    {showSilhouettes && (
+      <article class="glass rounded-2xl p-6 sm:p-8 grid gap-4 sm:grid-cols-2 items-center mt-6">
+        <img src="/images/shop/framed-silhouette.jpg" alt="A black silhouette portrait of a child in a small gold frame" class="rounded-xl w-full" style="aspect-ratio: 4/3; object-fit: cover;" />
+        <div class="grid gap-3">
+          <h2 class="text-2xl font-heading font-bold" style="color: var(--color-dark);">{c.silhouettes.title}</h2>
+          <p style="color: var(--color-text);">{c.silhouettes.blurb}</p>
+          <p class="font-semibold" style="color: var(--color-dark);">{c.silhouettes.price}</p>
+          <p class="text-sm" style="color: var(--color-text);">{c.silhouettes.decorateLine}</p>
+          <p class="text-sm" style="color: var(--color-text);">{c.silhouettes.readyLine}</p>
+          <div><SilhouetteOrderButton client:visible /></div>
+        </div>
+      </article>
+    )}
   </section>
 </Layout>

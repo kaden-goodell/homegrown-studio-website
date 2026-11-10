@@ -30,3 +30,11 @@ describe('MagnetBatchPrint', () => {
     expect(onMarkMade).toHaveBeenCalledWith(['M-BBBBBB'])
   })
 })
+
+describe('MagnetBatchPrint leaves silhouettes out', () => {
+  it('only batches magnet orders', () => {
+    const sil = { ...order('M-SSSSSS', 6), product: 'silhouettes' as const, magnets: ['1700000000000-deadbeef'] }
+    const { container } = render(<MagnetBatchPrint orders={[order('M-AAAAAA', 6), sil]} onMarkMade={vi.fn()} />)
+    expect(container.innerHTML).toBe('')
+  })
+})

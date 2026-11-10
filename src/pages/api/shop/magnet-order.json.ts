@@ -6,7 +6,7 @@ import { shopConfig } from '@config/shop.config'
 import { rateLimited } from '@lib/rate-limit'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 import { isAttemptId, attemptKey, chargeOutcomeOf, type CheckoutErrorCode } from '@lib/checkout-attempt'
-import { isValidSets, quoteMagnets } from '@lib/magnet-pricing'
+import { isValidSets, quoteMagnets, isValidSilhouetteCount, quoteSilhouettes } from '@lib/magnet-pricing'
 import { isDraftId, isPhotoId, draftPhotoIds, newReference, saveOrder, orderForDraft, getPending, markPending, clearPending, type MagnetOrder } from '@lib/magnet-orders'
 import { sendMagnetConfirmation, sendMagnetOwnerNotice } from '@lib/magnet-emails'
 import { reportBooking } from '@lib/posthog-server'
@@ -17,6 +17,7 @@ export const prerender = false
 const logger = createLogger('api:shop:magnet-order')
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const ITEM_NAME = 'Photo Magnets – Set of 6'
+const SILHOUETTE_NAME = 'Framed Silhouette'
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
@@ -25,15 +26,19 @@ const fail = (status: number, detail: string, code?: CheckoutErrorCode) =>
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
+/** One endpoint for every shop product: magnets (sets of 6) and framed silhouettes (each). */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
   const m = shopConfig.magnets
+  const sil = shopConfig.silhouettes
   if (rateLimited(`magnet-order:${clientAddress}`, 5, 60_000)) return fail(429, 'Too many tries. Give it a minute.')
   const body = await request.json().catch(() => null)
   if (!body) return fail(400, 'Invalid request.')
 
   // --- Validate ---
   if (!isDraftId(body.draftId) || !isAttemptId(body.attemptId)) return fail(400, 'Your order expired. Close it and start again.')
-  if (!isValidSets(body.sets)) return fail(400, `Pick between 1 and ${m.maxSets} sets.`)
+  const product = body.product === 'silhouettes' ? 'silhouettes' : 'magnets'
+  if (product === 'magnets' && !isValidSets(body.sets)) return fail(400, `Pick between 1 and ${m.maxSets} sets.`)
+  if (product === 'silhouettes' && !isValidSilhouetteCount(body.sets)) return fail(400, `Pick between 1 and ${sil.maxCount} silhouettes.`)
   const delivery = body.delivery === 'ship' ? 'ship' : body.delivery === 'pickup' ? 'pickup' : null
   if (!delivery) return fail(400, 'Choose pickup or shipping.')
   const address = str(body.address, 300)
@@ -45,7 +50,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (!EMAIL_RE.test(email)) return fail(400, 'Check your email address.')
   if (!(phone.length === 10 || (phone.length === 11 && phone.startsWith('1')))) return fail(400, 'Check your phone number.')
   const magnets: unknown[] = Array.isArray(body.magnets) ? body.magnets : []
-  if (magnets.length !== body.sets * m.setSize || !magnets.every(isPhotoId)) return fail(400, 'Pick a photo for every magnet.')
+  const wantItems = product === 'magnets' ? body.sets * m.setSize : body.sets
+  if (magnets.length !== wantItems || !magnets.every(isPhotoId)) return fail(400, product === 'magnets' ? 'Pick a photo for every magnet.' : 'Finish every silhouette.')
 
   const existing = await orderForDraft(body.draftId)
   if (existing) return json(200, { data: { reference: existing.id, totalCents: existing.amounts.totalCents, receiptUrl: existing.receiptUrl, emailSent: true, already: true } })
@@ -54,10 +60,13 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   const missing = [...new Set((magnets as string[]).filter((p) => !uploaded.has(p)))]
   if (missing.length) return json(400, { error: 'Unable to complete magnet order', code: 'invalid', detail: 'Some photos did not save. Add them again.', missingPhotos: missing })
 
-  const quote = quoteMagnets(body.sets, delivery)
+  const quote = product === 'magnets' ? quoteMagnets(body.sets, delivery) : quoteSilhouettes(body.sets, delivery)
+  const line = product === 'magnets'
+    ? { variationId: m.square.variationId, name: ITEM_NAME, unitCents: m.setPriceCents, taxId: m.taxId, taxPercent: m.taxPercent }
+    : { variationId: sil.square.variationId, name: SILHOUETTE_NAME, unitCents: sil.priceCents, taxId: sil.taxId, taxPercent: sil.taxPercent }
   const id = newReference()
   const record = (over: Pick<MagnetOrder, 'squareOrderId' | 'paymentId' | 'receiptUrl'> & { simulated?: boolean }): MagnetOrder => ({
-    id, createdAt: new Date().toISOString(), status: 'new', draftId: body.draftId, sets: body.sets, magnets: magnets as string[],
+    id, createdAt: new Date().toISOString(), status: 'new', product, draftId: body.draftId, sets: body.sets, magnets: magnets as string[],
     delivery, address: delivery === 'ship' ? address : null, contact: { name, email, phone },
     amounts: { subtotalCents: quote.subtotalCents, taxCents: quote.taxCents, shippingCents: quote.shippingCents, totalCents: quote.totalCents },
     doneAt: null, photosDeletedAt: null, emailed: {}, ...over,
@@ -75,7 +84,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     await saveOrder(saved)
     return finish(saved, null)
   }
-  if (!m.square.variationId || !m.square.shippingVariationId) return fail(503, 'Magnets are not available yet.')
+  if (!line.variationId || !m.square.shippingVariationId) return fail(503, `${product === 'magnets' ? 'Magnets are' : 'Silhouettes are'} not available yet.`)
   if (!body.paymentToken) return fail(400, 'Missing payment information.')
 
   // Save the paid order, clear the marker, tell everyone. Shared by a fresh charge and a found earlier one.
@@ -92,8 +101,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     await reportBooking({
       requestUrl: request.url, kind: 'shop', bookingId: id, amountCents: quote.totalCents, email,
       firstName: name.split(/\s+/)[0], lastName: name.split(/\s+/).slice(1).join(' '),
-      items: [{ item_id: m.square.variationId, item_name: ITEM_NAME, item_category: 'shop', price: m.setPriceCents / 100, quantity: body.sets }],
-      attribution: cleanAttribution(body.attribution), posthogId: body.posthogId, extra: { delivery, magnets: quote.magnets },
+      items: [{ item_id: line.variationId, item_name: line.name, item_category: 'shop', price: line.unitCents / 100, quantity: body.sets }],
+      attribution: cleanAttribution(body.attribution), posthogId: body.posthogId, extra: { delivery, product, items: magnets.length },
     })
     return finish(saved, payment.receiptUrl ?? null)
   }
@@ -120,7 +129,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     order = await providers.payment.createOrder({
       locationId, customerId: customer.id, idempotencyKey: attemptKey(body.attemptId, 'order'),
       lineItems: [
-        { catalogObjectId: m.square.variationId, name: ITEM_NAME, quantity: body.sets, pricePerUnit: m.setPriceCents, tax: { catalogObjectId: m.taxId, percent: m.taxPercent } },
+        { catalogObjectId: line.variationId, name: line.name, quantity: body.sets, pricePerUnit: line.unitCents, tax: { catalogObjectId: line.taxId, percent: line.taxPercent } },
         ...(quote.shippingCents ? [{ catalogObjectId: m.square.shippingVariationId, name: 'Shipping', quantity: 1, pricePerUnit: quote.shippingCents }] : []),
       ],
     })

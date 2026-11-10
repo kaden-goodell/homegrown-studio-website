@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { MagnetOrder } from '@lib/magnet-status'
+import { productOf, type MagnetOrder } from '@lib/magnet-status'
 
 const PER_PAGE = 12
 
@@ -8,7 +8,7 @@ const PER_PAGE = 12
  * share one sheet. Each magnet carries its order code on the folded edge.
  */
 export function MagnetBatchPrint({ orders, onMarkMade }: { orders: MagnetOrder[]; onMarkMade: (ids: string[]) => void }) {
-  const ready = orders.filter((o) => o.status === 'new' && !o.photosDeletedAt)
+  const ready = orders.filter((o) => o.status === 'new' && !o.photosDeletedAt && productOf(o) === 'magnets')
   const [picked, setPicked] = useState<Set<string>>(() => new Set(ready.map((o) => o.id)))
   const readyKey = ready.map((o) => o.id).join(',')
   // New orders arriving are ticked by default; ones that left New drop out.

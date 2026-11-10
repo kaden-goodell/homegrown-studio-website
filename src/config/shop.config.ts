@@ -29,6 +29,29 @@ export const shopConfig = {
       shippingVariationId: 'MMWCGRPBR7OKBTA6CS3ADSWQ',
     },
   },
+  /**
+   * Framed silhouette portraits (Kaden, 2026-11-10): $25 each in a gold frame, decorating the
+   * frame in the studio is optional and included. The site cuts the child out of a side-profile
+   * photo in the browser and prints a black silhouette on white, 2"×3" for a mini photo printer.
+   */
+  silhouettes: {
+    name: 'Framed Silhouette',
+    priceCents: 2500,
+    maxCount: 6,
+    taxPercent: 9,
+    taxId: 'XKZ3OIRJ3SPPO4TO64UUDFA4',
+    readyDays: 7,
+    /** 2"×3" portrait at 400 dpi. */
+    outputW: 800,
+    outputH: 1200,
+    /** Kept clear on every side so the frame's lip never covers the silhouette or the name, inches. */
+    safeInsetIn: 0.125,
+    /**
+     * Created 2026-11-10 by scripts/seed-shop.ts --apply. Proven with orders/calculate: 2 + shipping = 6050,
+     * tax 450 on silhouettes, 0 on shipping. Set = silhouettes go live with the next prod push.
+     */
+    square: { itemId: 'DPEZPIIIHFDKGQMG6XR2CXLV', variationId: '67RT4IYJNH3W7L7DUVQVY3O5' },
+  },
   maxPhotoBytes: 400_000,
   /** Room to re-crop: replaced photos still count until cleanup. */
   maxPhotosPerDraft: 120,
@@ -37,6 +60,10 @@ export const shopConfig = {
 } as const
 
 export type Delivery = 'pickup' | 'ship'
+export type ShopProduct = 'magnets' | 'silhouettes'
 
 /** The shop shows on the live site only once its Square items exist (scripts/seed-shop.ts --apply). */
 export const shopLive = (): boolean => Boolean(shopConfig.magnets.square.variationId && shopConfig.magnets.square.shippingVariationId)
+
+/** Silhouettes show on the live site only once their Square item exists (shipping reuses the magnets' item). */
+export const silhouettesLive = (): boolean => shopLive() && Boolean(shopConfig.silhouettes.square.variationId)

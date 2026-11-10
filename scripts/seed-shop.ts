@@ -1,7 +1,7 @@
 // scripts/seed-shop.ts
 /**
- * Square catalog for the shop: category "Shop" → "Photo Magnets – Set of 6" $18 (9% tax)
- * and "Shipping" $6 (no tax). Create-only (skips what exists). Prints the ids for
+ * Square catalog for the shop: category "Shop" → "Photo Magnets – Set of 6" $18 (9% tax),
+ * "Framed Silhouette" $25 (9% tax, added 2026-11-10) and "Shipping" $6 (no tax). Create-only (skips what exists). Prints the ids for
  * src/config/shop.config.ts.
  *
  *   npx tsx scripts/seed-shop.ts            # preview, writes nothing
@@ -19,6 +19,7 @@ const CATEGORY = 'Shop'
 const ITEMS = [
   { key: 'magnets', name: 'Photo Magnets – Set of 6', variation: 'Set of 6', cents: 1800, taxed: true },
   { key: 'shipping', name: 'Shipping', variation: 'Flat rate', cents: 600, taxed: false },
+  { key: 'silhouettes', name: 'Framed Silhouette', variation: 'Each', cents: 2500, taxed: true },
 ] as const
 const client = new SquareClient({
   token: process.env.SQUARE_ACCESS_TOKEN!,
@@ -63,7 +64,7 @@ async function main() {
     const v = got.object.itemData.variations[0]
     console.log(`✅ ${got.object.itemData.name} · $${Number(v.itemVariationData.priceMoney.amount) / 100} · taxIds ${got.object.itemData.taxIds ?? 'none'} → item ${got.object.id}, variation ${v.id}`)
   }
-  console.log('Paste into shopConfig.magnets.square: { itemId, variationId (magnets), shippingVariationId (shipping) }')
+  console.log('Paste into shopConfig.magnets.square: { itemId, variationId (magnets), shippingVariationId (shipping) } and shopConfig.silhouettes.square: { itemId, variationId }')
 }
 
 main().catch((e) => { console.error(e?.body ?? e); process.exit(1) })

@@ -19,3 +19,12 @@ describe('isValidSets', () => {
     for (const v of [0, 11, 1.5, -1, '2', null, NaN]) expect(isValidSets(v)).toBe(false)
   })
 })
+
+describe('quoteSilhouettes', () => {
+  it('is $25 each, 9% tax on the silhouettes, $6 untaxed shipping', async () => {
+    const { quoteSilhouettes, isValidSilhouetteCount } = await import('@lib/magnet-pricing')
+    expect(quoteSilhouettes(1, 'pickup')).toEqual({ count: 1, subtotalCents: 2500, taxCents: 225, shippingCents: 0, totalCents: 2725 })
+    expect(quoteSilhouettes(2, 'ship')).toEqual({ count: 2, subtotalCents: 5000, taxCents: 450, shippingCents: 600, totalCents: 6050 })
+    expect([0, 1, 6, 7, 1.5].map(isValidSilhouetteCount)).toEqual([false, true, true, false, false])
+  })
+})
