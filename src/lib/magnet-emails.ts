@@ -24,7 +24,7 @@ export function sendMagnetConfirmation(o: MagnetOrder) {
     o.delivery === 'pickup'
       ? `${p.They} will be ready within ${days} days. We will email you when you can pick ${p.it} up at the studio.`
       : `We will ship ${p.it} within ${days} days to ${o.address}.`,
-    sil && o.delivery === 'pickup' ? `Coming by the studio sooner? Ask us and we can usually print it while you are here.` : '',
+    sil && o.delivery === 'pickup' ? `Coming by the studio sooner? Ask us and we can usually print ${p.it} while you are here.` : '',
     sil ? `Want to decorate the frame yourself? Come by the studio any time we are open and we will set you up. It is included.` : '',
     `Total paid ${formatMoney(o.amounts.totalCents)}.`,
     o.receiptUrl ? `Your receipt ${o.receiptUrl}` : '',
