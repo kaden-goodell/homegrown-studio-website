@@ -97,10 +97,18 @@ describe('first view', () => {
   beforeEach(setUp)
   afterEach(tearDown)
 
-  it('opens on the month grid (the page is called Calendar)', () => {
+  it('opens on the month grid on a computer (the page is called Calendar)', () => {
+    stubMatchMedia(false)
     render(<WhatsOnCalendar />)
     expect(screen.getByRole('button', { name: 'Month' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('opens on the list on a phone', async () => {
+    stubMatchMedia(true)
+    render(<WhatsOnCalendar />)
+    expect(await screen.findByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Month' })).toHaveAttribute('aria-pressed', 'false')
   })
 })
 
