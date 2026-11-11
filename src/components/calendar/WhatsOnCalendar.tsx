@@ -3,7 +3,8 @@ import type { CSSProperties } from 'react'
 import {
   CALENDAR_FILTERS,
   collapseBookedParties,
-  formatClock,
+  chipTime,
+  chipTimeRange,
   formatTimeRange,
   groupEventsByDay,
   listRowAction,
@@ -211,12 +212,6 @@ function formatMonthYear(year: number, month: number) {
 }
 
 /** "7:00 PM" → "7pm", "4:30 PM" → "4:30pm" — compact prefix for grid chips. */
-function chipTime(t?: string) {
-  const full = formatClock(t)
-  const m = full.match(/^(\d{1,2}):(\d{2}) (AM|PM)$/)
-  if (!m) return ''
-  return `${m[1]}${m[2] === '00' ? '' : ':' + m[2]}${m[3].toLowerCase()}`
-}
 
 
 /** Label shown in a selected-day row, e.g. "Craft Café · 9 AM–6 PM (walk-in)". */
@@ -857,7 +852,8 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
                   {chips.slice(0, MAX_CHIPS).map((e) => {
                     const clickable = !!e.href
                     const color = colorOf(e)
-                    const time = e.kind === 'event' ? '' : chipTime(e.startTime)
+                    // Walk-in hours show when they end too (Kaden, 11 Nov 2026: "it just shows 2pm").
+                    const time = e.kind === 'event' ? '' : e.kind === 'open-studio' ? chipTimeRange(e.startTime, e.endTime) : chipTime(e.startTime)
                     const chipStyle: CSSProperties = {
                       display: 'flex',
                       alignItems: 'baseline',
