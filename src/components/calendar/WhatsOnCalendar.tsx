@@ -104,7 +104,7 @@ interface WhatsOnCalendarProps {
    * Optional initial events (e.g. SSR-rendered first month). After mount the
    * component fetches per-month from /api/calendar.json and state takes over.
    */
-  /** Which view opens first. The month grid unless asked otherwise. */
+  /** Which view opens first. Left out: the list on a phone, the month grid on a bigger screen. */
   initialView?: 'list' | 'month'
   events?: CalendarEvent[]
 }
@@ -410,7 +410,7 @@ function LoadNotice({ failed, busy, onRetry }: { failed: boolean; busy: boolean;
   )
 }
 
-export default function WhatsOnCalendar({ events: initialEvents = [], initialView = 'month' }: WhatsOnCalendarProps) {
+export default function WhatsOnCalendar({ events: initialEvents = [], initialView }: WhatsOnCalendarProps) {
   const now = new Date()
   // Pre-opening, there's nothing before opening month — start the month grid there.
   const opening = new Date(OPENING_DATE + 'T12:00:00')
@@ -418,8 +418,9 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
   const [year, setYear] = useState(start.getFullYear())
   const [month, setMonth] = useState(start.getMonth())
   const [selectedDay, setSelectedDay] = useState<number | null>(null)
-  // Month grid first (Kaden, 9 Oct 2026: "the button says calendar"); List is one tap away.
-  const [view, setView] = useState<'list' | 'month'>(initialView)
+  // Month grid first on a computer (Kaden, 9 Oct 2026: "the button says calendar"); on a phone the
+  // list opens first (Kaden, 11 Nov 2026), set once the screen size is known below.
+  const [view, setView] = useState<'list' | 'month'>(initialView ?? 'month')
   const [compact, setCompact] = useState(false)
   const [events, setEvents] = useState<CalendarEvent[]>(initialEvents)
   const [loading, setLoading] = useState(false)
@@ -497,6 +498,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 549px)')
     setCompact(mq.matches)
+    if (!initialView && mq.matches) setView('list')
     const handler = (ev: MediaQueryListEvent) => setCompact(ev.matches)
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
