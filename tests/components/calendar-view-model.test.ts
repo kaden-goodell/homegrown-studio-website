@@ -3,6 +3,8 @@ import {
   buildCalendarEvents,
   collapseBookedParties,
   formatClock,
+  chipTime,
+  chipTimeRange,
   formatPrice,
   formatTimeRange,
   groupEventsByDay,
@@ -535,5 +537,18 @@ describe('collapseBookedParties', () => {
   it('returns the day unchanged when no party is booked', () => {
     const day = [ev({ id: 'w', kind: 'workshop', startTime: '19:00' })]
     expect(collapseBookedParties(day)).toEqual(day)
+  })
+})
+
+describe('chip times', () => {
+  it('shows a start time on its own', () => {
+    expect(chipTime('14:00')).toBe('2pm')
+    expect(chipTime('09:30')).toBe('9:30am')
+  })
+  it('shows walk-in hours as a range, with the shared am/pm once', () => {
+    expect(chipTimeRange('14:00', '18:00')).toBe('2–6pm')
+    expect(chipTimeRange('09:00', '14:00')).toBe('9am–2pm')
+    expect(chipTimeRange('16:00', '20:00')).toBe('4–8pm')
+    expect(chipTimeRange('14:00')).toBe('2pm')
   })
 })

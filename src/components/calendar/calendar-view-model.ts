@@ -212,6 +212,21 @@ export function formatTimeRange(start?: string, end?: string): string {
   return s.suffix === e.suffix ? `${from}–${to} ${e.suffix}` : `${from} ${s.suffix}–${to} ${e.suffix}`
 }
 
+/** Compact chip clock: "2pm", "9:30am". Empty when the time is missing. */
+export function chipTime(t?: string): string {
+  const m = formatClock(t).match(/^(\d{1,2}):(\d{2}) (AM|PM)$/)
+  if (!m) return ''
+  return `${m[1]}${m[2] === '00' ? '' : ':' + m[2]}${m[3].toLowerCase()}`
+}
+
+/** Compact chip range for walk-in hours: "2–6pm", "9am–2pm". Just the start when there is no end. */
+export function chipTimeRange(start?: string, end?: string): string {
+  const a = chipTime(start)
+  const b = chipTime(end)
+  if (!a || !b) return a
+  return a.slice(-2) === b.slice(-2) ? `${a.slice(0, -2)}–${b}` : `${a}–${b}`
+}
+
 /** Cents → "$35" for whole dollars, "$32.50" otherwise. Empty when there is no price. */
 export function formatPrice(cents?: number, currency: string = 'USD'): string {
   if (!cents || cents < 0) return ''
