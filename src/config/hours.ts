@@ -63,6 +63,11 @@ export const CAFE_SPECIAL_DAYS: CafeSpecialDay[] = [
     date: '2026-11-07', opens: '09:00', closes: '20:00', name: 'Craft Café grand opening',
     announce: { headline: 'Grand Opening Day', daysBefore: 21 },
   },
+  // Kaden, 11 Nov 2026 (his flyer): café all weekend in place of the BYOB and
+  // Sunday Swap classes he took down.
+  { date: '2026-11-13', opens: '16:00', closes: '20:00', name: 'Craft Café' },
+  { date: '2026-11-14', opens: '09:00', closes: '14:00', name: 'Craft Café' },
+  { date: '2026-11-15', opens: '14:00', closes: '18:00', name: 'Craft Café' },
 ]
 
 /** Café hours on a date: a special day wins over the weekly hours. Null when there's no café that day. */

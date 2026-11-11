@@ -201,7 +201,7 @@ describe('GET /api/calendar.json', () => {
     // opening (no parties), so the first is Sun 8 Nov at 1:00. A Saturday has two, at 2:00 and 4:30 PM.
     expect(parties.filter((p: any) => p.date === '2026-11-07')).toHaveLength(0)
     expect(parties[0]).toMatchObject({ date: '2026-11-08', startTime: '13:00' })
-    expect(parties.filter((p: any) => p.date === '2026-11-14')).toEqual([
+    expect(parties.filter((p: any) => p.date === '2026-11-21')).toEqual([
       expect.objectContaining({ startTime: '14:00' }),
       expect.objectContaining({ startTime: '16:30' }),
     ])

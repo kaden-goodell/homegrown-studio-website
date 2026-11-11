@@ -70,7 +70,7 @@ describe('bookableOn', () => {
 describe('partyStartsForDate', () => {
   it('offers a Saturday its two party times (2:00 and 4:30 PM) for a date inside the window', () => {
     // Saturday 14 Nov 2026: 2:00 and 4:30 PM Central (CST, UTC-6).
-    expect(partyStartsForDate('2026-11-14', SEP_27)).toEqual(['2026-11-14T20:00:00.000Z', '2026-11-14T22:30:00.000Z'])
+    expect(partyStartsForDate('2026-11-21', SEP_27)).toEqual(['2026-11-21T20:00:00.000Z', '2026-11-21T22:30:00.000Z'])
   })
 
   it('offers a Sunday two party times (1:00 and 3:30 PM)', () => {
@@ -129,27 +129,27 @@ describe('parties step aside for Craft Café, an hour each side', () => {
     expect(startsOn('2026-11-07', now)).toEqual([])
   })
   it('a normal Saturday keeps its 2:00 party: the café closes at 1, an hour before', () => {
-    expect(startsOn('2026-11-14', now)).toEqual(['2026-11-14T20:00:00.000Z', '2026-11-14T22:30:00.000Z'])
+    expect(startsOn('2026-11-21', now)).toEqual(['2026-11-21T20:00:00.000Z', '2026-11-21T22:30:00.000Z'])
   })
   it('a party starting less than an hour after the café closes is dropped; exactly an hour is fine', async () => {
     vi.resetModules()
     vi.doMock('../../src/config/hours', async (orig) => ({
       ...(await orig<typeof import('../../src/config/hours')>()),
-      cafeHoursOn: (ymd: string) => (ymd === '2026-11-14' ? { opens: '09:00', closes: '13:01' } : null),
+      cafeHoursOn: (ymd: string) => (ymd === '2026-11-21' ? { opens: '09:00', closes: '13:01' } : null),
     }))
     const late = await import('@lib/party-slots')
-    expect(late.partyStartsForDate('2026-11-14', now)).toEqual(['2026-11-14T22:30:00.000Z'])
+    expect(late.partyStartsForDate('2026-11-21', now)).toEqual(['2026-11-21T22:30:00.000Z'])
     vi.doMock('../../src/config/hours', async (orig) => ({
       ...(await orig<typeof import('../../src/config/hours')>()),
-      cafeHoursOn: (ymd: string) => (ymd === '2026-11-14' ? { opens: '09:00', closes: '13:00' } : null),
+      cafeHoursOn: (ymd: string) => (ymd === '2026-11-21' ? { opens: '09:00', closes: '13:00' } : null),
     }))
     vi.resetModules()
     const exact = await import('@lib/party-slots')
-    expect(exact.partyStartsForDate('2026-11-14', now)).toEqual(['2026-11-14T20:00:00.000Z', '2026-11-14T22:30:00.000Z'])
+    expect(exact.partyStartsForDate('2026-11-21', now)).toEqual(['2026-11-21T20:00:00.000Z', '2026-11-21T22:30:00.000Z'])
     vi.doUnmock('../../src/config/hours')
     vi.resetModules()
   })
   it('days without a café are untouched (Sundays keep 1:00 and 3:30)', () => {
-    expect(startsOn('2026-11-15', now)).toHaveLength(2)
+    expect(startsOn('2026-11-22', now)).toHaveLength(2)
   })
 })
