@@ -17,7 +17,10 @@
  */
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
-import { studioOpenOn } from '@config/closures'
+import { closureOn, studioOpenOn } from '@config/closures'
+import { partyDayOn } from '@lib/party-terms'
+import { localToUtcISO } from '@lib/party-slots'
+import { partyConfig } from '@config/party.config'
 import { getEventMeta, type EventMeta } from '@lib/event-meta'
 import { listSeatChoicesByEvent } from '@lib/seat-choices'
 import { getPartyRecord } from '@lib/party-store'
@@ -169,9 +172,26 @@ function oversold(s: Scan): Warning[] {
   })
 }
 
+/** The party sits inside that day's party schedule (from its first start to its last wrap, cleanup included). */
+function insidePartyHours(day: string, p: PartySpan): boolean {
+  const cfg = partyDayOn(day)
+  if (!cfg) return false
+  const opens = Date.parse(localToUtcISO(day, cfg.firstStart))
+  const wraps = Date.parse(localToUtcISO(day, cfg.lastWrap))
+  const end = Date.parse(p.endIso) + partyConfig.cleanupBufferMinutes * 60_000
+  return Date.parse(p.startIso) >= opens && end <= wraps
+}
+
 function partyOnClosedDay(s: Scan): Warning[] {
   return s.parties
-    .filter((p) => !studioOpenOn(studioDate(p.startIso)))
+    // A weeknight party day (Mon–Wed) is open for parties inside its party
+    // hours, though the studio's hours are Thu–Sun. A closure still closes it.
+    .filter((p) => {
+      const day = studioDate(p.startIso)
+      if (closureOn(day)) return true
+      if (studioOpenOn(day)) return false
+      return !insidePartyHours(day, p)
+    })
     .map((p): Warning => ({
       code: 'party-on-closed-day',
       eventKind: 'party',

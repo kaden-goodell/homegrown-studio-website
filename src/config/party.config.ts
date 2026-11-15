@@ -39,6 +39,12 @@ export const partyConfig = {
   /** Flat room fee in cents. THE single source of truth for the studio fee —
    *  the charge, the modal, and all page copy derive from this value. */
   basePriceCents: 30000,
+  /**
+   * Weeknight parties (Mon to Wed) have no studio fee. They pay for crafts,
+   * with this minimum, and pay this much online when they book as a craft
+   * credit that counts toward the crafts (Kaden, 15 Nov 2026). See partyTermsOn.
+   */
+  weeknightMinimumCents: 30000,
   /** Minimum party size — the picker, copy, and server validation all derive from this. */
   minGuests: 10,
   /** Hard guest cap for any bookable event (studio room capacity). */
@@ -47,7 +53,7 @@ export const partyConfig = {
   defaultGuests: 10,
   /** One-tap guest counts offered before the fine-tune stepper. */
   guestQuickPicks: [10, 15, 20, 25, 30],
-  /** Party length shown to the customer. */
+  /** Weekend party length. A weekday in partyDays can set its own (weeknights are 120). */
   durationMinutes: 90,
   /** How early a host may arrive to set up, in minutes (Kaden, 27 Sep 2026). */
   hostArrivalMinutesEarly: 30,
@@ -85,21 +91,45 @@ export const partyConfig = {
 } as const
 
 /**
+ * Weekend parties pay the studio fee plus crafts. Weeknight parties pay only
+ * for crafts, with a minimum, and the online payment is a craft credit.
+ */
+export type PartyKind = 'weekend' | 'weeknight'
+
+export interface PartyDay {
+  firstStart: string
+  lastWrap: string
+  /** Absent = 'weekend'. */
+  kind?: PartyKind
+  /** Absent = partyConfig.durationMinutes. */
+  durationMinutes?: number
+}
+
+/**
  * Party start schedule per weekday (0=Sun … 6=Sat), in studio-local time. Starts
- * step by (durationMinutes + cleanupBufferMinutes) from `firstStart`, while
+ * step by (party length + cleanupBufferMinutes) from `firstStart`, while
  * start + party + cleanup ≤ `lastWrap`, so the evening workshop slot stays clear.
- * Weekdays not listed have no parties (Mon–Wed).
+ * Weekdays not listed have no parties (Thursday).
  * Weekly shape from Nov 7 (Kaden, 1 Nov 2026):
+ *   Mon–Wed: weeknight party 6–8 (Kaden, 15 Nov 2026: 2 hours, no studio fee,
+ *            $300 minimum; the hour's cleanup runs to 9)
  *   Thu: workshop 6–8 only (Kaden, 1 Nov 2026: no Thursday party; people won't stay out till 9)
  *   Fri: party 4:30–6 · workshop 7–9
  *   Sat: Craft Café 9–1 · party 2–3:30 · party 4:30–6 · workshop 7–9
  *   Sun: party 1:00 · party 3:30 · workshop 6–8
- * Each party is 90 min + the hour's cleanup, so lastWrap 19:00 clears the room
- * for the 7:00 workshop (Sunday's 18:00 for the 6:00 one). A party time steps
- * aside on its own if a class is ever scheduled over it.
+ * Each weekend party is 90 min + the hour's cleanup, so lastWrap 19:00 clears the
+ * room for the 7:00 workshop (Sunday's 18:00 for the 6:00 one). A party time
+ * steps aside on its own if a class is ever scheduled over it.
+ * The studio's opening hours (hours.ts) stay Thu–Sun: weeknights are offered
+ * only in the party booking flow.
  */
-export const partyDays: Record<number, { firstStart: string; lastWrap: string }> = {
+const WEEKNIGHT: PartyDay = { firstStart: '18:00', lastWrap: '21:00', kind: 'weeknight', durationMinutes: 120 }
+
+export const partyDays: Record<number, PartyDay> = {
   0: { firstStart: '13:00', lastWrap: '18:00' }, // Sunday: 1:00, 3:30
+  1: WEEKNIGHT, // Monday: 6:00
+  2: WEEKNIGHT, // Tuesday: 6:00
+  3: WEEKNIGHT, // Wednesday: 6:00
   5: { firstStart: '16:30', lastWrap: '19:00' }, // Friday: 4:30
   6: { firstStart: '14:00', lastWrap: '19:00' }, // Saturday: 2:00, 4:30
 }
@@ -120,7 +150,7 @@ export const partyDays: Record<number, { firstStart: string; lastWrap: string }>
  */
 export const CAFE_PARTY_GAP_MINUTES = 60
 
-export const partyDateOverrides: Record<string, { firstStart: string; lastWrap: string }> = {
+export const partyDateOverrides: Record<string, PartyDay> = {
   // Thursday/Friday parties start Oct 22 (Kaden, 9 Oct 2026), ahead of the
   // regular Nov 7 start: Thu Oct 22 gets two (4:00 and 6:30), the rest the
   // usual 4:00 until the weekly schedule takes over on Nov 7.

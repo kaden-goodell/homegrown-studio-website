@@ -101,6 +101,8 @@ export const GET: APIRoute = async ({ url }) => {
             craftName: party!.craftName,
             startIso: party!.startIso,
             durationMinutes: party!.durationMinutes,
+            kind: party!.kind ?? 'weekend',
+            paidOnlineCents: party!.paidOnlineCents ?? null,
             hostName: party!.hostName,
             guestCount: party!.guestCount,
             title: party!.title,

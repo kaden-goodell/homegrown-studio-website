@@ -108,6 +108,8 @@ export const GET: APIRoute = async ({ url, request }) => {
 
   // Booked (reserved) parties — identified by the party service variation id.
   const partyBooked: PartyBookedSlot[] = []
+  // Their lengths too (weeknight parties run 2 hours), for the overlap check.
+  const bookedSpans: { startAt: string; durationMinutes?: number }[] = []
   if (partyVariationId) {
     for (const b of bookings) {
       if (
@@ -116,6 +118,7 @@ export const GET: APIRoute = async ({ url, request }) => {
         inRangeIso(b.slot.startAt)
       ) {
         partyBooked.push({ startAt: b.slot.startAt })
+        bookedSpans.push({ startAt: b.slot.startAt, durationMinutes: b.slot.duration })
       }
     }
   }
@@ -130,7 +133,7 @@ export const GET: APIRoute = async ({ url, request }) => {
   // Parties yield to classes (spec E), then booked parties come off.
   const partyAvailable: PartyAvailabilitySlot[] = removeBooked(
     removeClassBlocked(offeredStarts, allWorkshops.map(classSpanOf)),
-    partyBooked.map((b) => b.startAt)
+    bookedSpans,
   )
     .filter(inRangeIso)
     .map((startAt) => ({ startAt }))

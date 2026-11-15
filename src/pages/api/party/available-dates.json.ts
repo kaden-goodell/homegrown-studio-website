@@ -3,7 +3,8 @@ import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
-import { partyStartsInRange, removeBooked, localDate } from '@lib/party-slots'
+import { partyStartsInRange, removeBooked, localDate, type BookedParty } from '@lib/party-slots'
+import { partyTermsForStart } from '@lib/party-terms'
 import { classSpansOrNone } from '@lib/party-availability'
 import { removeClassBlocked } from '@lib/conflicts'
 import { createLogger } from '@lib/logger'
@@ -35,7 +36,7 @@ export const POST: APIRoute = async ({ request }) => {
     const unblocked = removeClassBlocked(starts, classes)
 
     // Remove starts already booked (one bookings lookup for the whole window).
-    let bookedStarts: string[] = []
+    let bookedStarts: BookedParty[] = []
     if (starts.length > 0 && providers.booking.listBookings) {
       try {
         const bookings = await providers.booking.listBookings({
@@ -49,7 +50,7 @@ export const POST: APIRoute = async ({ request }) => {
               b.status !== 'cancelled' &&
               (!serviceVariationId || b.slot?.serviceVariationId === serviceVariationId)
           )
-          .map((b) => b.slot.startAt)
+          .map((b) => ({ startAt: b.slot.startAt, durationMinutes: b.slot.duration }))
       } catch (err) {
         logger.error('Party booking lookup failed (showing all dates)', {
           error: err instanceof Error ? err.message : String(err),
@@ -59,10 +60,11 @@ export const POST: APIRoute = async ({ request }) => {
 
     // The open times ride along with each date, so picking a date in the
     // panel shows its times at once instead of waiting on a second request.
-    const durationMinutes = partyConfig.durationMinutes
     const times: Record<string, { startAt: string; endAt: string; durationMinutes: number }[]> = {}
     for (const startAt of removeBooked(unblocked, bookedStarts)) {
       const date = localDate(startAt)
+      // Weekend 90 minutes, weeknight 120: each time carries its own length.
+      const { durationMinutes } = partyTermsForStart(startAt)
       ;(times[date] ??= []).push({
         startAt,
         endAt: new Date(new Date(startAt).getTime() + durationMinutes * 60_000).toISOString(),

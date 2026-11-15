@@ -532,6 +532,9 @@ export default function PartyLanding() {
         <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', lineHeight: 1.6, margin: 0 }}>
           {partyContent.deposit.holdLine} {feeShareLine()} {partyContent.deposit.noShowLine}
         </p>
+        <p style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--color-dark)', lineHeight: 1.6, margin: '0.5rem 0 0' }}>
+          {partyContent.kinds.landingLine}
+        </p>
       </div>
 
       {/* How it works */}

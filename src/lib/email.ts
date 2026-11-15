@@ -133,6 +133,8 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
   /** One sentence on refunds for THIS date (see refund-lines.ts). */
   refundLine?: string
   directionsUrl?: string
+  /** A weeknight party: what was paid is a craft credit, not a studio fee, and crafts have this minimum. */
+  craftCredit?: { minimumCents: number }
 }): Promise<{ sent: boolean }> {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
   const fee = dollars(input.totalChargedCents)
@@ -146,11 +148,21 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
     : ''
   // Craft description: keep the guest's paragraph breaks, drop stray CRs.
   const description = (input.craftDescription ?? '').replace(/\r/g, '').trim()
-  const costLine = perPerson
-    ? `Studio fee paid today: ${fee}. ${input.craftName} is ${perPerson} per person, paid at the studio for whoever crafts.`
-    : `Studio fee paid today: ${fee}. Crafts are paid at the studio based on who comes.`
+  const minimum = input.craftCredit ? dollars(input.craftCredit.minimumCents) : ''
+  // Weeknight: no studio fee. What they paid counts toward the crafts.
+  const creditLead = `You paid ${fee} today as a craft credit. It counts toward your crafts, and there’s no studio fee on weeknights.`
+  const creditRest = perPerson
+    ? `${input.craftName} is ${perPerson} per person for whoever crafts, with a ${minimum} minimum. Anything over ${fee} is paid at the studio.`
+    : `Crafts have a ${minimum} minimum. Anything over ${fee} is paid at the studio.`
+  const costLine = input.craftCredit
+    ? `${creditLead} ${creditRest}`
+    : perPerson
+      ? `Studio fee paid today: ${fee}. ${input.craftName} is ${perPerson} per person, paid at the studio for whoever crafts.`
+      : `Studio fee paid today: ${fee}. Crafts are paid at the studio based on who comes.`
   const arriveLine = input.arriveEarlyMinutes ? `Arrive up to ${input.arriveEarlyMinutes} minutes early to set up.` : ''
-  const headcountLine = `About a week before, we'll text you to check your headcount. It's for our prep only: you pay for who comes${input.minGuests ? `, minimum ${input.minGuests}` : ''}.`
+  const headcountLine = input.craftCredit
+    ? `About a week before, we'll text you to check your headcount. It's for our prep only. You pay for who comes, and your ${fee} credit counts toward it.`
+    : `About a week before, we'll text you to check your headcount. It's for our prep only: you pay for who comes${input.minGuests ? `, minimum ${input.minGuests}` : ''}.`
   const noPageLine = `Your party page is being set up. ${phone ? `Text us at ${phone} and we'll send you the link.` : "We'll send you the link."}`
 
   const text = [
@@ -205,7 +217,11 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
   ${arriveLine ? `<p style="${P}">${esc(arriveLine)}</p>` : ''}
   <div style="height:10px;"></div>
   ${descriptionHtml ? `<p style="${LABEL}">About your craft</p>${descriptionHtml}<div style="height:10px;"></div>` : ''}
-  <p style="${P}"><strong>Studio fee paid today: ${esc(fee)}.</strong>${perPerson ? ` ${esc(input.craftName)} is <strong>${esc(perPerson)} per person</strong>, paid at the studio for whoever crafts.` : ' Crafts are paid at the studio based on who comes.'}</p>
+  ${
+    input.craftCredit
+      ? `<p style="${P}"><strong>${esc(creditLead)}</strong> ${esc(creditRest)}</p>`
+      : `<p style="${P}"><strong>Studio fee paid today: ${esc(fee)}.</strong>${perPerson ? ` ${esc(input.craftName)} is <strong>${esc(perPerson)} per person</strong>, paid at the studio for whoever crafts.` : ' Crafts are paid at the studio based on who comes.'}</p>`
+  }
   ${
     input.hostPageUrl
       ? `<div style="margin:18px 0 6px;">

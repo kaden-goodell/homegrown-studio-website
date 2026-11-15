@@ -47,6 +47,6 @@ export async function openPartyStartsInWindow(now: Date = new Date()): Promise<s
   ])
   const booked = bookings
     .filter((b) => b.status !== 'cancelled' && (!variationId || b.slot?.serviceVariationId === variationId))
-    .map((b) => b.slot.startAt)
+    .map((b) => ({ startAt: b.slot.startAt, durationMinutes: b.slot.duration }))
   return removeBooked(offered, booked)
 }

@@ -8,13 +8,15 @@ import NotifyMe from '@components/shared/NotifyMe'
 import type { EmailCheckData } from '@components/shared/EmailCheck'
 import ShareLink from '@components/shared/ShareLink'
 import PartyPriceSummary from './PartyPriceSummary'
+import PartyDateCalendar from './PartyDateCalendar'
 import { partyConfig } from '@config/party.config'
 import { partyContent } from '@config/party-content'
 import { checkoutPolicySummary, POLICY_PATH, POLICY_ANCHORS } from '@config/policy-content'
 import { STUDIO_ADDRESS, STUDIO_ADDRESS_LINE, STUDIO_DIRECTIONS_URL } from '@config/studio-address'
-import { bookableDates, partyStartsForDate } from '@lib/party-slots'
+import { bookableDates, localDate, partyStartsForDate } from '@lib/party-slots'
 import { visibleSteps, stepLabel, stepIndex, nextStep, prevStep, type PartyStepId } from '@lib/party-steps'
 import { partySummary } from '@lib/party-summary'
+import { partyKindOn, partyTermsForStart, type PartyKind } from '@lib/party-terms'
 import { partyRefundLine } from '@lib/refund-lines'
 import { contactIsUsable, contactStarted, EMPTY_CONTACT, type Contact } from '@lib/contact-rules'
 import { formatMoney } from '@lib/money'
@@ -109,12 +111,6 @@ const TEXT_US = partyContent.textNumber
 const COULD_NOT_LOAD = TEXT_US ? `We couldn’t load this. Try again, or text us at ${TEXT_US}.` : 'We couldn’t load this. Please try again.'
 const POLICY_UNTICKED = 'Tick the box to agree to the booking and cancellation policy.'
 
-/** "Sat, Aug 15" from a local YYYY-MM-DD string (built locally to avoid a UTC day shift). */
-function formatDateLabel(ymd: string): string {
-  const [y, m, d] = ymd.split('-').map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-}
-
 /** "$25" for a single price, "$30–$40" when a craft has a price range. */
 function perPersonLabel(minCents: number, maxCents?: number): string {
   return maxCents && maxCents > minCents ? `${formatMoney(minCents)}–${formatMoney(maxCents)}` : formatMoney(minCents)
@@ -196,6 +192,11 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
    * the open dates, or asking to be told when a later date opens.
    */
   const [whenMode, setWhenMode] = useState<'pick' | 'later'>('pick')
+  /**
+   * Weekend or weeknight, chosen first on the date step: the dates shown are
+   * that kind's only. A date or time from a link settles it without asking.
+   */
+  const [partyKind, setPartyKind] = useState<PartyKind | null>(null)
   const [laterMonth, setLaterMonth] = useState('')
 
   // Craft
@@ -364,6 +365,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
     let cancelled = false
     setSelectedDate(date)
+    setPartyKind(partyTermsForStart(initialStart).kind)
     setLoadingSlots(true)
     setSlotsError(false)
     ;(async () => {
@@ -419,6 +421,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
   const summary = partySummary({
     startIso: selectedSlot?.startAt,
+    kind: partyKind ?? undefined,
     craft: selectedCraft,
     guests: people,
     themedTable:
@@ -465,6 +468,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       if (selectedCraft.personalized && !ackPersonalized) return 'Tick the box above to confirm you understand this craft is made to order.'
     }
     if (step === 'when') {
+      if (!partyKind && !selectedDate) return 'Pick a weekend or weeknight party to continue.'
       if (!selectedDate) return 'Pick a date to continue.'
       if (!selectedSlot) return 'Pick a start time to continue.'
     }
@@ -521,6 +525,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     setSlotsError(false)
     setSlotMissed(false)
     setStepProblem('')
+    // A date says which kind of party it is (a ?date= link skips the choice).
+    if (date) setPartyKind(partyKindOn(date))
     if (!date || !info) return
 
     // The times usually came with the dates. Ask only when they didn't.
@@ -537,6 +543,20 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       setSlotsError(true)
     } finally {
       setLoadingSlots(false)
+    }
+  }
+
+  /** Weekend or weeknight. A date of the other kind is let go, so the two never mix. */
+  function chooseKind(kind: PartyKind) {
+    setTouched(true)
+    setStepProblem('')
+    if (kind !== partyKind) trackBookingChoice('party', 'kind', kind)
+    setPartyKind(kind)
+    if (selectedDate && partyKindOn(selectedDate) !== kind) {
+      setSelectedDate('')
+      setSelectedSlot(null)
+      setAvailableSlots([])
+      setSlotMissed(false)
     }
   }
 
@@ -629,7 +649,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             startTime: selectedSlot.startAt,
             serviceVariationId: info.variationId,
             serviceVariationVersion: info.variationVersion,
-            durationMinutes: info.durationMinutes,
+            // The server works the length out from the start; this is for older servers.
+            durationMinutes: selectedSlot.durationMinutes || info.durationMinutes,
             craft: {
               id: selectedCraft.id,
               name: selectedCraft.name,
@@ -747,7 +768,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         heading="You’re booked"
         what={
           <>
-            <strong>{selectedCraft.name}</strong> party, {formatMoney(totalCharged ?? deposit)} studio fee paid.
+            <strong>{selectedCraft.name}</strong> party, {formatMoney(totalCharged ?? deposit)}{' '}
+            {summary.kind === 'weeknight' ? 'craft credit paid. It counts toward your crafts.' : 'studio fee paid.'}
           </>
         }
         email={contact.email.trim()}
@@ -836,8 +858,9 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
           <ConfirmedBlock label="Before the party">
             <p style={{ margin: '0 0 0.5rem' }}>
-              About a week before, we’ll text you to check your headcount. It’s for our prep only: you pay for who comes, minimum{' '}
-              {partyConfig.minGuests}.
+              {summary.kind === 'weeknight'
+                ? `About a week before, we’ll text you to check your headcount. It’s for our prep only. You pay for who comes, and your ${formatMoney(totalCharged ?? deposit)} credit counts toward it.`
+                : `About a week before, we’ll text you to check your headcount. It’s for our prep only: you pay for who comes, minimum ${partyConfig.minGuests}.`}
             </p>
             {selectedCraft.personalized && (
               <p style={{ margin: '0 0 0.5rem' }}>
@@ -1047,7 +1070,26 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     const offered = selectedDate ? partyStartsForDate(selectedDate).length : 0
     const someBooked = !loadingSlots && !slotsError && availableSlots.length > 0 && offered > availableSlots.length
     const onOffer = bookableDates()
-    const allDates = [...availableDates, ...bookedDates.filter((d) => d >= onOffer.first && d <= onOffer.last)].sort()
+    const inWindow = [...availableDates, ...bookedDates.filter((d) => d >= onOffer.first && d <= onOffer.last)]
+    const openCount = (k: PartyKind) => availableDates.filter((d) => partyKindOn(d) === k).length
+    // Only the chosen kind's dates. Until a kind is chosen, none.
+    const allDates = partyKind ? inWindow.filter((d) => partyKindOn(d) === partyKind).sort() : []
+    const kindHasOpen = partyKind ? openCount(partyKind) > 0 : false
+    const kindCard = (active: boolean, disabled: boolean) =>
+      ({
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.125rem',
+        padding: '0.75rem 0.875rem',
+        borderRadius: '0.75rem',
+        border: active ? '2px solid var(--color-primary)' : '1.5px solid var(--color-line)',
+        background: active ? 'rgba(var(--color-primary-rgb), 0.06)' : 'var(--color-surface)',
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.6 : 1,
+        textAlign: 'left',
+        font: 'inherit',
+      }) as const
+    const kinds = partyContent.kinds
 
     return (
       <div>
@@ -1058,11 +1100,6 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               : 'That time was just booked. Nothing was charged. These are still open.'}
           </p>
         )}
-
-        <p style={sectionLabel}>Choose a date</p>
-        <p style={{ ...helpText, marginBottom: '0.75rem' }}>
-          Every party is {partyConfig.durationMinutes} minutes. The whole studio, just your group.
-        </p>
 
         {loadingDates && <p role="status" style={helpText}>Loading dates…</p>}
         {datesError && (
@@ -1088,21 +1125,43 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           </div>
         )}
 
-        {allDates.length > 0 && availableDates.length > 0 && (
-          <div role="group" aria-label="Dates" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(8rem, 1fr))', gap: '0.5rem' }}>
-            {allDates.map((d) => {
-              const open = availableDates.includes(d)
-              return open ? (
-                <button key={d} type="button" aria-pressed={selectedDate === d} onClick={() => chooseDate(d)} style={pillStyle(selectedDate === d)}>
-                  {formatDateLabel(d)}
-                </button>
-              ) : (
-                <button key={d} type="button" disabled style={pillStyle(false, true)}>
-                  {formatDateLabel(d)} · Booked
-                </button>
-              )
-            })}
+        {!loadingDates && !datesError && availableDates.length > 0 && (
+          <div style={{ marginBottom: '1.25rem' }}>
+            <p id={`${formId}-kind`} style={sectionLabel}>{kinds.question}</p>
+            <div role="group" aria-labelledby={`${formId}-kind`} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 12rem), 1fr))', gap: '0.75rem' }}>
+              {(['weekend', 'weeknight'] as const).map((k) => {
+                const none = openCount(k) === 0
+                const copy = kinds[k]
+                return (
+                  <button key={k} type="button" aria-pressed={partyKind === k} disabled={none} onClick={() => chooseKind(k)} style={kindCard(partyKind === k, none)}>
+                    <span style={{ fontWeight: 600, fontSize: '0.9375rem', color: 'var(--color-dark)' }}>{copy.title}</span>
+                    <span style={{ fontSize: '0.875rem', color: 'var(--color-text)' }}>{copy.when}</span>
+                    <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>{none ? kinds.nothingOpen : copy.price}</span>
+                  </button>
+                )
+              })}
+            </div>
           </div>
+        )}
+
+        {partyKind && kindHasOpen && (
+          <>
+            <p style={sectionLabel}>Choose a date</p>
+            <p style={{ ...helpText, marginBottom: '0.75rem' }}>{kinds[partyKind].length}</p>
+          </>
+        )}
+
+        {partyKind && kindHasOpen && (
+          // Keyed by kind: a new kind opens on its own first open month.
+          <PartyDateCalendar
+            key={partyKind}
+            openDates={availableDates.filter((d) => partyKindOn(d) === partyKind)}
+            bookedDates={allDates.filter((d) => !availableDates.includes(d))}
+            selected={selectedDate}
+            onSelect={(d) => chooseDate(d)}
+            today={localDate(new Date().toISOString())}
+            lastDate={onOffer.last}
+          />
         )}
 
         {selectedDate && (
@@ -1305,7 +1364,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               <a href={`${POLICY_PATH}#${POLICY_ANCHORS.parties}`} target="_blank" rel="noopener" style={{ color: 'var(--color-primary)', fontWeight: 600, textDecoration: 'underline' }}>
                 booking and cancellation policy
               </a>
-              . <span style={{ color: 'var(--color-text)' }}>{checkoutPolicySummary.party}.</span>
+              . <span style={{ color: 'var(--color-text)' }}>{summary.kind === 'weeknight' ? checkoutPolicySummary.weeknightParty : checkoutPolicySummary.party}.</span>
             </span>
           </label>
           {policyProblem && (
@@ -1323,7 +1382,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           bookingKind="party"
           ref={paymentFormRef}
           environmentOverride="production"
-          wallet={{ amount: (deposit / 100).toFixed(2), label: 'Hometown Studio party, studio fee', bnpl: true }}
+          wallet={{ amount: (deposit / 100).toFixed(2), label: summary.kind === 'weeknight' ? 'Hometown Studio party, craft credit' : 'Hometown Studio party, studio fee', bnpl: true }}
           onWalletToken={(token) => handlePay(token)}
           // Runs before the wallet sheet opens, so nobody approves in their
           // wallet and then meets a form error. Marks what's missing as it goes.

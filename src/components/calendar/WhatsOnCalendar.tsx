@@ -22,7 +22,8 @@ import {
   trackCalendarEventClick,
   trackCalendarLoadFailed,
 } from '@lib/analytics'
-import { OPEN_WEEKDAYS, closureOn, studioOpenOn, type Holiday } from '@config/closures'
+import { OPEN_WEEKDAYS, closureOn, studioOpenOn } from '@config/closures'
+import { CLOSED_HATCH, HOLIDAY_STRIPES, monthNavStyle } from '@components/calendar/calendar-styles'
 
 /**
  * Month grid day boxes: tall enough for about six one-line items, so a busy day
@@ -145,17 +146,6 @@ const KIND_INK: Record<CalendarEvent['kind'], string> = {
 const colorOf = (e: CalendarEvent) => (e.holiday ? `var(--holiday-${e.holiday})` : KIND_COLORS[e.kind])
 const softOf = (e: CalendarEvent) => (e.holiday ? `var(--holiday-${e.holiday}-soft)` : KIND_SOFT[e.kind])
 const inkOf = (e: CalendarEvent) => (e.holiday ? `var(--holiday-${e.holiday}-ink)` : KIND_INK[e.kind])
-
-/** Stripes for a day closed for a holiday: pumpkin orange, warm brown, or a candy cane. */
-const HOLIDAY_STRIPES: Record<Holiday, string> = {
-  halloween:
-    'repeating-linear-gradient(135deg, color-mix(in srgb, var(--holiday-halloween) 30%, white) 0 7px, color-mix(in srgb, var(--holiday-halloween) 12%, white) 7px 14px)',
-  thanksgiving:
-    'repeating-linear-gradient(135deg, color-mix(in srgb, var(--holiday-thanksgiving) 28%, white) 0 7px, color-mix(in srgb, var(--holiday-thanksgiving) 10%, white) 7px 14px)',
-  christmas:
-    'repeating-linear-gradient(135deg, color-mix(in srgb, var(--holiday-christmas) 38%, white) 0 7px, white 7px 14px)',
-}
-const CLOSED_HATCH = 'repeating-linear-gradient(135deg, rgba(var(--color-primary-rgb),0.045) 0 2px, transparent 2px 9px)'
 
 const KIND_LABELS: Record<CalendarEvent['kind'], string> = {
   workshop: 'Workshop',
@@ -346,25 +336,6 @@ function viewButtonStyle(active: boolean): CSSProperties {
 }
 
 /** The round ‹ › buttons beside the month name. */
-function monthNavStyle(disabled: boolean): CSSProperties {
-  return {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '2.5rem',
-    height: '2.5rem',
-    fontSize: '1.5rem',
-    lineHeight: 1,
-    color: 'var(--color-dark)',
-    background: 'rgba(255,255,255,0.85)',
-    border: '1px solid rgba(var(--color-primary-rgb),0.35)',
-    borderRadius: '9999px',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    boxShadow: disabled ? 'none' : '0 1px 4px rgba(0,0,0,0.06)',
-    opacity: disabled ? 0.35 : 1,
-  }
-}
-
 /** Shown when the calendar, or part of it, did not load. */
 function LoadNotice({ failed, busy, onRetry }: { failed: boolean; busy: boolean; onRetry: () => void }) {
   const retry = (

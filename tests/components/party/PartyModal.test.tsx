@@ -103,13 +103,19 @@ async function pickCraft(name = 'Bubble Letter Keychains') {
   fireEvent.click(title.closest('button')!)
 }
 
+/** The date step opens on "What kind of party?": weekend or weeknight. */
+async function chooseKind(kind: 'Weekend' | 'Weeknight' = 'Weekend') {
+  fireEvent.click(await screen.findByRole('button', { name: new RegExp(`^${kind}`) }))
+}
+
 async function toWhen() {
   await pickCraft()
   next()
-  await screen.findByRole('button', { name: 'Sat, Nov 7' })
+  await chooseKind()
+  await screen.findByRole('button', { name: 'Saturday, November 7, 2026' })
 }
 
-async function toGuests(day = 'Sat, Nov 7', time = '1:30 PM') {
+async function toGuests(day = 'Saturday, November 7, 2026', time = '1:30 PM') {
   await toWhen()
   fireEvent.click(screen.getByRole('button', { name: day }))
   fireEvent.click(await screen.findByRole('button', { name: time }))
@@ -170,7 +176,7 @@ describe('PartyModal — the craft step', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/made to order/)
     fireEvent.click(screen.getByRole('checkbox'))
     next()
-    expect(await screen.findByText('Choose a date')).toBeInTheDocument()
+    expect(await screen.findByText('What kind of party?')).toBeInTheDocument()
   })
 
   describe('a craft that arrives from a craft card or a shared link', () => {
@@ -202,11 +208,159 @@ describe('PartyModal — the craft step', () => {
   })
 })
 
+describe('PartyModal — weekend or weeknight', () => {
+  // Monday 9 Nov 2026: one weeknight party, 6:00 to 8:00 PM Central (CST, UTC-6).
+  const MON = '2026-11-09'
+  const MON_6 = { startAt: '2026-11-10T00:00:00.000Z', endAt: '2026-11-10T02:00:00.000Z', durationMinutes: 120 }
+  const withWeeknight = () => {
+    answers['available-dates'] = {
+      body: { data: { dates: [SAT, SUN, MON], bookedDates: [], times: { [SAT]: [SAT_1], [SUN]: [SUN_1], [MON]: [MON_6] }, windowDays: 90 } },
+    }
+  }
+
+  it('asks what kind of party first, and shows no dates until one is picked', async () => {
+    withWeeknight()
+    open()
+    await pickCraft()
+    next()
+    expect(await screen.findByText('What kind of party?')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Weekend/ })).toHaveTextContent('Fri–Sun$300 studio fee + crafts')
+    expect(screen.getByRole('button', { name: /^Weeknight/ })).toHaveTextContent('Mon–Wed, 6–8 PMNo studio fee · $300 minimum')
+    expect(screen.queryByRole('button', { name: 'Saturday, November 7, 2026' })).toBeNull()
+    next()
+    expect(screen.getByRole('alert')).toHaveTextContent('Pick a weekend or weeknight party to continue.')
+  })
+
+  it('shows only that kind’s dates, and switching lets go of a date of the other kind', async () => {
+    withWeeknight()
+    open()
+    await pickCraft()
+    next()
+    await chooseKind('Weeknight')
+    expect(screen.getByRole('button', { name: 'Monday, November 9, 2026' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Saturday, November 7, 2026' })).toBeNull()
+    expect(screen.getByText('Weeknight parties are 2 hours, 6–8 PM. The whole studio, just your group.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Monday, November 9, 2026' }))
+    expect(screen.getByRole('button', { name: '6:00 PM' })).toBeInTheDocument()
+    await chooseKind('Weekend')
+    expect(screen.queryByRole('button', { name: '6:00 PM' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Saturday, November 7, 2026' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Monday, November 9, 2026' })).toBeNull()
+  })
+
+  it('marks a kind with nothing open, and it cannot be picked', async () => {
+    open()
+    await pickCraft()
+    next()
+    const weeknight = await screen.findByRole('button', { name: /^Weeknight/ })
+    expect(weeknight).toHaveTextContent('Nothing open right now')
+    expect(weeknight).toBeDisabled()
+  })
+
+  it('a weeknight party pays $300 as a craft credit, books 2 hours, and says so when booked', async () => {
+    withWeeknight()
+    open()
+    await pickCraft()
+    next()
+    await chooseKind('Weeknight')
+    fireEvent.click(screen.getByRole('button', { name: 'Monday, November 9, 2026' }))
+    fireEvent.click(screen.getByRole('button', { name: '6:00 PM' }))
+    next()
+    await screen.findByText('About how many guests?')
+    const summary = screen.getByRole('region', { name: 'Price summary' })
+    expect(summary).toHaveTextContent('Craft credit, holds Mon, Nov 9 at 6:00 PM$300')
+    expect(summary).toHaveTextContent('No studio fee on weeknights.')
+    expect(summary).toHaveTextContent('Left to pay at the studio$0')
+    expect(summary).toHaveTextContent('Estimated party totalabout $300')
+    expect(summary).not.toHaveTextContent('Studio fee')
+    next()
+    await screen.findByTestId('payment-form')
+    expect(screen.getByText(/your \$300 counts toward crafts/)).toBeInTheDocument()
+    await pay('Nov 9')
+    await screen.findByText('You’re booked')
+    const body = JSON.parse(requestsTo('book')[0][1].body)
+    expect(body.startTime).toBe(MON_6.startAt)
+    expect(body.durationMinutes).toBe(120)
+    expect(screen.getByText(/craft credit paid\. It counts toward your crafts\./)).toBeInTheDocument()
+  })
+
+  it('a ?date= link to a weeknight skips the choice: that kind is picked, the date chosen', async () => {
+    withWeeknight()
+    answers.availability = { body: { data: { slots: [MON_6] } } }
+    open({ initialDate: MON })
+    await pickCraft()
+    next()
+    expect(await screen.findByRole('button', { name: /^Weeknight/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Monday, November 9, 2026' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '6:00 PM' })).toBeInTheDocument()
+  })
+})
+
+describe('PartyModal — the month calendar', () => {
+  async function toCalendar() {
+    open()
+    await pickCraft()
+    next()
+    await chooseKind()
+    return screen.findByRole('group', { name: 'Dates in November 2026' })
+  }
+
+  it('opens on the month of the first open date, weeks starting on Monday', async () => {
+    const grid = await toCalendar()
+    expect(screen.getByText('November 2026')).toBeInTheDocument()
+    // Nov 2026 starts on a Sunday: six blank Monday-to-Saturday cells first.
+    const cells = Array.from(grid.children)
+    expect(cells.slice(0, 6).every((c) => c.textContent === '')).toBe(true)
+    expect(cells[6].textContent).toBe('1')
+  })
+
+  it('only open dates are buttons; other days are faded, not tappable', async () => {
+    const grid = await toCalendar()
+    expect(within(grid).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Saturday, November 7, 2026',
+      'Sunday, November 8, 2026',
+    ])
+    expect(within(grid).getByText('5')).not.toHaveAttribute('role')
+  })
+
+  it('pages from this month to the last month of the booking window, and no further', async () => {
+    await toCalendar()
+    const prev = screen.getByRole('button', { name: 'Previous month' })
+    const nextMonth = screen.getByRole('button', { name: 'Next month' })
+    fireEvent.click(prev)
+    fireEvent.click(prev)
+    expect(screen.getByText('September 2026')).toBeInTheDocument()
+    expect(prev).toBeDisabled()
+    for (let i = 0; i < 4; i++) fireEvent.click(nextMonth)
+    // Today is 27 Sep; 90 days out is 26 Dec.
+    expect(screen.getByText('December 2026')).toBeInTheDocument()
+    expect(nextMonth).toBeDisabled()
+  })
+
+  it('shows a closure as closed (the Christmas holidays)', async () => {
+    await toCalendar()
+    fireEvent.click(screen.getByRole('button', { name: 'Next month' }))
+    expect(screen.getByRole('img', { name: 'Monday, December 21, 2026, closed for the Christmas holidays' })).toBeInTheDocument()
+  })
+
+  it('a ?date= link opens on that date’s month with it picked', async () => {
+    const DEC = '2026-12-05'
+    const DEC_1 = slot('2026-12-05T20:00:00.000Z')
+    answers['available-dates'] = { body: { data: { dates: [SAT, DEC], bookedDates: [], times: { [SAT]: [SAT_1], [DEC]: [DEC_1] }, windowDays: 90 } } }
+    answers.availability = { body: { data: { slots: [DEC_1] } } }
+    open({ initialDate: DEC })
+    await pickCraft()
+    next()
+    expect(await screen.findByText('December 2026')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Saturday, December 5, 2026' })).toHaveAttribute('aria-pressed', 'true')
+  })
+})
+
 describe('PartyModal — dates and times', () => {
   it('shows the times for a date at once, from what came with the dates', async () => {
     open()
     await toWhen()
-    fireEvent.click(screen.getByRole('button', { name: 'Sat, Nov 7' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Saturday, November 7, 2026' }))
     expect(screen.getByRole('button', { name: '1:30 PM' })).toBeInTheDocument()
     expect(requestsTo('availability')).toHaveLength(0)
   })
@@ -217,14 +371,15 @@ describe('PartyModal — dates and times', () => {
     open()
     await pickCraft()
     next()
-    expect(await screen.findByRole('button', { name: 'Sat, Nov 7 · Booked' })).toBeDisabled()
+    await chooseKind()
+    expect(await screen.findByRole('button', { name: 'Saturday, November 7, 2026, booked' })).toBeDisabled()
   })
 
   it('counts only booked times: "1 of 2 times still open"', async () => {
     // Sunday offers 1:00 and 3:30; only 1:00 is left.
     open()
     await toWhen()
-    fireEvent.click(screen.getByRole('button', { name: 'Sun, Nov 8' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sunday, November 8, 2026' }))
     expect(screen.getByText('1 of 2 times still open')).toBeInTheDocument()
   })
 
@@ -234,7 +389,8 @@ describe('PartyModal — dates and times', () => {
     open()
     await pickCraft()
     next()
-    fireEvent.click(await screen.findByRole('button', { name: 'Sun, Nov 8' }))
+    await chooseKind()
+    fireEvent.click(await screen.findByRole('button', { name: 'Sunday, November 8, 2026' }))
     expect(screen.getByRole('button', { name: '1:00 PM' })).toBeInTheDocument()
     expect(screen.queryByText(/times still open/)).toBeNull()
   })
@@ -244,7 +400,7 @@ describe('PartyModal — dates and times', () => {
     await toWhen()
     next()
     expect(screen.getByRole('alert')).toHaveTextContent('Pick a date to continue.')
-    fireEvent.click(screen.getByRole('button', { name: 'Sun, Nov 8' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sunday, November 8, 2026' }))
     next()
     expect(screen.getByRole('alert')).toHaveTextContent('Pick a start time to continue.')
   })
@@ -265,8 +421,8 @@ describe('PartyModal — dates and times', () => {
       open()
       await toLater()
       expect(screen.getByLabelText('Email address')).toBeInTheDocument()
-      expect(screen.queryByRole('group', { name: 'Dates' })).toBeNull()
-      expect(screen.queryByRole('button', { name: 'Sat, Nov 7' })).toBeNull()
+      expect(screen.queryByRole('group', { name: /^Dates in/ })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Saturday, November 7, 2026' })).toBeNull()
       expect(screen.queryByText('Choose a date')).toBeNull()
     })
 
@@ -297,7 +453,7 @@ describe('PartyModal — dates and times', () => {
     it('goes back to the open dates, with a date chosen earlier still chosen', async () => {
       open()
       await toWhen()
-      fireEvent.click(screen.getByRole('button', { name: 'Sat, Nov 7' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Saturday, November 7, 2026' }))
       fireEvent.click(screen.getByRole('button', { name: '1:30 PM' }))
       fireEvent.click(screen.getByRole('button', { name: 'Planning something later?' }))
 
@@ -314,7 +470,7 @@ describe('PartyModal — dates and times', () => {
       open()
       await toLater()
       fireEvent.click(screen.getByRole('button', { name: /^←?\s*Back$/ }))
-      expect(screen.getByRole('group', { name: 'Dates' })).toBeInTheDocument()
+      expect(screen.getByRole('group', { name: 'Dates in November 2026' })).toBeInTheDocument()
       expect(screen.getByText('Date and time')).toBeInTheDocument()
     })
 
@@ -347,7 +503,8 @@ describe('PartyModal — dates and times', () => {
     expect(alert).toHaveTextContent('We couldn’t load this. Try again, or text us at (256) 464-1710.')
     answers['available-dates'] = { body: { data: { dates: [SAT], bookedDates: [], times: { [SAT]: [SAT_1] } } } }
     fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
-    expect(await screen.findByRole('button', { name: 'Sat, Nov 7' })).toBeInTheDocument()
+    await chooseKind()
+    expect(await screen.findByRole('button', { name: 'Saturday, November 7, 2026' })).toBeInTheDocument()
   })
 
   it('skips the date step when a calendar link carried a time that is still open', async () => {
@@ -521,7 +678,7 @@ describe('PartyModal — paying', () => {
     answers.book = { status: 409, body: { code: 'slot_taken', detail: 'That time was just booked by someone else.' } }
     answers.availability = { body: { data: { slots: [SUN_3] } } }
     open()
-    await toPay('Sun, Nov 8', '1:00 PM')
+    await toPay('Sunday, November 8, 2026', '1:00 PM')
     await pay('Nov 8')
 
     expect(await screen.findByText('That time was just booked. Nothing was charged. These are still open.')).toBeInTheDocument()
@@ -634,7 +791,7 @@ describe('PartyModal — leaving', () => {
   it('asks first once a date has been chosen', async () => {
     const { onClose } = open()
     await toWhen()
-    fireEvent.click(screen.getByRole('button', { name: 'Sat, Nov 7' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Saturday, November 7, 2026' }))
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(onClose).not.toHaveBeenCalled()
     const prompt = screen.getByRole('alertdialog')

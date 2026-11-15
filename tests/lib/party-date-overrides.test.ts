@@ -49,9 +49,9 @@ describe('Thursday and Friday parties', () => {
     expect(partyStartsForDate('2026-11-19', now)).toEqual([])
   })
 
-  it('never on Monday to Wednesday', () => {
-    expect(partyStartsForDate('2026-11-09', now)).toEqual([])
-    expect(partyStartsForDate('2026-11-10', now)).toEqual([])
-    expect(partyStartsForDate('2026-11-11', now)).toEqual([])
+  it('Monday to Wednesday get one weeknight party, at 6:00 (Nov 2026)', () => {
+    expect(partyStartsForDate('2026-11-09', now)).toEqual(['2026-11-10T00:00:00.000Z'])
+    expect(partyStartsForDate('2026-11-10', now)).toEqual(['2026-11-11T00:00:00.000Z'])
+    expect(partyStartsForDate('2026-11-11', now)).toEqual(['2026-11-12T00:00:00.000Z'])
   })
 })

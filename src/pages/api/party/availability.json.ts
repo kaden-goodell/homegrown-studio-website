@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
-import { partyConfig } from '@config/party.config'
+import { partyTermsForStart } from '@lib/party-terms'
 import { partyStartsForDate } from '@lib/party-slots'
 import { openPartyStarts, classSpansOrNone } from '@lib/party-availability'
 import { removeClassBlocked } from '@lib/conflicts'
@@ -53,12 +53,15 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       openStarts = removeClassBlocked(candidates, await classSpansOrNone(startIso, endIso))
     }
 
-    const durationMinutes = partyConfig.durationMinutes
-    const slots = openStarts.map((startAt) => ({
-      startAt,
-      endAt: new Date(new Date(startAt).getTime() + durationMinutes * 60_000).toISOString(),
-      durationMinutes,
-    }))
+    // Weekend 90 minutes, weeknight 120: each time carries its own length.
+    const slots = openStarts.map((startAt) => {
+      const { durationMinutes } = partyTermsForStart(startAt)
+      return {
+        startAt,
+        endAt: new Date(new Date(startAt).getTime() + durationMinutes * 60_000).toISOString(),
+        durationMinutes,
+      }
+    })
 
     logger.info('Party availability complete', {
       duration_ms: Date.now() - startTime,

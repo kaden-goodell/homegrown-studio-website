@@ -43,13 +43,18 @@ beforeEach(() => {
 })
 
 describe('openPartyStartsInWindow', () => {
-  it('lists the party days (Fri–Sun) inside the booking window, and nothing past it', async () => {
+  it('lists the party days (Fri–Sun, and Mon–Wed weeknights) inside the booking window, and nothing past it', async () => {
     const starts = await openPartyStartsInWindow(NOW)
     const open = days(starts)
     // Parties start the weekend of 7 Nov; Sat 7 Nov itself is the Craft Café grand opening (no parties).
     expect(open[0]).toBe('2026-11-08')
     // Nov 13–15 is a Craft Café weekend: only Saturday's 4:30 survives (café 9–2).
-    expect(open.slice(0, 5)).toEqual(['2026-11-08', '2026-11-14', '2026-11-20', '2026-11-21', '2026-11-22'])
+    // Mon–Wed weeknights (one 6:00 party each) run in between; Thursdays never.
+    expect(open.slice(0, 9)).toEqual([
+      '2026-11-08', '2026-11-09', '2026-11-10', '2026-11-11', '2026-11-14',
+      '2026-11-16', '2026-11-17', '2026-11-18', '2026-11-20',
+    ])
+    expect(open.some((d) => new Date(`${d}T12:00:00Z`).getUTCDay() === 4)).toBe(false)
     // The window ends Fri 8 Jan, a party day itself (4:30); nothing later.
     expect(open[open.length - 1]).toBe('2027-01-08')
     expect(open.every((d) => d <= '2027-01-08')).toBe(true)

@@ -1,10 +1,12 @@
 /**
- * Single source of truth for party pricing: $300 flat base + per-head craft cost,
+ * Single source of truth for party pricing: the day's terms (weekend $300 studio
+ * fee + crafts; weeknight crafts only, $300 minimum; see party-terms.ts) + per-head craft cost,
  * with tiered volume discounts on the craft portion (see partyConfig.priceBreakTiers).
  * Used by the booking modal (live total), the calendar, and the server (order line items)
  * so they can never disagree.
  */
 import { partyConfig } from '../config/party.config'
+import { partyEstimateCents, termsForKind, type PartyTerms } from './party-terms'
 
 /** Discount % for a single guest at 1-based index `i` (guest 1, 2, 3, ...). */
 function discountPctForGuestIndex(i: number): number {
@@ -46,6 +48,7 @@ export function craftTotalCents(perHeadCents: number, people: number): number {
   return craftBreakdown('', perHeadCents, people).reduce((s, l) => s + l.unitCents * l.qty, 0)
 }
 
-export function partyTotalCents(perHeadCents: number, people: number): number {
-  return partyConfig.basePriceCents + craftTotalCents(perHeadCents, people)
+/** The whole party: fee + crafts (weekend), or crafts with the minimum (weeknight). Defaults to weekend terms. */
+export function partyTotalCents(perHeadCents: number, people: number, terms: PartyTerms = termsForKind('weekend')): number {
+  return partyEstimateCents(terms, craftTotalCents(perHeadCents, people))
 }

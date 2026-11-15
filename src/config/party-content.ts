@@ -13,11 +13,28 @@ export interface FaqEntry {
 }
 
 import { formatMoney } from '@lib/money'
-import { partyConfig } from './party.config'
+import { partyConfig, partyDays } from './party.config'
 import { policyWindows } from './policy-content'
 
 /** "$300" — every mention of the studio fee derives from partyConfig.basePriceCents. */
 const FEE = formatMoney(partyConfig.basePriceCents)
+
+/** "$300" — the weeknight minimum, also what a weeknight party pays online as a craft credit. */
+const WEEKNIGHT_MIN = formatMoney(partyConfig.weeknightMinimumCents)
+
+/** "6–8 PM" from the weeknight schedule (first start + party length). */
+function weeknightHours(): string {
+  const night = partyDays[1]
+  const [h, m] = night.firstStart.split(':').map(Number)
+  const endMin = h * 60 + m + (night.durationMinutes ?? partyConfig.durationMinutes)
+  const fmt = (mins: number) => {
+    const hh = Math.floor(mins / 60) % 12 || 12
+    const mm = mins % 60
+    return mm ? `${hh}:${String(mm).padStart(2, '0')}` : String(hh)
+  }
+  return `${fmt(h * 60 + m)}–${fmt(endMin)} PM`
+}
+const WEEKNIGHT_HOURS = weeknightHours()
 
 /** Policy windows (HOM-78) — all cancellation copy derives from these. */
 const REFUND_DAYS = policyWindows.partyFullRefundDays
@@ -64,6 +81,33 @@ export const partyContent = {
       `Free reschedule with ${RESCHED_HOURS} hours’ notice. Cancel ${REFUND_DAYS}+ days out for a full refund — closer in, your fee becomes studio credit that never expires.` as string,
   },
 
+  /**
+   * Weekend or weeknight: the first choice on the date step, and the one
+   * mention of weeknights on /book. Weeknights are NOT in the studio's opening
+   * hours (hours.ts); they live only in the party flow.
+   */
+  kinds: {
+    question: 'What kind of party?',
+    weekend: {
+      title: 'Weekend',
+      when: 'Fri–Sun',
+      price: `${FEE} studio fee + crafts`,
+      length: `Weekend parties are ${partyConfig.durationMinutes} minutes. The whole studio, just your group.`,
+    },
+    weeknight: {
+      title: 'Weeknight',
+      when: `Mon–Wed, ${WEEKNIGHT_HOURS}`,
+      price: `No studio fee · ${WEEKNIGHT_MIN} minimum`,
+      length: `Weeknight parties are 2 hours, ${WEEKNIGHT_HOURS}. The whole studio, just your group.`,
+    },
+    nothingOpen: 'Nothing open right now',
+    /** On the host's party page, for a weeknight party. */
+    hostCreditLine: (paidCents: number) =>
+      `Weeknight party. Your ${formatMoney(paidCents)} craft credit is paid and counts toward your crafts on the day.`,
+    /** Under the value band on /book. */
+    landingLine: `Weeknight parties run Monday to Wednesday, ${WEEKNIGHT_HOURS}. No studio fee, just crafts, with a ${WEEKNIGHT_MIN} minimum. The ${WEEKNIGHT_MIN} you pay to book counts toward your crafts.`,
+  },
+
   /** Business number (Quo, set up Jul 2026). Empty = every "text us" element is hidden. */
   textNumber: '(256) 464-1710' as string,
 
@@ -78,12 +122,16 @@ export const partyContent = {
       a: `A flat ${FEE} studio fee reserves the entire studio for your group — that’s all you pay when you book. Each guest’s craft is paid at the studio on the day. Each craft has its own per-person price, shown when you pick one.`,
     },
     {
+      q: 'Do you have weeknight parties?',
+      a: `Yes. Monday to Wednesday, ${WEEKNIGHT_HOURS}, one party a night. There’s no studio fee on weeknights. You pay only for crafts, with a ${WEEKNIGHT_MIN} minimum. The ${WEEKNIGHT_MIN} you pay when you book is a craft credit, so it counts toward your crafts, and anything over that is paid at the studio on the day.`,
+    },
+    {
       q: 'What if some guests can’t make it?',
       a: `You pay for crafts for the people who actually come, with a ${partyConfig.minGuests}-craft minimum (parties are for groups of ${partyConfig.minGuests} or more). Beyond the minimum, your guest count is just an estimate — no-shows never cost you anything. We’ll check in about ${LOCK_DAYS} days before the party to confirm your expected headcount so we can prep.`,
     },
     {
       q: 'How long is a party and how many people can I bring?',
-      a: `Parties are ${partyConfig.durationMinutes} minutes in the studio with ${partyConfig.minGuests} to ${partyConfig.maxGuests} guests. The whole space is yours for the entire time.`,
+      a: `Parties are ${partyConfig.durationMinutes} minutes in the studio with ${partyConfig.minGuests} to ${partyConfig.maxGuests} guests. The whole space is yours for the entire time. Weeknight parties are 2 hours.`,
     },
     {
       q: 'Is there a minimum party size?',

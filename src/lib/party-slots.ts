@@ -4,11 +4,13 @@
  * half-hour anchors (e.g. 11:30, 4:30) and per-day windows are possible. Square is
  * only consulted for existing bookings, to drop slots that are already taken.
  *
- * Schedule: starts step by (durationMinutes + cleanupBufferMinutes) from each day's
- * `firstStart`, while start + party + cleanup ≤ `lastWrap` (keeps the evening
- * workshop slot clear). See `partyDays` in party.config.ts.
+ * Schedule: starts step by (that day's party length + cleanupBufferMinutes) from
+ * each day's `firstStart`, while start + party + cleanup ≤ `lastWrap` (keeps the
+ * evening workshop slot clear). See `partyDays` in party.config.ts; the length
+ * per day comes from `partyTermsOn` (weekend 90, weeknight 120).
  */
-import { partyConfig, partyDays, partyDateOverrides, CAFE_PARTY_GAP_MINUTES } from '../config/party.config'
+import { partyConfig, partyDateOverrides, CAFE_PARTY_GAP_MINUTES } from '../config/party.config'
+import { partyDayOn, partyTermsOn, partyTermsForStart } from './party-terms'
 import { cafeHoursOn } from '../config/hours'
 import { cafeRunsOn } from './cafe-days'
 import { closureOn } from '../config/closures'
@@ -64,10 +66,6 @@ function minutesOfDay(hhmm: string): number {
   return h * 60 + m
 }
 
-/** Occupancy of one party (party + cleanup) in ms — used for overlap checks. */
-function occupancyMs(): number {
-  return (partyConfig.durationMinutes + partyConfig.cleanupBufferMinutes) * 60_000
-}
 
 /** Studio-local YYYY-MM-DD, `days` after the studio's today. */
 function studioDatePlus(days: number, now: Date): string {
@@ -116,12 +114,11 @@ export function bookableOn(
  */
 export function partyStartsForDate(ymd: string, now: Date = new Date()): string[] {
   if (bookableOn(ymd, now) !== 'ok') return []
-  const [y, m, d] = ymd.split('-').map(Number)
-  const weekday = new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()
-  const cfg = partyDateOverrides[ymd] ?? partyDays[weekday]
+  const cfg = partyDayOn(ymd)
   if (!cfg) return []
 
-  const step = partyConfig.durationMinutes + partyConfig.cleanupBufferMinutes
+  const length = partyTermsOn(ymd).durationMinutes
+  const step = length + partyConfig.cleanupBufferMinutes
   const first = minutesOfDay(cfg.firstStart)
   const wrap = minutesOfDay(cfg.lastWrap)
 
@@ -139,7 +136,7 @@ export function partyStartsForDate(ymd: string, now: Date = new Date()): string[
     const closes = Date.parse(localToUtcISO(ymd, cafe.closes)) + gap
     return out.filter((iso) => {
       const start = Date.parse(iso)
-      const end = start + partyConfig.durationMinutes * 60_000
+      const end = start + length * 60_000
       return end <= opens || start >= closes
     })
   }
@@ -164,15 +161,27 @@ export function partyStartsInRange(startIso: string, endIso: string, now: Date =
   return out.sort()
 }
 
+/** A booked party: its start, and its length when the booking says (else that day's usual length). */
+export type BookedParty = string | { startAt: string; durationMinutes?: number | null }
+
 /**
- * Drop starts whose party+cleanup window overlaps any already-booked start.
- * Bookings are normally at offered starts, but overlap keeps manual bookings safe.
+ * Drop starts whose party+cleanup window overlaps any already-booked party
+ * (and its cleanup). Each side uses its own length, so a 2-hour weeknight
+ * party and a 90-minute weekend one are both measured right. Bookings are
+ * normally at offered starts, but overlap keeps manual bookings safe.
  */
-export function removeBooked(starts: string[], bookedStartIsos: string[]): string[] {
-  const occupy = occupancyMs()
-  const booked = bookedStartIsos.map((b) => new Date(b).getTime())
+export function removeBooked(starts: string[], booked: BookedParty[]): string[] {
+  const buffer = partyConfig.cleanupBufferMinutes * 60_000
+  const spans = booked.map((b) => {
+    const startAt = typeof b === 'string' ? b : b.startAt
+    const own = typeof b === 'string' ? undefined : b.durationMinutes
+    const minutes = own && own > 0 ? own : partyTermsForStart(startAt).durationMinutes
+    const start = new Date(startAt).getTime()
+    return { start, end: start + minutes * 60_000 }
+  })
   return starts.filter((s) => {
     const cs = new Date(s).getTime()
-    return !booked.some((bs) => cs < bs + occupy && bs < cs + occupy)
+    const ce = cs + partyTermsForStart(s).durationMinutes * 60_000
+    return !spans.some((b) => cs < b.end + buffer && b.start < ce + buffer)
   })
 }

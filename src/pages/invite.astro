@@ -3,7 +3,7 @@ export const prerender = false
 
 import Layout from '@layouts/Layout.astro'
 import { inviteContent as c } from '@config/invite-content'
-import { partyConfig } from '@config/party.config'
+import { partyTermsForStart } from '@lib/party-terms'
 import { googleCalendarUrl, buildIcs, icsDataUrl, addMinutesIso, partyInviteIcsUrl } from '@lib/party-share'
 import { getPartyRecord, type PartyRecord } from '@lib/party-store'
 import { formatWhen } from '@lib/studio-time'
@@ -54,7 +54,7 @@ if (start && !isPast) {
   const event = {
     title: title ? `${title} — Hometown Studio` : `${craft} Party — Hometown Studio`,
     startIso: start,
-    endIso: addMinutesIso(start, partyConfig.durationMinutes),
+    endIso: addMinutesIso(start, record?.durationMinutes ?? partyTermsForStart(start).durationMinutes),
     // Invitee's calendar event links back to the invitation / RSVP page.
     details: `We're making ${craft} at Hometown Studio.\n\nInvitation & RSVP: ${Astro.url.href}`,
     location: c.where,

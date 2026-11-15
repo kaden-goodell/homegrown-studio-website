@@ -13,6 +13,7 @@ import type { EventKind, StudioEvent } from '@lib/events'
 import type { IncidentRecord } from '@lib/incident-store'
 import { picksShort, prepOptions } from '@lib/seat-options'
 import type { RosterChoices } from '@lib/seat-choices'
+import { weeknightRegisterNote } from '@lib/party-register'
 
 const ICON: Record<EventKind, string> = { party: '🎉', workshop: '🧵', program: '🌙' }
 
@@ -293,6 +294,17 @@ export default function Roster({
             </div>
           ))}
         </div>
+
+        {(() => {
+          const pay = kind === 'party' ? weeknightRegisterNote(event.partyPay, coming) : null
+          return pay ? (
+            <div data-testid="register-note" style={{ marginTop: '0.9rem', padding: '0.7rem 0.9rem', borderRadius: '0.7rem', background: 'rgba(var(--color-primary-rgb),0.07)', textAlign: 'left' }}>
+              <p style={{ margin: 0, fontWeight: 700, color: 'var(--color-dark)' }}>💵 {pay.headline}</p>
+              <p style={{ margin: '0.3rem 0 0', fontSize: '0.9rem', color: 'var(--color-dark)' }}>{pay.how}</p>
+              {pay.estimate && <p style={{ margin: '0.3rem 0 0', fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-dark)' }}>{pay.estimate}</p>}
+            </div>
+          ) : null
+        })()}
 
         {incidents.length > 0 && (
           <div style={{ display: 'flex', justifyContent: 'center', marginTop: '0.7rem' }}>

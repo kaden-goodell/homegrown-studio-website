@@ -15,6 +15,7 @@
  * scripts/create-class.ts too (tsx resolves the @ aliases).
  */
 import { partyConfig } from '@config/party.config'
+import { partyTermsForStart } from '@lib/party-terms'
 import { formatDay, formatTime } from '@lib/studio-time'
 
 const MINUTE_MS = 60_000
@@ -67,10 +68,13 @@ export function classSpanOf(w: { scheduleId: string; name: string; startAt: stri
   }
 }
 
-/** A party from a booking. A booking with no length counts as one standard party. */
+/**
+ * A party from a booking, for its real length. A booking with no length counts
+ * as that day's usual party (weekend 90 minutes, weeknight 120).
+ */
 export function partySpanOf(b: { id: string; slot: { startAt: string; duration?: number } }, hostName?: string): PartySpan {
   const start = Date.parse(b.slot.startAt)
-  const minutes = b.slot.duration && b.slot.duration > 0 ? b.slot.duration : partyConfig.durationMinutes
+  const minutes = b.slot.duration && b.slot.duration > 0 ? b.slot.duration : partyTermsForStart(b.slot.startAt).durationMinutes
   return {
     id: b.id,
     startIso: new Date(start).toISOString(),
@@ -82,7 +86,7 @@ export function partySpanOf(b: { id: string; slot: { startAt: string; duration?:
 /** The class that rules out a party starting at `partyStartIso` (less than the cleanup gap from it, either side), or null. */
 export function classBlocksParty(partyStartIso: string, classes: ClassSpan[]): ClassSpan | null {
   const start = Date.parse(partyStartIso)
-  const party: Interval = { start, end: start + partyConfig.durationMinutes * MINUTE_MS }
+  const party: Interval = { start, end: start + partyTermsForStart(partyStartIso).durationMinutes * MINUTE_MS }
   return classes.find((c) => overlaps(party, intervalOf(c), partyConfig.cleanupBufferMinutes)) ?? null
 }
 

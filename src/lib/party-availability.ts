@@ -87,7 +87,7 @@ export async function openPartyStarts(date: string, serviceVariationId?: string)
         b.status !== 'cancelled' &&
         (!serviceVariationId || b.slot?.serviceVariationId === serviceVariationId)
     )
-    .map((b) => b.slot.startAt)
+    .map((b) => ({ startAt: b.slot.startAt, durationMinutes: b.slot.duration }))
 
   return removeBooked(clear, bookedStarts)
 }

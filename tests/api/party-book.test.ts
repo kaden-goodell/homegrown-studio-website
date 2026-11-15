@@ -118,7 +118,8 @@ async function enableThemedTables() {
 
 function makeBody(overrides: Record<string, any> = {}) {
   return {
-    startTime: '2026-09-01T16:00:00.000Z',
+    // Saturday 2:00 PM Central: a weekend party (studio fee). Weeknights are tested on their own.
+    startTime: '2026-11-21T20:00:00.000Z',
     serviceVariationId: 'var-abc',
     serviceVariationVersion: 1234567890,
     durationMinutes: 150,
@@ -668,6 +669,56 @@ describe('POST /api/party/book.json', () => {
     expect(mockCreateBooking).toHaveBeenCalledTimes(1)
     const callArg = mockCreateBooking.mock.calls[0][0]
     expect(callArg).not.toHaveProperty('orderIdRef')
+  })
+
+  // ── Weekend or weeknight: worked out on the server from the start time ────
+  describe('weekend and weeknight terms', () => {
+    // Monday 16 Nov 2026, 6:00 PM Central (CST, UTC-6): a weeknight party.
+    const MONDAY_6PM = '2026-11-17T00:00:00.000Z'
+
+    it('a weekend party charges the studio fee, books the 90-minute length, and ignores the length the browser sent', async () => {
+      const res = await POST(createMockContext(makeBody({ durationMinutes: 999 })))
+      expect(res.status).toBe(200)
+      expect(mockCreateBooking.mock.calls[0][0].durationMinutes).toBe(partyConfig.durationMinutes)
+      const order = mockCreateOrder.mock.calls[0][0]
+      expect(order.lineItems).toEqual([{ name: 'Whole Studio Party — studio fee', quantity: 1, pricePerUnit: partyConfig.basePriceCents }])
+      expect(mockProcessPayment.mock.calls[0][0].amount).toBe(partyConfig.basePriceCents)
+    })
+
+    it('a weeknight party charges $300 as a craft credit, labelled so, and books 2 hours', async () => {
+      mockCreateOrder.mockResolvedValue(makeMockOrder(partyConfig.weeknightMinimumCents))
+      const res = await POST(createMockContext(makeBody({ startTime: MONDAY_6PM, durationMinutes: 90 })))
+      expect(res.status).toBe(200)
+      expect(mockCreateBooking.mock.calls[0][0]).toMatchObject({ slotId: MONDAY_6PM, durationMinutes: 120 })
+      const order = mockCreateOrder.mock.calls[0][0]
+      expect(order.lineItems).toEqual([
+        { name: 'Weeknight Party, craft credit (counts toward your crafts)', quantity: 1, pricePerUnit: 30000 },
+      ])
+      expect(mockProcessPayment.mock.calls[0][0].amount).toBe(30000)
+      // The email says it is a credit, and the calendar entry runs 6 to 8.
+      const email = sendPartyConfirmationEmail.mock.calls[0][0]
+      expect(email.craftCredit).toEqual({ minimumCents: partyConfig.weeknightMinimumCents })
+      expect(email.icsContent).toContain('DTEND:20261117T020000Z')
+    })
+
+    it('a weeknight party record keeps its kind, its length and what was paid', async () => {
+      mockCreateOrder.mockResolvedValue(makeMockOrder(30000))
+      const { savePartyRecord } = await import('@lib/party-store')
+      await POST(createMockContext(makeBody({ startTime: MONDAY_6PM })))
+      expect(vi.mocked(savePartyRecord).mock.calls[0][0]).toMatchObject({
+        kind: 'weeknight',
+        durationMinutes: 120,
+        paidOnlineCents: 30000,
+        craftPerHeadCents: 2000,
+      })
+    })
+
+    it('still books when an older page sends no length at all', async () => {
+      const body = makeBody()
+      delete (body as any).durationMinutes
+      const res = await POST(createMockContext(body))
+      expect(res.status).toBe(200)
+    })
   })
 
   // ── (5) serviceVariationVersion: 0 passes validation

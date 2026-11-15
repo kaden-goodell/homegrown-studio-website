@@ -15,6 +15,7 @@ import { cleanAttribution } from '@lib/attribution'
 import { reportBooking } from '@lib/posthog-server'
 import { isStartOpen, studioDateOf, bookingHeldBy } from '@lib/party-availability'
 import { bookableOn } from '@lib/party-slots'
+import { partyTermsForStart, type PartyTerms } from '@lib/party-terms'
 import { partyRefundLine } from '@lib/refund-lines'
 import { STUDIO_DIRECTIONS_URL } from '@config/studio-address'
 import { attemptKey, chargeOutcomeOf, isAttemptId, squareErrorCodes, type CheckoutErrorCode } from '@lib/checkout-attempt'
@@ -47,7 +48,7 @@ interface ResolvedTheme {
 }
 
 /** Build + persist the party record for the host's management view. Returns hostToken or null. */
-async function persistParty(bookingId: string, body: BookRequest, theme?: ResolvedTheme, simulated = false): Promise<string | null> {
+async function persistParty(bookingId: string, body: BookRequest, terms: PartyTerms, theme?: ResolvedTheme, simulated = false): Promise<string | null> {
   // Sent by the browser, so never trusted as-is.
   const attribution = cleanAttribution((body as { attribution?: unknown }).attribution)
   // A retried checkout reaches here a second time for the same booking. Keep
@@ -65,7 +66,11 @@ async function persistParty(bookingId: string, body: BookRequest, theme?: Resolv
     hostToken,
     craftName: body.craft?.name ?? 'Craft party',
     startIso: body.startTime,
-    durationMinutes: body.durationMinutes ?? null,
+    // From the server's terms for this start, never the browser's.
+    durationMinutes: terms.durationMinutes,
+    kind: terms.kind,
+    paidOnlineCents: terms.chargeNowCents,
+    craftPerHeadCents: Math.max(0, Math.floor(Number(body.craft?.perHeadCents) || 0)),
     hostName: [body.customer.firstName, body.customer.lastName].filter(Boolean).join(' '),
     hostEmail: body.customer.email,
     hostPhone: body.customer.phone,
@@ -104,7 +109,8 @@ interface BookRequest {
   startTime: string
   serviceVariationId: string
   serviceVariationVersion: number
-  durationMinutes: number
+  /** Sent by older pages; ignored. The length comes from the start's terms. */
+  durationMinutes?: number
   craft: {
     id: string
     name: string
@@ -175,7 +181,6 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   // --- Validation ---
   if (
     !body.startTime ||
-    !body.durationMinutes ||
     !body.serviceVariationId ||
     body.serviceVariationVersion == null
   ) {
@@ -215,6 +220,12 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
           : partyMessages.not_open
     return errorResponse(detail, 409, 'not_open')
   }
+
+  // Weekend or weeknight, worked out here from the start time, never taken
+  // from the browser: the length booked, what is charged, and how the charge
+  // is labelled (studio fee, or a craft credit that counts toward the crafts).
+  const terms = partyTermsForStart(body.startTime)
+  const chargeCents = terms.chargeNowCents
 
   // Resolve the optional themed-table add-on server-side (client sends only
   // themeId + serves). Never trust a client price or variation id.
@@ -270,12 +281,12 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     // Only a mock gift-card token is checked under bypass, so the short path
     // can be tried on previews. Nothing is held yet, so nothing to release.
     if (body.sourceKind === 'gift_card' && String(body.paymentToken).startsWith('mock-gift')) {
-      const refusal = await giftCardRefusal(body.paymentToken, partyConfig.basePriceCents + (theme?.priceCents ?? 0))
+      const refusal = await giftCardRefusal(body.paymentToken, chargeCents + (theme?.priceCents ?? 0))
       if (refusal) return refusal
     }
     logger.info('Payment bypass active — returning synthetic party booking')
     const bookingId = `dev_${Date.now().toString(36)}`
-    const hostToken = await persistParty(bookingId, body, theme, true)
+    const hostToken = await persistParty(bookingId, body, terms, theme, true)
     // Send the real confirmation email too (no-ops without GMAIL_* creds) so
     // the whole flow — including the email — is testable locally. Beware: with
     // creds in .env this sends an ACTUAL email to whatever address you typed.
@@ -291,7 +302,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const bypassCalEvent = {
       title: `${body.craft.name} — Party at Hometown Studio`,
       startIso: body.startTime,
-      endIso: addMinutesIso(body.startTime, body.durationMinutes),
+      endIso: addMinutesIso(body.startTime, terms.durationMinutes),
       details: `Your private party at Hometown Studio.\n\nInvitation link for guests: ${bypassInviteUrl}`,
       location: inviteContent.where,
     }
@@ -307,13 +318,14 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
           slotLabel: theme ? `${bypassSlotLabel} — with ${theme.displayName}` : bypassSlotLabel,
           hostPageUrl: `${bypassOrigin}/party/${encodeURIComponent(bookingId)}?key=${encodeURIComponent(hostToken)}`,
           inviteUrl: bypassInviteUrl,
-          totalChargedCents: partyConfig.basePriceCents + (theme?.priceCents ?? 0),
+          totalChargedCents: chargeCents + (theme?.priceCents ?? 0),
           receiptUrl: null,
           googleCalendarUrl: googleCalendarUrl(bypassCalEvent),
           icsContent: buildIcs(bypassCalEvent),
           bookingRef: bookingId,
           bookingId,
           agreementLine: await agreementLineFor(body.customer.email),
+          ...(terms.chargeIsCraftCredit ? { craftCredit: { minimumCents: terms.minimumCents } } : {}),
         })
       : { sent: false }
     return new Response(
@@ -323,7 +335,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
           hostToken,
           orderId: `dev_order_${Date.now().toString(36)}`,
           receiptUrl: null,
-          totalCharged: partyConfig.basePriceCents + (theme?.priceCents ?? 0),
+          totalCharged: chargeCents + (theme?.priceCents ?? 0),
           emailSent: bypassEmailSent,
           customer: { id: 'dev-customer' },
           emailCheck: {
@@ -398,7 +410,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     // its first charge may already have spent the card, and the payment lookup
     // below decides that case.
     if (body.sourceKind === 'gift_card' && !resumed) {
-      const refusal = await giftCardRefusal(body.paymentToken, partyConfig.basePriceCents + (theme?.priceCents ?? 0))
+      const refusal = await giftCardRefusal(body.paymentToken, chargeCents + (theme?.priceCents ?? 0))
       if (refusal) return refusal
     }
 
@@ -486,7 +498,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         teamMemberId: partyConfig.square.defaultTeamMemberId,
         serviceVariationId: body.serviceVariationId,
         serviceVariationVersion: body.serviceVariationVersion,
-        durationMinutes: body.durationMinutes,
+        durationMinutes: terms.durationMinutes,
       })
     } catch (err) {
       logger.error('createBooking failed — slot may be gone', {
@@ -526,11 +538,14 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     // table package when one is added; unlike the take-home kit it carries no
     // rental deposit — the pieces never leave the studio). The per-head craft
     // cost is settled in person based on actual attendance.
+    // Weeknight: the same amount, but it is a craft credit, not a fee.
     const lineItems = [
       {
-        name: 'Whole Studio Party — studio fee',
+        name: terms.chargeIsCraftCredit
+          ? 'Weeknight Party, craft credit (counts toward your crafts)'
+          : 'Whole Studio Party — studio fee',
         quantity: 1,
-        pricePerUnit: partyConfig.basePriceCents,
+        pricePerUnit: chargeCents,
       },
       ...(theme
         ? [{ catalogObjectId: theme.variationId, name: `Themed Table — ${theme.displayName}`, quantity: 1, pricePerUnit: theme.priceCents }]
@@ -549,7 +564,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 
       // Studio fee (+ themed-table package, when added) — guard against a
       // divergent amount. Both sides move together with the package line item.
-      const expectedTotal = partyConfig.basePriceCents + (theme?.priceCents ?? 0)
+      const expectedTotal = chargeCents + (theme?.priceCents ?? 0)
       if (order.totalAmount !== expectedTotal) {
         logger.error('Party order total mismatch', {
           orderId: order.id,
@@ -686,7 +701,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     }
 
     // Step 5: Persist party record + send confirmation email.
-    const hostToken = await persistParty(booking.id, body, theme)
+    const hostToken = await persistParty(booking.id, body, terms, theme)
 
     const origin = new URL(request.url).origin
     // No party page (the record could not be saved): say so, and tell a person.
@@ -708,7 +723,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const calEvent = {
       title: `${body.craft.name} — Party at Hometown Studio`,
       startIso: body.startTime,
-      endIso: addMinutesIso(body.startTime, body.durationMinutes),
+      endIso: addMinutesIso(body.startTime, terms.durationMinutes),
       details: `Your private party at Hometown Studio.\n\nInvitation link for guests: ${inviteUrl}`,
       location: inviteContent.where,
     }
@@ -736,12 +751,13 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       minGuests: partyConfig.minGuests,
       refundLine: partyRefundLine(body.startTime),
       directionsUrl: STUDIO_DIRECTIONS_URL,
+      ...(terms.chargeIsCraftCredit ? { craftCredit: { minimumCents: terms.minimumCents } } : {}),
     })
 
     await announceBooking({
       kind: 'party',
       who: `${body.customer.firstName} ${body.customer.lastName}`,
-      what: `${body.craft.name} party, about ${body.people} guests`,
+      what: `${body.craft.name} ${terms.kind === 'weeknight' ? 'weeknight ' : ''}party, about ${body.people} guests`,
       when: slotLabel,
       paidCents: Number(order.totalAmount ?? 0),
       email: body.customer.email,
@@ -767,6 +783,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         days_ahead: Math.round((Date.parse(body.startTime) - Date.now()) / 86_400_000),
         expected_craft_revenue: (body.craft.perHeadCents * body.people) / 100,
         paid_with: body.sourceKind ?? 'card',
+        party_kind: terms.kind,
         ...(theme ? { themed_table: theme.displayName } : {}),
       },
     })

@@ -22,6 +22,15 @@ export interface PartyRecord {
   craftName: string
   startIso: string
   durationMinutes: number | null
+  /**
+   * Weekend (studio fee + crafts) or weeknight (crafts only, the online
+   * payment is a craft credit). Added Nov 2026; older records are weekend.
+   */
+  kind?: 'weekend' | 'weeknight'
+  /** What was charged online to book, in cents (studio fee or craft credit). Added Nov 2026. */
+  paidOnlineCents?: number
+  /** The craft's per-person price at booking, in cents, for the register estimate. Added Nov 2026. */
+  craftPerHeadCents?: number
   hostName: string
   hostEmail: string
   /** Host's phone — the studio's day-of contact channel. Added 2026-09; older

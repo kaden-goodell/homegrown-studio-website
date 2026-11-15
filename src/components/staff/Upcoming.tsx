@@ -3,6 +3,8 @@ import StaffHeader from '@components/staff/StaffHeader'
 import { type HouseholdMatch } from '@components/staff/DoorSearch'
 import { card, btn, Badge } from '@components/staff/ui'
 import { formatWhen, studioDate } from '@lib/studio-time'
+import { formatMoney } from '@lib/money'
+import { partyConfig } from '@config/party.config'
 import { addDays } from '@lib/kit-dates'
 import EventList from '@components/staff/EventList'
 import type { StaffMember } from '@lib/staff-auth'
@@ -19,6 +21,9 @@ interface PartyRow {
   rsvpHouseholds: number
   rsvpPeople: number
   themeName: string | null
+  /** Absent on an older server: weekend. */
+  kind?: 'weekend' | 'weeknight'
+  paidOnlineCents?: number
 }
 
 /**
@@ -84,6 +89,7 @@ export default function Upcoming({
               <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
                 <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{p.title || `${p.craftName} Party`}</span>
                 {p.themeName && <Badge tone="muted">🎀 {p.themeName}</Badge>}
+                {p.kind === 'weeknight' && <Badge tone="muted">Weeknight · {formatMoney(p.paidOnlineCents ?? partyConfig.weeknightMinimumCents)} paid toward crafts</Badge>}
               </span>
               <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{formatWhen(p.startIso)}</span>
             </div>

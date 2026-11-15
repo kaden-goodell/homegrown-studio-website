@@ -7,6 +7,7 @@
  * never as an event here.
  */
 import { getPartyRecord, listParties, type PartyRecord } from '@lib/party-store'
+import { partyTermsForStart, termsForKind } from '@lib/party-terms'
 import { providers } from '@config/providers'
 import type { Workshop } from '@providers/interfaces/workshop'
 import { getEventMeta, type EventMeta } from '@lib/event-meta'
@@ -42,6 +43,11 @@ export interface StudioEvent {
   capacity?: number
   /** Guests the host booked (parties only). */
   guests?: number
+  /**
+   * How a party settles at the register (parties only). Weeknight parties paid
+   * a craft credit online that comes off the crafts; weekend ones a studio fee.
+   */
+  partyPay?: { kind: 'weekend' | 'weeknight'; paidOnlineCents: number; perHeadCents?: number }
   /** Present only when an event-meta override exists for this event. */
   updatedAt?: string
   by?: By
@@ -85,6 +91,17 @@ async function findWorkshop(id: string): Promise<Workshop | null> {
   return list.find((w) => w.scheduleId === id) ?? null
 }
 
+/** Older records carry no kind: read it from the date, as the booking did. */
+function partyPayOf(p: PartyRecord): NonNullable<StudioEvent['partyPay']> {
+  const terms = partyTermsForStart(p.startIso)
+  const kind = p.kind ?? terms.kind
+  return {
+    kind,
+    paidOnlineCents: p.paidOnlineCents ?? (kind === terms.kind ? terms.chargeNowCents : termsForKind(kind).chargeNowCents),
+    ...(p.craftPerHeadCents ? { perHeadCents: p.craftPerHeadCents } : {}),
+  }
+}
+
 function partyEvent(id: string, p: PartyRecord, meta: EventMeta | null): StudioEvent {
   return {
     kind: 'party',
@@ -98,6 +115,7 @@ function partyEvent(id: string, p: PartyRecord, meta: EventMeta | null): StudioE
     options: [],
     signupCutoffHours: null,
     ...(typeof p.guestCount === 'number' ? { guests: p.guestCount } : {}),
+    partyPay: partyPayOf(p),
     ...(meta ? { updatedAt: meta.updatedAt, by: meta.by } : {}),
   }
 }
