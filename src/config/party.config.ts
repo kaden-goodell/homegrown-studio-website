@@ -48,11 +48,11 @@ export const partyConfig = {
   /** Minimum party size — the picker, copy, and server validation all derive from this. */
   minGuests: 10,
   /** Hard guest cap for any bookable event (studio room capacity). */
-  maxGuests: 30,
+  maxGuests: 35,
   /** Default guest estimate — anchors the party at a realistic size, not 1. */
   defaultGuests: 10,
   /** One-tap guest counts offered before the fine-tune stepper. */
-  guestQuickPicks: [10, 15, 20, 25, 30],
+  guestQuickPicks: [10, 15, 20, 25, 30, 35],
   /** Weekend party length. A weekday in partyDays can set its own (weeknights are 120). */
   durationMinutes: 90,
   /** How early a host may arrive to set up, in minutes (Kaden, 27 Sep 2026). */

@@ -547,13 +547,13 @@ describe('PartyModal — the price', () => {
     expect(screen.getByRole('region', { name: 'Price summary' })).toHaveTextContent('about 16 guests × $20about $320')
   })
 
-  it('never goes below 10 or above 30 guests', async () => {
+  it('never goes below 10 or above 35 guests', async () => {
     open()
     await toGuests()
     expect(screen.getByRole('button', { name: 'Fewer guests' })).toBeDisabled()
-    for (let i = 0; i < 25; i++) fireEvent.click(screen.getByRole('button', { name: 'More guests' }))
+    for (let i = 0; i < 30; i++) fireEvent.click(screen.getByRole('button', { name: 'More guests' }))
     expect(screen.getByRole('button', { name: 'More guests' })).toBeDisabled()
-    expect(screen.getByText('30 guests is the most the studio holds.')).toBeInTheDocument()
+    expect(screen.getByText('35 guests is the most the studio holds.')).toBeInTheDocument()
   })
 
   it('shows the same summary on the payment step, names the date on the button, and states the refund terms', async () => {
