@@ -78,7 +78,8 @@ export const CAFE_SPECIAL_DAYS: CafeSpecialDay[] = [
   { date: '2026-12-04', opens: '16:00', closes: '20:00', name: 'Craft Café' },
   { date: '2026-12-05', opens: '09:00', closes: '18:00', name: 'Craft Café' },
   { date: '2026-12-11', opens: '16:00', closes: '20:00', name: 'Craft Café' },
-  { date: '2026-12-12', opens: '09:00', closes: '18:00', name: 'Craft Café' },
+  // Kaden, 15 Nov 2026: café closes at 3 on Dec 12 to set up the 5:30 private event.
+  { date: '2026-12-12', opens: '09:00', closes: '15:00', name: 'Craft Café' },
   { date: '2026-12-18', opens: '16:00', closes: '20:00', name: 'Craft Café' },
   { date: '2026-12-19', opens: '09:00', closes: '18:00', name: 'Craft Café' },
 ]

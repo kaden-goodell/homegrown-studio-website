@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro'
 import { bookingsOpen } from '@lib/bookings-gate'
 import { OPENING_DATE, GRAND_OPENING_DATE } from '@config/opening'
 import { closures, closureOn, daysOf, reopensOn } from '@config/closures'
+import { privateEvents } from '@config/private-events'
 import { longDate } from '@lib/notify-context'
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
@@ -165,6 +166,19 @@ export const GET: APIRoute = async ({ url, request }) => {
       // Not bookable, but tappable: it leads to the homepage.
       bookable: false,
       href: '/',
+    })
+  }
+  // Private events taken by hand: a plain "Private Event" row at its time.
+  for (const p of privateEvents) {
+    if (p.date < OPENING_DATE || !inRange(p.date)) continue
+    events.push({
+      id: `private-${p.date}-${p.startTime}`,
+      kind: 'event',
+      title: 'Private Event',
+      date: p.date,
+      startTime: p.startTime,
+      endTime: p.endTime,
+      bookable: false,
     })
   }
   // Days the studio has closed: a row on every one of them, so a whole

@@ -24,7 +24,7 @@ const EXPECTED_CAFE: Record<string, { opens: string; closes: string }[]> = {
   '2026-12-04': [{ opens: '16:00', closes: '20:00' }],
   '2026-12-05': [{ opens: '09:00', closes: '18:00' }],
   '2026-12-11': [{ opens: '16:00', closes: '20:00' }],
-  '2026-12-12': [{ opens: '09:00', closes: '18:00' }],
+  '2026-12-12': [{ opens: '09:00', closes: '15:00' }],
   '2026-12-18': [{ opens: '16:00', closes: '20:00' }],
   '2026-12-19': [{ opens: '09:00', closes: '18:00' }],
 }

@@ -225,6 +225,13 @@ describe('GET /api/calendar.json', () => {
     expect(cafe).toEqual(['2026-12-19'])
   })
 
+  it('shows a private event taken by hand as "Private Event" at its time, with no details', async () => {
+    const { body } = await getMonth('2026-12')
+    expect(body.events.filter((e: any) => String(e.id).startsWith('private-'))).toEqual([
+      { id: 'private-2026-12-12-17:30', kind: 'event', title: 'Private Event', date: '2026-12-12', startTime: '17:30', endTime: '21:00', bookable: false },
+    ])
+  })
+
   it('says the studio is closed on every day of a closure, in the holiday\'s colours', async () => {
     const closedIn = async (month: string) =>
       (await getMonth(month)).body.events.filter((e: any) => String(e.id).startsWith('closed-'))
