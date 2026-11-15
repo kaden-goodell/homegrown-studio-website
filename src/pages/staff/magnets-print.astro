@@ -1,11 +1,12 @@
 ---
-// src/pages/admin/magnets-print.astro
+// src/pages/staff/magnets-print.astro
 export const prerender = false
-import { adminAuthorized } from '@lib/admin-auth'
+import { staffAuthorized } from '@lib/staff-auth'
 import { getOrder, isReference, productOf } from '@lib/magnet-orders'
 import { layoutSheets, framePolygon, printItems, SHEET, EDGE_LABEL, PHOTO_BLEED } from '@lib/magnet-sheet'
 
-if (!adminAuthorized(Astro.request)) return Astro.redirect('/admin')
+// Anyone signed in at /staff can print orders (Kaden, 15 Nov 2026).
+if (!staffAuthorized(Astro.request)) return Astro.redirect('/staff')
 // ?id=M-XXXXXX (one order) or ?ids=M-AAA,M-BBB (a batch, printed back to back)
 const wanted = (Astro.url.searchParams.get('ids') ?? Astro.url.searchParams.get('id') ?? '').split(',').map((s) => s.trim()).filter(isReference).slice(0, 30)
 // magnet sheets only; silhouettes print one by one from their order card
@@ -15,7 +16,7 @@ const orders = found.filter((o) => !o.photosDeletedAt)
 const skipped = found.filter((o) => o.photosDeletedAt)
 const pages = layoutSheets(printItems(orders))
 const poly = framePolygon().map(([x, y]) => `${x},${y}`).join(' ')
-const src = (draftId: string, photoId: string) => `/api/admin/magnet-photo?draft=${draftId}&photo=${photoId}`
+const src = (draftId: string, photoId: string) => `/api/staff/shop-photo?draft=${draftId}&photo=${photoId}`
 const magnets = orders.reduce((n, o) => n + o.magnets.length, 0)
 ---
 <!doctype html>

@@ -27,7 +27,7 @@ export function weeknightRegisterNote(
   const terms = { ...termsForKind('weeknight'), chargeNowCents: pay.paidOnlineCents }
   const note: RegisterNote = {
     headline: `Weeknight party · ${paid} already paid toward crafts`,
-    how: `Ring up the crafts, then take off the ${paid} already paid. Collect what’s left. If the crafts come to ${formatMoney(terms.minimumCents)} or less, there’s nothing more to collect.`,
+    how: `Ring up the crafts, then tap the Weeknight craft credit discount. Collect what’s left. If the crafts come to ${formatMoney(terms.minimumCents)} or less, there’s nothing more to collect.`,
   }
   if (pay.perHeadCents && crafting > 0) {
     const crafts = pay.perHeadCents * crafting

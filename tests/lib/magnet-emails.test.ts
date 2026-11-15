@@ -25,9 +25,9 @@ describe('magnet emails', () => {
     expect(msg.text).toContain('7 days')
   })
   it('tells the owners with an admin link', async () => {
-    await sendMagnetOwnerNotice(o, 'https://ourhometownstudio.com/admin')
+    await sendMagnetOwnerNotice(o, 'https://ourhometownstudio.com/staff')
     expect(send.mock.calls.length).toBeGreaterThan(0)
-    expect(send.mock.calls[0][0].text).toContain('https://ourhometownstudio.com/admin')
+    expect(send.mock.calls[0][0].text).toContain('https://ourhometownstudio.com/staff')
   })
   it('sends ready for pickup and shipped notices only', async () => {
     expect((await sendMagnetStatusEmail(o, 'ready')).sent).toBe(true)
@@ -61,7 +61,7 @@ describe('silhouette emails', () => {
     expect(send.mock.calls[0][0].text).toMatch(/decorate the frame/i)
   })
   it('tells the owners it is a silhouette order', async () => {
-    await sendMagnetOwnerNotice(two, 'https://x/admin')
+    await sendMagnetOwnerNotice(two, 'https://x/staff')
     expect(send.mock.calls[0][0].subject).toBe('New silhouette order M-ABC234')
     expect(send.mock.calls[0][0].text).toContain('2 silhouettes')
   })

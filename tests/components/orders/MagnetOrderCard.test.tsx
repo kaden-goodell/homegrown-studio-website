@@ -1,7 +1,7 @@
-// tests/components/admin/MagnetOrderCard.test.tsx
+// tests/components/orders/MagnetOrderCard.test.tsx
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { MagnetOrderCard } from '@components/admin/MagnetOrderCard'
+import { MagnetOrderCard } from '@components/orders/MagnetOrderCard'
 import type { MagnetOrder } from '@lib/magnet-status'
 
 const o: MagnetOrder = { id: 'M-ABC234', createdAt: '2026-11-09T18:00:00.000Z', status: 'new', draftId: '0f8fad5b-d9cb-469f-a165-70867728950e', sets: 1,
@@ -12,7 +12,7 @@ describe('MagnetOrderCard', () => {
   it('shows the order, a Print link and only the pickup statuses', () => {
     render(<MagnetOrderCard order={o} onMove={vi.fn()} />)
     expect(screen.getByText(/M-ABC234/)).toBeTruthy()
-    expect(screen.getByRole('link', { name: /print/i }).getAttribute('href')).toBe('/admin/magnets-print?id=M-ABC234')
+    expect(screen.getByRole('link', { name: /print/i }).getAttribute('href')).toBe('/staff/magnets-print?id=M-ABC234')
     expect(screen.queryByRole('button', { name: 'Shipped' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Ready for pickup' })).toBeTruthy()
   })

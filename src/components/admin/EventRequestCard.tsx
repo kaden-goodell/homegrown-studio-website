@@ -4,7 +4,7 @@ import {
   label, kindLabel, whenLabel, crafterLabel, extrasLines, type EventRequest, type RequestStatus,
 } from '@lib/event-request-options'
 import { formatCalendarDay } from '@lib/studio-time'
-import { StatusPills } from './StatusPills'
+import { StatusPills } from '@components/shared/StatusPills'
 
 const PILLS = STATUSES.map((s) => [s, STATUS_LABEL[s]] as [RequestStatus, string])
 

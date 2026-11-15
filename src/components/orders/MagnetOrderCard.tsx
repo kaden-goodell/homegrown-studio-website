@@ -1,14 +1,14 @@
-// src/components/admin/MagnetOrderCard.tsx
-import { StatusPills } from '@components/admin/StatusPills'
+// src/components/orders/MagnetOrderCard.tsx
+import { StatusPills } from '@components/shared/StatusPills'
 import { STATUS_LABEL, PICKUP_STATUSES as PICKUP, SHIP_STATUSES as SHIP, productOf, itemsLabel, type MagnetOrder, type MagnetStatus } from '@lib/magnet-status'
-import { SilhouettePrintButton } from '@components/admin/SilhouettePrintButton'
+import { SilhouettePrintButton } from '@components/orders/SilhouettePrintButton'
 import { formatMoney } from '@lib/money'
 
 export function MagnetOrderCard({ order: o, onMove }: { order: MagnetOrder; onMove: (id: string, s: MagnetStatus) => void }) {
   const when = new Date(o.createdAt).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
   const unique = [...new Set(o.magnets)]
   const sil = productOf(o) === 'silhouettes'
-  const photo = (p: string) => `/api/admin/magnet-photo?draft=${o.draftId}&photo=${p}`
+  const photo = (p: string) => `/api/staff/shop-photo?draft=${o.draftId}&photo=${p}`
   return (
     <article className="glass rounded-2xl" style={{ padding: '1.25rem', display: 'grid', gap: '0.6rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
@@ -43,7 +43,7 @@ export function MagnetOrderCard({ order: o, onMove }: { order: MagnetOrder; onMo
               <img key={p} src={photo(p)} alt="" loading="lazy" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 4 }} />
             ))}
           </div>
-          <a className="btn btn-primary" href={`/admin/magnets-print?id=${o.id}`} target="_blank" rel="noopener" style={{ justifySelf: 'start' }}>Print</a>
+          <a className="btn btn-primary" href={`/staff/magnets-print?id=${o.id}`} target="_blank" rel="noopener" style={{ justifySelf: 'start' }}>Print</a>
         </>
       )}
     </article>

@@ -1,5 +1,5 @@
 import { STATUSES, STATUS_LABEL, topicLabel, type ContactMessage, type MessageStatus } from '@lib/contact-options'
-import { StatusPills } from './StatusPills'
+import { StatusPills } from '@components/shared/StatusPills'
 
 const PILLS = STATUSES.map((s) => [s, STATUS_LABEL[s]] as [MessageStatus, string])
 

@@ -1,4 +1,4 @@
-// src/components/admin/SilhouettePrintButton.tsx
+// src/components/orders/SilhouettePrintButton.tsx
 import { useEffect, useRef, useState } from 'react'
 
 /**

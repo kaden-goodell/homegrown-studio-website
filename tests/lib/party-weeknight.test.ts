@@ -153,7 +153,7 @@ describe('the register note for staff', () => {
     const note = weeknightRegisterNote({ kind: 'weeknight', paidOnlineCents: 30000, perHeadCents: 2000 }, 18)
     expect(note).toEqual({
       headline: 'Weeknight party · $300 already paid toward crafts',
-      how: 'Ring up the crafts, then take off the $300 already paid. Collect what’s left. If the crafts come to $300 or less, there’s nothing more to collect.',
+      how: 'Ring up the crafts, then tap the Weeknight craft credit discount. Collect what’s left. If the crafts come to $300 or less, there’s nothing more to collect.',
       estimate: '18 crafting at $20 makes $360 in crafts. Collect $60.',
     })
     expect(weeknightRegisterNote({ kind: 'weeknight', paidOnlineCents: 30000, perHeadCents: 2000 }, 12)?.estimate).toBe(

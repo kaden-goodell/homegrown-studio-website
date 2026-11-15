@@ -71,7 +71,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     amounts: { subtotalCents: quote.subtotalCents, taxCents: quote.taxCents, shippingCents: quote.shippingCents, totalCents: quote.totalCents },
     doneAt: null, photosDeletedAt: null, emailed: {}, ...over,
   })
-  const adminUrl = `${new URL(request.url).origin}/admin`
+  // Anyone signed in at /staff prints orders, from its Orders tab.
+  const adminUrl = `${new URL(request.url).origin}/staff`
   const finish = async (saved: MagnetOrder, receiptUrl: string | null) => {
     const { sent } = await sendMagnetConfirmation(saved).catch(() => ({ sent: false }))
     await sendMagnetOwnerNotice(saved, adminUrl).catch(() => ({ sent: false }))

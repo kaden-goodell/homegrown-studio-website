@@ -12,6 +12,7 @@ import SwitchPersonSheet from '@components/staff/SwitchPersonSheet'
 import { readDayParam, writeDayParam } from '@components/staff/EventList'
 import { StaffNavContext, type StaffNav, type StaffTab } from '@components/staff/nav'
 import GiftCards from '@components/staff/GiftCards'
+import ShopOrders from '@components/staff/ShopOrders'
 import Roster from '@components/staff/Roster'
 import type { HouseholdMatch } from '@components/staff/DoorSearch'
 import { card, btn, field, Badge } from '@components/staff/ui'
@@ -259,7 +260,7 @@ function identifyStaff(staff: StaffMember): void {
 }
 
 export default function StaffConsole() {
-  const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'week' | 'today' | 'upcoming' | 'roster' | 'kits' | 'giftcards'>('checking')
+  const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'week' | 'today' | 'upcoming' | 'roster' | 'kits' | 'giftcards' | 'orders'>('checking')
   // Which list a roster was opened from, so its Back and the active tab match.
   const [lastList, setLastList] = useState<'week' | 'today' | 'upcoming'>('week')
   const [kitBuckets, setKitBuckets] = useState<KitBuckets | null>(null)
@@ -270,6 +271,21 @@ export default function StaffConsole() {
   const [staffRoster, setStaffRoster] = useState<StaffMember[]>([])
   const [switchOpen, setSwitchOpen] = useState(false)
   const [me, setMe] = useState<StaffMember | null>(null)
+  // New shop orders, for the Orders tab's "(2 new)". Asked once on sign-in;
+  // the Orders screen keeps it current while it is open.
+  const [newOrders, setNewOrders] = useState(0)
+  useEffect(() => {
+    if (!me) return
+    let live = true
+    fetch('/api/staff/shop-orders.json', { cache: 'no-store' })
+      .then((r) => (r && r.ok ? r.json() : null))
+      .then((j) => {
+        const list = j?.data?.orders
+        if (live && Array.isArray(list)) setNewOrders(list.filter((o: { status?: string }) => o.status === 'new').length)
+      })
+      .catch(() => undefined)
+    return () => { live = false }
+  }, [me?.id])
   const [pickBusy, setPickBusy] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
   const [pickAuthFailed, setPickAuthFailed] = useState(false)
@@ -464,7 +480,7 @@ export default function StaffConsole() {
     </div>
   )
 
-  const activeTab: StaffTab = phase === 'roster' ? lastList : phase === 'week' || phase === 'upcoming' || phase === 'kits' || phase === 'giftcards' ? phase : 'today'
+  const activeTab: StaffTab = phase === 'roster' ? lastList : phase === 'week' || phase === 'upcoming' || phase === 'kits' || phase === 'giftcards' || phase === 'orders' ? phase : 'today'
   const nav: StaffNav = {
     active: activeTab,
     go: (tab) => {
@@ -475,6 +491,7 @@ export default function StaffConsole() {
     },
     switchStaff,
     logout,
+    newCounts: { orders: newOrders },
   }
   const withNav = (node: ReactNode) => (
     <StaffNavContext.Provider value={nav}>
@@ -504,6 +521,10 @@ export default function StaffConsole() {
 
   if (phase === 'giftcards') {
     return withNav(<GiftCards staff={me} />)
+  }
+
+  if (phase === 'orders') {
+    return withNav(<ShopOrders staff={me} onNewCount={setNewOrders} />)
   }
 
   if (phase === 'roster' && rosterTarget) {

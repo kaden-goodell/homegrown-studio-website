@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { MagnetBatchPrint } from '@components/admin/MagnetBatchPrint'
+import { MagnetBatchPrint } from '@components/orders/MagnetBatchPrint'
 import type { MagnetOrder } from '@lib/magnet-status'
 
 const order = (id: string, n: number, status: MagnetOrder['status'] = 'new'): MagnetOrder => ({
@@ -18,14 +18,14 @@ describe('MagnetBatchPrint', () => {
   it('ticks every new order and links them as one batch', () => {
     render(<MagnetBatchPrint orders={[order('M-AAAAAA', 6), order('M-BBBBBB', 6), order('M-CCCCCC', 6, 'made')]} onMarkMade={vi.fn()} />)
     const link = screen.getByRole('link', { name: /print 12 magnets \(1 page\)/i })
-    expect(link.getAttribute('href')).toBe('/admin/magnets-print?ids=M-AAAAAA,M-BBBBBB')
+    expect(link.getAttribute('href')).toBe('/staff/magnets-print?ids=M-AAAAAA,M-BBBBBB')
   })
   it('leaves out an unticked order and marks only the chosen ones as Made', () => {
     const onMarkMade = vi.fn()
     render(<MagnetBatchPrint orders={[order('M-AAAAAA', 6), order('M-BBBBBB', 18)]} onMarkMade={onMarkMade} />)
     expect(screen.getByRole('link', { name: /24 magnets \(2 pages\)/i })).toBeTruthy()
     fireEvent.click(screen.getByLabelText(/M-AAAAAA/))
-    expect(screen.getByRole('link', { name: /18 magnets \(2 pages\)/i }).getAttribute('href')).toBe('/admin/magnets-print?ids=M-BBBBBB')
+    expect(screen.getByRole('link', { name: /18 magnets \(2 pages\)/i }).getAttribute('href')).toBe('/staff/magnets-print?ids=M-BBBBBB')
     fireEvent.click(screen.getByRole('button', { name: /mark these as made/i }))
     expect(onMarkMade).toHaveBeenCalledWith(['M-BBBBBB'])
   })

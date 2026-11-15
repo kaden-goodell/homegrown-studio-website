@@ -72,6 +72,11 @@ describe('POST /api/shop/magnet-order.json', () => {
     expect(saved.magnets).toHaveLength(6)
     expect(await pendingKeys()).toEqual([])
   })
+  it('tells the owners to print it from /staff, where anyone can', async () => {
+    await call(good())
+    const { sendMagnetOwnerNotice } = await import('@lib/magnet-emails')
+    expect(vi.mocked(sendMagnetOwnerNotice).mock.calls[0][1]).toMatch(/\/staff$/)
+  })
   it('adds an untaxed $6 shipping line and needs an address', async () => {
     expect((await call({ ...good(), delivery: 'ship' })).status).toBe(400)
     const res = await call({ ...good(), delivery: 'ship', address: '123 Main St, Madison, AL 35758' })

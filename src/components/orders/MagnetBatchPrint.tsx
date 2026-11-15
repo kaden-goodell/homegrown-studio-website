@@ -34,7 +34,7 @@ export function MagnetBatchPrint({ orders, onMarkMade }: { orders: MagnetOrder[]
       </div>
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
         {chosen.length > 0 ? (
-          <a className="btn btn-primary" href={`/admin/magnets-print?ids=${chosen.map((o) => o.id).join(',')}`} target="_blank" rel="noopener">
+          <a className="btn btn-primary" href={`/staff/magnets-print?ids=${chosen.map((o) => o.id).join(',')}`} target="_blank" rel="noopener">
             Print {magnets} magnets ({pages} page{pages === 1 ? '' : 's'})
           </a>
         ) : <span style={{ fontSize: '0.9rem' }}>Tick at least one order.</span>}
