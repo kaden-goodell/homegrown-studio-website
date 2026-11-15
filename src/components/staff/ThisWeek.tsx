@@ -3,7 +3,7 @@ import StaffHeader from '@components/staff/StaffHeader'
 import { type HouseholdMatch } from '@components/staff/DoorSearch'
 import { card, btn, Badge } from '@components/staff/ui'
 import { cafeRunsOn } from '@lib/cafe-days'
-import { cafeHoursOn, formatRange } from '@config/hours'
+import { cafeWindowsOn, formatWindows } from '@config/hours'
 import { addDays } from '@lib/kit-dates'
 import { formatTime, formatCalendarDay, studioDate } from '@lib/studio-time'
 import type { StaffMember } from '@lib/staff-auth'
@@ -82,7 +82,7 @@ export default function ThisWeek({
           </p>
           {days.map((d) => {
             const list = onDay(d)
-            const cafe = cafeRunsOn(d) ? cafeHoursOn(d) : null
+            const cafe = cafeRunsOn(d) ? cafeWindowsOn(d) : null
             if (list.length === 0 && !cafe && d !== today) return null
             return (
               <section key={d} aria-label={d === today ? 'Today' : formatCalendarDay(d)} style={{ marginBottom: '1.25rem' }}>
@@ -90,7 +90,7 @@ export default function ThisWeek({
                   {d === today ? `Today · ${formatCalendarDay(d)}` : formatCalendarDay(d)}
                 </h2>
                 {cafe && (
-                  <p style={{ margin: '0 0 0.5rem', fontSize: '0.9rem', color: 'var(--color-dark)' }}>☕ Craft Café {formatRange(cafe.opens, cafe.closes)}</p>
+                  <p style={{ margin: '0 0 0.5rem', fontSize: '0.9rem', color: 'var(--color-dark)' }}>☕ Craft Café {formatWindows(cafe)}</p>
                 )}
                 {list.length === 0 && !cafe && <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--color-muted)' }}>Nothing scheduled</p>}
                 {list.map((e) => (

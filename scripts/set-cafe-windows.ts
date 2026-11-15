@@ -1,8 +1,9 @@
 /**
  * Writes the Craft Café (walk-in) windows onto the Square display item the
- * calendar reads (`partyConfig.square.openStudioItemId`): one window per
- * Saturday (CAFE_HOURS, or a CAFE_SPECIAL_DAYS entry for that date), from OPEN_STUDIO_START_DATE for `--months N` (default
- * 4), skipping closed days. Also names the item "Craft Café" so the
+ * calendar reads (`partyConfig.square.openStudioItemId`): one entry per café
+ * window (CAFE_HOURS, or every CAFE_SPECIAL_DAYS entry for that date, so a day
+ * with two windows gets two), from today (or OPEN_STUDIO_START_DATE, whichever
+ * is later) for `--months N` (default 4), skipping closed days. Also names the item "Craft Café" so the
  * dashboard matches the site.
  *
  *   npx tsx scripts/set-cafe-windows.ts            # show what would be written
@@ -14,7 +15,7 @@
  */
 import 'dotenv/config'
 import { SquareClient, SquareEnvironment } from 'square'
-import { cafeHoursOn } from '../src/config/hours'
+import { cafeWindowsOn } from '../src/config/hours'
 import { OPEN_STUDIO_START_DATE } from '../src/config/opening'
 import { studioOpenOn } from '../src/config/closures'
 import { partyConfig } from '../src/config/party.config'
@@ -35,14 +36,15 @@ function addDays(ymd: string, n: number): string {
   return t.toISOString().slice(0, 10)
 }
 
-const start = OPEN_STUDIO_START_DATE
+// Past windows only use up Square's 255 characters, so start from today.
+const today = new Date().toLocaleDateString('en-CA', { timeZone: partyConfig.timezone })
+const start = today > OPEN_STUDIO_START_DATE ? today : OPEN_STUDIO_START_DATE
 const end = addDays(start, Math.round(months * 30.4))
 const windows: string[] = []
 for (let day = start; day <= end; day = addDays(day, 1)) {
   if (!studioOpenOn(day)) continue
-  // A special day (the Nov 7 grand opening) wins over the weekly hours.
-  const h = cafeHoursOn(day)
-  if (h) windows.push(`${day}T${h.opens}-${h.closes}`)
+  // A special day wins over the weekly hours; each of its windows is its own entry.
+  for (const h of cafeWindowsOn(day)) windows.push(`${day}T${h.opens}-${h.closes}`)
 }
 
 // Square caps a string custom attribute at 255 characters — about eleven

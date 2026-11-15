@@ -103,15 +103,15 @@ describe('party dates on a closed day', () => {
   it('still offers the weekends either side', () => {
     expect(partyStartsForDate('2026-10-24', beforeHalloween)).toEqual([]) // before parties start
     expect(partyStartsForDate('2026-11-07', beforeHalloween)).toEqual([]) // the Craft Café grand opening
-    expect(partyStartsForDate('2026-11-21', beforeHalloween).length).toBe(2) // Saturday: 2:00, 4:30
     expect(partyStartsForDate('2026-11-08', beforeHalloween).length).toBe(2) // Sunday: 1:00, 3:30
-    expect(partyStartsForDate('2026-12-19', beforeChristmas).length).toBe(2)
+    // Fri/Sat Nov 20 to Dec 19 are Craft Café, no parties (Kaden, 15 Nov 2026); Sunday Dec 20 keeps its two.
+    expect(partyStartsForDate('2026-12-19', beforeChristmas)).toEqual([])
     expect(partyStartsForDate('2026-12-20', beforeChristmas).length).toBe(2)
   })
 
   it('leaves the closed weekend out of a run of dates', () => {
     const starts = partyStartsInRange('2026-12-18T05:00:00Z', '2027-01-04T05:00:00Z', beforeChristmas)
     const days = Array.from(new Set(starts.map((s) => new Date(s).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' }))))
-    expect(days).toEqual(['2026-12-18', '2026-12-19', '2026-12-20', '2027-01-02', '2027-01-03'])
+    expect(days).toEqual(['2026-12-20', '2027-01-02', '2027-01-03'])
   })
 })

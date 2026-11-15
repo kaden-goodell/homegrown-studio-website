@@ -150,6 +150,22 @@ export const partyDays: Record<number, PartyDay> = {
  */
 export const CAFE_PARTY_GAP_MINUTES = 60
 
+/**
+ * Dates with no party times at all, whatever the weekday schedule says.
+ * Kaden, 15 Nov 2026: Nov/Dec weekend parties replaced by Craft Café, so no
+ * Friday or Saturday party from Fri Nov 20 through Sat Dec 19. Listed outright
+ * rather than left to the café gap rule: Fri Nov 20 has no café. Booked
+ * parties on these dates (Laura, Sat Nov 28 1:30) are untouched; this only
+ * stops new ones being offered.
+ */
+export const partyNoDates: readonly string[] = [
+  '2026-11-20', '2026-11-21',
+  '2026-11-27', '2026-11-28',
+  '2026-12-04', '2026-12-05',
+  '2026-12-11', '2026-12-12',
+  '2026-12-18', '2026-12-19',
+]
+
 export const partyDateOverrides: Record<string, PartyDay> = {
   // Thursday/Friday parties start Oct 22 (Kaden, 9 Oct 2026), ahead of the
   // regular Nov 7 start: Thu Oct 22 gets two (4:00 and 6:30), the rest the

@@ -1,4 +1,4 @@
-import { CAFE_HOURS, CAFE_SPECIAL_DAYS, formatHours, formatRange } from '@config/hours'
+import { CAFE_HOURS, CAFE_SPECIAL_DAYS, cafeWindowsOn, formatHours, formatWindows } from '@config/hours'
 import { localToUtcISO } from '@lib/party-slots'
 
 /**
@@ -49,19 +49,24 @@ export function regularCafeHours(): string {
 }
 
 export function cafeDayNotices(): DayNotice[] {
-  return CAFE_SPECIAL_DAYS.filter((d) => d.announce)
-    .map((d) => {
-      const p = dayParts(d.date)
+  // One notice per announced date, covering every window that date has.
+  const announced = CAFE_SPECIAL_DAYS.filter((d) => d.announce)
+  const dates = [...new Set(announced.map((d) => d.date))]
+  return dates
+    .map((date) => {
+      const d = announced.find((x) => x.date === date)!
+      const windows = cafeWindowsOn(date)
+      const p = dayParts(date)
       return {
-        date: d.date,
+        date,
         headline: d.announce!.headline,
         weekday: p.weekday.toUpperCase(),
         monthDay: `${p.month.toUpperCase()} ${p.day}`,
         shortDate: `${p.weekday} ${p.month} ${p.day}`,
-        hours: formatRange(d.opens, d.closes),
+        hours: formatWindows(windows),
         regularHours: regularCafeHours(),
-        showFromIso: localToUtcISO(addDays(d.date, -d.announce!.daysBefore), '00:00'),
-        showUntilIso: localToUtcISO(d.date, d.closes),
+        showFromIso: localToUtcISO(addDays(date, -d.announce!.daysBefore), '00:00'),
+        showUntilIso: localToUtcISO(date, windows[windows.length - 1].closes),
       }
     })
     .sort((a, b) => (a.date < b.date ? -1 : 1))

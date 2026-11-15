@@ -9,9 +9,9 @@
  * evening workshop slot clear). See `partyDays` in party.config.ts; the length
  * per day comes from `partyTermsOn` (weekend 90, weeknight 120).
  */
-import { partyConfig, partyDateOverrides, CAFE_PARTY_GAP_MINUTES } from '../config/party.config'
+import { partyConfig, partyDateOverrides, partyNoDates, CAFE_PARTY_GAP_MINUTES } from '../config/party.config'
 import { partyDayOn, partyTermsOn, partyTermsForStart } from './party-terms'
-import { cafeHoursOn } from '../config/hours'
+import { cafeWindowsOn } from '../config/hours'
 import { cafeRunsOn } from './cafe-days'
 import { closureOn } from '../config/closures'
 
@@ -114,6 +114,7 @@ export function bookableOn(
  */
 export function partyStartsForDate(ymd: string, now: Date = new Date()): string[] {
   if (bookableOn(ymd, now) !== 'ok') return []
+  if (partyNoDates.includes(ymd)) return []
   const cfg = partyDayOn(ymd)
   if (!cfg) return []
 
@@ -128,19 +129,20 @@ export function partyStartsForDate(ymd: string, now: Date = new Date()): string[
     const mm = String(t % 60).padStart(2, '0')
     out.push(localToUtcISO(ymd, `${hh}:${mm}`))
   }
-  // Parties step aside for Craft Café, with a gap before and after.
-  const cafe = cafeRunsOn(ymd) ? cafeHoursOn(ymd) : null
-  if (cafe) {
-    const gap = CAFE_PARTY_GAP_MINUTES * 60_000
-    const opens = Date.parse(localToUtcISO(ymd, cafe.opens)) - gap
-    const closes = Date.parse(localToUtcISO(ymd, cafe.closes)) + gap
-    return out.filter((iso) => {
-      const start = Date.parse(iso)
-      const end = start + length * 60_000
-      return end <= opens || start >= closes
-    })
-  }
-  return out
+  // Parties step aside for Craft Café, with a gap before and after EVERY
+  // window (a day can have two, e.g. Sat Nov 28 9–1 and 4–8).
+  const windows = cafeRunsOn(ymd) ? cafeWindowsOn(ymd) : []
+  if (windows.length === 0) return out
+  const gap = CAFE_PARTY_GAP_MINUTES * 60_000
+  const spans = windows.map((w) => ({
+    opens: Date.parse(localToUtcISO(ymd, w.opens)) - gap,
+    closes: Date.parse(localToUtcISO(ymd, w.closes)) + gap,
+  }))
+  return out.filter((iso) => {
+    const start = Date.parse(iso)
+    const end = start + length * 60_000
+    return spans.every((w) => end <= w.opens || start >= w.closes)
+  })
 }
 
 /** All offered party starts whose start falls within [startIso, endIso], sorted. */
