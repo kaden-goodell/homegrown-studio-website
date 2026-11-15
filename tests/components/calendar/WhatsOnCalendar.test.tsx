@@ -364,6 +364,17 @@ describe('WhatsOnCalendar month view', () => {
       expect(striped.map((d) => d.textContent?.trim().slice(0, 2))).toEqual(['21', '22', '23', '24', '25', '26', '27', '28', '29', '30', '31'])
     })
 
+    it('does not hatch a weeknight with an open party time as closed, but hatches an empty one', async () => {
+      // Mon Oct 19 has a weeknight party time; Tue Oct 20 has nothing.
+      stubCalendarApi([{ id: 'party-available-wk', kind: 'party-available', title: 'Party available · 6:00 PM', date: '2026-10-19', startTime: '18:00', bookable: true, href: '/book?start=wk' }])
+      render(<WhatsOnCalendar initialView="list" />)
+      fireEvent.click(screen.getByRole('button', { name: 'Month' }))
+      const open = await cellFor('Party available · 6:00 PM')
+      expect(open.style.backgroundImage).toBe('')
+      const cells = Array.from(document.querySelectorAll<HTMLElement>('div')).filter((d) => d.style.minHeight && d.textContent?.trim().startsWith('20'))
+      expect(cells.some((d) => d.style.backgroundImage !== '')).toBe(true)
+    })
+
     it('shows in the list in the holiday\'s colours, with the day it reopens', async () => {
       stubCalendarApi([HALLOWEEN])
       render(<WhatsOnCalendar initialView="list" />)

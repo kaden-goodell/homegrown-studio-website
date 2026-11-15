@@ -23,6 +23,7 @@ import {
   trackCalendarLoadFailed,
 } from '@lib/analytics'
 import { OPEN_WEEKDAYS, closureOn, studioOpenOn } from '@config/closures'
+import { partyDays } from '@config/party.config'
 import { CLOSED_HATCH, HOLIDAY_STRIPES, monthNavStyle } from '@components/calendar/calendar-styles'
 
 /**
@@ -704,7 +705,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
             fontWeight: 700,
             letterSpacing: '0.08em',
             textTransform: 'uppercase',
-            color: OPEN_WEEKDAYS.has(i) ? 'var(--color-dark)' : 'rgba(var(--color-primary-rgb), 0.45)',
+            color: OPEN_WEEKDAYS.has(i) || partyDays[i] ? 'var(--color-dark)' : 'rgba(var(--color-primary-rgb), 0.45)',
             padding: '0.25rem 0 0.5rem',
           }}>
             {d}
@@ -736,13 +737,15 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
             return <div key={`empty-${i}`} style={{ background: 'rgba(255,255,255,0.35)', minHeight: compact ? '2.75rem' : DAY_MIN_HEIGHT }} />
           }
           const dateStr = `${monthStr}-${String(day).padStart(2, '0')}`
-          // Closed: the usual Mon–Wed, and any day the studio has closed (see closures.ts).
-          const isOpenDay = studioOpenOn(dateStr)
           const holiday = closureOn(dateStr)?.holiday
           const isPast = dateStr < todayStr
           const isToday = dateStr === todayStr
           const dayEvents = eventsByDay.get(day) ?? []
           const hasEvents = dayEvents.length > 0
+          // Closed: a day the studio isn't usually open (Mon–Wed) with nothing on it,
+          // and any day closed for a holiday (see closures.ts). A weeknight with an
+          // open party time or a class is open (Kaden, 15 Nov 2026).
+          const isOpenDay = studioOpenOn(dateStr) || (!closureOn(dateStr) && hasEvents)
           const isSelected = selectedDay === day
           const chips = gridChips(dayEvents)
           const cellBg = isSelected
