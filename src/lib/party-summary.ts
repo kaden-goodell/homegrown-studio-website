@@ -86,22 +86,19 @@ export function partySummary(input: PartySummaryInput): PartySummary {
     const highTotal = craftTotalCents(high, guests)
     const craftLabel = `${input.craft.name}, about ${guests} guests × ${range(low, high)}`
     if (credit) {
-      const minimum = formatMoney(terms.minimumCents)
-      atStudio.push({
-        label: craftLabel,
-        amount: `about ${range(lowTotal, highTotal)}`,
-        note:
-          highTotal < terms.minimumCents
-            ? `Only for guests who come. Under the ${minimum} minimum, so it counts as ${minimum}.`
-            : `Only for guests who come. ${minimum} minimum.`,
-      })
-      atStudio.push({ label: 'Less your craft credit', amount: `−${formatMoney(charge)}` })
+      // One line (Kaden, 15 Nov 2026: "way too busy"): $0 while the credit covers
+      // the crafts, then only what goes over it.
       const dueLow = dueAtStudioCents(terms, lowTotal)
       const dueHigh = dueAtStudioCents(terms, highTotal)
-      atStudio.push({
-        label: 'Left to pay at the studio',
-        amount: dueHigh === 0 ? formatMoney(0) : `about ${range(dueLow, dueHigh)}`,
-      })
+      atStudio.push(
+        dueHigh === 0
+          ? { label: 'Crafts', amount: formatMoney(0), note: `Your ${formatMoney(charge)} covers the crafts.` }
+          : {
+              label: 'Crafts',
+              amount: `about ${range(dueLow, dueHigh)}`,
+              note: `${guests} guests × ${range(low, high)}, less your ${formatMoney(charge)}.`,
+            },
+      )
     } else {
       atStudio.push({
         label: craftLabel,

@@ -270,7 +270,7 @@ describe('PartyModal — weekend or weeknight', () => {
     const summary = screen.getByRole('region', { name: 'Price summary' })
     expect(summary).toHaveTextContent('Craft credit, holds Mon, Nov 9 at 6:00 PM$300')
     expect(summary).toHaveTextContent('No studio fee on weeknights.')
-    expect(summary).toHaveTextContent('Left to pay at the studio$0')
+    expect(summary).toHaveTextContent('Crafts$0Your $300 covers the crafts.')
     expect(summary).toHaveTextContent('Estimated party totalabout $300')
     expect(summary).not.toHaveTextContent('Studio fee')
     next()

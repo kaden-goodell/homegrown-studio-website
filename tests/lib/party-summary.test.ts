@@ -96,17 +96,14 @@ describe('partySummary on a weeknight', () => {
   it('takes the credit off the crafts at the studio, and the total is just the crafts', () => {
     const s = partySummary({ startIso: MON, craft: keychains, guests: 20 })
     expect(s.atStudio).toEqual([
-      { label: 'Bubble Letter Keychains, about 20 guests × $20', amount: 'about $400', note: 'Only for guests who come. $300 minimum.' },
-      { label: 'Less your craft credit', amount: '−$300' },
-      { label: 'Left to pay at the studio', amount: 'about $100' },
+      { label: 'Crafts', amount: 'about $100', note: '20 guests × $20, less your $300.' },
     ])
     expect(s.estimatedTotal).toBe('about $400')
   })
 
   it('under the minimum, the total is the minimum and nothing more is due', () => {
     const s = partySummary({ startIso: MON, craft: keychains, guests: 10 })
-    expect(s.atStudio[0]).toMatchObject({ amount: 'about $200', note: 'Only for guests who come. Under the $300 minimum, so it counts as $300.' })
-    expect(s.atStudio[2]).toEqual({ label: 'Left to pay at the studio', amount: '$0' })
+    expect(s.atStudio).toEqual([{ label: 'Crafts', amount: '$0', note: 'Your $300 covers the crafts.' }])
     expect(s.estimatedTotal).toBe('about $300')
   })
 
