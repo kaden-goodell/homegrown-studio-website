@@ -17,7 +17,7 @@ import 'dotenv/config'
 import { SquareClient, SquareEnvironment } from 'square'
 import { cafeWindowsOn } from '../src/config/hours'
 import { OPEN_STUDIO_START_DATE } from '../src/config/opening'
-import { studioOpenOn } from '../src/config/closures'
+import { cafeRunsOn } from '../src/lib/cafe-days'
 import { partyConfig } from '../src/config/party.config'
 
 const args = process.argv.slice(2)
@@ -42,7 +42,8 @@ const start = today > OPEN_STUDIO_START_DATE ? today : OPEN_STUDIO_START_DATE
 const end = addDays(start, Math.round(months * 30.4))
 const windows: string[] = []
 for (let day = start; day <= end; day = addDays(day, 1)) {
-  if (!studioOpenOn(day)) continue
+  // Same rule as the site: a special café day counts on Mon–Wed too.
+  if (!cafeRunsOn(day)) continue
   // A special day wins over the weekly hours; each of its windows is its own entry.
   for (const h of cafeWindowsOn(day)) windows.push(`${day}T${h.opens}-${h.closes}`)
 }
