@@ -73,6 +73,11 @@ export const CAFE_SPECIAL_DAYS: CafeSpecialDay[] = [
   // Saturday parties (see partyNoDates in party.config.ts). Sat Nov 28 has two
   // windows around Laura's booked 1:30 party.
   { date: '2026-11-21', opens: '09:00', closes: '18:00', name: 'Craft Café' },
+  // Kaden, 16 Nov 2026: Thanksgiving week, café 9–2 Mon–Wed (weeknight party
+  // times at 6 stay open).
+  { date: '2026-11-23', opens: '09:00', closes: '14:00', name: 'Craft Café' },
+  { date: '2026-11-24', opens: '09:00', closes: '14:00', name: 'Craft Café' },
+  { date: '2026-11-25', opens: '09:00', closes: '14:00', name: 'Craft Café' },
   { date: '2026-11-28', opens: '09:00', closes: '13:00', name: 'Craft Café' },
   { date: '2026-11-28', opens: '16:00', closes: '20:00', name: 'Craft Café' },
   { date: '2026-12-04', opens: '16:00', closes: '20:00', name: 'Craft Café' },

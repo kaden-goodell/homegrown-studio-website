@@ -20,6 +20,9 @@ const weekday = (ymd: string) => new Date(`${ymd}T12:00:00Z`).getUTCDay()
 
 const EXPECTED_CAFE: Record<string, { opens: string; closes: string }[]> = {
   '2026-11-21': [{ opens: '09:00', closes: '18:00' }],
+  '2026-11-23': [{ opens: '09:00', closes: '14:00' }],
+  '2026-11-24': [{ opens: '09:00', closes: '14:00' }],
+  '2026-11-25': [{ opens: '09:00', closes: '14:00' }],
   '2026-11-28': [{ opens: '09:00', closes: '13:00' }, { opens: '16:00', closes: '20:00' }],
   '2026-12-04': [{ opens: '16:00', closes: '20:00' }],
   '2026-12-05': [{ opens: '09:00', closes: '18:00' }],
