@@ -97,10 +97,10 @@ Holding a time, in order:
 
 ## Milestones
 All on 2026-11-17, in this order. Each needs the one before it.
-- [ ] m1 · Quote menu loaded from Square, saved packages work on dev · 2026-11-17 · Every Square item is listed, and an owner adds an item and saves a package on the iPad
-- [ ] m2 · Make and send a quote on dev · 2026-11-17 · A draft appears from a real request, Send texts Kaden, and the link opens the customer page
+- [x] m1 · Quote menu loaded from Square, saved packages work on dev · 2026-11-17 · Every Square item is listed, and an owner adds an item and saves a package on the iPad
+- [x] m2 · Make and send a quote on dev · 2026-11-17 · A draft appears from a real request, Send texts Kaden, and the link opens the customer page
 - [ ] m3 · Customer page and deposit on dev · 2026-11-17 · A $1 test deposit books an event on the dev calendar and the link turns into a receipt
-- [ ] m4 · PDF flyer on dev · 2026-11-17 · The flyer prints on one page and the QR opens the quote
+- [x] m4 · PDF flyer on dev · 2026-11-17 · The flyer prints on one page and the QR opens the quote
 - [ ] m5 · Catherine's iPad trial on dev · 2026-11-18 · Catherine alone makes, changes and sends a quote with Kaden watching and not helping
 - [ ] m6 · Live on the site · when Kaden says go · The first real quote goes to a customer
 
@@ -155,4 +155,6 @@ Filled in as the work is built.
 - 2026-11-17 · jig · rev · Rev A drafted from the 2026-11-17 brainstorm.
 - 2026-11-17 · jig · review · Four PRD reviewers found no blockers. Their main gaps (withdraw, receipt, empty menu on day one, fallback order, staff view, untestable checks) are fixed in Rev A.
 - 2026-11-17 · jig · spec · Spec written: docs/plans/2026-11-17-event-value-quote-spec.md, 57 checklist items covering MVP.1–MVP.12; spec review folded in (payment safety, hold under the future party id, quote-party copy everywhere).
+- 2026-11-17 · jig · build · All 17 plan tasks built and reviewed; 530 test files / 7,267 tests pass, 0 type errors; end-to-end test draft → send → view → pick → deposit → balance passes. m1, m2, m4 built; m3 waits on the $1 card deposit on the dev preview. Pushed to dev at 648d319b (not production).
+- 2026-11-17 · Kaden · scope · Wants a "build your evening" mode (customer picks crafts, each with a time, ~20% off whole-dollar group prices). Done by hand for The Corky Child Care Collective; goes into Rev B.
 - 2026-11-17 · Kaden · decision · d1 expiry lets the hold go plus a Withdraw button; d2 Travel as a menu item; d3 party cancellation terms.
