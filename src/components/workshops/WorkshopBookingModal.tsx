@@ -665,26 +665,8 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
           )}
         </div>
 
-        <PaymentForm
-          bookingKind="workshop"
-          ref={paymentFormRef}
-          applicationIdOverride={CLASS_BOOKING_APP_ID}
-          environmentOverride="production"
-          giftCards="cards-only"
-          // Google Pay. Apple Pay is asked for too but Square refuses it on the
-          // class-booking route ("domain not registered", 11 Oct 2026), so it
-          // stays hidden — and appears by itself if Square ever allows it.
-          // Google Pay pays for one seat: each seat is its own charge, and its
-          // sheet can't be opened again without another tap.
-          wallet={seats === 1 ? { amount: (total / 100).toFixed(2), label: `Hometown Studio, ${workshop.name}` } : undefined}
-          onWalletToken={(token) => handlePay(undefined, token)}
-          // Runs before the wallet sheet opens, so nobody approves in their
-          // wallet and then meets a form error. Marks what's missing as it goes.
-          canPayWithWallet={() => (readyToPay() ? null : 'Add the details marked above first.')}
-          onReadyChange={setPaymentReady}
-        />
-
-        <div style={{ marginTop: '1rem' }}>
+        {/* The tick sits above the card and wallet buttons: the last thing read before paying (Kaden, 17 Nov 2026). */}
+        <div style={{ marginBottom: '1rem' }}>
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', cursor: 'pointer', minHeight: '2.75rem' }}>
             <input
               ref={policyRef}
@@ -718,6 +700,25 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
             </p>
           )}
         </div>
+
+        <PaymentForm
+          bookingKind="workshop"
+          ref={paymentFormRef}
+          applicationIdOverride={CLASS_BOOKING_APP_ID}
+          environmentOverride="production"
+          giftCards="cards-only"
+          // Google Pay. Apple Pay is asked for too but Square refuses it on the
+          // class-booking route ("domain not registered", 11 Oct 2026), so it
+          // stays hidden — and appears by itself if Square ever allows it.
+          // Google Pay pays for one seat: each seat is its own charge, and its
+          // sheet can't be opened again without another tap.
+          wallet={seats === 1 ? { amount: (total / 100).toFixed(2), label: `Hometown Studio, ${workshop.name}` } : undefined}
+          onWalletToken={(token) => handlePay(undefined, token)}
+          // Runs before the wallet sheet opens, so nobody approves in their
+          // wallet and then meets a form error. Marks what's missing as it goes.
+          canPayWithWallet={() => (readyToPay() ? null : 'Add the details marked above first.')}
+          onReadyChange={setPaymentReady}
+        />
 
         {error && (
           <p role="alert" className="field-error" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5 }}>

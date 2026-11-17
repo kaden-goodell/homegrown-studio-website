@@ -454,11 +454,10 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
       // The sheet opens with the total on the Pay button right now.
       pushWalletTotal()
       step('tokenize_start', walletEnv())
-      // A sheet that never opens leaves tokenize() waiting with no answer: say so.
-      const slow = setTimeout(() => {
-        step('no_answer_10s')
-        setWalletError(`${name} didn’t open. Please pay with your card below.`)
-      }, 10_000)
+      // Logged only: a sheet still open while someone decides looks the same as one
+      // that never opened, so nothing is shown (Kaden, 17 Nov 2026: it said "didn't
+      // open" over an open Apple Pay sheet).
+      const slow = setTimeout(() => step('no_answer_10s'), 10_000)
       try {
         const result = await instance.tokenize()
         clearTimeout(slow)

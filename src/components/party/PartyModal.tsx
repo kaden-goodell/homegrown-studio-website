@@ -332,6 +332,11 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   // The server saw a party booked by the same host minutes ago: they say whether to book this one too.
   const [repeatAsk, setRepeatAsk] = useState<string | null>(null)
   const confirmRepeat = useRef(false)
+  /** The try that got "you booked this a few minutes ago" paid by Apple/Google Pay: its approval can't be used again. */
+  const [repeatByWallet, setRepeatByWallet] = useState(false)
+  /** After "Yes" on a wallet try: tap the wallet button again. */
+  const [repeatTapAgain, setRepeatTapAgain] = useState(false)
+  const repeatRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     trackWizardStarted('party')
@@ -904,6 +909,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
       trackAddPaymentInfo('party', deposit / 100, walletToken ? 'wallet' : sourceKind)
       setRepeatAsk(null)
+      setRepeatTapAgain(false)
       // Until a plain answer comes back, this attempt is going through (kept for this tab).
       rememberPendingAttempt(ATTEMPT_SCOPE, attemptId.current, attemptShape)
       let bookRes: Response
@@ -958,7 +964,10 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         const keep = outcomeUnknown(failure) || errData?.code === 'in_progress' || bookRes.status === 429
         if (!keep) endAttempt()
         if (errData?.code === 'recent_booking') {
+          setRepeatByWallet(!!walletToken)
           setRepeatAsk(typeof errData.detail === 'string' ? errData.detail : partyMessages.already_booked)
+          // Right above the pay buttons and scrolled to: after Apple Pay's "Done" it was easy to miss (Kaden, 17 Nov 2026).
+          setTimeout(() => repeatRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' }), 50)
           return
         }
         if (errData?.why === 'price_changed') {
@@ -1833,6 +1842,24 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             CLASS_BOOKING_APP_ID override is only for workshops. The SDK's
             environment comes from client-config too, so a sandbox preview
             uses Square's sandbox (18 Oct 2026). */}
+        {repeatAsk && (
+          <div ref={repeatRef} role="alert" data-testid="recent-booking" style={{ marginBottom: '1rem', padding: '0.75rem 0.875rem', borderRadius: '0.75rem', border: '1.5px solid var(--color-primary)', fontSize: '0.9375rem', lineHeight: 1.5, color: 'var(--color-dark)' }}>
+            <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>{repeatAsk}</p>
+            <button type="button" className="btn btn-secondary" disabled={processing} onClick={() => {
+              confirmRepeat.current = true
+              setRepeatAsk(null)
+              // A wallet's approval pays once: they tap the wallet again (a new approval) with the yes kept.
+              if (repeatByWallet) setRepeatTapAgain(true)
+              else void handlePay()
+            }}>
+              Yes, book this party too
+            </button>
+          </div>
+        )}
+        {repeatTapAgain && (
+          <p role="status" data-testid="repeat-tap-again" style={{ margin: '0 0 1rem', fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>Got it. Tap Apple Pay or Google Pay again to pay for these. Its first approval can only be used once.</p>
+        )}
+
         <PaymentForm
           bookingKind="party"
           ref={paymentFormRef}
@@ -1846,14 +1873,6 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
         {earlierPending && (
           <p role="status" data-testid="earlier-pending" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5, fontWeight: 600, color: 'var(--color-dark)' }}>{EARLIER_PENDING}</p>
-        )}
-        {repeatAsk && (
-          <div role="alert" data-testid="recent-booking" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5, color: 'var(--color-dark)' }}>
-            <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>{repeatAsk}</p>
-            <button type="button" className="btn btn-secondary" disabled={processing} onClick={() => { confirmRepeat.current = true; setRepeatAsk(null); void handlePay() }}>
-              Yes, book this party too
-            </button>
-          </div>
         )}
         {error && (
           <p role="alert" className="field-error" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5 }}>

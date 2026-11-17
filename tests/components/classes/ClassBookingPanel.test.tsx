@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useState } from 'react'
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react'
 import ClassBookingPanel from '@components/classes/ClassBookingPanel'
 import { toPublicClass } from '@lib/classes/public-view'
 import { defaultRules } from '@lib/classes/validate'
@@ -859,6 +859,27 @@ describe('ClassBookingPanel — leaving during payment can never charge twice (f
     await screen.findByText('You’re booked')
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).confirmRepeat).toBeUndefined()
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).confirmRepeat).toBe(true)
+  })
+
+  it('after Apple Pay, the question sits above the pay buttons and "Yes" asks for a new wallet tap, not a card charge (Kaden, 17 Nov 2026)', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(serverSays(409, { code: 'recent_booking', detail: 'You booked this class a few minutes ago. Nothing was charged this time.' }))
+      .mockResolvedValueOnce(bookedReply())
+    vi.stubGlobal('fetch', fetchMock)
+    open()
+    await toPayStep()
+    await act(async () => { (paymentFormProps as any).onWalletToken('wallet-tok-1') })
+    const ask = await screen.findByTestId('recent-booking')
+    // Above the payment form in the page, so it's seen before the buttons.
+    expect(ask.compareDocumentPosition(screen.getByTestId('payment-form')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, book these seats too' }))
+    expect(await screen.findByTestId('repeat-tap-again')).toHaveTextContent('Tap Apple Pay or Google Pay again')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await act(async () => { (paymentFormProps as any).onWalletToken('wallet-tok-2') })
+    await screen.findByText('You’re booked')
+    const second = JSON.parse(fetchMock.mock.calls[1][1].body)
+    expect(second.paymentToken).toBe('wallet-tok-2')
+    expect(second.confirmRepeat).toBe(true)
   })
 })
 

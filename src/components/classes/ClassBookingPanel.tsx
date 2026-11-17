@@ -353,6 +353,11 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   // The server saw a booking by the same person for this class minutes ago: they say whether to book again.
   const [repeatAsk, setRepeatAsk] = useState<string | null>(null)
   const confirmRepeat = useRef(false)
+  /** The try that got "you booked this a few minutes ago" paid by Apple/Google Pay: its approval can't be used again. */
+  const [repeatByWallet, setRepeatByWallet] = useState(false)
+  /** After "Yes" on a wallet try: tap the wallet button again. */
+  const [repeatTapAgain, setRepeatTapAgain] = useState(false)
+  const repeatRef = useRef<HTMLDivElement>(null)
   // VoiceOver: what just changed with the code, and where focus goes next.
   const [codeStatus, setCodeStatus] = useState('')
   const [focusNext, setFocusNext] = useState<null | 'pay' | 'code'>(null)
@@ -800,6 +805,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     if (!q || !shown) return
     lastBody.current = requestBody
     setRepeatAsk(null)
+    setRepeatTapAgain(false)
     // Until a plain answer comes back, this attempt is going through (kept for this tab).
     if (scope) rememberPendingAttempt(scope, attemptId.current, shape)
       let res: Response
@@ -826,7 +832,12 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
         if (body?.code) tr.trackBookingProblem('workshop', String(body.code))
         // C2: the same person booked this class minutes ago. Nothing was charged; they say whether to book again.
         if (body?.code === 'recent_booking') {
+          let viaWallet = false
+          try { viaWallet = JSON.parse(requestBody)?.sourceKind === 'wallet' } catch { /* not JSON: a card try */ }
+          setRepeatByWallet(viaWallet)
           setRepeatAsk(typeof body.detail === 'string' ? body.detail : CLASS_MESSAGES.already_booked)
+          // Right above the pay buttons and scrolled to: after Apple Pay's "Done" it was easy to miss (Kaden, 17 Nov 2026).
+          setTimeout(() => repeatRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' }), 50)
           return
         }
         // The total went up (an early-bird or a code ended): show the new one and let them pay it. Nothing was charged.
@@ -1266,23 +1277,8 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           {codeError && <p id={codeErrorId} role="alert" className="field-error" style={{ marginTop: '0.375rem' }}>{codeError}</p>}
         </div>
 
-        {free ? (
-          <div data-testid="free-booking" style={{ padding: '0.875rem 1rem', borderRadius: '0.75rem', border: '1.5px solid var(--color-primary)', background: 'rgba(var(--color-primary-rgb), 0.08)' }}>
-            <p style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>{codeQ ? 'Free with your code' : 'This one is free'}</p>
-            <p style={{ margin: '0.125rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>No card needed.</p>
-          </div>
-        ) : (
-          <PaymentForm
-            bookingKind="workshop"
-            ref={paymentFormRef}
-            wallet={shown ? { amount: (shown.totalCents / 100).toFixed(2), label: `Hometown Studio, ${workshop.name}` } : undefined}
-            onWalletToken={(token) => handlePay(undefined, token)}
-            canPayWithWallet={() => (readyToPay() ? null : 'Add the details marked above first.')}
-            onReadyChange={setPaymentReady}
-          />
-        )}
-
-        <div style={{ marginTop: '1rem' }}>
+        {/* The policy tick sits above the card and wallet buttons: the last thing read before paying (Kaden, 17 Nov 2026). */}
+        <div style={{ marginBottom: '1rem' }}>
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', cursor: 'pointer', minHeight: '2.75rem' }}>
             <input
               ref={policyRef}
@@ -1310,19 +1306,44 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           )}
         </div>
 
+        {repeatAsk && (
+          <div ref={repeatRef} role="alert" data-testid="recent-booking" style={{ marginBottom: '1rem', padding: '0.75rem 0.875rem', borderRadius: '0.75rem', border: '1.5px solid var(--color-primary)', fontSize: '0.9375rem', lineHeight: 1.5, color: 'var(--color-dark)' }}>
+            <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>{repeatAsk}</p>
+            <button type="button" className="btn btn-secondary" disabled={processing} onClick={() => {
+              confirmRepeat.current = true
+              setRepeatAsk(null)
+              // A wallet's approval pays once: they tap the wallet again (a new approval) with the yes kept.
+              if (repeatByWallet) setRepeatTapAgain(true)
+              else void handlePay()
+            }}>
+              Yes, book these seats too
+            </button>
+          </div>
+        )}
+        {repeatTapAgain && (
+          <p role="status" data-testid="repeat-tap-again" style={{ margin: '0 0 1rem', fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>Got it. Tap Apple Pay or Google Pay again to pay for these. Its first approval can only be used once.</p>
+        )}
+        {free ? (
+          <div data-testid="free-booking" style={{ padding: '0.875rem 1rem', borderRadius: '0.75rem', border: '1.5px solid var(--color-primary)', background: 'rgba(var(--color-primary-rgb), 0.08)' }}>
+            <p style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>{codeQ ? 'Free with your code' : 'This one is free'}</p>
+            <p style={{ margin: '0.125rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>No card needed.</p>
+          </div>
+        ) : (
+          <PaymentForm
+            bookingKind="workshop"
+            ref={paymentFormRef}
+            wallet={shown ? { amount: (shown.totalCents / 100).toFixed(2), label: `Hometown Studio, ${workshop.name}` } : undefined}
+            onWalletToken={(token) => handlePay(undefined, token)}
+            canPayWithWallet={() => (readyToPay() ? null : 'Add the details marked above first.')}
+            onReadyChange={setPaymentReady}
+          />
+        )}
+
         {ebEndedNote && (
           <p role="status" data-testid="early-bird-ended" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5, fontWeight: 600, color: 'var(--color-dark)' }}>{ebEndedNote}</p>
         )}
         {earlierPending && (
           <p role="status" data-testid="earlier-pending" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5, fontWeight: 600, color: 'var(--color-dark)' }}>{EARLIER_PENDING}</p>
-        )}
-        {repeatAsk && (
-          <div role="alert" data-testid="recent-booking" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5, color: 'var(--color-dark)' }}>
-            <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>{repeatAsk}</p>
-            <button type="button" className="btn btn-secondary" disabled={processing} onClick={() => { confirmRepeat.current = true; setRepeatAsk(null); void handlePay() }}>
-              Yes, book these seats too
-            </button>
-          </div>
         )}
         {serverQ && repriced?.note && (
           <p role="alert" data-testid="price-changed" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5, fontWeight: 600, color: 'var(--color-dark)' }}>{repriced.note}</p>
@@ -1354,9 +1375,8 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           </p>
         </div>
 
-        <PaymentForm bookingKind="workshop" mode="store" ref={paymentFormRef} onReadyChange={setPaymentReady} />
-
-        <div style={{ marginTop: '1rem' }}>
+        {/* The tick sits above the card and wallet buttons: the last thing read before paying (Kaden, 17 Nov 2026). */}
+        <div style={{ marginBottom: '1rem' }}>
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', cursor: 'pointer', minHeight: '2.75rem' }}>
             <input
               ref={consentRef}
@@ -1379,6 +1399,8 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
             {' '}applies.
           </p>
         </div>
+        <PaymentForm bookingKind="workshop" mode="store" ref={paymentFormRef} onReadyChange={setPaymentReady} />
+
         {error && <p role="alert" className="field-error" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5 }}>{error}</p>}
       </form>
     )
