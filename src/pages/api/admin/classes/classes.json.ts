@@ -25,7 +25,8 @@ export const GET: APIRoute = async ({ request, url }) => {
 
 /**
  * Who made the change comes from the X-Admin-Who header (see adminActor).
- * POST { action: 'create', libraryId? | content, sessions, status, alsoUpdateLibrary?, createKey? } (every new class lands in the library;
+ * POST { action: 'create', libraryId? | content, sessions, status, alsoUpdateLibrary?, createKey?, replacesSquare? } (every new class lands in the library;
+ *        replacesSquare = the Square class (clssch_…) this one sells the rest of: its time isn't a clash, and it's hidden from the public site;
  *        the same createKey again returns the class it made, R35)
  *      { action: 'repeat-preview', libraryId? | content, sessions, pattern } (the dates a repeat makes, each ✓ or why it's skipped; writes nothing)
  *      { action: 'repeat', …create body, pattern, skip: ymd[], createKey } (one class per date, child keys `${createKey}:${ymd}`, R35;

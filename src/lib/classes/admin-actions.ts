@@ -43,6 +43,7 @@ import type { ClassContent, ClassStatus, LibraryClass, ScheduledClass, Session }
 import { newId, toIso, validateContent, validateSessions } from './validate'
 import { LiveSquareFromTestSiteError, TestSiteStoreError } from './test-site-guard'
 import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
+import { setEventMeta } from '@lib/event-meta'
 
 /**
  * The owner when the request doesn't say which one (see adminActor in
@@ -150,7 +151,7 @@ function expectedOf(body: { expectedUpdatedAt?: unknown }, cls: ScheduledClass):
 }
 
 /** Refuses with the clash message when any session would clash with what holds the room. */
-async function checkClashes(sessions: Session[], canShareRoom: boolean, ignoreId?: string): Promise<void> {
+async function checkClashes(sessions: Session[], canShareRoom: boolean, ignoreId?: string, replacesSquare?: string | null): Promise<void> {
   const from = sessions.reduce((m, s) => (s.startIso < m ? s.startIso : m), sessions[0].startIso)
   const to = sessions.reduce((m, s) => (s.endIso > m ? s.endIso : m), sessions[0].endIso)
   let busy
@@ -162,10 +163,37 @@ async function checkClashes(sessions: Session[], canShareRoom: boolean, ignoreId
     throw new ActionError(503, "The schedule couldn't be checked. Try again.")
   }
   const found = sessions.flatMap((s) =>
-    clashes({ startIso: s.startIso, endIso: s.endIso, kind: 'class', canShareRoom, ignoreIds: ignoreId ? [ignoreId] : [] }, busy),
+    clashes({ startIso: s.startIso, endIso: s.endIso, kind: 'class', canShareRoom, ignoreIds: [ignoreId, replacesSquare].filter((x): x is string => !!x) }, busy),
   )
   const unique = found.filter((b, i) => found.findIndex((x) => x.id === b.id && x.startIso === b.startIso) === i)
   if (unique.length) throw new ActionError(409, clashMessage(unique))
+}
+
+/** A Square class id (clssch_…) as Square makes them. */
+const SQUARE_CLASS_RE = /^clssch_[A-Za-z0-9]{6,40}$/
+
+/** The optional `replacesSquare` of a create: a Square class id, or nothing. */
+function okReplacesSquare(v: unknown): string | undefined {
+  if (v === undefined || v === null || v === '') return undefined
+  if (typeof v !== 'string' || !SQUARE_CLASS_RE.test(v)) throw new ActionError(400, 'replacesSquare must be a Square class id (clssch_…).')
+  return v
+}
+
+/**
+ * Hide the Square class this one replaces from everything public (movedTo).
+ * A failure never loses the class: the reply warns, and
+ * `scripts/set-event.ts --workshop <id> --moved-to <cls>` finishes it.
+ */
+async function hideReplacedSquare(cls: ScheduledClass, by: By): Promise<string | undefined> {
+  if (!cls.replacesSquare) return undefined
+  try {
+    await setEventMeta('workshop', cls.replacesSquare, { movedTo: cls.id }, by)
+    await audit(by, 'class-replaces-square', { kind: 'class', id: cls.id, label: cls.content.name }, { squareClass: cls.replacesSquare })
+    return undefined
+  } catch (e) {
+    console.warn(`[classes] hiding Square class ${cls.replacesSquare} for ${cls.id} failed: ${e instanceof Error ? e.message : e}`)
+    return `Added, but the Square class wasn't hidden, so the site may list both. Run: npx tsx scripts/set-event.ts --workshop ${cls.replacesSquare} --moved-to ${cls.id}`
+  }
 }
 
 /** Put the class on the POS (open/closed) or keep a draft off it. A Square failure is a warning, never a lost save. */
@@ -462,6 +490,9 @@ async function finishCreate(cls: ScheduledClass, by: By): Promise<Saved<{ class:
     cur = synced.cls
     warning = [warning, synced.warning].filter(Boolean).join(' ') || undefined
   }
+  // A retry finishes hiding the Square class it replaces, if the first try didn't.
+  const hideWarning = await hideReplacedSquare(cur, by)
+  warning = [warning, hideWarning].filter(Boolean).join(' ') || undefined
   return { data: { class: cur, replay: true }, ...(warning ? { warning } : {}) }
 }
 
@@ -481,7 +512,7 @@ export async function linkClassToLibrary(body: { id?: unknown }, by: By = ADMIN_
  * saved first. A library failure never loses the class: it is added and the
  * reply warns.
  */
-export async function scheduleClass(body: { libraryId?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; createKey?: unknown }, by: By = ADMIN_BY, opts: { childKey?: string; seriesId?: string } = {}): Promise<Saved<{ class: ScheduledClass; replay?: true }>> {
+export async function scheduleClass(body: { libraryId?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; createKey?: unknown; replacesSquare?: unknown }, by: By = ADMIN_BY, opts: { childKey?: string; seriesId?: string } = {}): Promise<Saved<{ class: ScheduledClass; replay?: true }>> {
   // R35: the same Add sent again (a lost reply, a retry) finds what the first one made.
   const reserved = await reserveCreate(body.createKey, opts.childKey)
   if (reserved) {
@@ -506,8 +537,9 @@ export async function scheduleClass(body: { libraryId?: unknown; content?: unkno
   const dropped = dropEndedEarlyBird(okContent(raw), new Date())
   let content = dropped.content
   const status = okStatus(body.status, 'draft')
+  const replacesSquare = okReplacesSquare(body.replacesSquare)
   try {
-    await checkClashes(sessions, content.rules.canShareRoom)
+    await checkClashes(sessions, content.rules.canShareRoom, undefined, replacesSquare)
   } catch (e) {
     // The same Add sent twice at once: the other one made it first, so this "clash" is with itself.
     const made = reserved ? await getClass(reserved.classId) : null
@@ -541,14 +573,15 @@ export async function scheduleClass(body: { libraryId?: unknown; content?: unkno
 
   let created: ScheduledClass
   try {
-    created = await createClass({ ...(reserved ? { id: reserved.classId } : {}), ...(opts.seriesId ? { seriesId: opts.seriesId } : {}), content, sessions, ...(libraryId ? { libraryId } : {}), ...(libraryVersion !== undefined ? { libraryVersion } : {}), status, by })
+    created = await createClass({ ...(reserved ? { id: reserved.classId } : {}), ...(opts.seriesId ? { seriesId: opts.seriesId } : {}), ...(replacesSquare ? { replacesSquare } : {}), content, sessions, ...(libraryId ? { libraryId } : {}), ...(libraryVersion !== undefined ? { libraryVersion } : {}), status, by })
   } catch (e) {
     if (e instanceof ClassExistsError) return finishCreate((await getClass(e.id))!, by)
     throw e
   }
   const { cls, warning: posWarning } = await syncPos(created, by)
-  await audit(by, 'class-create', { kind: 'class', id: cls.id, label: content.name }, { status, sessions: sessions.length, libraryId: libraryId ?? null })
-  const said = [dropped.note, warning, posWarning].filter(Boolean).join(' ') || undefined
+  await audit(by, 'class-create', { kind: 'class', id: cls.id, label: content.name }, { status, sessions: sessions.length, libraryId: libraryId ?? null, ...(replacesSquare ? { replacesSquare } : {}) })
+  const hideWarning = await hideReplacedSquare(cls, by)
+  const said = [dropped.note, warning, posWarning, hideWarning].filter(Boolean).join(' ') || undefined
   return { data: { class: cls }, ...(said ? { warning: said } : {}) }
 }
 
@@ -675,7 +708,7 @@ export async function updateScheduledClass(body: {
     // Sessions that already ended, unchanged, are history: never re-checked (blocked time added later must not stop an edit).
     const same = (s: Session) => cls.sessions.some((o) => o.id === s.id && o.startIso === s.startIso && o.endIso === s.endIso)
     const toCheck = sessions.filter((s) => Date.parse(s.endIso) > now.getTime() || !same(s))
-    if (toCheck.length) await checkClashes(toCheck, content.rules.canShareRoom, cls.id)
+    if (toCheck.length) await checkClashes(toCheck, content.rules.canShareRoom, cls.id, cls.replacesSquare)
   }
 
   const changes: string[] = []

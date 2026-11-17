@@ -147,7 +147,7 @@ export async function listClasses(range?: { fromIso: string; toIso: string }): P
 
 /** `id`: the id a create key reserved (R35), so a retry finds the class instead of making a second one. */
 export async function createClass(input: {
-  content: ClassContent; sessions: Session[]; libraryId?: string; libraryVersion?: number; status: ClassStatus; by: By; id?: string; seriesId?: string
+  content: ClassContent; sessions: Session[]; libraryId?: string; libraryVersion?: number; status: ClassStatus; by: By; id?: string; seriesId?: string; replacesSquare?: string
 }): Promise<ScheduledClass> {
   assertClassWritesAllowed() // R41
   const content = okContent(input.content)
@@ -161,6 +161,7 @@ export async function createClass(input: {
     sessions,
     status: input.status,
     ...(input.seriesId ? { seriesId: input.seriesId } : {}),
+    ...(input.replacesSquare ? { replacesSquare: input.replacesSquare } : {}),
     square: { itemId: null, variations: {} },
     createdAt: now,
     updatedAt: now,

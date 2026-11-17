@@ -73,6 +73,12 @@ export interface ScheduledClass {
    * on classes added one at a time (and on repeats made before this).
    */
   seriesId?: string | null
+  /**
+   * The Square class (clssch_…) whose remaining seats this class sells (Kaden,
+   * 17 Nov 2026: Apple Pay for classes already booked in Square). Its time is
+   * not a clash for this class, now or on later edits. Absent = none.
+   */
+  replacesSquare?: string | null
   /** POS item. variations key `${passId}:${ticketTypeId}` (seats) or `addon:${addOnId}` → variation id.
    *  imageUrl = the class image last uploaded to Square (re-uploaded only when it changes). */
   square: {

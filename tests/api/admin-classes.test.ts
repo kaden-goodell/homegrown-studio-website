@@ -277,6 +277,41 @@ describe('scheduling', () => {
     expect(r.status).toBe(200)
   })
 
+  it('replacesSquare: a class over its own Square class is not a clash, keeps that on edits, and hides the Square class', async () => {
+    const { getEventMeta } = await import('@lib/event-meta')
+    const day = '2031-05-08'
+    const sq = { scheduleId: 'clssch_wreathtest01', name: 'Wreath Sash (Square)', startAt: at(day, '18:00'), durationMinutes: 120 }
+    const other = { scheduleId: 'clssch_othertest001', name: 'Other Square Class', startAt: at(day, '18:00'), durationMinutes: 120 }
+    mocks.listAllWorkshops.mockResolvedValue([sq])
+    const body = { action: 'create', content: content('Wreath Sash'), sessions: [ses(day, '18:00', '20:00')], status: 'draft' }
+
+    // Without it: the Square class holds the room.
+    const refused = await call(classes, 'POST', '/api/admin/classes/classes.json', body)
+    expect(refused.status).toBe(409)
+    expect(refused.body.error).toMatch(/^Clashes with Wreath Sash \(Square\), /)
+    // A bad id is refused, never ignored.
+    const bad = await call(classes, 'POST', '/api/admin/classes/classes.json', { ...body, replacesSquare: 'cls_notsquare1' })
+    expect(bad.status).toBe(400)
+
+    const made = await call(classes, 'POST', '/api/admin/classes/classes.json', { ...body, replacesSquare: sq.scheduleId })
+    expect(made.status).toBe(200)
+    expect(made.body.warning).toBeUndefined()
+    const id = made.body.data.class.id
+    expect((await getClass(id))!.replacesSquare).toBe(sq.scheduleId)
+    expect((await getEventMeta('workshop', sq.scheduleId))!.movedTo).toBe(id)
+
+    // Later edits and opening it stay clear of that Square class.
+    const s = made.body.data.class.sessions[0]
+    const moved = await update({ id, sessions: [{ ...s, startIso: at(day, '18:30'), endIso: at(day, '20:30') }], status: 'open' })
+    expect(moved.status).toBe(200)
+
+    // Only that one Square class is ignored: another one at the same time still clashes.
+    mocks.listAllWorkshops.mockResolvedValue([sq, other])
+    const again = await update({ id, content: content('Wreath Sash', { description: 'New words.' }) })
+    expect(again.status).toBe(409)
+    expect(again.body.error).toMatch(/^Clashes with Other Square Class, /)
+  })
+
   it('a 400 for bad sessions and 404 for an unknown class', async () => {
     const bad = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Bad'), sessions: [], status: 'open' })
     expect(bad.status).toBe(400)
