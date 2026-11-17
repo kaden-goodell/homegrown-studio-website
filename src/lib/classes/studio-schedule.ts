@@ -131,7 +131,8 @@ export async function legacyClassSpans(fromIso: string, toIso: string): Promise<
 
 /**
  * Parties holding the room: the party book's held and booked times (labelled
- * with the host's name from the party record when it can be read), and the
+ * with the host's name from the party record when it can be read; a hold with
+ * no record but a private event quote reads "Quote hold: <first name>"), and the
  * parties booked in Square before it (`@lib/parties/legacy-square`: the party
  * service only, read only, [] when the owners' Square read switch is off).
  * Deduped by id, the party book first. Throws when either can't be read.
@@ -141,18 +142,45 @@ export async function legacyClassSpans(fromIso: string, toIso: string): Promise<
 export async function partyBusy(fromIso: string, toIso: string, now: Date = new Date(), opts: { labels?: boolean; display?: boolean } = {}): Promise<Busy[]> {
   const labels = opts.labels !== false
   const [book, legacy] = await Promise.all([holdsBetween(fromIso, toIso, now, { display: opts.display }), legacyPartyBusy(fromIso, toIso, { labels })])
+  // Quote holds (private event quotes): the quotes are read once per call, only when a hold has no party record.
+  let quotes: Promise<Map<string, string>> | null = null
+  const quoteRequest = (partyId: string) => {
+    quotes ??= quoteRequestsByParty().catch(() => new Map())
+    return quotes.then((m) => m.get(partyId))
+  }
   const ours = await Promise.all(book.map(async (h) => {
     const b = holdBusy(h)
     // Public reads never show who: no record read per party (cold starts).
     if (!labels) return b
     // A missing record only costs the label its name.
     const rec = await getPartyRecord(h.partyId).catch(() => null)
+    if (!rec) {
+      const requestId = await quoteRequest(h.partyId)
+      if (requestId !== undefined) {
+        const host = await requesterName(requestId)
+        return { ...b, label: host ? `Quote hold: ${host.split(/\s+/)[0]}` : 'Quote hold', ...(host ? { hostName: host } : {}) }
+      }
+    }
     const hostName = rec?.hostName
     // UI review: the one party name everywhere ("Paige’s party · Decoupage Succulent Pots").
     return hostName ? { ...b, hostName, label: partyDisplayName({ hostName, craftName: rec?.craftName }) } : b
   }))
   const seen = new Set(ours.map((b) => b.id))
   return [...ours, ...legacy.filter((b) => !seen.has(b.id))]
+}
+
+// The quote and request stores load lazily: they stay out of the schedule's import graph.
+/** Party id → the request id, for every quote. */
+async function quoteRequestsByParty(): Promise<Map<string, string>> {
+  const { listQuotes } = await import('@lib/quotes/quote-store')
+  return new Map((await listQuotes()).map((q) => [q.partyId, q.requestId]))
+}
+
+/** The requester's name; null when the request can't be read. */
+async function requesterName(requestId: string): Promise<string | null> {
+  const { getRequest } = await import('@lib/event-requests')
+  const req = await getRequest(requestId).catch(() => null)
+  return req?.about?.name?.trim() || null
 }
 
 function cafeBusy(fromIso: string, toIso: string, studio: StudioDays): Busy[] {
