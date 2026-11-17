@@ -61,12 +61,13 @@ describe('DoorSearch — walk-in mode (Today)', () => {
     const onCheckedIn = vi.fn()
     render(<DoorSearch onCheckedIn={onCheckedIn} />)
     search('lee')
-    await screen.findByText(/GOOD TO GO — Sam Lee/)
+    // Generous waits: this ran past the 1 s default under a loaded full-suite run (17 Nov 2026).
+    await screen.findByText(/GOOD TO GO — Sam Lee/, undefined, { timeout: 5000 })
     expect(screen.queryByTestId('cafe-adult-stays')).toBeNull()
     fireEvent.click(screen.getByRole('checkbox', { name: 'Sam (adult)' }))
     expect(screen.getByTestId('cafe-adult-stays')).toHaveTextContent('Craft Café isn’t drop-off — an adult stays with them.')
     fireEvent.click(screen.getByRole('button', { name: '✓ Here for Craft Café' }))
-    await waitFor(() => expect(onCheckedIn).toHaveBeenCalled())
+    await waitFor(() => expect(onCheckedIn).toHaveBeenCalled(), { timeout: 5000 })
     expect(JSON.parse((posts()[0] as any)[1].body)).toEqual({ recordId: 'wvr_9', personIds: ['child:0', 'child:1'] })
   })
 
