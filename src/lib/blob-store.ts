@@ -18,6 +18,8 @@
 import { createLogger } from '@lib/logger'
 // Alias-free so the Netlify functions (archive-records) use the same rule.
 import { blobStoreName } from './blob-store-name'
+import { PG_STORES } from './db/pg-stores'
+import { makePgKvStore, type SnapshotKvStore } from './db/pg-kv'
 export { blobStoreName }
 
 export interface KvStore {
@@ -61,7 +63,35 @@ function onNetlify(): boolean {
   return typeof process !== 'undefined' && process.env.NETLIFY === 'true'
 }
 
+/**
+ * The store for `storeName`. The race-critical ones (src/lib/db/pg-stores.ts)
+ * are Postgres-backed, with a blob snapshot for display reads; the rest are
+ * Netlify Blobs (files off Netlify), as always.
+ */
 export function makeKvStore(
+  storeName: string,
+  fsDirName: string,
+  _testOpts?: _KvStoreTestOptions,
+): KvStore {
+  if (!PG_STORES.has(storeName) || _testOpts) return makeBlobKvStore(storeName, fsDirName, _testOpts)
+  return makePgKvStore(
+    () => blobStoreName(storeName, typeof process !== 'undefined' ? process.env : {}),
+    storeName,
+    makeBlobKvStore(storeName, fsDirName),
+    makeBlobKvStore(`${storeName}-snapshot`, `${fsDirName}-snapshot`),
+  )
+}
+
+/** A race-critical store's display-only reads (a moment old at most); a plain store's normal reads. */
+export function snapshotRead(kv: KvStore): { get(key: string): Promise<string | null>; list(prefix?: string): Promise<string[]> } {
+  const s = kv as Partial<SnapshotKvStore>
+  return {
+    get: (key) => (s.getSnapshot ? s.getSnapshot(key) : kv.get(key)),
+    list: (prefix) => (s.listSnapshot ? s.listSnapshot(prefix) : kv.list(prefix)),
+  }
+}
+
+function makeBlobKvStore(
   storeName: string,
   fsDirName: string,
   _testOpts?: _KvStoreTestOptions,

@@ -3,6 +3,8 @@ import { getStore } from '@netlify/blobs'
 import { exportAll, buildArchiveAttachments, type ArchiveKvStore } from '../../src/lib/archive-export'
 import { ARCHIVE_STORES, ARCHIVE_STORE_NAMES } from '../../src/lib/archive-stores'
 import { blobStoreName } from '../../src/lib/blob-store-name'
+import { PG_STORES } from '../../src/lib/db/pg-stores'
+import { databaseConfigured, db } from '../../src/lib/db/client'
 import { ARCHIVE_FALLBACK, ownersFromStaffJson, parseNotifyDoc, savedRecipients } from '../../src/lib/notify-recipients'
 
 /**
@@ -28,6 +30,19 @@ export const config: Config = { schedule: '0 8 * * 0' }
 const STORE_NAMES = ARCHIVE_STORE_NAMES
 
 function blobKvStore(name: string): ArchiveKvStore {
+  // The race-critical stores live in Postgres (src/lib/db/pg-stores.ts): archive what's really there.
+  if (PG_STORES.has(name) && databaseConfigured()) {
+    const table = blobStoreName(name, process.env)
+    return {
+      async list() {
+        return (await db()('SELECT key FROM kv_store WHERE store = $1 ORDER BY key', [table])).map((r) => String(r.key))
+      },
+      async get(key: string) {
+        const rows = await db()('SELECT value FROM kv_store WHERE store = $1 AND key = $2', [table, key])
+        return rows.length ? String(rows[0].value) : null
+      },
+    }
+  }
   // The deploy's own stores: a namespaced preview reads its own, never the live ones.
   const store = getStore({ name: blobStoreName(name, process.env), consistency: 'strong' })
   return {
