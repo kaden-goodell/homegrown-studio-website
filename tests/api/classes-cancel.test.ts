@@ -325,6 +325,26 @@ describe('when Square doesn’t answer, or says no', () => {
   })
 })
 
+describe('review: a replayed press never skips the cancel rules', () => {
+  it('a press Square turned down, sent again by hand inside 48 hours, is refused like any new press (nothing sent)', async () => {
+    const { t, lines } = await setup(two, 50)
+    const a = attempt()
+    m.refundPayment.mockResolvedValueOnce({ id: 'rf_x', paymentId: 'pay_1', amountCents: 3270, status: 'FAILED' })
+    expect((await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: a })).status).toBe(502)
+    expect(m.refundPayment).toHaveBeenCalledTimes(1)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(Date.now() + 40 * 3_600_000) // now 10 hours before class
+      const replay = await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: a })
+      expect(replay.status).toBe(409)
+      expect(replay.body.code).toBe('request-only')
+      expect(m.refundPayment).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('F3: a refund Square never answers never leaves Catherine stuck', () => {
   const cat = { id: 'cat', name: 'Catherine' }
   async function unanswered() {

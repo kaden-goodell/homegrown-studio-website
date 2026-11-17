@@ -320,7 +320,12 @@ export async function selfCancel(input: { token: unknown; lineIds: unknown; atte
   if (mine && tryState(mine, first.lines, now, first.saved) === 'done') return { result: 'cancelled', cents: mine.free ? 0 : mine.cents, view: first.view }
 
   let t: CancelTry
-  if (mine && mine.state !== 'stopped') {
+  // Review (16 Nov 2026): only a press still going through (no answer yet, or
+  // unclear) is continued as is. A press that ended (turned down, stopped) is a
+  // new press: the cancel rules (48 hours, started, cancelled, gift seats) are
+  // checked again, so a hand-sent old token can't skip them.
+  const mineState = mine ? tryState(mine, first.lines, now, first.saved) : null
+  if (mine && (mineState === 'cancelling' || mineState === 'unclear')) {
     // M13(a): a retried press keeps its own seats; one sent with different seats is refused (nothing sent).
     const askedIds = Array.isArray(input.lineIds) ? input.lineIds.filter((x): x is string => typeof x === 'string') : null
     if (askedIds && askedIds.length && !sameIds(askedIds, mine.lineIds)) {
