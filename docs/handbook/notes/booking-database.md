@@ -26,7 +26,11 @@ the database locks the row, so exactly one wins.
   copies the record there. Public pages (seats left, open party times, the
   half-hourly sign-up emails) and the 10-minute waitlist sweep's first look
   read these copies, so page views don't wake the database. They can be a
-  moment old; a booking, hold, charge or refund always reads Postgres.
+  moment old; a booking, hold, charge or refund always reads Postgres. A copy
+  older than 10 minutes (`SNAPSHOT_MAX_AGE_MS`) is re-read from Postgres on the
+  next public read and refreshed, at most once per record per 10 minutes per
+  server; if Postgres is down the old copy is shown (and logged), never an
+  error page.
 
 The code is `src/lib/db/` (client + the Postgres store) and the router in
 `makeKvStore` (`src/lib/blob-store.ts`). Modules didn't change: their

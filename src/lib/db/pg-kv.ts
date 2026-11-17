@@ -36,6 +36,24 @@ export interface SnapshotKvStore extends KvStore {
 const ALARM_EVERY_MS = 10 * 60_000
 let lastAlarmAt = 0
 
+/**
+ * A display copy older than this is refreshed from Postgres on the next public
+ * read (Kaden, 16 Nov 2026: copies must never stay stale indefinitely). The
+ * same window caps how often one server re-reads one record for that reason,
+ * so a burst of page views wakes the database at most once per record per
+ * 10 minutes per server.
+ */
+export const SNAPSHOT_MAX_AGE_MS = 10 * 60_000
+
+let clock = () => Date.now()
+/** Tests: a fixed clock for the snapshot age (null = real time). Also clears the refresh guard. */
+export function _setSnapshotClockForTests(now: (() => number) | null): void {
+  clock = now ?? (() => Date.now())
+  refreshedAt.clear()
+}
+/** "<table>\u0000<key>" → when this server last re-read it for a stale copy. */
+const refreshedAt = new Map<string, number>()
+
 async function alarmNoDatabase(why: string): Promise<void> {
   const now = Date.now()
   if (now - lastAlarmAt < ALARM_EVERY_MS) return
@@ -100,7 +118,7 @@ export function makePgKvStore(tableName: () => string, label: string, blob: KvSt
         const v = Number((JSON.parse(cur) as { v?: number }).v)
         if (Number.isFinite(v) && v > version) return // a newer copy is already there
       }
-      await mirror.set(key, JSON.stringify({ v: version, value }))
+      await mirror.set(key, JSON.stringify({ v: version, value, at: clock() }))
     } catch (err) {
       logger.warn('Snapshot copy not updated (display may lag until the next write)', { key, error: String(err) })
     }
@@ -185,11 +203,33 @@ export function makePgKvStore(tableName: () => string, label: string, blob: KvSt
 
     async getSnapshot(key) {
       if (!databaseConfigured() && !onNetlify()) return blob.get(key)
+      let copy: { value: string; at?: number } | null = null
       try {
-        const copy = await mirror.get(key)
-        if (copy) return (JSON.parse(copy) as { value: string }).value
+        const raw = await mirror.get(key)
+        if (raw) copy = JSON.parse(raw) as { value: string; at?: number }
       } catch (err) {
         logger.warn('Snapshot unreadable — reading the database', { key, error: String(err) })
+      }
+      if (copy) {
+        const now = clock()
+        const fresh = typeof copy.at === 'number' && now - copy.at < SNAPSHOT_MAX_AGE_MS
+        const guard = `${tableName()}\u0000${key}`
+        const triedRecently = now - (refreshedAt.get(guard) ?? -Infinity) < SNAPSHOT_MAX_AGE_MS
+        if (fresh || triedRecently) return copy.value
+        refreshedAt.set(guard, now)
+        try {
+          const { value, etag } = await store.getWithMeta(key)
+          if (value === null) {
+            await mirrorWrite(key, Number.MAX_SAFE_INTEGER, null)
+            return null
+          }
+          await mirrorWrite(key, Number(etag), value)
+          return value
+        } catch (err) {
+          // Never block a page on this: the copy it has is better than nothing.
+          logger.warn('Stale snapshot not refreshed (database unavailable) — showing the copy', { key, error: String(err) })
+          return copy.value
+        }
       }
       // No copy yet (first read, or the store was imported): read the database once and copy it.
       const { value, etag } = await store.getWithMeta(key)
