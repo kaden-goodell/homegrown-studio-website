@@ -92,6 +92,14 @@ export function policySectionsFor(f: PolicyFacts = CONFIG_POLICY_FACTS): PolicyS
             'If your party doesn’t show up at all, the studio fee is forfeited — no refund or credit. We prepped the studio and held the date for you.',
         },
         {
+          heading: 'Weeknight parties',
+          body:
+            `Weeknight parties have no studio fee. The ${formatMoney(partyConfig.weeknightMinimumCents)} you pay when you book is a craft credit ` +
+            `that counts toward your crafts, and crafts have a ${formatMoney(partyConfig.weeknightMinimumCents)} minimum. ` +
+            `The same rules apply to the credit as to the studio fee. Cancel ${W.partyFullRefundDays}+ days before for a full refund, ` +
+            `inside ${W.partyFullRefundDays} days it becomes studio credit, and if your party doesn’t show up at all, it is forfeited.`,
+        },
+        {
           heading: 'Personalized crafts',
           body:
             'Made-to-order items (clearly marked when you book) can’t be changed or refunded once they’re made, regardless of the windows above.',
@@ -188,8 +196,19 @@ export function partyCheckoutPolicySummary(minGuests: number = partyConfig.minGu
 }
 
 /** One-line checkout summaries — shown next to the terms checkbox. */
+/** The same terms for a weeknight party, whose payment is a craft credit. */
+export function weeknightCheckoutPolicySummary(): string {
+  const min = formatMoney(partyConfig.weeknightMinimumCents)
+  return (
+    `Free reschedule with ${W.partyRescheduleNoticeHours} hours’ notice · full refund ${W.partyFullRefundDays}+ days out · ` +
+    `studio credit inside ${W.partyFullRefundDays} days · your ${min} counts toward crafts (${min} minimum)`
+  )
+}
+
 export const checkoutPolicySummary = {
   party: partyCheckoutPolicySummary(),
+  /** The same terms for a weeknight party, whose $300 is a craft credit. */
+  weeknightParty: weeknightCheckoutPolicySummary(),
   workshop:
     `Full refund ${W.workshopRefundHours}+ hours out · studio credit or free seat transfer inside ${W.workshopRefundHours} hours`,
 } as const

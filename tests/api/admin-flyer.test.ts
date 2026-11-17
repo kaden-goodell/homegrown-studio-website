@@ -29,13 +29,13 @@ describe('/admin/flyer/<date>', () => {
     const v = await getSettingsView()
     await saveStudioSettings({
       ...v,
-      cafeSpecialDays: [...v.cafeSpecialDays, { date: '2026-12-12', opens: '10:00', closes: '16:00', name: 'Holiday market', announce: { headline: 'Holiday Market Day', daysBefore: 14 } }],
+      cafeSpecialDays: [...v.cafeSpecialDays, { date: '2027-01-16', opens: '10:00', closes: '16:00', name: 'Holiday market', announce: { headline: 'Holiday Market Day', daysBefore: 14 } }],
     }, { expectedUpdatedAt: v.updatedAt, by: { id: 'owner-catherine', name: 'Catherine' } })
-    const r = await open('2026-12-12')
+    const r = await open('2027-01-16')
     expect(r.status).toBe(200)
     expect(r.type).toMatch(/text\/html/)
     expect(r.html).toContain('✦ Holiday Market Day ✦')
-    expect(r.html).toContain('Saturday, December 12')
+    expect(r.html).toContain('Saturday, January 16')
     expect(r.html).toContain('<strong>10 AM – 4 PM</strong>')
     expect(r.html).toContain('Regular Craft Café hours are Saturdays 9 AM – 1 PM.')
     expect(r.html).toMatch(/<svg[^>]*>[\s\S]*<path/) // the QR code, drawn here

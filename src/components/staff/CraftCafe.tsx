@@ -49,8 +49,8 @@ export function totalsLine(t: CafeTotals): string {
 }
 
 /** The tappable Craft Café row (This week, Today). `here` is shown only when known (today). */
-export function CafeRow({ date, hours, here, onOpen }: { date: string; hours: { opens: string; closes: string }; here?: number | null; onOpen: () => void }) {
-  const range = formatRange(hours.opens, hours.closes)
+export function CafeRow({ date, hours, windows, here, onOpen }: { date: string; hours: { opens: string; closes: string }; /** A day with two openings (Sat Nov 28: 9–1 and 4–8) shows both. */ windows?: { opens: string; closes: string }[]; here?: number | null; onOpen: () => void }) {
+  const range = windows && windows.length > 1 ? windows.map((w) => formatRange(w.opens, w.closes)).join(' · ') : formatRange(hours.opens, hours.closes)
   return (
     <button
       type="button"

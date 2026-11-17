@@ -1,9 +1,11 @@
 /**
  * What a party costs, split the way it is paid:
  *
- *   PAY TODAY            the package (the studio fee), the extras chosen, and
- *                        a themed table when one is added
- *   PAY AT THE STUDIO    the crafts, for whoever comes
+ *   PAY TODAY            the package (the studio fee, or on a weeknight the
+ *                        craft credit), the extras chosen, and a themed table
+ *                        when one is added
+ *   PAY AT THE STUDIO    the crafts, for whoever comes (weeknight: less the
+ *                        credit, with the minimum)
  *   Estimated party total
  *
  * One model, used on the Guests step, the payment step and the /book page, so
@@ -15,12 +17,15 @@
  */
 import { partyConfig } from '@config/party.config'
 import { craftTotalCents } from '@lib/party-pricing'
+import { dueAtStudioCents, partyEstimateCents, partyTermsForStart, termsForKind, type PartyKind } from '@lib/party-terms'
 import { formatMoney } from '@lib/money'
 import { formatDay, formatMonthDay, formatTime } from '@lib/studio-time'
 
 export interface PartySummaryInput {
-  /** ISO start of the chosen time, if one is chosen yet. */
+  /** ISO start of the chosen time, if one is chosen yet. Its day sets the terms. */
   startIso?: string
+  /** Weekend or weeknight, before a time is chosen. A start time wins over this. */
+  kind?: PartyKind
   craft?: { name: string; perHeadCents: number; perHeadMaxCents?: number } | null
   guests: number
   /**
@@ -28,7 +33,7 @@ export interface PartySummaryInput {
    * config's studio fee. `name` is shown in place of "Studio fee" (only
    * when there was a package to choose).
    */
-  pkg?: { name?: string; priceCents: number; minGuests: number } | null
+  pkg?: { id?: string; name?: string; priceCents: number; minGuests: number } | null
   /** Extras paid today, priced as the server prices them (pricing.ts quote items). */
   extras?: SummaryExtra[]
   /** A themed table charged today, when that feature is on and one is chosen. */
@@ -53,6 +58,7 @@ export interface SummaryLine {
 }
 
 export interface PartySummary {
+  kind: PartyKind
   today: SummaryLine[]
   /** What the card is charged now, in cents. */
   dueTodayCents: number
@@ -77,20 +83,27 @@ function extraLabel(e: SummaryExtra): string {
 }
 
 export function partySummary(input: PartySummaryInput): PartySummary {
-  const fee = input.pkg?.priceCents ?? partyConfig.basePriceCents
   const minGuests = input.pkg?.minGuests ?? partyConfig.minGuests
   const feeName = input.pkg?.name || 'Studio fee'
+  // Weeknights (Mon–Wed) have their own terms for the whole-studio package: the charge is a craft credit.
+  const wholeStudio = !input.pkg?.id || input.pkg.id === 'pkg_whole'
+  const dayTerms = input.startIso ? partyTermsForStart(input.startIso) : termsForKind(input.kind ?? 'weekend')
+  const terms = wholeStudio ? dayTerms : termsForKind('weekend')
+  const credit = terms.chargeIsCraftCredit
+  const charge = credit ? terms.chargeNowCents : input.pkg?.priceCents ?? partyConfig.basePriceCents
   const guests = Math.max(0, Math.floor(input.guests))
+  const holds = input.startIso ? `holds ${formatDay(input.startIso)} at ${formatTime(input.startIso)}` : 'holds your date'
 
   const today: SummaryLine[] = [
-    {
-      label: input.startIso
-        ? `${feeName}, holds ${formatDay(input.startIso)} at ${formatTime(input.startIso)}`
-        : `${feeName}, holds your date`,
-      amount: formatMoney(fee),
-    },
+    credit
+      ? {
+          label: `Craft credit, ${holds}`,
+          amount: formatMoney(charge),
+          note: 'Counts toward your crafts. No studio fee on weeknights.',
+        }
+      : { label: `${feeName}, ${holds}`, amount: formatMoney(charge) },
   ]
-  const extras = (input.extras ?? []).filter((e) => e.cents > 0)
+  const extras = input.extras ?? []
   for (const e of extras) today.push({ label: extraLabel(e), amount: formatMoney(e.cents) })
   if (input.themedTable && input.themedTable.priceCents > 0) {
     today.push({
@@ -98,7 +111,8 @@ export function partySummary(input: PartySummaryInput): PartySummary {
       amount: formatMoney(input.themedTable.priceCents),
     })
   }
-  const dueTodayCents = fee + extras.reduce((t, e) => t + e.cents, 0) + (input.themedTable?.priceCents ?? 0)
+  const otherCents = extras.reduce((t, e) => t + e.cents, 0) + (input.themedTable?.priceCents ?? 0)
+  const dueTodayCents = charge + otherCents
 
   const atStudio: SummaryLine[] = []
   let estimatedTotal = ''
@@ -107,15 +121,36 @@ export function partySummary(input: PartySummaryInput): PartySummary {
     const high = Math.max(low, input.craft.perHeadMaxCents ?? low)
     const lowTotal = craftTotalCents(low, guests)
     const highTotal = craftTotalCents(high, guests)
-    atStudio.push({
-      label: `${input.craft.name}, about ${guests} guests × ${range(low, high)}`,
-      amount: `about ${range(lowTotal, highTotal)}`,
-      note: `Only for guests who come. Minimum ${minGuests} crafts.`,
-    })
-    estimatedTotal = `about ${range(dueTodayCents + lowTotal, dueTodayCents + highTotal)}`
+    if (credit) {
+      // One line (Kaden, 15 Nov 2026: "way too busy"): $0 while the credit covers
+      // the crafts, then only what goes over it.
+      const dueLow = dueAtStudioCents(terms, lowTotal)
+      const dueHigh = dueAtStudioCents(terms, highTotal)
+      atStudio.push(
+        dueHigh === 0
+          ? { label: 'Crafts', amount: formatMoney(0), note: `Your ${formatMoney(charge)} covers the crafts.` }
+          : {
+              label: 'Crafts',
+              amount: `about ${range(dueLow, dueHigh)}`,
+              note: `${guests} guests × ${range(low, high)}, less your ${formatMoney(charge)}.`,
+            },
+      )
+      estimatedTotal = `about ${range(
+        otherCents + partyEstimateCents(terms, lowTotal),
+        otherCents + partyEstimateCents(terms, highTotal),
+      )}`
+    } else {
+      atStudio.push({
+        label: `${input.craft.name}, about ${guests} guests × ${range(low, high)}`,
+        amount: `about ${range(lowTotal, highTotal)}`,
+        note: `Only for guests who come. Minimum ${minGuests} crafts.`,
+      })
+      estimatedTotal = `about ${range(dueTodayCents + lowTotal, dueTodayCents + highTotal)}`
+    }
   }
 
   return {
+    kind: terms.kind,
     today,
     dueTodayCents,
     atStudio,

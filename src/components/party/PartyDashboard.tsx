@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { hasAllergy } from '@lib/allergy'
-import { partyConfig } from '@config/party.config'
+import { partyTermsForStart } from '@lib/party-terms'
 import { partyContent } from '@config/party-content'
 import {
   partyInviteUrl,
@@ -40,6 +40,9 @@ interface Roster {
     craftName: string
     startIso: string
     durationMinutes: number | null
+    /** Absent on older servers: weekend. */
+    kind?: 'weekend' | 'weeknight'
+    paidOnlineCents?: number | null
     hostName: string
     guestCount: number
     title: string | null
@@ -253,7 +256,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
   const { party, summary, households } = roster
   const heading = party.title || `${party.craftName} Party`
   const slotLabel = formatWhen(party.startIso) + ' CT'
-  const endIso = party.endIso ?? addMinutesIso(party.startIso, party.durationMinutes ?? partyConfig.durationMinutes)
+  const endIso = party.endIso ?? addMinutesIso(party.startIso, party.durationMinutes ?? partyTermsForStart(party.startIso).durationMinutes)
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   const inviteUrl = partyInviteUrl(
     { bookingId, craftName: party.craftName, slotLabel, startIso: party.startIso, title: party.title || undefined },
@@ -318,6 +321,11 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
         </h1>
         <p style={{ color: 'var(--color-dark)', fontWeight: 600, marginTop: '0.5rem' }} data-testid="party-when">{`${formatDayAndSpan(party.startIso, endIso)} CT`}</p>
         <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem' }}>{inviteContent.where}</p>
+        {party.kind === 'weeknight' && (
+          <p style={{ color: 'var(--color-dark)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+            {partyContent.kinds.hostCreditLine(party.paidOnlineCents ?? partyTermsForStart(party.startIso).chargeNowCents)}
+          </p>
+        )}
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'center', marginTop: '1.1rem' }}>
           <button type="button" onClick={shareInvite} style={chip}>

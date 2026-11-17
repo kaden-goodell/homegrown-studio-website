@@ -543,6 +543,9 @@ export default function PartyLanding({ copy = CONFIG_COPY_FACTS }: CopyProps = {
         <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', lineHeight: 1.6, margin: 0 }}>
           {content.deposit.holdLine} {feeShareLine(copy.feeCents, content.deposit.perPersonExample.guests)} {content.deposit.noShowLine}
         </p>
+        <p style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--color-dark)', lineHeight: 1.6, margin: '0.5rem 0 0' }}>
+          {content.kinds.landingLine}
+        </p>
       </div>
 
       {/* How it works */}

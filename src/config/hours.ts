@@ -38,8 +38,9 @@ export const CAFE_HOURS: HoursEntry[] = [
 
 /**
  * One-off Craft Café days that replace the weekly hours for that date, on
- * top of (or instead of) CAFE_HOURS. Party times are kept off these days too
- * (see `partyFreeDays` in party.config.ts).
+ * top of (or instead of) CAFE_HOURS. A date may have more than one entry: each
+ * is its own window (Sat Nov 28 runs 9–1 and 4–8). Party times keep an hour
+ * clear of every window (CAFE_PARTY_GAP_MINUTES in party.config.ts).
  */
 export interface CafeSpecialDay {
   /** Studio-local YYYY-MM-DD. */
@@ -65,11 +66,43 @@ export const CAFE_SPECIAL_DAYS: CafeSpecialDay[] = [
     date: '2026-11-07', opens: '09:00', closes: '20:00', name: 'Craft Café grand opening',
     announce: { headline: 'Grand Opening Day', daysBefore: 21 },
   },
+  // Kaden, 11 Nov 2026 (his flyer): café all weekend in place of the BYOB and
+  // Sunday Swap classes he took down.
+  { date: '2026-11-13', opens: '16:00', closes: '20:00', name: 'Craft Café' },
+  { date: '2026-11-14', opens: '09:00', closes: '14:00', name: 'Craft Café' },
+  { date: '2026-11-15', opens: '14:00', closes: '18:00', name: 'Craft Café' },
+  // Kaden, 15 Nov 2026: Nov/Dec weekends are Craft Café in place of Friday and
+  // Saturday parties (see partyNoDates in party.config.ts). Sat Nov 28 has two
+  // windows around Laura's booked 1:30 party.
+  { date: '2026-11-21', opens: '09:00', closes: '18:00', name: 'Craft Café' },
+  // Kaden, 16 Nov 2026: Thanksgiving week, café 9–2 Mon–Wed (weeknight party
+  // times at 6 stay open).
+  { date: '2026-11-23', opens: '09:00', closes: '14:00', name: 'Craft Café' },
+  { date: '2026-11-24', opens: '09:00', closes: '14:00', name: 'Craft Café' },
+  { date: '2026-11-25', opens: '09:00', closes: '14:00', name: 'Craft Café' },
+  { date: '2026-11-28', opens: '09:00', closes: '13:00', name: 'Craft Café' },
+  { date: '2026-11-28', opens: '16:00', closes: '20:00', name: 'Craft Café' },
+  { date: '2026-12-04', opens: '16:00', closes: '20:00', name: 'Craft Café' },
+  { date: '2026-12-05', opens: '09:00', closes: '18:00', name: 'Craft Café' },
+  { date: '2026-12-11', opens: '16:00', closes: '20:00', name: 'Craft Café' },
+  // Kaden, 15 Nov 2026: café closes at 3 on Dec 12 to set up the 5:30 private event.
+  { date: '2026-12-12', opens: '09:00', closes: '15:00', name: 'Craft Café' },
+  { date: '2026-12-18', opens: '16:00', closes: '20:00', name: 'Craft Café' },
+  { date: '2026-12-19', opens: '09:00', closes: '18:00', name: 'Craft Café' },
 ]
 
 /** One weekday's Craft Café hours (the owner's "Saturday 9 AM – 12 PM" row). */
 export interface CafeWeekly {
   weekday: Weekday
+  /** HH:MM, 24-hour */
+  opens: string
+  /** HH:MM, 24-hour */
+  closes: string
+}
+
+/**
+/** One opening on a date (a date may have more than one: Sat Nov 28 runs 9–1 and 4–8). */
+export interface CafeWindow {
   /** HH:MM, 24-hour */
   opens: string
   /** HH:MM, 24-hour */
@@ -99,17 +132,35 @@ export const CONFIG_STUDIO_WEEKLY: CafeWeekly[] = rowsOf(STUDIO_HOURS)
 export const WEEKDAYS: readonly Weekday[] = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 /**
- * Café hours on a date: a special day wins over the weekly hours. Null when
- * there's no café that day. Pass the loaded hours (`getCafeHours()` on the
- * server, the API payload in the browser); the default is the config.
+ * Every Craft Café window on a date, earliest first. Special days win over
+ * the weekly hours (all of that date's entries). Empty when there's no café.
+ * Pass the loaded hours (`getCafeHours()` on the server, the API payload in
+ * the browser); the default is the config.
  */
-export function cafeHoursOn(ymd: string, cafe: CafeHours = CONFIG_CAFE_HOURS): { opens: string; closes: string } | null {
-  const special = cafe.special.find((d) => d.date === ymd)
-  if (special) return { opens: special.opens, closes: special.closes }
+export function cafeWindowsOn(ymd: string, cafe: CafeHours = CONFIG_CAFE_HOURS): CafeWindow[] {
+  const special = cafe.special.filter((d) => d.date === ymd)
+    .map((d) => ({ opens: d.opens, closes: d.closes }))
+    .sort((a, b) => (a.opens < b.opens ? -1 : 1))
+  if (special.length) return special
   const [y, m, d] = ymd.split('-').map(Number)
   const weekday = WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]
   const weekly = cafe.weekly.find((h) => h.weekday === weekday)
-  return weekly ? { opens: weekly.opens, closes: weekly.closes } : null
+  return weekly ? [{ opens: weekly.opens, closes: weekly.closes }] : []
+}
+
+/**
+ * The café's whole span on a date: first opening to last closing. Null when
+ * there's no café. With two windows this covers the gap between them, so use
+ * cafeWindowsOn for anything that needs the real hours.
+ */
+export function cafeHoursOn(ymd: string, cafe: CafeHours = CONFIG_CAFE_HOURS): CafeWindow | null {
+  const windows = cafeWindowsOn(ymd, cafe)
+  return windows.length ? { opens: windows[0].opens, closes: windows[windows.length - 1].closes } : null
+}
+
+/** "9 AM – 1 PM · 4 – 8 PM": every window on a date, for one line. */
+export function formatWindows(windows: CafeWindow[]): string {
+  return windows.map((w) => formatRange(w.opens, w.closes)).join(' · ')
 }
 
 /** The weekly rows as the site's hours list: days with the same hours share a row, in week order (Monday first). */

@@ -45,9 +45,9 @@ describe('quoteParty', () => {
   })
 
   it('refuses 9 or 31 guests, and a fraction', () => {
-    for (const guests of [9, 31, 10.5, Number.NaN]) {
+    for (const guests of [9, 36, 10.5, Number.NaN]) {
       const r = quoteParty(settings(), { guests }, 'public')
-      expect(r).toEqual({ ok: false, error: 'Parties are for 10 to 30 guests.', field: 'guests' })
+      expect(r).toEqual({ ok: false, error: 'Parties are for 10 to 35 guests.', field: 'guests' })
     }
   })
 
@@ -222,7 +222,7 @@ describe('browser-safe', () => {
       const src = readFileSync(join(process.cwd(), f), 'utf8')
       expect(src, f).not.toMatch(/from ['"]node:/)
       expect(src, f).not.toMatch(/makeKvStore|process\.env/)
-      for (const m of src.matchAll(/^import (?!type ).*from ['"]([^'"]+)['"]/gm)) expect(m[1], f).toMatch(/^\.\/party-times$|^\.\/types$/)
+      for (const m of src.matchAll(/^import (?!type ).*from ['"]([^'"]+)['"]/gm)) expect(m[1], f).toMatch(/^\.\/party-times$|^\.\/types$|^\.\.\/party-terms$/)
     }
   })
 })

@@ -124,11 +124,12 @@ function BookForm({ day: openedOn, packages, addOns, settings, crafts, onPriceCh
   const craft = crafts.crafts?.find((c) => c.id === craftId) ?? null
   const startIso = other ? (day && /^\d{2}:\d{2}$/.test(otherTime) ? localToUtcISO(day, otherTime) : '') : start
   const quote = useMemo(() => {
-    const q = quoteParty(settings, { packageId: pkg?.id, guests: guestsOk ? guestN : (pkg?.minGuests ?? 1), addOns: chosenExtras }, 'admin')
+    // A weeknight start (Mon–Wed) quotes the craft credit and 2 hours, as the server will.
+    const q = quoteParty(settings, { packageId: pkg?.id, guests: guestsOk ? guestN : (pkg?.minGuests ?? 1), addOns: chosenExtras, startIso: startIso || undefined }, 'admin')
     return q.ok ? q.value : null
-  }, [settings, pkg?.id, guestN, guestsOk, extraKey])
+  }, [settings, pkg?.id, guestN, guestsOk, extraKey, startIso])
   const nowCents = quote?.totalCents ?? pkg?.priceCents ?? 0
-  const crafts$ = partySummary({ craft, guests: guestsOk ? guestN : 0, pkg: { priceCents: pkg?.priceCents ?? 0, minGuests: pkg?.minGuests ?? 1 } }).atStudio[0]
+  const crafts$ = partySummary({ craft, guests: guestsOk ? guestN : 0, startIso: startIso || undefined, pkg: { id: pkg?.id, priceCents: pkg?.priceCents ?? 0, minGuests: pkg?.minGuests ?? 1 } }).atStudio[0]
   const hasExtras = (quote?.items ?? []).some((it) => it.kind === 'addon' && it.cents > 0)
   const forWhat = hasExtras ? 'the studio fee and extras' : 'the studio fee'
   const hostFirst = host.firstName.trim() || 'the host'

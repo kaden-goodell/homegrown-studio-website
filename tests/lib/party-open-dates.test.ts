@@ -52,12 +52,21 @@ beforeEach(() => {
 })
 
 describe('openPartyStartsInWindow', () => {
-  it('lists the party days (Fri–Sun) inside the booking window, and nothing past it', async () => {
+  it('lists the party days (Fri–Sun, and Mon–Wed weeknights) inside the booking window, and nothing past it', async () => {
     const starts = await openPartyStartsInWindow(NOW)
     const open = days(starts)
     // Parties start the weekend of 7 Nov; Sat 7 Nov itself is the Craft Café grand opening (no parties).
     expect(open[0]).toBe('2026-11-08')
-    expect(open.slice(0, 5)).toEqual(['2026-11-08', '2026-11-13', '2026-11-14', '2026-11-15', '2026-11-20'])
+    // Nov 13–15 is a Craft Café weekend: only Saturday's 4:30 survives (café 9–2).
+    // Mon–Wed weeknights (one 6:00 party each) run in between; Thursdays never.
+    expect(open.slice(0, 9)).toEqual([
+      '2026-11-08', '2026-11-09', '2026-11-10', '2026-11-11', '2026-11-14',
+      '2026-11-16', '2026-11-17', '2026-11-18', '2026-11-22',
+    ])
+    // Fridays and Saturdays Nov 20 to Dec 19 are Craft Café (Kaden, 15 Nov 2026).
+    const weekday = (d: string) => new Date(`${d}T12:00:00Z`).getUTCDay()
+    expect(open.filter((d) => d >= '2026-11-20' && d <= '2026-12-19' && [5, 6].includes(weekday(d)))).toEqual([])
+    expect(open.some((d) => new Date(`${d}T12:00:00Z`).getUTCDay() === 4)).toBe(false)
     // The window ends Fri 8 Jan, a party day itself (4:30); nothing later.
     expect(open[open.length - 1]).toBe('2027-01-08')
     expect(open.every((d) => d <= '2027-01-08')).toBe(true)
@@ -96,14 +105,14 @@ describe('openPartyStartsInWindow', () => {
   })
 
   it('counts a cancelled booking as free', async () => {
-    mockListBookings.mockResolvedValue([booked('2026-11-14T20:00:00.000Z', { status: 'cancelled' })])
-    expect(await openPartyStartsInWindow(NOW)).toContain('2026-11-14T20:00:00.000Z')
+    mockListBookings.mockResolvedValue([booked('2027-01-02T20:00:00.000Z', { status: 'cancelled' })])
+    expect(await openPartyStartsInWindow(NOW)).toContain('2027-01-02T20:00:00.000Z')
   })
 
   it('offers nothing at all in the days the studio is closed for Christmas', async () => {
     const starts = await openPartyStartsInWindow(new Date('2026-12-01T15:00:00.000Z'))
     expect(days(starts).filter((d) => d >= '2026-12-21' && d <= '2027-01-01')).toEqual([])
-    expect(days(starts)).toContain('2026-12-19')
+    expect(days(starts)).toContain('2026-12-20')
     expect(days(starts)).toContain('2027-01-02')
   })
 

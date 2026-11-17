@@ -172,6 +172,7 @@ export class SquarePaymentProvider implements PaymentProvider {
         base.name = item.name
       }
       if (item.note) base.note = item.note.slice(0, 500)
+      if (item.tax) base.appliedTaxes = [{ taxUid: `tax-${item.tax.catalogObjectId}` }]
       return base
     })
 
@@ -205,6 +206,9 @@ export class SquarePaymentProvider implements PaymentProvider {
         ]
       : undefined
 
+    const taxIds = [...new Set(params.lineItems.flatMap((i) => (i.tax ? [i.tax.catalogObjectId] : [])))]
+    const taxes = taxIds.map((id) => ({ uid: `tax-${id}`, catalogObjectId: id, scope: 'LINE_ITEM' }))
+
     const response = await this.client.orders.create({
       ...(params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : {}),
       order: {
@@ -213,6 +217,8 @@ export class SquarePaymentProvider implements PaymentProvider {
         ...(params.referenceId ? { referenceId: params.referenceId } : {}),
         lineItems: lineItems as any,
         discounts: discounts.length > 0 ? discounts as any : undefined,
+        // Only when a line is taxed (shop items): party and class orders carry no taxes at all.
+        ...(taxes.length > 0 ? { taxes: taxes as any } : {}),
         fulfillments: fulfillments as any,
       },
     })

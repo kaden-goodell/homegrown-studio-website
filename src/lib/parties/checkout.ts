@@ -236,6 +236,10 @@ function draftRecord(input: BookInput, partyId: string, q: PartyQuote, craft: Ca
     craftName: craft.name,
     startIso: new Date(input.startIso).toISOString(),
     durationMinutes: q.minutes,
+    // Weeknight (Mon–Wed): the package charge is a craft credit; staff take it off the crafts.
+    kind: q.kind,
+    paidOnlineCents: q.items.find((it) => it.kind === 'package')?.cents ?? 0,
+    craftPerHeadCents: craft.perHeadCents,
     hostName: [input.host.firstName, input.host.lastName].filter(Boolean).join(' '),
     hostEmail: input.host.email,
     hostPhone: input.host.phone,
@@ -452,6 +456,8 @@ export async function sendPartyBookedEmail(input: {
       refundLine: partyRefundLine(draft.startIso, new Date(), studioFeeCents(draft) || (input.chargedCents > 0 ? input.chargedCents : undefined)),
       directionsUrl: STUDIO_DIRECTIONS_URL,
       ...(input.updated ? { updated: input.updated } : {}),
+      // Weeknight: what they paid is a craft credit toward the crafts, not a studio fee.
+      ...(draft.kind === 'weeknight' ? { craftCredit: { minimumCents: partyConfig.weeknightMinimumCents } } : {}),
     })
     return sent
   } catch (err) {
@@ -513,7 +519,7 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
     logger.error('Party settings or studio days unreadable — refusing', { partyId, error: String(err) })
     return refuse(503, 'unavailable', partyMessages.unavailable)
   }
-  const priced = quoteParty(settings, { packageId: input.packageId, guests: input.guests, addOns: input.addOns }, input.audience, input.linkPackageId)
+  const priced = quoteParty(settings, { packageId: input.packageId, guests: input.guests, addOns: input.addOns, startIso }, input.audience, input.linkPackageId)
   if (!priced.ok) return quoteRefusal(settings, input, priced.error, priced.field)
   const q = priced.value
   if (input.audience !== 'admin') {

@@ -48,7 +48,7 @@ describe('party copy follows the party settings', () => {
   it('a 120-minute package changes the length copy', () => {
     const c = partyContentFor(saved((s) => { s.packages[0].minutes = 120 }))
     expect(c.hero.valueTrio).toContain('120 minutes of making')
-    expect(faq(c, /how long/i)).toBe('Parties are 120 minutes in the studio with 10 to 30 guests. The whole space is yours for the entire time.')
+    expect(faq(c, /how long/i)).toBe('Parties are 120 minutes in the studio with 10 to 35 guests. The whole space is yours for the entire time. Weeknight parties are 2 hours.')
   })
 
   it('guest numbers come from the package', () => {

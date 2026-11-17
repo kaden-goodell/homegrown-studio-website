@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro'
 import { bookingsOpenNow } from '@lib/bookings-gate'
 import { OPENING_DATE, GRAND_OPENING_DATE } from '@config/opening'
 import { closureOn, daysOf, reopensOn } from '@config/closures'
+import { privateEvents } from '@config/private-events'
 import { getStudioDays } from '@lib/studio-settings'
 import { openWeekdaysOf } from '@config/studio-days'
 import { longDate } from '@lib/notify-context'
@@ -11,7 +12,7 @@ import { parseOpenStudioWindows } from '@lib/open-studio'
 import { localDate, localToUtcISO } from '@lib/party-slots'
 import { partyStartsInRange } from '@lib/parties/party-times'
 import { getPartySettings } from '@lib/parties/settings-store'
-import { partyMinutes } from '@lib/parties/open-times'
+import { partyMinutes, partyMinutesAt } from '@lib/parties/open-times'
 import { blockedAndClosedBusy, clashes, ourClassBusy, partyBusy, type Busy } from '@lib/classes/studio-schedule'
 import {
   buildCalendarEvents,
@@ -150,7 +151,8 @@ export const GET: APIRoute = async ({ url, request }) => {
       : []
   const partyFree = (startAt: string) =>
     clashes(
-      { kind: 'party', startIso: startAt, endIso: new Date(Date.parse(startAt) + minutes * 60_000).toISOString() },
+      // A weeknight party runs its own length (2 hours).
+      { kind: 'party', startIso: startAt, endIso: new Date(Date.parse(startAt) + partyMinutesAt(partySettings, startAt) * 60_000).toISOString() },
       [...(parties ?? []), ...(partyBlocks ?? [])],
     ).length === 0
   // Parties yield to classes (spec E) and blocked time, the same way the party picker does, then
@@ -188,6 +190,19 @@ export const GET: APIRoute = async ({ url, request }) => {
       // Not bookable, but tappable: it leads to the homepage.
       bookable: false,
       href: '/',
+    })
+  }
+  // Private events taken by hand: a plain "Private Event" row at its time.
+  for (const p of privateEvents) {
+    if (p.date < OPENING_DATE || !inRange(p.date)) continue
+    events.push({
+      id: `private-${p.date}-${p.startTime}`,
+      kind: 'event',
+      title: 'Private Event',
+      date: p.date,
+      startTime: p.startTime,
+      endTime: p.endTime,
+      bookable: false,
     })
   }
   // Days the studio has closed: a row on every one of them, so a whole

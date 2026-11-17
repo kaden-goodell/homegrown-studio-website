@@ -22,6 +22,8 @@ import { partyConfig } from '@config/party.config'
 import { bookableDates, bookableOn, localDate, localToUtcISO, partyStartsForDate, partyStartsInRange, PARTY_CLEANUP_MINUTES, startsOn } from './party-times'
 import { formatDay } from '@lib/studio-time'
 import { getPartySettings } from './settings-store'
+import { WHOLE_STUDIO_PACKAGE_ID } from './pricing'
+import { partyTermsForStart } from '@lib/party-terms'
 import type { PartySettings } from './types'
 
 export const PARTY_TIMES_UNREADABLE = "We couldn't load party times. Try again in a minute."
@@ -54,6 +56,20 @@ export function partyMinutes(s: PartySettings, want: Pick<PartyWant, 'packageId'
     if (a && count) minutes += a.extraMinutes * count
   }
   return minutes
+}
+
+/**
+ * The party's length for a start: a weeknight (Mon–Wed, party-terms.ts) runs
+ * its own length (2 hours) for the whole-studio package, plus any extra time;
+ * every other start is partyMinutes.
+ */
+export function partyMinutesAt(s: PartySettings, startIso: string, want: Pick<PartyWant, 'packageId' | 'addOns'> = {}): number {
+  const base = partyMinutes(s, want)
+  if (want.packageId && want.packageId !== WHOLE_STUDIO_PACKAGE_ID) return base
+  const terms = partyTermsForStart(startIso)
+  if (terms.kind !== 'weeknight') return base
+  const extra = base - partyMinutes(s, { packageId: want.packageId })
+  return terms.durationMinutes + extra
 }
 
 const endOf = (startIso: string, minutes: number) => new Date(Date.parse(startIso) + minutes * MINUTE).toISOString()
@@ -95,14 +111,19 @@ export interface PartyStartsView {
   unblocked: string[]
   /** Really free: clear of everything. */
   open: string[]
+  /** The party's length at each offered start, when it isn't `minutes` (weeknights run 2 hours). */
+  lengths?: Record<string, number>
 }
 
-function judge(offered: string[], minutes: number, busy: Busy[], ignorePartyId?: string): PartyStartsView {
-  const fits = offered.filter((s) => endsByMidnight(s, minutes))
+/** `lengthOf`: the party's length at a start (weeknights run their own, partyMinutesAt). */
+function judge(offered: string[], minutes: number, busy: Busy[], ignorePartyId?: string, lengthOf: (start: string) => number = () => minutes): PartyStartsView {
+  const fits = offered.filter((s) => endsByMidnight(s, lengthOf(s)))
   const notParty = busy.filter((b) => b.kind !== 'party')
-  const unblocked = fits.filter((s) => clashesFor(s, minutes, notParty, ignorePartyId).length === 0)
-  const open = unblocked.filter((s) => clashesFor(s, minutes, busy, ignorePartyId).length === 0)
-  return { minutes, offered, unblocked, open }
+  const unblocked = fits.filter((s) => clashesFor(s, lengthOf(s), notParty, ignorePartyId).length === 0)
+  const open = unblocked.filter((s) => clashesFor(s, lengthOf(s), busy, ignorePartyId).length === 0)
+  const lengths: Record<string, number> = {}
+  for (const s of offered) if (lengthOf(s) !== minutes) lengths[s] = lengthOf(s)
+  return { minutes, offered, unblocked, open, ...(Object.keys(lengths).length ? { lengths } : {}) }
 }
 
 /** The day's view (see PartyStartsView). Throws when anything can't be read. */
@@ -112,7 +133,7 @@ export async function partyStartsOnDate(date: string, want: PartyWant = {}, now:
   const offered = partyStartsForDate(settings, date, now, days, { minutes, admin: want.admin })
   if (offered.length === 0) return { minutes, offered, unblocked: [], open: [] }
   const { startIso, endIso } = studioDayUtcRange(date)
-  return judge(offered, minutes, await scheduleAround(startIso, endIso, days), want.ignorePartyId)
+  return judge(offered, minutes, await scheduleAround(startIso, endIso, days), want.ignorePartyId, (st) => partyMinutesAt(settings, st, want))
 }
 
 /** Open party starts (UTC ISO) on a studio-local date. Throws when anything can't be read. */
@@ -141,7 +162,7 @@ export async function partyStartsInWindow(
   const toIso = new Date(to).toISOString()
   const offered = partyStartsInRange(settings, from.toISOString(), toIso, now, days, { minutes })
   if (offered.length === 0) return { ...none, offered }
-  return { ...judge(offered, minutes, await scheduleAround(from.toISOString(), toIso, days)), windowDays }
+  return { ...judge(offered, minutes, await scheduleAround(from.toISOString(), toIso, days), undefined, (st) => partyMinutesAt(settings, st, want)), windowDays }
 }
 
 /** Every open party start online across the booking window. Throws when anything can't be read. */

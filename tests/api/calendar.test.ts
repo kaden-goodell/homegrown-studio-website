@@ -214,13 +214,15 @@ describe('GET /api/calendar.json', () => {
     expect(parties.length).toBeGreaterThan(0)
     for (const p of parties) expect(p.date.startsWith('2026-11')).toBe(true)
     // Parties start the weekend of 7 Nov, but Sat 7 Nov is the all-day Craft Café grand
-    // opening (no parties), so the first is Sun 8 Nov at 1:00. A Saturday has two, at 2:00 and 4:30 PM.
+    // opening (no parties), so the first is Sun 8 Nov at 1:00. A Sunday has two, at 1:00 and 3:30 PM;
+    // Saturdays Nov 21 and 28 are Craft Café, with none.
     expect(parties.filter((p: any) => p.date === '2026-11-07')).toHaveLength(0)
     expect(parties[0]).toMatchObject({ date: '2026-11-08', startTime: '13:00' })
-    expect(parties.filter((p: any) => p.date === '2026-11-14')).toEqual([
-      expect.objectContaining({ startTime: '14:00' }),
-      expect.objectContaining({ startTime: '16:30' }),
+    expect(parties.filter((p: any) => p.date === '2026-11-22')).toEqual([
+      expect.objectContaining({ startTime: '13:00' }),
+      expect.objectContaining({ startTime: '15:30' }),
     ])
+    expect(parties.filter((p: any) => p.date === '2026-11-21' || p.date === '2026-11-28')).toEqual([])
   })
 
   it('shows a party in our own party book (pty_, held or booked) as booked, and does not offer its time', async () => {
@@ -264,6 +266,13 @@ describe('GET /api/calendar.json', () => {
     const { body } = await getMonth('2026-12')
     const cafe = body.events.filter((e: any) => e.kind === 'open-studio').map((e: any) => e.date)
     expect(cafe).toEqual(['2026-12-19'])
+  })
+
+  it('shows a private event taken by hand as "Private Event" at its time, with no details', async () => {
+    const { body } = await getMonth('2026-12')
+    expect(body.events.filter((e: any) => String(e.id).startsWith('private-'))).toEqual([
+      { id: 'private-2026-12-12-17:30', kind: 'event', title: 'Private Event', date: '2026-12-12', startTime: '17:30', endTime: '21:00', bookable: false },
+    ])
   })
 
   it('says the studio is closed on every day of a closure, in the holiday\'s colours', async () => {

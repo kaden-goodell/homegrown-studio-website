@@ -10,6 +10,7 @@ import { partyDisplayName } from '@lib/parties/party-name'
 import { getPartyRecord, isOurs, listParties, partyEndIso, type PartyRecord } from '@lib/party-store'
 export { partyEndIso }
 import { dueCents } from '@lib/parties/money'
+import { partyTermsForStart, termsForKind } from '@lib/party-terms'
 import { providers } from '@config/providers'
 import type { Workshop } from '@providers/interfaces/workshop'
 import { getEventMeta, type EventMeta } from '@lib/event-meta'
@@ -67,6 +68,11 @@ export interface StudioEvent {
   waitingOnPayment?: true
   /** A party of ours that was cancelled: off This week and the door list; no RSVPs. */
   cancelled?: true
+  /**
+   * How a party settles at the register (parties only). Weeknight parties paid
+   * a craft credit online that comes off the crafts; weekend ones a studio fee.
+   */
+  partyPay?: { kind: 'weekend' | 'weeknight'; paidOnlineCents: number; perHeadCents?: number }
   /** Present only when an event-meta override exists for this event. */
   updatedAt?: string
   by?: By
@@ -116,6 +122,17 @@ async function findWorkshop(id: string): Promise<Workshop | null> {
   return list.find((w) => w.scheduleId === id) ?? null
 }
 
+/** Older records carry no kind: read it from the date, as the booking did. */
+function partyPayOf(p: PartyRecord): NonNullable<StudioEvent['partyPay']> {
+  const terms = partyTermsForStart(p.startIso)
+  const kind = p.kind ?? terms.kind
+  return {
+    kind,
+    paidOnlineCents: p.paidOnlineCents ?? (kind === terms.kind ? terms.chargeNowCents : termsForKind(kind).chargeNowCents),
+    ...(p.craftPerHeadCents ? { perHeadCents: p.craftPerHeadCents } : {}),
+  }
+}
+
 function partyEvent(id: string, p: PartyRecord, meta: EventMeta | null): StudioEvent {
   const endIso = partyEndIso(p)
   return {
@@ -135,6 +152,7 @@ function partyEvent(id: string, p: PartyRecord, meta: EventMeta | null): StudioE
     ...(endIso ? { endIso } : {}),
     ...(isOurs(p) && p.status !== 'cancelled' && dueCents(p) > 0 ? { waitingOnPayment: true as const } : {}),
     ...(p.status === 'cancelled' ? { cancelled: true as const } : {}),
+    partyPay: partyPayOf(p),
     ...(meta ? { updatedAt: meta.updatedAt, by: meta.by } : {}),
   }
 }

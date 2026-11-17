@@ -448,9 +448,28 @@ describe('POST /api/party/book.json: one order, one charge, no Square booking', 
     expect(json.detail).toBe('Parties need 7 days’ notice, so that date is too soon to book. Nothing was charged. Pick a later date.')
   })
 
+  it('a weeknight party (Mon 6 PM): $300 as a craft credit, its own order line, 2 hours, and a craft-credit email', async () => {
+    const start = at('2027-02-15', '18:00')
+    const { status, json } = await post(body(start, { customer: { firstName: 'Wren', lastName: 'Night', email: 'wren@example.com', phone: '256-555-0102' } }))
+    expect(status).toBe(200)
+    expect(m.createOrder.mock.calls[0][0].lineItems).toEqual([{ name: 'Weeknight Party, craft credit (counts toward your crafts)', quantity: 1, pricePerUnit: 30000, note: 'pkg_whole' }])
+    expect(m.processPayment.mock.calls[0][0].amount).toBe(30000)
+    const rec = await getPartyRecord(json.data.bookingId)
+    expect(rec).toMatchObject({ kind: 'weeknight', durationMinutes: 120, paidOnlineCents: 30000, craftPerHeadCents: 2000, endIso: at('2027-02-15', '20:00') })
+    expect(rec!.items![0]).toMatchObject({ kind: 'package', label: 'Weeknight craft credit', cents: 30000 })
+    expect(m.email.mock.calls[0][0].craftCredit).toEqual({ minimumCents: 30000 })
+  })
+
+  it('a weekend party keeps the studio fee and its 90 minutes', async () => {
+    const { status, json } = await post(body(at('2027-04-25', '15:30'), { customer: { firstName: 'Wes', lastName: 'End', email: 'wes@example.com', phone: '256-555-0101' } }))
+    expect(status, JSON.stringify(json)).toBe(200)
+    expect(await getPartyRecord(json.data.bookingId)).toMatchObject({ kind: 'weekend', durationMinutes: 90, paidOnlineCents: 30000 })
+    expect(m.email.mock.calls[0][0].craftCredit).toBeUndefined()
+  })
+
   it('keeps today’s validation words', async () => {
     expect((await post(body(at('2027-04-18', '13:00'), { guests: 3 }))).json.detail).toBe('Parties are for groups of 10 or more')
-    expect((await post(body(at('2027-04-18', '13:00'), { guests: 31 }))).json.detail).toBe('Bookings are limited to 30 guests')
+    expect((await post(body(at('2027-04-18', '13:00'), { guests: 36 }))).json.detail).toBe('Bookings are limited to 35 guests')
     expect((await post(body(at('2027-04-18', '13:00'), { customer: { firstName: 'A', lastName: '', email: 'a@b.co', phone: '2565551234' } }))).status).toBe(400)
     expect((await post(body(at('2027-04-18', '13:00'), { customer: { firstName: 'A', lastName: 'B', email: 'a@b.co', phone: '123' } }))).status).toBe(400)
     expect(m.createOrder).not.toHaveBeenCalled()

@@ -550,7 +550,7 @@ describe('details, link and card', () => {
     const r = await act({ id, action: 'edit-details', hostName: 'Stef Justice', hostPhone: '256-555-0111', hostEmail: 'stef2@example.com', guests: 20, craftId: 'craft-2' })
     expect(r.status).toBe(200)
     expect(r.body.data.party).toMatchObject({ hostName: 'Stef Justice', hostPhone: '256-555-0111', hostEmail: 'stef2@example.com', guestCount: 20, craftName: 'Clay Pots', dueCents: 30000 })
-    expect((await act({ id, action: 'edit-details', guests: 31 })).body.error).toBe('Parties are for 10 to 30 guests.')
+    expect((await act({ id, action: 'edit-details', guests: 36 })).body.error).toBe('Parties are for 10 to 35 guests.')
     expect((await act({ id, action: 'edit-details', craftId: 'gone' })).status).toBe(404)
     // A craft hidden on the website can't be picked anew.
     expect((await act({ id, action: 'edit-details', craftId: 'craft-hidden' })).status).toBe(404)

@@ -9,6 +9,7 @@ const keychains = { name: 'Bubble Letter Keychains', perHeadCents: 2000 }
 describe('partySummary', () => {
   it('matches the approved layout for a plain party', () => {
     expect(partySummary({ startIso: START, craft: keychains, guests: 10 })).toEqual({
+      kind: 'weekend',
       today: [{ label: 'Studio fee, holds Sat, Oct 17 at 2:00 PM', amount: '$300' }],
       dueTodayCents: 30000,
       atStudio: [
@@ -108,5 +109,44 @@ describe('partySummary with saved party settings', () => {
     expect(s.dueTodayCents).toBe(30000 + 7500 + 9600 + 1500 + 19200)
     expect(s.payLabel).toBe('Pay $678 and reserve Oct 17')
     expect(s.atStudio[0].label).toBe('Bubble Letter Keychains, about 12 guests × $20')
+  })
+})
+
+describe('partySummary on a weeknight', () => {
+  // 6:00 PM Central on Monday 16 Nov 2026 (CST, UTC-6)
+  const MON = '2026-11-17T00:00:00.000Z'
+
+  it('charges the same amount today, as a craft credit, with no studio fee', () => {
+    const s = partySummary({ startIso: MON, craft: keychains, guests: 20 })
+    expect(s.kind).toBe('weeknight')
+    expect(s.today).toEqual([
+      {
+        label: 'Craft credit, holds Mon, Nov 16 at 6:00 PM',
+        amount: '$300',
+        note: 'Counts toward your crafts. No studio fee on weeknights.',
+      },
+    ])
+    expect(s.dueTodayCents).toBe(partyConfig.weeknightMinimumCents)
+    expect(s.payLabel).toBe('Pay $300 and reserve Nov 16')
+  })
+
+  it('takes the credit off the crafts at the studio, and the total is just the crafts', () => {
+    const s = partySummary({ startIso: MON, craft: keychains, guests: 20 })
+    expect(s.atStudio).toEqual([
+      { label: 'Crafts', amount: 'about $100', note: '20 guests × $20, less your $300.' },
+    ])
+    expect(s.estimatedTotal).toBe('about $400')
+  })
+
+  it('under the minimum, the total is the minimum and nothing more is due', () => {
+    const s = partySummary({ startIso: MON, craft: keychains, guests: 10 })
+    expect(s.atStudio).toEqual([{ label: 'Crafts', amount: '$0', note: 'Your $300 covers the crafts.' }])
+    expect(s.estimatedTotal).toBe('about $300')
+  })
+
+  it('uses the chosen kind before a time is picked', () => {
+    const s = partySummary({ kind: 'weeknight', guests: 10 })
+    expect(s.today[0].label).toBe('Craft credit, holds your date')
+    expect(partySummary({ kind: 'weekend', guests: 10 }).today[0].label).toBe('Studio fee, holds your date')
   })
 })

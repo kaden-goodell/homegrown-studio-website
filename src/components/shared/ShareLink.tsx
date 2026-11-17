@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { trackShare } from '@lib/analytics'
+import { shareOrCopy } from '@lib/share-or-copy'
 
 /**
  * A link to pass on: opens the phone's share sheet where there is one, and
@@ -22,24 +22,8 @@ export default function ShareLink({ url, label, shareTitle, shareText, contentTy
 
   async function handle() {
     setDone('')
-    const nav = typeof navigator !== 'undefined' ? (navigator as Navigator) : undefined
-    if (nav?.share) {
-      try {
-        await nav.share({ title: shareTitle, text: shareText, url })
-        trackShare(contentType, 'share_sheet', itemId)
-        return
-      } catch (err) {
-        // Closing the share sheet is not a failure, and needs no message.
-        if ((err as { name?: string })?.name === 'AbortError') return
-      }
-    }
-    try {
-      await nav!.clipboard.writeText(url)
-      setDone('copied')
-      trackShare(contentType, 'copy_link', itemId)
-    } catch {
-      setDone('failed')
-    }
+    const result = await shareOrCopy({ url, title: shareTitle, text: shareText }, { contentType, itemId })
+    if (result === 'copied' || result === 'failed') setDone(result)
   }
 
   return (

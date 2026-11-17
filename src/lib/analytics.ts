@@ -165,7 +165,7 @@ export function trackKitOrderUpdated(action: string): void {
 // ── Funnel + ecommerce (GA4 recommended event names) ───────────────────────
 
 /** `other`: a shared piece (the payment form) used outside a known flow. */
-export type BookingKindForAnalytics = 'party' | 'workshop' | 'kit' | 'other'
+export type BookingKindForAnalytics = 'party' | 'workshop' | 'kit' | 'shop' | 'other'
 
 /** One thing that can be bought, in GA4's item shape. Prices in dollars. */
 export interface AnalyticsItem {

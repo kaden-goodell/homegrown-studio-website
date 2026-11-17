@@ -1,7 +1,7 @@
 /**
  * The monthly tax split (Kaden, 11 Oct 2026): Square adds its 9% "Tax" to
  * everything; what it collects on classes, Craft Café crafts and parties is
- * reported as USE tax, and on take-home kits as SALES tax. Square's own
+ * reported as USE tax, and on take-home kits and shop items (photo magnets) as SALES tax. Square's own
  * report lumps it together, so this sorts each line by what was sold.
  *
  * Read-only. Emailed on the 1st by netlify/functions/tax-report.ts; any month
@@ -11,19 +11,20 @@
 import type { SquareConfig } from '@config/site.config'
 import { csvRows } from '@lib/export-safety'
 
-export type Bucket = 'classes' | 'cafe' | 'parties' | 'kits' | 'other'
+export type Bucket = 'classes' | 'cafe' | 'parties' | 'kits' | 'shop' | 'other'
 
 export const BUCKET_LABEL: Record<Bucket, string> = {
   classes: 'Classes & workshops',
   cafe: 'Craft Café & party crafts',
   parties: 'Party studio fees and extras',
   kits: 'Take-home kits',
+  shop: 'Shop (photo magnets)',
   other: 'Not linked to an item (custom amounts)',
 }
 
 /** Which tax each bucket is reported as. `other` is left for a person to place. */
 export const BUCKET_TAX: Record<Bucket, 'use' | 'sales' | 'unsure'> = {
-  classes: 'use', cafe: 'use', parties: 'use', kits: 'sales', other: 'unsure',
+  classes: 'use', cafe: 'use', parties: 'use', kits: 'sales', shop: 'sales', other: 'unsure',
 }
 
 export interface ItemInfo { productType: string; categoryNames: string[]; /** In our Square "Classes" category (SQUARE_CLASSES_CATEGORY_ID). */ inClasses?: boolean }
@@ -40,6 +41,7 @@ export const isPartyOrder = (order: any): boolean => typeof order?.reference_id 
 
 export function bucketFor(info: ItemInfo | undefined, lineName?: string): Bucket {
   if (!info) return lineName?.startsWith(PARTY_FEE_PREFIX) ? 'parties' : 'other'
+  if (info.categoryNames.some((c) => /^shop$/i.test(c))) return 'shop'
   if (info.categoryNames.some((c) => /take-home kits/i.test(c))) return 'kits'
   if (info.inClasses || info.productType === 'CLASS_TICKET') return 'classes'
   if (info.productType === 'APPOINTMENTS_SERVICE') return 'parties'
@@ -66,7 +68,7 @@ export type ReaderSplit = Map<string, { netCents: number; taxCents: number }>
  */
 export function summarizeTax(orders: any[], index: CatalogIndex, sources: Map<string, any> = new Map(), reader: ReaderSplit = new Map()): TaxSummary {
   const empty = (): Totals => ({ salesCents: 0, taxCents: 0, lines: 0 })
-  const out: TaxSummary = { classes: empty(), cafe: empty(), parties: empty(), kits: empty(), other: empty() }
+  const out: TaxSummary = { classes: empty(), cafe: empty(), parties: empty(), kits: empty(), shop: empty(), other: empty() }
   const byId = new Map<string, any>([...sources, ...orders.filter((o) => o.id).map((o) => [o.id, o] as [string, any])])
   const add = (catalogId: string | undefined, totalCents: number, taxCentsAmt: number, sign: 1 | -1, countLine: boolean, name?: string, party = false) => {
     const b = out[party ? 'parties' : bucketFor(index.get(catalogId ?? ''), name)]
@@ -267,7 +269,7 @@ export function renderTaxReport(month: string, s: TaxSummary, opts: { partial?: 
     title,
     '',
     `Use tax (classes, Craft Café, parties): ${money(use)}`,
-    `Sales tax (take-home kits): ${money(sales)}`,
+    `Sales tax (take-home kits, photo magnets): ${money(sales)}`,
     ...(unsure ? [`Not sorted (custom amounts) — ask Chris: ${money(unsure)}`] : []),
     '',
     ...rows.map((b) => `${BUCKET_LABEL[b]}: sales ${money(s[b].salesCents)}, tax ${money(s[b].taxCents)} — ${BUCKET_TAX[b] === 'use' ? 'use tax' : BUCKET_TAX[b] === 'sales' ? 'sales tax' : 'ask Chris'}`),
@@ -279,7 +281,7 @@ export function renderTaxReport(month: string, s: TaxSummary, opts: { partial?: 
   const html = `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;color:#2b2420;line-height:1.5;">
   <h2 style="font-size:18px;margin:0 0 12px;">${esc(title)}</h2>
   <p style="margin:0 0 4px;"><strong>Use tax</strong> (classes, Craft Café, parties): <strong>${money(use)}</strong></p>
-  <p style="margin:0 0 4px;"><strong>Sales tax</strong> (take-home kits): <strong>${money(sales)}</strong></p>
+  <p style="margin:0 0 4px;"><strong>Sales tax</strong> (take-home kits, photo magnets): <strong>${money(sales)}</strong></p>
   ${unsure ? `<p style="margin:0 0 4px;">Not sorted (custom amounts), ask Chris: <strong>${money(unsure)}</strong></p>` : ''}
   <table style="border-collapse:collapse;margin-top:14px;font-size:14px;">
     <tr><th style="${td}text-align:left;">What</th><th style="${td}text-align:right;">Sales</th><th style="${td}text-align:right;">Tax</th><th style="${td}text-align:left;">Report as</th></tr>

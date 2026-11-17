@@ -41,6 +41,8 @@ export interface KvStore {
    * one prefix — I-10). Callers still filter by the prefix themselves: test doubles may ignore it.
    */
   list(prefix?: string): Promise<string[]>
+  /** Remove a key. Quiet when it does not exist. */
+  delete(key: string): Promise<void>
 }
 
 /**
@@ -225,6 +227,17 @@ export function makeKvStore(
       } catch {
         return []
       }
+    },
+
+    async delete(key) {
+      const store = await resolveBlobStore()
+      if (store) {
+        await store.delete(key)
+        logger.info('kv delete', { key })
+        return
+      }
+      const { rm } = await import('node:fs/promises')
+      await rm(await fsPath(key), { force: true })
     },
   }
 }

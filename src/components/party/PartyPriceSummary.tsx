@@ -34,9 +34,14 @@ export default function PartyPriceSummary({ summary }: { summary: PartySummary }
     >
       <p style={groupLabel}>Pay today</p>
       {summary.today.map((line) => (
-        <div key={line.label} style={{ ...row, marginBottom: '0.25rem' }}>
-          <span>{line.label}</span>
-          <span style={amount}>{line.amount}</span>
+        <div key={line.label} style={{ marginBottom: '0.25rem' }}>
+          <div style={row}>
+            <span>{line.label}</span>
+            <span style={amount}>{line.amount}</span>
+          </div>
+          {line.note && (
+            <p style={{ margin: '0.125rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>{line.note}</p>
+          )}
         </div>
       ))}
 

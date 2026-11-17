@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro'
 import { rateLimited } from '@lib/rate-limit'
 import { getPartyRecord, partyEndIso } from '@lib/party-store'
-import { partyConfig } from '@config/party.config'
+import { partyTermsForStart } from '@lib/party-terms'
 import { inviteContent } from '@config/invite-content'
 import { buildIcs, addMinutesIso, partyInviteUrl, partyCalendarIds } from '@lib/party-share'
 import { formatSlotLabel } from '@lib/studio-time'
@@ -45,7 +45,7 @@ export const GET: APIRoute = async ({ url, clientAddress }) => {
   const ics = buildIcs({
     title: `${party.title ?? `${party.craftName} Party`} — Hometown Studio`,
     startIso: party.startIso,
-    endIso: partyEndIso(party) ?? addMinutesIso(party.startIso, partyConfig.durationMinutes),
+    endIso: partyEndIso(party) ?? addMinutesIso(party.startIso, partyTermsForStart(party.startIso).durationMinutes),
     details: `We’re making ${party.craftName} at Hometown Studio.\n\nInvitation & RSVP: ${inviteUrl}`,
     location: inviteContent.where,
   }, partyCalendarIds(partyId, party.calendarSeq))

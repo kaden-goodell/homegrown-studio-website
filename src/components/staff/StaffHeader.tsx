@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import IncidentSheet from '@components/staff/IncidentSheet'
 import CheckInSheet from '@components/staff/CheckInSheet'
-import { visibleTabs, useStaffNav } from '@components/staff/nav'
+import { visibleTabs, tabLabel, useStaffNav } from '@components/staff/nav'
 import type { HouseholdMatch } from '@components/staff/DoorSearch'
 import type { EventKind } from '@lib/events'
 import type { Household } from '@components/staff/HouseholdCard'
@@ -113,7 +113,7 @@ export default function StaffHeader({
                     onClick={() => nav?.go(t.id)}
                     style={tab(active)}
                   >
-                    {t.label}
+                    {tabLabel(t.label, nav?.newCounts?.[t.id])}
                   </button>
                 )
               })}

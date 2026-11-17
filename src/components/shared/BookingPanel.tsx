@@ -43,6 +43,8 @@ export interface BookingPanelProps {
   onBack?: () => void
   /** Pinned to the bottom: the primary button and anything that belongs with it. */
   footer?: ReactNode
+  /** Sits beside the ×, e.g. a share icon. */
+  headerAction?: ReactNode
   /** Wide suits a two-column picker; narrow suits a form. */
   width?: 'wide' | 'narrow'
   /** The leave prompt, when the flow wants one shown. */
@@ -84,6 +86,29 @@ function usePhoneSheet(): boolean {
   return sheet
 }
 
+/**
+ * The part of the screen the on-screen keyboard leaves visible (phones only).
+ * iOS Safari overlays the keyboard without shrinking the layout viewport, so a
+ * bottom sheet sized to the screen ends up under the keyboard. Null = no keyboard.
+ */
+export function useKeyboardViewport(enabled: boolean): { top: number; height: number } | null {
+  const [vp, setVp] = useState<{ top: number; height: number } | null>(null)
+  useEffect(() => {
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null
+    if (!enabled || !vv) { setVp(null); return }
+    const update = () => {
+      // A keyboard takes well over 100px; smaller differences are browser chrome.
+      const covered = window.innerHeight - vv.height
+      setVp(covered > 100 ? { top: vv.offsetTop, height: vv.height } : null)
+    }
+    update()
+    vv.addEventListener('resize', update)
+    vv.addEventListener('scroll', update)
+    return () => { vv.removeEventListener('resize', update); vv.removeEventListener('scroll', update) }
+  }, [enabled])
+  return vp
+}
+
 function useReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false)
   useEffect(() => {
@@ -106,6 +131,7 @@ export default function BookingPanel({
   summary,
   onBack,
   footer,
+  headerAction,
   width = 'narrow',
   leavePrompt,
   busy = null,
@@ -120,6 +146,9 @@ export default function BookingPanel({
   const promptRef = useRef<HTMLDivElement>(null)
   const [busyNote, setBusyNote] = useState(false)
   const sheet = usePhoneSheet()
+  const keyboard = useKeyboardViewport(sheet)
+  /** Keyboard up on a phone: give the field the room — title only, no step bar, summary or footer. */
+  const typing = keyboard !== null
   const reducedMotion = useReducedMotion()
 
   // While a payment is going through, a close request shows the "stay here" note instead.
@@ -274,7 +303,7 @@ export default function BookingPanel({
       className="booking-panel-overlay"
       style={{
         position: 'fixed',
-        inset: 0,
+        ...(keyboard ? { left: 0, right: 0, top: keyboard.top, height: keyboard.height } : { inset: 0 }),
         zIndex: 1000,
         display: 'flex',
         alignItems: sheet ? 'flex-end' : 'center',
@@ -297,7 +326,7 @@ export default function BookingPanel({
           flexDirection: 'column',
           width: '100%',
           maxWidth: sheet ? 'none' : width === 'wide' ? '56rem' : '34rem',
-          maxHeight: sheet ? '94dvh' : 'min(90dvh, 52rem)',
+          maxHeight: keyboard ? keyboard.height : sheet ? '94dvh' : 'min(90dvh, 52rem)',
           margin: sheet ? 0 : '1rem',
           background: 'var(--color-surface)',
           border: '1px solid var(--color-line)',
@@ -308,13 +337,13 @@ export default function BookingPanel({
         }}
       >
         {/* Fixed top: title, step, what's been chosen */}
-        <div style={{ padding: `${sheet ? '0.75rem' : '1.25rem'} ${pad} 0`, flexShrink: 0 }}>
+        <div style={{ padding: `${typing ? '0.5rem' : sheet ? '0.75rem' : '1.25rem'} ${pad} 0`, flexShrink: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
             <h2
               id={titleId}
               style={{
                 margin: 0,
-                fontSize: sheet ? '1.125rem' : '1.25rem',
+                fontSize: typing ? '1rem' : sheet ? '1.125rem' : '1.25rem',
                 lineHeight: 1.25,
                 fontFamily: 'var(--font-heading)',
                 fontWeight: 600,
@@ -323,25 +352,26 @@ export default function BookingPanel({
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 display: '-webkit-box',
-                WebkitLineClamp: sheet ? 1 : 2,
+                WebkitLineClamp: typing || sheet ? 1 : 2,
                 WebkitBoxOrient: 'vertical',
               }}
             >
               {title}
             </h2>
+            {headerAction && <span style={{ marginLeft: 'auto', display: 'inline-flex', marginRight: '-0.75rem' }}>{headerAction}</span>}
             <button type="button" onClick={requestClose} aria-label="Close" style={{ ...iconButton, fontSize: '1.75rem', lineHeight: 1, marginRight: '-0.5rem', flexShrink: 0 }}>
               <span aria-hidden="true">&times;</span>
             </button>
           </div>
 
           {/* UI review: Back lives up here, next to the step name, so the step itself gets the screen. */}
-          {onBack && !showProgress && (
+          {onBack && !showProgress && !typing && (
             <button type="button" onClick={onBack} style={backButton}>
               <span aria-hidden="true">&larr;</span>
               Back
             </button>
           )}
-          {showProgress && (
+          {showProgress && !typing && (
             <div style={{ marginTop: sheet ? '0.25rem' : '0.5rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: sheet ? '0.375rem' : '0.5rem', gap: '0.75rem' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
@@ -382,13 +412,18 @@ export default function BookingPanel({
             </div>
           )}
 
-          {summary && <div className={sheet ? 'booking-panel-summary-compact' : undefined} style={{ marginTop: sheet ? '0.5rem' : '0.75rem' }}>{summary}</div>}
-          <div style={{ height: sheet ? '0.5rem' : '0.75rem' }} />
+          {summary && !typing && <div className={sheet ? 'booking-panel-summary-compact' : undefined} style={{ marginTop: sheet ? '0.5rem' : '0.75rem' }}>{summary}</div>}
+          <div style={{ height: typing || sheet ? '0.5rem' : '0.75rem' }} />
         </div>
 
         {/* Scrolls */}
         <div
           ref={scrollRef}
+          onFocus={(e) => {
+            // Keep the field being typed in visible once the keyboard has opened.
+            const el = e.target as HTMLElement
+            if (sheet && el.matches('input, textarea, select')) setTimeout(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300)
+          }}
           className="booking-panel-scroll"
           style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', padding: `0.25rem ${pad} 1.25rem` }}
         >
@@ -396,7 +431,7 @@ export default function BookingPanel({
         </div>
 
         {/* Fixed bottom: the button that moves the booking on */}
-        {footer && (
+        {footer && !typing && (
           <div
             className="booking-panel-footer"
             style={{

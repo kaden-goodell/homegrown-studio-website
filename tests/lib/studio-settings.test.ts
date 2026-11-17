@@ -229,11 +229,14 @@ describe('validation', () => {
     expect(validateSettings(old, { studioWeekly: current }).studioWeekly).toEqual(current)
   })
 
-  it('days of the week once each; real dates; one special day per date', () => {
+  it('days of the week once each; real dates; a day’s openings never overlap', () => {
     bad({ cafeWeekly: [{ weekday: 'Caturday', opens: '09:00', closes: '12:00' }] }, 'cafeWeekly.0', /day of the week/)
     bad({ cafeWeekly: [{ weekday: 'Saturday', opens: '09:00', closes: '12:00' }, { weekday: 'Saturday', opens: '13:00', closes: '14:00' }] }, 'cafeWeekly.1', /twice/)
     bad({ cafeSpecialDays: [{ date: '2026-02-30', opens: '09:00', closes: '12:00', name: '' }] }, 'cafeSpecialDays.0', /Pick the day/)
-    bad({ cafeSpecialDays: [{ date: '2026-11-07', opens: '09:00', closes: '12:00', name: '' }, { date: '2026-11-07', opens: '13:00', closes: '14:00', name: '' }] }, 'cafeSpecialDays.1')
+    bad({ cafeSpecialDays: [{ date: '2026-11-07', opens: '09:00', closes: '12:00', name: '' }, { date: '2026-11-07', opens: '11:00', closes: '14:00', name: '' }] }, 'cafeSpecialDays.1', /at that time/)
+    // Two openings on one day are fine (Sat Nov 28: 9–1 and 4–8, around a booked party).
+    const two = [{ date: '2026-11-28', opens: '16:00', closes: '20:00', name: 'Craft Café' }, { date: '2026-11-28', opens: '09:00', closes: '13:00', name: 'Craft Café' }]
+    expect(validateSettings({ ...base(), cafeSpecialDays: two }).cafeSpecialDays.map((d) => d.opens)).toEqual(['09:00', '16:00'])
   })
 
   it('closed days: a real first day, a last day not before it (blank = one day), up to a year', () => {

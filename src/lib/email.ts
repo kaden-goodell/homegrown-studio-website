@@ -207,6 +207,8 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
    * replaces "Studio fee paid today".
    */
   updated?: PartyDetailsUpdate
+  /** A weeknight party: what was paid is a craft credit, not a studio fee, and crafts have this minimum. */
+  craftCredit?: { minimumCents: number }
 }): Promise<{ sent: boolean }> {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
   const fee = dollars(input.totalChargedCents)
@@ -224,9 +226,19 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
     : ''
   // Craft description: keep the guest's paragraph breaks, drop stray CRs.
   const description = (input.craftDescription ?? '').replace(/\r/g, '').trim()
-  const costLine = perPerson
-    ? `${feeSentence} ${input.craftName} is ${perPerson} per person, paid at the studio for whoever crafts.`.trim()
-    : `${feeSentence} Crafts are paid at the studio for whoever comes.`.trim()
+  const minimum = input.craftCredit ? dollars(input.craftCredit.minimumCents) : ''
+  // Weeknight: no studio fee. What they paid counts toward the crafts.
+  const creditLead = `You paid ${fee} today as a craft credit. It counts toward your crafts, and there’s no studio fee on weeknights.`
+  const creditRest = perPerson
+    ? `${input.craftName} is ${perPerson} per person for whoever crafts, with a ${minimum} minimum. Anything over ${fee} is paid at the studio.`
+    : `Crafts have a ${minimum} minimum. Anything over ${fee} is paid at the studio.`
+  // A re-send after a move or an edit keeps its own cost note (what is paid or still due).
+  const credit = input.craftCredit && !updated
+  const costLine = credit
+    ? `${creditLead} ${creditRest}`
+    : perPerson
+      ? `${feeSentence} ${input.craftName} is ${perPerson} per person, paid at the studio for whoever crafts.`.trim()
+      : `${feeSentence} Crafts are paid at the studio for whoever comes.`.trim()
   const moved = updated?.moved ?? null
   const pay = updated?.pay && updated.costNote ? updated.pay : null
   const updatedLine = moved
@@ -237,7 +249,9 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
   const heading = moved ? 'Your party has a new time' : 'Your party details'
   const arriveLine = input.arriveEarlyMinutes ? `Arrive up to ${input.arriveEarlyMinutes} minutes early to set up.` : ''
   // Final review I6: nothing sends a headcount text, so the email promises none; the host tells us.
-  const headcountLine = `Know your headcount closer to the day? Text us so we can prep. You pay for who comes${input.minGuests ? `, with a minimum of ${input.minGuests}` : ''}.`
+  const headcountLine = input.craftCredit
+    ? `Know your headcount closer to the day? Text us so we can prep. You pay for who comes, and your ${fee} credit counts toward it.`
+    : `Know your headcount closer to the day? Text us so we can prep. You pay for who comes${input.minGuests ? `, with a minimum of ${input.minGuests}` : ''}.`
   // Final review I4 (request-only): how to ask to move or cancel, with the policy for this date.
   const changeLine = `${input.refundLine ? `${input.refundLine} ` : ''}${input.hostPageUrl ? 'Ask from your party page, or text us, and we’ll sort it out with you.' : `Text us${phone ? ` at ${phone}` : ''} and we’ll sort it out with you.`}`
   const noPageLine = `Your party page is being set up. ${phone ? `Text us at ${phone} and we'll send you the link.` : "We'll send you the link."}`
@@ -300,7 +314,11 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
   <div style="height:10px;"></div>
   ${descriptionHtml ? `<p style="${LABEL}">About your craft</p>${descriptionHtml}<div style="height:10px;"></div>` : ''}
   ${themeLine ? `<p style="${P}">${esc(themeLine)}</p>` : ''}
-  <p style="${P}">${feeSentence ? `<strong>${esc(feeSentence)}</strong>` : ''}${perPerson ? ` ${esc(input.craftName)} is <strong>${esc(perPerson)} per person</strong>, paid at the studio for whoever crafts.` : ' Crafts are paid at the studio for whoever comes.'}</p>
+  ${
+    credit
+      ? `<p style="${P}"><strong>${esc(creditLead)}</strong> ${esc(creditRest)}</p>`
+      : `<p style="${P}">${feeSentence ? `<strong>${esc(feeSentence)}</strong>` : ''}${perPerson ? ` ${esc(input.craftName)} is <strong>${esc(perPerson)} per person</strong>, paid at the studio for whoever crafts.` : ' Crafts are paid at the studio for whoever comes.'}</p>`
+  }
   ${pay ? `<div style="margin:10px 0 6px;"><a href="${esc(pay.url)}" style="display:inline-block;padding:11px 22px;background:#7a4a2e;color:#ffffff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">${esc(pay.label)}</a></div>` : ''}
   ${
     input.hostPageUrl

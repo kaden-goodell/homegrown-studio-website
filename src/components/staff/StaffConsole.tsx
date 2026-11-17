@@ -17,6 +17,7 @@ import { clearKioskOut, kioskOutPending } from '@lib/kiosk-handback'
 import { readDayParam, writeDayParam } from '@components/staff/EventList'
 import { StaffNavContext, type LeaveGuard, type StaffNav, type StaffTab } from '@components/staff/nav'
 import GiftCards from '@components/staff/GiftCards'
+import ShopOrders from '@components/staff/ShopOrders'
 import Roster from '@components/staff/Roster'
 import type { HouseholdMatch } from '@components/staff/DoorSearch'
 import { card, btn, field, Badge } from '@components/staff/ui'
@@ -268,7 +269,7 @@ export const IDLE_MS = 20 * 60_000
 const DOOR_QUERY_KEY = 'hg_lastDoorQuery'
 
 export default function StaffConsole() {
-  const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'week' | 'today' | 'upcoming' | 'calendar' | 'shifts' | 'roster' | 'kits' | 'giftcards'>('checking')
+  const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'week' | 'today' | 'upcoming' | 'calendar' | 'shifts' | 'roster' | 'kits' | 'giftcards' | 'orders'>('checking')
   // Which list a roster was opened from, so its Back and the active tab match.
   const [lastList, setLastList] = useState<'week' | 'today' | 'upcoming' | 'calendar' | 'shifts'>('week')
   const [kitBuckets, setKitBuckets] = useState<KitBuckets | null>(null)
@@ -284,6 +285,21 @@ export default function StaffConsole() {
   const [cover, setCover] = useState<null | 'kiosk' | 'idle'>(() => (typeof window !== 'undefined' && kioskOutPending() ? 'kiosk' : null))
   const lastActive = useRef(Date.now())
   const loginInFlight = useRef(false)
+  // New shop orders, for the Orders tab's "(2 new)". Asked once on sign-in;
+  // the Orders screen keeps it current while it is open.
+  const [newOrders, setNewOrders] = useState(0)
+  useEffect(() => {
+    if (!me) return
+    let live = true
+    fetch('/api/staff/shop-orders.json', { cache: 'no-store' })
+      .then((r) => (r && r.ok ? r.json() : null))
+      .then((j) => {
+        const list = j?.data?.orders
+        if (live && Array.isArray(list)) setNewOrders(list.filter((o: { status?: string }) => o.status === 'new').length)
+      })
+      .catch(() => undefined)
+    return () => { live = false }
+  }, [me?.id])
   const [pickBusy, setPickBusy] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
   const [pickAuthFailed, setPickAuthFailed] = useState(false)
@@ -600,7 +616,7 @@ export default function StaffConsole() {
     </div>
   )
 
-  const activeTab: StaffTab = phase === 'roster' ? lastList : phase === 'week' || phase === 'upcoming' || phase === 'calendar' || phase === 'shifts' || phase === 'kits' || phase === 'giftcards' ? phase : 'today'
+  const activeTab: StaffTab = phase === 'roster' ? lastList : phase === 'week' || phase === 'upcoming' || phase === 'calendar' || phase === 'shifts' || phase === 'kits' || phase === 'giftcards' || phase === 'orders' ? phase : 'today'
   const nav: StaffNav = {
     active: activeTab,
     go: (tab) => guarded(() => {
@@ -612,6 +628,7 @@ export default function StaffConsole() {
     switchStaff,
     logout,
     setLeaveGuard: (g) => { leaveGuard.current = g },
+    newCounts: { orders: newOrders },
   }
   async function leaveAfter(choice: 'save' | 'discard') {
     const leave = pendingLeave
@@ -661,6 +678,10 @@ export default function StaffConsole() {
 
   if (phase === 'giftcards') {
     return withNav(<GiftCards key={me.id} staff={me} />)
+  }
+
+  if (phase === 'orders') {
+    return withNav(<ShopOrders staff={me} onNewCount={setNewOrders} />)
   }
 
   if (phase === 'roster' && rosterTarget) {

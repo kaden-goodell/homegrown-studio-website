@@ -13,7 +13,7 @@ describe('staff tabs', () => {
   it('Kits is hidden while kits are closed (site config), unless you are on it (I6)', () => {
     setup('today')
     expect(screen.queryByRole('button', { name: 'Kits' })).toBeNull()
-    expect(visibleTabs('today', false).map((t) => t.id)).toEqual(['week', 'today', 'upcoming', 'calendar', 'shifts', 'giftcards'])
+    expect(visibleTabs('today', false).map((t) => t.id)).toEqual(['week', 'today', 'upcoming', 'calendar', 'shifts', 'giftcards', 'orders'])
     expect(visibleTabs('today', true).map((t) => t.id)).toContain('kits')
     expect(visibleTabs('kits', false).map((t) => t.id)).toContain('kits')
   })

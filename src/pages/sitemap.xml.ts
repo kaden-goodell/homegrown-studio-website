@@ -3,6 +3,7 @@ import { SITE_URL } from '@config/site-url'
 import { absoluteUrl } from '@lib/seo'
 import { listClasses } from '@lib/classes/class-store'
 import type { ScheduledClass } from '@lib/classes/types'
+import { shopLive } from '@config/shop.config'
 
 // Built on each request: our own classes come and go (M7).
 export const prerender = false
@@ -12,7 +13,7 @@ export const prerender = false
  * staff, host, invite and waiver pages must never appear here. Add a line
  * when a new public page goes live (kits, when that feature is switched on).
  */
-export const PUBLIC_PAGES = ['/', '/book', '/private-events', '/workshops', '/calendar', '/craft-cafe', '/about', '/teach', '/contact', '/policies']
+export const PUBLIC_PAGES = ['/', '/book', '/private-events', '/workshops', '/calendar', '/craft-cafe', '/shop', '/about', '/teach', '/contact', '/policies']
 
 export function sitemapXml(pages: string[], site: string): string {
   const urls = pages.map((p) => `  <url><loc>${absoluteUrl(p, site)}</loc></url>`).join('\n')
@@ -35,7 +36,7 @@ export const GET: APIRoute = async () => {
     // The fixed pages still go out; the classes come back on the next read.
     console.warn(`[sitemap] classes unreadable: ${e instanceof Error ? e.message : e}`)
   }
-  return new Response(sitemapXml([...PUBLIC_PAGES, ...classes], SITE_URL), {
+  return new Response(sitemapXml([...PUBLIC_PAGES.filter((p) => p !== '/shop' || shopLive()), ...classes], SITE_URL), {
     // M8: Netlify's edge keeps it an hour, so a crawl doesn't read the class store (the read itself uses the class index).
     headers: {
       'Content-Type': 'application/xml; charset=utf-8',

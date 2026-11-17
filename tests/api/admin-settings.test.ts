@@ -96,6 +96,8 @@ describe('GET /api/admin/settings.json', () => {
 
 describe('POST: save', () => {
   it('saves, records who (audit and history), and rewrites the café windows in Square', async () => {
+    // After the Nov/Dec one-off café days (Kaden, 15–16 Nov 2026), which fill Square's first windows: a weekly change shows.
+    vi.setSystemTime(new Date('2027-01-04T15:00:00Z'))
     const r = await save({ cafeWeekly: [{ weekday: 'Saturday', opens: '09:00', closes: '12:00' }] })
     expect(r.status).toBe(200)
     expect(r.body.data.changed).toEqual(['Craft Café weekly hours'])
@@ -174,6 +176,8 @@ describe('POST: save', () => {
   })
 
   it('when Square fails the settings stay saved, the reply says so, and Try again rewrites from what is saved', async () => {
+    // After the Nov/Dec one-off café days (Kaden, 15–16 Nov 2026), which fill Square's first windows: a weekly change shows.
+    vi.setSystemTime(new Date('2027-01-04T15:00:00Z'))
     mocks.upsert.mockRejectedValueOnce(new Error('Square is down'))
     const r = await save({ cafeWeekly: [{ weekday: 'Saturday', opens: '10:00', closes: '12:00' }] })
     expect(r.status).toBe(200)
@@ -188,14 +192,18 @@ describe('POST: save', () => {
   })
 
   it('the sandbox (no café item): skipped with a plain line', async () => {
+    // After the Nov/Dec one-off café days (Kaden, 15–16 Nov 2026), which fill Square's first windows: a weekly change shows.
+    vi.setSystemTime(new Date('2027-01-04T15:00:00Z'))
     mocks.sandbox = true
     mocks.get.mockRejectedValue(Object.assign(new Error('NOT_FOUND'), { statusCode: 404 }))
-    const r = await save({ closures: [] })
+    const r = await save({ cafeWeekly: [{ weekday: 'Saturday', opens: '10:00', closes: '12:00' }] })
     expect(r.body.data.square).toEqual({ status: 'skipped', message: 'Square isn’t updated from the test site.' })
     expect(mocks.upsert).not.toHaveBeenCalled()
   })
 
   it('R39: local dev and previews never write to Square, and say so', async () => {
+    // After the Nov/Dec one-off café days (Kaden, 15–16 Nov 2026), which fill Square's first windows: a weekly change shows.
+    vi.setSystemTime(new Date('2027-01-04T15:00:00Z'))
     vi.stubEnv('CAFE_WINDOWS_WRITE', '')
     const r = await save({ cafeWeekly: [{ weekday: 'Saturday', opens: '10:00', closes: '12:00' }] })
     expect(r.body.data.square).toEqual({ status: 'skipped', message: 'Square isn’t updated from the test site.' })

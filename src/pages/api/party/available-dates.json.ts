@@ -40,9 +40,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const offered: Record<string, number> = {}
     for (const s of view.offered) { const d = localDate(s); offered[d] = (offered[d] ?? 0) + 1 }
 
-    const durationMinutes = view.minutes
     const times: Record<string, { startAt: string; endAt: string; durationMinutes: number }[]> = {}
     for (const startAt of view.open) {
+      // Weekend 90 minutes, weeknight 120: each time carries its own length.
+      const durationMinutes = view.lengths?.[startAt] ?? view.minutes
       ;(times[localDate(startAt)] ??= []).push({
         startAt,
         endAt: new Date(Date.parse(startAt) + durationMinutes * 60_000).toISOString(),

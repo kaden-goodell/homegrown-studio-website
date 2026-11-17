@@ -80,7 +80,8 @@ beforeEach(() => {
 })
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs() })
 
-const SNOW = '2026-11-15' // a Sunday with party times
+// Dates clear of the Nov/Dec one-off café days and no-party weekends (Kaden, 11–16 Nov 2026).
+const SNOW = '2027-01-10' // a Sunday with party times
 const closeSnowDay = (s: SettingsInput): SettingsInput => ({ ...s, closures: [...s.closures, { id: 'clo_snow', from: SNOW, to: SNOW, name: 'a snow day' }] })
 
 describe('a closed day saved on /admin', () => {
@@ -121,15 +122,15 @@ describe('a closed day saved on /admin', () => {
   it('shows on the public calendar, the admin calendar and as a party-on-closed-day warning', async () => {
     expect((await holdTime({ partyId: 'pty_snowday000000001', startIso: localToUtcISO(SNOW, '13:00'), endIso: localToUtcISO(SNOW, '14:30'), ttlMinutes: null }, [], new Date())).ok).toBe(true)
     await saveSettings(closeSnowDay)
-    const pub = await get(calendar, '/api/calendar.json?month=2026-11')
+    const pub = await get(calendar, '/api/calendar.json?month=2027-01')
     expect(pub.body.closures).toEqual(expect.arrayContaining([{ from: SNOW, to: SNOW, name: 'a snow day' }]))
     expect(pub.body.events).toEqual(expect.arrayContaining([expect.objectContaining({ id: `closed-${SNOW}`, title: 'Closed for a snow day' })]))
     expect(pub.body.events.some((e: any) => e.kind === 'party-available' && e.date === SNOW)).toBe(false)
 
-    const adm = await get(adminCalendar, `/api/admin/classes/calendar.json?from=${localToUtcISO(SNOW, '00:00')}&to=${localToUtcISO('2026-11-16', '00:00')}`, { cookie: adminCookie().split(';')[0] })
+    const adm = await get(adminCalendar, `/api/admin/classes/calendar.json?from=${localToUtcISO(SNOW, '00:00')}&to=${localToUtcISO('2027-01-11', '00:00')}`, { cookie: adminCookie().split(';')[0] })
     expect(adm.body.data.items.map((i: any) => i.kind)).toContain('closed')
 
-    const warnings = await listWarnings({ from: '2026-11-15', to: '2026-11-15' })
+    const warnings = await listWarnings({ from: SNOW, to: SNOW })
     expect(warnings.map((w) => w.code)).toContain('party-on-closed-day')
   })
 
@@ -142,18 +143,19 @@ describe('a closed day saved on /admin', () => {
 })
 
 describe('café hours saved on /admin', () => {
-  const MARKET = '2026-11-21' // a Saturday
+  const MARKET = '2027-01-16' // a Saturday
   const addMarket = (s: SettingsInput): SettingsInput => ({ ...s, cafeSpecialDays: [...s.cafeSpecialDays, { date: MARKET, opens: '10:00', closes: '16:00', name: 'Holiday market' }] })
 
   it('a special day changes the /craft-cafe hours data, the room schedule (admin calendar) and the party times', async () => {
-    const plain = await busyBetween(localToUtcISO(MARKET, '00:00'), localToUtcISO('2026-11-22', '00:00'))
+    vi.setSystemTime(new Date('2027-01-04T15:00:00Z')) // the café list shows the next 60 days
+    const plain = await busyBetween(localToUtcISO(MARKET, '00:00'), localToUtcISO('2027-01-17', '00:00'))
     expect(plain.find((b) => b.kind === 'cafe')).toMatchObject({ startIso: localToUtcISO(MARKET, '09:00'), endIso: localToUtcISO(MARKET, '13:00') })
     const partiesBefore = partyStartsForDate(MARKET, new Date(), await getStudioDays())
 
     await saveSettings(addMarket)
     const data = (await get(cafeHours, '/api/cafe-hours.json')).body.data
     expect(data.special).toEqual(expect.arrayContaining([{ date: MARKET, name: 'Holiday market', time: '10 AM – 4 PM' }]))
-    const busy = await busyBetween(localToUtcISO(MARKET, '00:00'), localToUtcISO('2026-11-22', '00:00'))
+    const busy = await busyBetween(localToUtcISO(MARKET, '00:00'), localToUtcISO('2027-01-17', '00:00'))
     expect(busy.find((b) => b.kind === 'cafe')).toMatchObject({ startIso: localToUtcISO(MARKET, '10:00'), endIso: localToUtcISO(MARKET, '16:00') })
     // The 2:00 party can't sit inside a 10–4 café.
     expect(partyStartsForDate(MARKET, new Date(), await getStudioDays()).length).toBeLessThan(partiesBefore.length)
@@ -165,12 +167,12 @@ describe('café hours saved on /admin', () => {
       { days: 'Saturday', time: '9 AM – 1 PM' },
       { days: 'Sunday', time: '2 – 4 PM' },
     ])
-    vi.setSystemTime(new Date('2026-11-13T15:00:00Z')) // Fri Nov 13
+    vi.setSystemTime(new Date('2027-01-08T15:00:00Z')) // Fri Jan 8
     const w = (await get(week, '/api/staff/week.json')).body.data
-    expect(w.cafe).toEqual({ '2026-11-14': { opens: '09:00', closes: '13:00' } }) // Sun 15th is the snow day
-    expect((await get(events, '/api/staff/events.json?date=2026-11-15')).body.data.cafeOpen).toBe(false)
-    expect((await get(events, '/api/staff/events.json?date=2026-11-14')).body.data.cafeOpen).toBe(true)
-    expect((await get(openStudio, '/api/staff/open-studio.json?date=2026-11-22')).body.data.cafe).toEqual({ opens: '14:00', closes: '16:00' })
+    expect(w.cafe).toEqual({ '2027-01-09': { opens: '09:00', closes: '13:00' } }) // Sun 10th is the snow day
+    expect((await get(events, '/api/staff/events.json?date=2027-01-10')).body.data.cafeOpen).toBe(false)
+    expect((await get(events, '/api/staff/events.json?date=2027-01-09')).body.data.cafeOpen).toBe(true)
+    expect((await get(openStudio, '/api/staff/open-studio.json?date=2027-01-17')).body.data.cafe).toEqual({ opens: '14:00', closes: '16:00' })
   })
 
   it('with nothing saved, every answer is the config’s', async () => {
@@ -223,12 +225,12 @@ describe('studio hours saved on /admin (G3)', () => {
 
 describe('special-day announcement saved on /admin (G9)', () => {
   it('a newly announced day goes out with everything the bar and card need; un-announcing takes it away', async () => {
-    const MARKET = '2026-12-12'
+    const MARKET = '2027-01-16' // clear of the Dec 12 one-off café day
     await saveSettings((s) => ({ ...s, cafeSpecialDays: [...s.cafeSpecialDays, { date: MARKET, opens: '10:00', closes: '16:00', name: 'Holiday market', announce: { headline: 'Holiday Market Day', daysBefore: 14 } }] }))
     const notices = (await get(cafeHours, '/api/cafe-hours.json')).body.data.notices
     expect(notices).toEqual(expect.arrayContaining([expect.objectContaining({
-      date: MARKET, headline: 'Holiday Market Day', weekday: 'SAT', monthDay: 'DEC 12', shortDate: 'Sat Dec 12', hours: '10 AM – 4 PM',
-      showFromIso: localToUtcISO('2026-11-28', '00:00'), showUntilIso: localToUtcISO(MARKET, '16:00'),
+      date: MARKET, headline: 'Holiday Market Day', weekday: 'SAT', monthDay: 'JAN 16', shortDate: 'Sat Jan 16', hours: '10 AM – 4 PM',
+      showFromIso: localToUtcISO('2027-01-02', '00:00'), showUntilIso: localToUtcISO(MARKET, '16:00'),
     })]))
     await saveSettings((s) => ({ ...s, cafeSpecialDays: s.cafeSpecialDays.map((d) => (d.date === MARKET ? { date: d.date, opens: d.opens, closes: d.closes, name: d.name } : d)) }))
     expect((await get(cafeHours, '/api/cafe-hours.json')).body.data.notices.map((n: any) => n.date)).not.toContain(MARKET)

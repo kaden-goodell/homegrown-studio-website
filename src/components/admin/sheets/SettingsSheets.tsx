@@ -38,6 +38,9 @@ type Saved = { ok: true; data: SaveReply } | { ok: false; error: string; field?:
 
 const input = (v: SettingsView): SettingsInput => ({ studioWeekly: v.studioWeekly, cafeWeekly: v.cafeWeekly, cafeSpecialDays: v.cafeSpecialDays, closures: v.closures })
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s)
+/** The same special opening: its day and its hours (a day can have two). */
+const sameWindow = (a: CafeSpecialDay, b: CafeSpecialDay) => a.date === b.date && a.opens === b.opens && a.closes === b.closes
+
 export const rangeText = (c: { from: string; to: string }) => (c.from === c.to ? dayLabel(c.from) : `${dayLabel(c.from)} – ${dayLabel(c.to)}`)
 const STALE = 'Someone else changed these settings. Check them and save again.'
 
@@ -182,7 +185,8 @@ function HoursForm({ view }: { view: SettingsView }) {
     setSpError('')
     if (!sp.date) return setSpError('Pick the day.')
     if (!sp.opens || !sp.closes || sp.closes <= sp.opens) return setSpError('It has to close after it opens.')
-    if (view.cafeSpecialDays.some((d) => d.date === sp.date)) return setSpError('That day already has special hours. Remove them first.')
+    // A second opening the same day is fine (9–1 and 4–8); overlapping ones aren't.
+    if (view.cafeSpecialDays.some((d) => d.date === sp.date && d.opens < sp.closes && sp.opens < d.closes)) return setSpError('That day already has special hours at that time. Remove them first.')
     const announceError = checkAnnounce(spAnnounce)
     if (announceError) return setSpError(announceError)
     setSavingSpecial(true)
@@ -197,7 +201,7 @@ function HoursForm({ view }: { view: SettingsView }) {
     setSpAnnounce(NO_ANNOUNCE)
     const shown = announce ? ` The website announces it from ${dayLabel(addDays(day.date, -announce.daysBefore))}.` : ''
     toast(savedText(r.data.square, `Added ${dayLabel(day.date)}. It’s on the calendar.${shown}`), {
-      undo: () => { save((cur) => ({ ...cur, cafeSpecialDays: cur.cafeSpecialDays.filter((d) => d.date !== day.date) })).then((u) => { if (!u.ok) toast(DIDNT_SAVE) }) },
+      undo: () => { save((cur) => ({ ...cur, cafeSpecialDays: cur.cafeSpecialDays.filter((d) => !sameWindow(d, day)) })).then((u) => { if (!u.ok) toast(DIDNT_SAVE) }) },
     })
   }
 
@@ -225,7 +229,7 @@ function HoursForm({ view }: { view: SettingsView }) {
 
   async function removeSpecial(day: CafeSpecialDay) {
     setStale('')
-    const r = await save((cur) => ({ ...cur, cafeSpecialDays: cur.cafeSpecialDays.filter((d) => d.date !== day.date) }))
+    const r = await save((cur) => ({ ...cur, cafeSpecialDays: cur.cafeSpecialDays.filter((d) => !sameWindow(d, day)) }))
     if (!r.ok) { if (r.stale) setStale(r.error); else toast(DIDNT_SAVE); return }
     toast(savedText(r.data.square, `Removed ${dayLabel(day.date)}. Usual hours that day.`), {
       undo: () => { save((cur) => ({ ...cur, cafeSpecialDays: [...cur.cafeSpecialDays, day] })).then((u) => { if (!u.ok) toast(DIDNT_SAVE) }) },
@@ -273,20 +277,20 @@ function HoursForm({ view }: { view: SettingsView }) {
       <p className="adm-lbl">Special days</p>
       {special.length === 0 && <p className="adm-muted adm-small">None coming up.</p>}
       {special.map((d) => (
-        <div key={d.date} className="adm-setrow-wrap">
+        <div key={`${d.date}-${d.opens}`} className="adm-setrow-wrap">
           <div className="adm-kv adm-setrow">
             <span>
               <b>{`${dayLabel(d.date)} · ${d.name}`}</b><br />
               <span className="adm-small adm-muted">{clockRange(d.opens, d.closes)}{closureOn(d.date, days.closures) ? ' · closed that day, so no café' : ''}</span>
               {d.announce && <><br /><span className="adm-small">{`On the website from ${dayLabel(addDays(d.date, -d.announce.daysBefore))}: “${d.announce.headline}”`}</span></>}
             </span>
-            <button type="button" className="adm-btn is-ghost is-sm" aria-label={`Remove ${dayLabel(d.date)}`} onClick={() => removeSpecial(d)}>Remove</button>
+            <button type="button" className="adm-btn is-ghost is-sm" aria-label={`Remove ${dayLabel(d.date)}${special.filter((x) => x.date === d.date).length > 1 ? `, ${clockRange(d.opens, d.closes)}` : ''}`} onClick={() => removeSpecial(d)}>Remove</button>
           </div>
-          {editing === d.date ? (
+          {editing === `${d.date}-${d.opens}` ? (
             <AnnounceEditor day={d} onSave={(draft) => saveAnnounce(d, draft)} onCancel={() => setEditing(null)} />
           ) : (
             <div className="adm-two adm-gap-bottom">
-              <button type="button" className="adm-btn is-ghost is-sm" aria-label={`${d.announce ? 'Change the announcement' : 'Announce it on the website'}: ${dayLabel(d.date)}`} onClick={() => setEditing(d.date)}>
+              <button type="button" className="adm-btn is-ghost is-sm" aria-label={`${d.announce ? 'Change the announcement' : 'Announce it on the website'}: ${dayLabel(d.date)}`} onClick={() => setEditing(`${d.date}-${d.opens}`)}>
                 {d.announce ? 'Change the announcement' : 'Announce it on the website'}
               </button>
               <a className="adm-btn is-ghost is-sm" href={`/admin/flyer/${d.date}`} target="_blank" rel="noopener" aria-label={`Print a flyer: ${dayLabel(d.date)}`}>Print a flyer</a>

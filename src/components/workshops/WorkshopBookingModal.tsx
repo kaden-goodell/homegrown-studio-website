@@ -19,6 +19,7 @@ import BookingConfirmed, { ConfirmedBlock } from '@components/shared/BookingConf
 import ContactFields, { type ContactFieldsHandle } from '@components/shared/ContactFields'
 import type { EmailCheckData } from '@components/shared/EmailCheck'
 import ShareLink from '@components/shared/ShareLink'
+import ShareIconButton from '@components/shared/ShareIconButton'
 import PaymentForm from '@components/checkout/PaymentForm'
 import type { PaymentFormRef } from '@components/checkout/PaymentForm'
 import {
@@ -781,6 +782,19 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
       }
       onBack={!completed && step === 'pay' && !processing ? () => setStep('details') : undefined}
       footer={footer}
+      headerAction={
+        // Before booking: send this class to someone. After: the confirmation has its own "Come with me" link.
+        completed ? undefined : (
+          <ShareIconButton
+            url={`${window.location.origin}/workshops?w=${encodeURIComponent(workshop.id)}`}
+            title={`${workshop.name} at ${STUDIO_ADDRESS.name}`}
+            text={`${workshop.name}, ${when}`}
+            contentType="workshop"
+            itemId={workshop.id}
+            label="Share this class"
+          />
+        )
+      }
       leavePrompt={
         askToLeave && !completed
           ? {

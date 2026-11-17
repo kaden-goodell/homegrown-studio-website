@@ -1,8 +1,9 @@
 /**
  * Craft Café's dated windows on its Square display item (the calendar reads
  * them: `partyConfig.square.openStudioItemId`, custom attribute
- * `programDates`, "YYYY-MM-DDTHH:MM-HH:MM,…"). One window per day the café
- * runs (its weekly hours, or a special day's), skipping closed days.
+ * `programDates`, "YYYY-MM-DDTHH:MM-HH:MM,…"). One entry per café window
+ * (its weekly hours, or every one of a special day's: Sat Nov 28 has two),
+ * skipping closed days.
  *
  * Two callers, the same Square calls:
  *   - scripts/set-cafe-windows.ts (by hand, from the config)
@@ -14,7 +15,7 @@
  * name "Craft Café", flow "display" and the new programDates.
  */
 import { OPEN_STUDIO_START_DATE } from '@config/opening'
-import { cafeHoursOn } from '@config/hours'
+import { cafeWindowsOn } from '@config/hours'
 import { isStudioOpenOn, type StudioDays } from '@config/studio-days'
 
 /** Square caps a string custom attribute at 255 characters: about eleven windows. */
@@ -36,8 +37,8 @@ export function cafeWindows(days: StudioDays, from: string, through: string): st
     // opening the studio and winning over the weekly hours.
     if (day < OPEN_STUDIO_START_DATE && !days.cafe.special.some((s) => s.date === day)) continue
     if (!isStudioOpenOn(day, days)) continue
-    const h = cafeHoursOn(day, days.cafe)
-    if (h) out.push(`${day}T${h.opens}-${h.closes}`)
+    // A special day wins over the weekly hours; each of its windows is its own entry.
+    for (const h of cafeWindowsOn(day, days.cafe)) out.push(`${day}T${h.opens}-${h.closes}`)
   }
   return out
 }

@@ -206,7 +206,7 @@ describe('the monthly job’s failure email', () => {
 describe('taxReportCsv', () => {
   const s = (useTax: number, kits: number): TaxSummary => ({
     classes: { salesCents: 0, taxCents: 0, lines: 0 }, cafe: { salesCents: useTax * 10, taxCents: useTax, lines: 1 },
-    parties: { salesCents: 0, taxCents: 0, lines: 0 }, kits: { salesCents: kits * 10, taxCents: kits, lines: kits ? 1 : 0 }, other: { salesCents: 0, taxCents: 0, lines: 0 },
+    parties: { salesCents: 0, taxCents: 0, lines: 0 }, kits: { salesCents: kits * 10, taxCents: kits, lines: kits ? 1 : 0 }, shop: { salesCents: 0, taxCents: 0, lines: 0 }, other: { salesCents: 0, taxCents: 0, lines: 0 },
   })
   it('several months end with the totals for all of them; a running month says so far', () => {
     const csv = taxReportCsv([{ month: '2026-09', summary: s(100, 0) }, { month: '2026-10', summary: s(200, 50), partial: true }])

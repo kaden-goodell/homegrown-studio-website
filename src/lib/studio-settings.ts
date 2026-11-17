@@ -190,12 +190,12 @@ export function validateSettings(body: any, current: { studioWeekly: CafeWeekly[
     const announce = announceOf(d.announce)
     return { date: d.date, ...times(d.opens, d.closes, field), name: name(d.name, field, 'Special hours'), ...(announce ? { announce } : {}) }
   })
-  const seenDates = new Set<string>()
+  // A day may have more than one opening (Sat Nov 28: 9–1 and 4–8, around a booked party), never overlapping.
   cafeSpecialDays.forEach((d, i) => {
-    if (seenDates.has(d.date)) throw new SettingsError(400, 'That day already has special hours.', `cafeSpecialDays.${i}`)
-    seenDates.add(d.date)
+    const clash = cafeSpecialDays.slice(0, i).some((e) => e.date === d.date && e.opens < d.closes && d.opens < e.closes)
+    if (clash) throw new SettingsError(400, 'That day already has special hours at that time.', `cafeSpecialDays.${i}`)
   })
-  cafeSpecialDays.sort((a, b) => a.date.localeCompare(b.date))
+  cafeSpecialDays.sort((a, b) => a.date.localeCompare(b.date) || a.opens.localeCompare(b.opens))
 
   const ids = new Set<string>()
   const closures: StoredClosure[] = closuresIn.map((c: any, i: number) => {
@@ -242,13 +242,21 @@ export function describeChanges(before: SettingsInput, after: SettingsInput): st
   const wk = (l: CafeWeekly[]) => JSON.stringify([...l].sort((a, b) => a.weekday.localeCompare(b.weekday)))
   if (wk(before.studioWeekly ?? CONFIG_STUDIO_WEEKLY) !== wk(after.studioWeekly)) out.push('Studio hours')
   if (wk(before.cafeWeekly) !== wk(after.cafeWeekly)) out.push('Craft Café weekly hours')
+  // A day can have two openings (Sat Nov 28: 9–1 and 4–8): an opening is matched on its day and its start,
+  // else on its day alone when that day has one opening each side.
+  const match = (list: CafeSpecialDay[], d: CafeSpecialDay) => {
+    const same = list.find((x) => x.date === d.date && x.opens === d.opens)
+    if (same) return same
+    const onDay = list.filter((x) => x.date === d.date)
+    return onDay.length === 1 ? onDay[0] : undefined
+  }
   for (const d of after.cafeSpecialDays) {
-    const was = before.cafeSpecialDays.find((x) => x.date === d.date)
+    const was = match(before.cafeSpecialDays, d)
     if (!was) out.push(`Added a special day: ${label(d.date)}`)
     else if (was.opens !== d.opens || was.closes !== d.closes || was.name !== d.name) out.push(`Changed a special day: ${label(d.date)}`)
     else if (JSON.stringify(was.announce ?? null) !== JSON.stringify(d.announce ?? null)) out.push(`${d.announce ? 'Announced' : 'Stopped announcing'} a special day: ${label(d.date)}`)
   }
-  for (const d of before.cafeSpecialDays) if (!after.cafeSpecialDays.some((x) => x.date === d.date)) out.push(`Removed a special day: ${label(d.date)}`)
+  for (const d of before.cafeSpecialDays) if (!match(after.cafeSpecialDays, d)) out.push(`Removed a special day: ${label(d.date)}`)
   const sameClosure = (a: Closure, b: Closure) => a.from === b.from && a.to === b.to && a.name === b.name && (a.holiday ?? '') === (b.holiday ?? '')
   for (const c of after.closures) if (!before.closures.some((b) => sameClosure(b, c))) out.push(`Closed ${rangeLabel(c)} (${c.name})`)
   for (const c of before.closures) if (!after.closures.some((a) => sameClosure(a, c))) out.push(`Removed a closed day: ${rangeLabel(c)} (${c.name})`)

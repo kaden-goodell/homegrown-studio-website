@@ -156,6 +156,12 @@ describe('listWarnings', () => {
     })
   })
 
+  it('party-on-closed-day: a weeknight party at its 6:00 time is not on a closed day', async () => {
+    mockListBookings.mockResolvedValue([party('bk_lopez', '2026-10-19T23:00:00.000Z')]) // Mon 6 PM CDT
+    const list = await listWarnings(WINDOW)
+    expect(list.map((w) => w.code)).not.toContain('party-on-closed-day')
+  })
+
   it('leaves out classes outside the window and sorts by date', async () => {
     mockListAllWorkshops.mockResolvedValue([
       { ...PAILS, availableCapacity: -1 },

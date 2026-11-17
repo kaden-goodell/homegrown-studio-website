@@ -9,15 +9,12 @@
 import { partyConfig } from '../config/party.config'
 import { CONFIG_STUDIO_DAYS, type StudioDays } from '../config/studio-days'
 import * as T from './parties/party-times'
+import { partyTermsForStart } from './party-terms'
 
 // The studio-local time helpers live with the pure party rules now; every
 // import of them from here keeps working.
 export { localHour, localDate, localToUtcISO } from './parties/party-times'
 
-/** Occupancy of one party (party + cleanup) in ms — used for overlap checks. */
-function occupancyMs(): number {
-  return (partyConfig.durationMinutes + partyConfig.cleanupBufferMinutes) * 60_000
-}
 
 /**
  * The dates a party can be booked for today, both ends included
@@ -55,15 +52,27 @@ export function partyStartsInRange(startIso: string, endIso: string, now: Date =
   return T.partyStartsInRange(T.configPartySettings(), startIso, endIso, now, days)
 }
 
+/** A booked party: its start, and its length when the booking says (else that day's usual length). */
+export type BookedParty = string | { startAt: string; durationMinutes?: number | null }
+
 /**
- * Drop starts whose party+cleanup window overlaps any already-booked start.
- * Bookings are normally at offered starts, but overlap keeps manual bookings safe.
+ * Drop starts whose party+cleanup window overlaps any already-booked party
+ * (and its cleanup). Each side uses its own length, so a 2-hour weeknight
+ * party and a 90-minute weekend one are both measured right. Bookings are
+ * normally at offered starts, but overlap keeps manual bookings safe.
  */
-export function removeBooked(starts: string[], bookedStartIsos: string[]): string[] {
-  const occupy = occupancyMs()
-  const booked = bookedStartIsos.map((b) => new Date(b).getTime())
+export function removeBooked(starts: string[], booked: BookedParty[]): string[] {
+  const buffer = partyConfig.cleanupBufferMinutes * 60_000
+  const spans = booked.map((b) => {
+    const startAt = typeof b === 'string' ? b : b.startAt
+    const own = typeof b === 'string' ? undefined : b.durationMinutes
+    const minutes = own && own > 0 ? own : partyTermsForStart(startAt).durationMinutes
+    const start = new Date(startAt).getTime()
+    return { start, end: start + minutes * 60_000 }
+  })
   return starts.filter((s) => {
     const cs = new Date(s).getTime()
-    return !booked.some((bs) => cs < bs + occupy && bs < cs + occupy)
+    const ce = cs + partyTermsForStart(s).durationMinutes * 60_000
+    return !spans.some((b) => cs < b.end + buffer && b.start < ce + buffer)
   })
 }

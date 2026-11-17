@@ -97,10 +97,18 @@ describe('first view', () => {
   beforeEach(setUp)
   afterEach(tearDown)
 
-  it('opens on the month grid (the page is called Calendar)', () => {
+  it('opens on the month grid on a computer (the page is called Calendar)', () => {
+    stubMatchMedia(false)
     render(<WhatsOnCalendar />)
     expect(screen.getByRole('button', { name: 'Month' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('opens on the list on a phone', async () => {
+    stubMatchMedia(true)
+    render(<WhatsOnCalendar />)
+    expect(await screen.findByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Month' })).toHaveAttribute('aria-pressed', 'false')
   })
 })
 
@@ -367,6 +375,17 @@ describe('WhatsOnCalendar month view', () => {
         d.style.backgroundImage.includes('--holiday-christmas'),
       )
       expect(striped.map((d) => d.textContent?.trim().slice(0, 2))).toEqual(['12'])
+    })
+
+    it('does not hatch a weeknight with an open party time as closed, but hatches an empty one', async () => {
+      // Mon Oct 19 has a weeknight party time; Tue Oct 20 has nothing.
+      stubCalendarApi([{ id: 'party-available-wk', kind: 'party-available', title: 'Party available · 6:00 PM', date: '2026-10-19', startTime: '18:00', bookable: true, href: '/book?start=wk' }])
+      render(<WhatsOnCalendar initialView="list" />)
+      fireEvent.click(screen.getByRole('button', { name: 'Month' }))
+      const open = await cellFor('Party available · 6:00 PM')
+      expect(open.style.backgroundImage).toBe('')
+      const cells = Array.from(document.querySelectorAll<HTMLElement>('div')).filter((d) => d.style.minHeight && d.textContent?.trim().startsWith('20'))
+      expect(cells.some((d) => d.style.backgroundImage !== '')).toBe(true)
     })
 
     it('shows in the list in the holiday\'s colours, with the day it reopens', async () => {

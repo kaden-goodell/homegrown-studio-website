@@ -436,6 +436,7 @@ export const siteConfig: SiteConfig = {
     },
     { label: 'Workshops', href: '/workshops' },
     { label: 'Craft Café', href: '/craft-cafe' },
+    { label: 'Shop', href: '/shop' },
     { label: 'Calendar', href: '/calendar' },
     {
       label: 'About',

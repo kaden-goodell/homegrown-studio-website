@@ -126,6 +126,8 @@ export const GET: APIRoute = async ({ url }) => {
             /** the calendar file's SEQUENCE (its UID is the booking id), so a re-added invite replaces the old one */
             calendarSeq: party!.calendarSeq ?? 0,
             pay: hostPayment(party!, url.origin),
+            kind: party!.kind ?? 'weekend',
+            paidOnlineCents: party!.paidOnlineCents ?? null,
             hostName: party!.hostName,
             guestCount: party!.guestCount,
             title: party!.title,

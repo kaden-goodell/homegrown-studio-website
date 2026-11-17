@@ -3,7 +3,8 @@ import type { CSSProperties } from 'react'
 import {
   CALENDAR_FILTERS,
   collapseBookedParties,
-  formatClock,
+  chipTime,
+  chipTimeRange,
   formatTimeRange,
   groupEventsByDay,
   listRowAction,
@@ -21,7 +22,9 @@ import {
   trackCalendarEventClick,
   trackCalendarLoadFailed,
 } from '@lib/analytics'
-import { OPEN_WEEKDAYS, closureOn, closures as configClosures, studioOpenOn, type Closure, type Holiday } from '@config/closures'
+import { OPEN_WEEKDAYS, closureOn, closures as configClosures, studioOpenOn, type Closure } from '@config/closures'
+import { partyDays } from '@config/party.config'
+import { CLOSED_HATCH, HOLIDAY_STRIPES, monthNavStyle } from '@components/calendar/calendar-styles'
 
 /**
  * Month grid day boxes: tall enough for about six one-line items, so a busy day
@@ -132,7 +135,7 @@ interface WhatsOnCalendarProps {
    * Optional initial events (e.g. SSR-rendered first month). After mount the
    * component fetches per-month from /api/calendar.json and state takes over.
    */
-  /** Which view opens first. The month grid unless asked otherwise. */
+  /** Which view opens first. Left out: the list on a phone, the month grid on a bigger screen. */
   initialView?: 'list' | 'month'
   events?: CalendarEvent[]
 }
@@ -173,17 +176,6 @@ const KIND_INK: Record<CalendarEvent['kind'], string> = {
 const colorOf = (e: CalendarEvent) => (e.holiday ? `var(--holiday-${e.holiday})` : KIND_COLORS[e.kind])
 const softOf = (e: CalendarEvent) => (e.holiday ? `var(--holiday-${e.holiday}-soft)` : KIND_SOFT[e.kind])
 const inkOf = (e: CalendarEvent) => (e.holiday ? `var(--holiday-${e.holiday}-ink)` : KIND_INK[e.kind])
-
-/** Stripes for a day closed for a holiday: pumpkin orange, warm brown, or a candy cane. */
-const HOLIDAY_STRIPES: Record<Holiday, string> = {
-  halloween:
-    'repeating-linear-gradient(135deg, color-mix(in srgb, var(--holiday-halloween) 30%, white) 0 7px, color-mix(in srgb, var(--holiday-halloween) 12%, white) 7px 14px)',
-  thanksgiving:
-    'repeating-linear-gradient(135deg, color-mix(in srgb, var(--holiday-thanksgiving) 28%, white) 0 7px, color-mix(in srgb, var(--holiday-thanksgiving) 10%, white) 7px 14px)',
-  christmas:
-    'repeating-linear-gradient(135deg, color-mix(in srgb, var(--holiday-christmas) 38%, white) 0 7px, white 7px 14px)',
-}
-const CLOSED_HATCH = 'repeating-linear-gradient(135deg, rgba(var(--color-primary-rgb),0.045) 0 2px, transparent 2px 9px)'
 
 const KIND_LABELS: Record<CalendarEvent['kind'], string> = {
   workshop: 'Workshop',
@@ -240,12 +232,6 @@ function formatMonthYear(year: number, month: number) {
 }
 
 /** "7:00 PM" → "7pm", "4:30 PM" → "4:30pm" — compact prefix for grid chips. */
-function chipTime(t?: string) {
-  const full = formatClock(t)
-  const m = full.match(/^(\d{1,2}):(\d{2}) (AM|PM)$/)
-  if (!m) return ''
-  return `${m[1]}${m[2] === '00' ? '' : ':' + m[2]}${m[3].toLowerCase()}`
-}
 
 
 /** Label shown in a selected-day row, e.g. "Craft Café · 9 AM–6 PM (walk-in)". */
@@ -380,25 +366,6 @@ function viewButtonStyle(active: boolean): CSSProperties {
 }
 
 /** The round ‹ › buttons beside the month name. */
-function monthNavStyle(disabled: boolean): CSSProperties {
-  return {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '2.5rem',
-    height: '2.5rem',
-    fontSize: '1.5rem',
-    lineHeight: 1,
-    color: 'var(--color-dark)',
-    background: 'rgba(255,255,255,0.85)',
-    border: '1px solid rgba(var(--color-primary-rgb),0.35)',
-    borderRadius: '9999px',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    boxShadow: disabled ? 'none' : '0 1px 4px rgba(0,0,0,0.06)',
-    opacity: disabled ? 0.35 : 1,
-  }
-}
-
 /** Shown when the calendar, or part of it, did not load. */
 function LoadNotice({ failed, busy, onRetry }: { failed: boolean; busy: boolean; onRetry: () => void }) {
   const retry = (
@@ -444,7 +411,7 @@ function LoadNotice({ failed, busy, onRetry }: { failed: boolean; busy: boolean;
   )
 }
 
-export default function WhatsOnCalendar({ events: initialEvents = [], initialView = 'month' }: WhatsOnCalendarProps) {
+export default function WhatsOnCalendar({ events: initialEvents = [], initialView }: WhatsOnCalendarProps) {
   const now = new Date()
   // Pre-opening, there's nothing before opening month — start the month grid there.
   const opening = new Date(OPENING_DATE + 'T12:00:00')
@@ -452,8 +419,9 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
   const [year, setYear] = useState(start.getFullYear())
   const [month, setMonth] = useState(start.getMonth())
   const [selectedDay, setSelectedDay] = useState<number | null>(null)
-  // Month grid first (Kaden, 9 Oct 2026: "the button says calendar"); List is one tap away.
-  const [view, setView] = useState<'list' | 'month'>(initialView)
+  // Month grid first on a computer (Kaden, 9 Oct 2026: "the button says calendar"); on a phone the
+  // list opens first (Kaden, 11 Nov 2026), set once the screen size is known below.
+  const [view, setView] = useState<'list' | 'month'>(initialView ?? 'month')
   const [compact, setCompact] = useState(false)
   // UI review (3 Nov): iPad-sized month cells (~100px) put the time on its own line, so names get the width.
   const [narrowCells, setNarrowCells] = useState(false)
@@ -533,6 +501,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 549px)')
     setCompact(mq.matches)
+    if (!initialView && mq.matches) setView('list')
     const handler = (ev: MediaQueryListEvent) => setCompact(ev.matches)
     mq.addEventListener('change', handler)
     const narrow = window.matchMedia('(max-width: 1023px)')
@@ -771,7 +740,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
             fontWeight: 700,
             letterSpacing: '0.08em',
             textTransform: 'uppercase',
-            color: openWeekdaysNow().has(i) ? 'var(--color-dark)' : 'rgba(var(--color-primary-rgb), 0.45)',
+            color: openWeekdaysNow().has(i) || partyDays[i] ? 'var(--color-dark)' : 'rgba(var(--color-primary-rgb), 0.45)',
             padding: '0.25rem 0 0.5rem',
           }}>
             {d}
@@ -803,14 +772,16 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
             return <div key={`empty-${i}`} style={{ background: 'rgba(255,255,255,0.35)', minHeight: compact ? '2.75rem' : DAY_MIN_HEIGHT }} />
           }
           const dateStr = `${monthStr}-${String(day).padStart(2, '0')}`
-          // Closed: a weekday without studio hours (unless a café special day opens it), and any closed day.
           const shut = closuresFor(dateStr)
-          const isOpenDay = openOn(dateStr)
           const holiday = closureOn(dateStr, shut)?.holiday
           const isPast = dateStr < todayStr
           const isToday = dateStr === todayStr
           const dayEvents = eventsByDay.get(day) ?? []
           const hasEvents = dayEvents.length > 0
+          // Closed: a weekday without studio hours (unless a café special day opens it) with
+          // nothing on it, and any closed day. A weeknight with an open party time or a class
+          // is open (Kaden, 15 Nov 2026).
+          const isOpenDay = openOn(dateStr) || (!closureOn(dateStr, shut) && hasEvents)
           const isSelected = selectedDay === day
           const chips = gridChips(dayEvents)
           const cellBg = isSelected
@@ -893,7 +864,8 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
                   {chips.slice(0, MAX_CHIPS).map((e) => {
                     const clickable = !!e.href
                     const color = colorOf(e)
-                    const time = e.kind === 'event' ? '' : chipTime(e.startTime)
+                    // Walk-in hours show when they end too (Kaden, 11 Nov 2026: "it just shows 2pm").
+                    const time = e.kind === 'event' ? '' : e.kind === 'open-studio' ? chipTimeRange(e.startTime, e.endTime) : chipTime(e.startTime)
                     const chipStyle: CSSProperties = {
                       display: 'flex',
                       ...(narrowCells ? { flexDirection: 'column' as const, gap: 0 } : { alignItems: 'baseline', gap: '0.3rem' }),

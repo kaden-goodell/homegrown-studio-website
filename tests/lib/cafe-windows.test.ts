@@ -9,8 +9,11 @@ describe('the windows', () => {
   it('from the config: Saturdays 9–1, the Nov 7 grand opening 9–8, closed days skipped, never before the café starts', () => {
     const w = cafeWindows(CONFIG_STUDIO_DAYS, '2026-10-01', '2027-01-09')
     expect(w[0]).toBe('2026-11-07T09:00-20:00')
-    expect(w).toContain('2026-11-14T09:00-13:00')
+    // Nov 14 is a 9–2 special day; Nov 28 has two openings around a booked party (Kaden, 11 and 15 Nov).
+    expect(w).toContain('2026-11-14T09:00-14:00')
     expect(w).toContain('2026-11-28T09:00-13:00')
+    expect(w).toContain('2026-11-28T16:00-20:00')
+    expect(w).toContain('2026-11-23T09:00-14:00')
     // Sat 26 Dec is in the Christmas closure.
     expect(w.some((x) => x.startsWith('2026-12-26'))).toBe(false)
     expect(w).toContain('2027-01-02T09:00-13:00')

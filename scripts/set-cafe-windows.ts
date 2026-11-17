@@ -1,8 +1,9 @@
 /**
  * Writes the Craft Café (walk-in) windows onto the Square display item the
- * calendar reads (`partyConfig.square.openStudioItemId`): one window per
- * café day (the saved weekly hours, or a special day), from today (never before
- * OPEN_STUDIO_START_DATE) for `--months N` (default 4), skipping closed days. The
+ * calendar reads (`partyConfig.square.openStudioItemId`): one entry per café
+ * window (the saved weekly hours, or every window of a special day, so a day
+ * with two gets two), from today (never before OPEN_STUDIO_START_DATE) for
+ * `--months N` (default 4), skipping closed days. The
  * calls live in src/lib/cafe-windows.ts, shared with /admin's settings save. Also names the item "Craft Café" so the
  * dashboard matches the site.
  *

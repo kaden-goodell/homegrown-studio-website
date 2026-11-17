@@ -15,10 +15,27 @@
  */
 import type { Cents, PartyAddOn, PartyPackage, PartySettings } from './types'
 import type { PartyItem, PartyRecord } from '../party-store'
+import { partyTermsForStart, type PartyKind } from '../party-terms'
 
-export interface PartyRequest { packageId?: string; guests: number; addOns?: Record<string, number> }
+export interface PartyRequest {
+  packageId?: string
+  guests: number
+  addOns?: Record<string, number>
+  /** The chosen start. A weeknight (Mon–Wed, party-terms.ts) books the whole studio for its craft credit and its own length. */
+  startIso?: string
+}
 export type QuoteItem = Omit<PartyItem, 'id' | 'chargeId' | 'addedAt' | 'by'>
-export interface PartyQuote { pkg: PartyPackage; minutes: number; items: QuoteItem[]; totalCents: Cents }
+export interface PartyQuote {
+  pkg: PartyPackage
+  minutes: number
+  items: QuoteItem[]
+  totalCents: Cents
+  /** Weekend (studio fee) or weeknight (the charge is a craft credit). */
+  kind: PartyKind
+}
+
+/** The package line's label on a weeknight: the charge counts toward the crafts. */
+export const WEEKNIGHT_CREDIT_LABEL = 'Weeknight craft credit'
 export type Audience = 'public' | 'link' | 'admin'
 
 const PACKAGE_GONE = 'That party package isn’t available.'
@@ -67,8 +84,13 @@ export function quoteParty(
     return { ok: false, error: `Parties are for ${pkg.minGuests} to ${pkg.maxGuests} guests.`, field: 'guests' }
   }
 
+  // Weeknights (Kaden, 15 Nov 2026): no studio fee; the whole-studio package's charge is a
+  // craft credit (the weeknight minimum) and the party runs its own length.
+  const terms = req.startIso && pkg.id === WHOLE_STUDIO_PACKAGE_ID ? partyTermsForStart(req.startIso) : null
+  const weeknight = terms?.kind === 'weeknight'
+  const pkgCents = weeknight ? terms!.chargeNowCents : pkg.priceCents
   const items: QuoteItem[] = [{
-    kind: 'package', refId: pkg.id, label: pkg.name, qty: 1, count: 1, unitCents: pkg.priceCents, cents: pkg.priceCents, extraMinutes: 0,
+    kind: 'package', refId: pkg.id, label: weeknight ? WEEKNIGHT_CREDIT_LABEL : pkg.name, qty: 1, count: 1, unitCents: pkgCents, cents: pkgCents, extraMinutes: 0,
   }]
   for (const [id, qty] of Object.entries(req.addOns ?? {})) {
     const field = `addOns.${id}`
@@ -83,9 +105,10 @@ export function quoteParty(
     ok: true,
     value: {
       pkg,
-      minutes: pkg.minutes + items.reduce((m, it) => m + it.extraMinutes, 0),
+      minutes: (weeknight ? terms!.durationMinutes : pkg.minutes) + items.reduce((m, it) => m + it.extraMinutes, 0),
       items,
       totalCents: items.reduce((t, it) => t + it.cents, 0),
+      kind: weeknight ? 'weeknight' : 'weekend',
     },
   }
 }
@@ -158,7 +181,7 @@ export function orderLineItems(
   const prefix = whole ? 'Whole Studio Party' : 'Party'
   return items.map((it) => ({
     name: it.kind === 'package'
-      ? (whole ? 'Whole Studio Party — studio fee' : `Party — ${pkgName || it.label}`)
+      ? (whole ? (it.label === WEEKNIGHT_CREDIT_LABEL ? 'Weeknight Party, craft credit (counts toward your crafts)' : 'Whole Studio Party — studio fee') : `Party — ${pkgName || it.label}`)
       : `${prefix} — ${it.label}`,
     quantity: it.qty,
     pricePerUnit: it.unitCents,

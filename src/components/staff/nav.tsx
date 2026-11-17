@@ -1,7 +1,7 @@
 import { createContext, useContext } from 'react'
 import { siteConfig } from '@config/site.config'
 
-export type StaffTab = 'week' | 'today' | 'upcoming' | 'calendar' | 'shifts' | 'kits' | 'giftcards'
+export type StaffTab = 'week' | 'today' | 'upcoming' | 'calendar' | 'shifts' | 'kits' | 'giftcards' | 'orders'
 
 /**
  * A screen with unsaved work (My shifts › When I can work) registers one of
@@ -22,6 +22,8 @@ export interface StaffNav {
   logout: () => void
   /** StaffConsole provides it; optional so a screen works without the console (tests, previews). */
   setLeaveGuard?: (guard: LeaveGuard | null) => void
+  /** "(2 new)" after a tab's label, when there is something new there. */
+  newCounts?: Partial<Record<StaffTab, number>>
 }
 
 /** Provided by StaffConsole; the header's tabs and account menu read it. */
@@ -36,9 +38,15 @@ export const TABS: { id: StaffTab; label: string }[] = [
   { id: 'shifts', label: 'My shifts' },
   { id: 'kits', label: 'Kits' },
   { id: 'giftcards', label: 'Gift cards' },
+  { id: 'orders', label: 'Orders' },
 ]
 
 /** The tabs to show: Kits only while take-home kits are on (site config), or when you're already on it. */
 export function visibleTabs(active: StaffTab | undefined, kitsOn: boolean = siteConfig.features.kits.enabled): typeof TABS {
   return TABS.filter((t) => t.id !== 'kits' || kitsOn || active === 'kits')
+}
+
+/** "Orders (2 new)", or just "Orders". */
+export function tabLabel(label: string, newCount = 0): string {
+  return newCount > 0 ? `${label} (${newCount} new)` : label
 }

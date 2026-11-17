@@ -4,6 +4,7 @@
  */
 import type { NavItem, SiteConfig } from '@config/site.config'
 import { normalizePath } from '@lib/site-header'
+import { shopLive } from '@config/shop.config'
 
 export type { NavItem }
 
@@ -18,11 +19,11 @@ function fallbackNav(config: SiteConfig): NavItem[] {
 }
 
 /**
- * The menu as shown. /kits is left out while kits are closed, and a group
- * left with nothing in it is dropped.
+ * The menu as shown. /kits is left out while kits are closed, /shop until
+ * its Square items exist, and a group left with nothing in it is dropped.
  */
-export function buildNav(config: SiteConfig, { kitsVisible }: { kitsVisible: boolean }): NavItem[] {
-  const keep = (i: NavItem) => kitsVisible || i.href !== '/kits'
+export function buildNav(config: SiteConfig, { kitsVisible, shopVisible = shopLive() }: { kitsVisible: boolean; shopVisible?: boolean }): NavItem[] {
+  const keep = (i: NavItem) => (kitsVisible || i.href !== '/kits') && (shopVisible || i.href !== '/shop')
   const items = config.nav && config.nav.length > 0 ? config.nav : fallbackNav(config)
   return items
     .filter(keep)

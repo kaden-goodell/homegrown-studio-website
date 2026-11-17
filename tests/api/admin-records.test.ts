@@ -20,6 +20,7 @@ function memory(data: Record<string, unknown> = {}): KvStore {
     getWithMeta: async (k) => ({ value: m.get(k) ?? null, etag: null }),
     setIfMatch: async () => true,
     list: async () => [...m.keys()],
+    delete: async (k) => { m.delete(k) },
   }
 }
 

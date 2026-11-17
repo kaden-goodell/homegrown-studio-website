@@ -3,6 +3,7 @@ import { staffAuthorized } from '@lib/staff-auth'
 import { isOurs, listParties, partyEndIso } from '@lib/party-store'
 import { dueCents } from '@lib/parties/money'
 import { listWaiversByParty } from '@lib/waiver-store'
+import { partyTermsForStart } from '@lib/party-terms'
 
 export const prerender = false
 
@@ -31,6 +32,9 @@ export const GET: APIRoute = async ({ request }) => {
         hostPhone: p.hostPhone ?? null,
         guestCount: p.guestCount,
         themeName: p.theme?.displayName ?? null,
+        // Weeknight parties paid a craft credit online, not a studio fee.
+        kind: p.kind ?? partyTermsForStart(p.startIso).kind,
+        paidOnlineCents: p.paidOnlineCents ?? partyTermsForStart(p.startIso).chargeNowCents,
         rsvpHouseholds: waivers.length,
         rsvpPeople: people,
       }

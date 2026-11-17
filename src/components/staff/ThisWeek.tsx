@@ -5,6 +5,7 @@ import { card, btn, Badge } from '@components/staff/ui'
 import WarningsPanel from '@components/staff/WarningsPanel'
 import { CafeRow, CraftCafeSheet, readCafeParam } from '@components/staff/CraftCafe'
 import { cafeOn } from '@lib/cafe-days'
+import { cafeWindowsOn } from '@config/hours'
 import { addDays } from '@lib/kit-dates'
 import { formatTime, formatTimeSpan, formatCalendarDay, studioDate, studioDayUtcRange } from '@lib/studio-time'
 import type { StaffMember } from '@lib/staff-auth'
@@ -46,6 +47,12 @@ const ICON: Record<EventKind, string> = { party: '🎉', workshop: '🧵', progr
  * class and party, with what to prep for classes with picks. Tap a row for
  * its roster.
  */
+/** The config's openings on a date, when they span exactly the hours in use (else none: one range shows). */
+function windowsWithin(d: string, span: { opens: string; closes: string }) {
+  const w = cafeWindowsOn(d)
+  return w.length > 1 && w[0].opens === span.opens && w[w.length - 1].closes === span.closes ? w : undefined
+}
+
 export default function ThisWeek({
   staff,
   onOpenRoster,
@@ -145,7 +152,7 @@ export default function ThisWeek({
                 <h2 style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--color-primary)' }}>
                   {d === today ? `Today · ${formatCalendarDay(d)}` : formatCalendarDay(d)}
                 </h2>
-                {cafe && <CafeRow date={d} hours={cafe} here={d === today ? cafe.here ?? null : null} onOpen={() => setCafeOpen(d)} />}
+                {cafe && <CafeRow date={d} hours={cafe} windows={windowsWithin(d, cafe)} here={d === today ? cafe.here ?? null : null} onOpen={() => setCafeOpen(d)} />}
                 {list.length === 0 && !cafe && <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--color-muted)' }}>Nothing scheduled</p>}
                 {list.map((e) => (
                   <button

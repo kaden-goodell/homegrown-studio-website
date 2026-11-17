@@ -44,12 +44,11 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 
   try {
     const view = await partyStartsOnDate(date, { packageId, addOns: addOnsOf(body.addOns) })
-    const durationMinutes = view.minutes
-    const slots = view.open.map((startAt) => ({
-      startAt,
-      endAt: new Date(Date.parse(startAt) + durationMinutes * 60_000).toISOString(),
-      durationMinutes,
-    }))
+    // Weekend 90 minutes, weeknight 120: each time carries its own length.
+    const slots = view.open.map((startAt) => {
+      const durationMinutes = view.lengths?.[startAt] ?? view.minutes
+      return { startAt, endAt: new Date(Date.parse(startAt) + durationMinutes * 60_000).toISOString(), durationMinutes }
+    })
     logger.info('Party availability complete', { duration_ms: Date.now() - startTime, date, slotCount: slots.length })
     // offered: how many times the day offers at all, so the panel can say when some are taken.
     return json({ data: { slots, offered: view.offered.length } })

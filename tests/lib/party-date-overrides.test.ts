@@ -45,13 +45,15 @@ describe('Thursday and Friday parties', () => {
   it('keeps 4:00 on Fri Nov 6, then Fridays at 4:30; no Thursday parties from Nov 5 on', () => {
     expect(partyStartsForDate('2026-11-06', new Date('2026-10-20T17:00:00Z'))).toEqual(['2026-11-06T22:00:00.000Z'])
     expect(partyStartsForDate('2026-11-05', new Date('2026-10-20T17:00:00Z'))).toEqual([])
-    expect(partyStartsForDate('2026-11-13', now)).toEqual(['2026-11-13T22:30:00.000Z'])
+    // Fridays Nov 20 to Dec 18 are Craft Café (Kaden, 15 Nov 2026); January Fridays are back to 4:30.
+    expect(partyStartsForDate('2026-11-20', now)).toEqual([])
+    expect(partyStartsForDate('2027-01-08', new Date('2026-11-20T18:00:00Z'))).toEqual(['2027-01-08T22:30:00.000Z'])
     expect(partyStartsForDate('2026-11-19', now)).toEqual([])
   })
 
-  it('never on Monday to Wednesday', () => {
-    expect(partyStartsForDate('2026-11-09', now)).toEqual([])
-    expect(partyStartsForDate('2026-11-10', now)).toEqual([])
-    expect(partyStartsForDate('2026-11-11', now)).toEqual([])
+  it('Monday to Wednesday get one weeknight party, at 6:00 (Nov 2026)', () => {
+    expect(partyStartsForDate('2026-11-09', now)).toEqual(['2026-11-10T00:00:00.000Z'])
+    expect(partyStartsForDate('2026-11-10', now)).toEqual(['2026-11-11T00:00:00.000Z'])
+    expect(partyStartsForDate('2026-11-11', now)).toEqual(['2026-11-12T00:00:00.000Z'])
   })
 })

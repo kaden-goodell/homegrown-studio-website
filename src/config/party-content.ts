@@ -14,7 +14,7 @@ export interface FaqEntry {
 
 import { formatMoney } from '@lib/money'
 import type { PartyPackage } from '@lib/parties/types'
-import { partyConfig } from './party.config'
+import { partyConfig, partyDays } from './party.config'
 import { policyWindows } from './policy-content'
 
 /**
@@ -78,10 +78,32 @@ export function lowestPackageCents(facts?: PartyFactsLike | null): number {
 /** The config package's name (party-times.ts configPartySettings). */
 const CONFIG_PACKAGE_NAME = 'Whole studio'
 
+/** "$300" — the weeknight minimum, also what a weeknight party pays online as a craft credit. */
+const WEEKNIGHT_MIN = formatMoney(partyConfig.weeknightMinimumCents)
+
+/** "6–8 PM" from the weeknight schedule (first start + party length). */
+function weeknightHours(): string {
+  const night = partyDays[1]
+  const [h, m] = night.firstStart.split(':').map(Number)
+  const endMin = h * 60 + m + (night.durationMinutes ?? partyConfig.durationMinutes)
+  const fmt = (mins: number) => {
+    const hh = Math.floor(mins / 60) % 12 || 12
+    const mm = mins % 60
+    return mm ? `${hh}:${String(mm).padStart(2, '0')}` : String(hh)
+  }
+  return `${fmt(h * 60 + m)}–${fmt(endMin)} PM`
+}
+const WEEKNIGHT_HOURS = weeknightHours()
+
 /** Policy windows (HOM-78) — all cancellation copy derives from these. */
 const REFUND_DAYS = policyWindows.partyFullRefundDays
 const RESCHED_HOURS = policyWindows.partyRescheduleNoticeHours
 const LOCK_DAYS = policyWindows.partyHeadcountLockDays
+
+/** On the host's party page, for a weeknight party. */
+function hostCreditLine(paidCents: number): string {
+  return `Weeknight party. Your ${formatMoney(paidCents)} craft credit is paid and counts toward your crafts on the day.`
+}
 
 /**
  * The party copy for the settings in use. `partyContent` below is the
@@ -145,12 +167,16 @@ export function partyContentFor(facts?: PartyFactsLike | PartyCopyFacts | null) 
         a: `A flat ${FEE} studio fee reserves the entire studio for your group — that’s all you pay when you book. Each guest’s craft is paid at the studio on the day. Each craft has its own per-person price, shown when you pick one.`,
       },
       {
+        q: 'Do you have weeknight parties?',
+        a: `Yes. Monday to Wednesday, ${WEEKNIGHT_HOURS}, one party a night. There’s no studio fee on weeknights. You pay only for crafts, with a ${WEEKNIGHT_MIN} minimum. The ${WEEKNIGHT_MIN} you pay when you book is a craft credit, so it counts toward your crafts, and anything over that is paid at the studio on the day.`,
+      },
+      {
         q: 'What if some guests can’t make it?',
         a: `You pay for crafts for the people who actually come, with a ${f.minGuests}-craft minimum (parties are for groups of ${f.minGuests} or more). Beyond the minimum, your guest count is just an estimate — no-shows never cost you anything. Let us know your expected headcount about ${LOCK_DAYS} days before the party so we can prep.`,
       },
       {
         q: 'How long is a party and how many people can I bring?',
-        a: `Parties are ${f.minutes} minutes in the studio with ${f.minGuests} to ${f.maxGuests} guests. The whole space is yours for the entire time.`,
+        a: `Parties are ${f.minutes} minutes in the studio with ${f.minGuests} to ${f.maxGuests} guests. The whole space is yours for the entire time. Weeknight parties are 2 hours.`,
       },
       {
         q: 'Is there a minimum party size?',
@@ -193,6 +219,32 @@ export function partyContentFor(facts?: PartyFactsLike | PartyCopyFacts | null) 
         a: 'Everyone who makes a craft pays the per-person price — adults, friends, siblings, anyone crafting. Crafts aren’t shareable, and it’s all settled at the studio based on who actually crafts, so someone who just comes to watch and cheer costs nothing.',
       },
     ] satisfies FaqEntry[],
+
+    /**
+     * Weekend or weeknight: the first choice on the date step, and the one
+     * mention of weeknights on /book. Weeknights are NOT in the studio's opening
+     * hours (hours.ts); they live only in the party flow.
+     */
+    kinds: {
+      question: 'What kind of party?',
+      weekend: {
+        title: 'Weekend',
+        when: 'Fri–Sun',
+        price: `${FEE} studio fee + crafts`,
+        length: `Weekend parties are ${f.minutes} minutes. The whole studio, just your group.`,
+      },
+      weeknight: {
+        title: 'Weeknight',
+        when: `Mon–Wed, ${WEEKNIGHT_HOURS}`,
+        price: `No studio fee · ${WEEKNIGHT_MIN} minimum`,
+        length: `Weeknight parties are 2 hours, ${WEEKNIGHT_HOURS}. The whole studio, just your group.`,
+      },
+      nothingOpen: 'Nothing open right now',
+      /** On the host's party page, for a weeknight party. */
+      hostCreditLine,
+      /** Under the value band on /book. */
+      landingLine: `Weeknight parties run Monday to Wednesday, ${WEEKNIGHT_HOURS}. No studio fee, just crafts, with a ${WEEKNIGHT_MIN} minimum. The ${WEEKNIGHT_MIN} you pay to book counts toward your crafts.`,
+    },
 
     confirmation: {
       nextStepsEmail: [

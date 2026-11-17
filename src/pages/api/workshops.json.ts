@@ -74,8 +74,15 @@ export const GET: APIRoute = async ({ request }) => {
     logger.error('own classes fetch failed', { error: err instanceof Error ? err.message : String(err) })
     return { list: [] as WorkshopData[], failed: true }
   })
+  // ?w=<id>: the page followed a link to a class its first list didn't have
+  // (a class added in the last minute). Ask Square again rather than say
+  // "finished". The CDN keys on the query, so this answer is fresh too.
+  const wanted = new URL(request.url).searchParams.get('w') ?? ''
   try {
-    const list = await remember('workshops:list', 30_000, () => providers.workshop.listWorkshops())
+    let list = await remember('workshops:list', 30_000, () => providers.workshop.listWorkshops())
+    if (/^[A-Za-z0-9_-]{6,64}$/.test(wanted) && !list.some((w) => w.id === wanted)) {
+      list = await providers.workshop.listWorkshops()
+    }
     workshops = await Promise.all(
       list.map(async (w) => {
         const { ok, settings, tickets, error } = await settingsFor(w.scheduleId)

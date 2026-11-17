@@ -18,7 +18,7 @@ describe('GET /api/party/price-facts.json', () => {
   it('answers today’s numbers until an owner saves', async () => {
     const { res, body } = await call()
     expect(body).toEqual({
-      copy: { feeCents: 30000, minutes: 90, minGuests: 10, maxGuests: 30, bookingWindowDays: 90 },
+      copy: { feeCents: 30000, minutes: 90, minGuests: 10, maxGuests: 35, bookingWindowDays: 90 },
       from: { name: 'Whole studio', priceCents: 30000 },
     })
     expect((res as Response).headers.get('Netlify-CDN-Cache-Control')).toContain('max-age=60')
