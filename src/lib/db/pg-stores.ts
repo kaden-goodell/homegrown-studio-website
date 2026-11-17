@@ -22,4 +22,5 @@ export const PG_STORES: ReadonlySet<string> = new Set([
   'paid-on-cancelled', // payments that landed on a cancelled class
   'refund-flags', // Square refund bookkeeping
   'refund-replacements',
+  'quotes', // private-event quotes: pick, pay, save and withdraw race
 ])
