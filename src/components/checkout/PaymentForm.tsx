@@ -72,6 +72,14 @@ export function walletFailedMessage(name: string): string {
   return `${name} didn’t go through. Nothing was charged. Try again, or pay with a card.`
 }
 
+/**
+ * Square's catch-all "UnexpectedError" on a wallet: seen once on a party pay link, and the very
+ * next tap worked (Kaden, 17 Nov 2026). Point them back at the wallet, not away from it.
+ */
+export function walletHiccupMessage(name: string): string {
+  return `${name} hiccuped. Tap it again. Nothing was charged.`
+}
+
 /** Under the card field when a card is being saved, not charged. */
 export const STORE_NOTE = 'Nothing is charged now. Square saves your card. We never see its number.'
 
@@ -481,7 +489,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
         step('tokenize_threw', { message: err instanceof Error ? `${err.name}: ${err.message}`.slice(0, 200) : String(err).slice(0, 200) })
         trackBookingProblem(bookingKind, 'wallet_failed', `${name}: ${err instanceof Error ? err.message : 'error'}`)
         reportBookingTrouble(troubleKind(bookingKind), 'wallet', `${name}: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`.slice(0, 160))
-        setWalletError(walletFailedMessage(name))
+        setWalletError(err instanceof Error && err.name === 'UnexpectedError' ? walletHiccupMessage(name) : walletFailedMessage(name))
       }
     }
 
