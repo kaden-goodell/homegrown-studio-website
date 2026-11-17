@@ -13,7 +13,7 @@ export const prerender = true
 
 const DEPOSIT_URL = 'https://square.link/u/REPLACE_ME'
 const DEPOSIT = '$1,500'
-const EVENING_MINUTES = 165 // 5:30 to 8:30, less welcome and wrap-up
+const EVENING_MINUTES = 195 // 5:30 to 9:00, less welcome and wrap-up
 const img = (n: string) => `/quote/corky/${n}`
 
 /** Times are placeholders until Kaden confirms; prices per guest, no discounts. */
@@ -48,7 +48,7 @@ const crafts = [
         <h1>A Christmas Evening of Making</h1>
         <svg class="rule" aria-hidden="true" width="120" height="14" viewBox="0 0 120 14" fill="none" stroke="#c4a882" stroke-width="1.2"><path d="M0 7h48M72 7h48" /><path d="M60 1l5 6-5 6-5-6z" /></svg>
         <p class="for">for the educators of<br />The Corky Child Care Collective</p>
-        <p class="when">Saturday, December twelfth<br />half past five to half past eight<br />40 to 50 guests · at the studio</p>
+        <p class="when">Saturday, December twelfth<br />5:30 to 9 PM<br />40 to 50 guests · at the studio</p>
       </div>
     </section>
 
@@ -74,7 +74,7 @@ const crafts = [
       <div class="time">
         <div class="time-row"><span>Crafting time</span><span><b id="mins">0</b> of {EVENING_MINUTES} min</span></div>
         <div class="bar"><div class="fill" id="fill"></div></div>
-        <p class="over" id="over" hidden>That's more than fits in three hours. Drop one, or text us about a longer evening.</p>
+        <p class="over" id="over" hidden>That's more than fits in one evening. Drop one, or text us about a longer evening.</p>
       </div>
       <div class="price">
         <div class="row big"><span class="your">Per guest</span><span class="amt"><span id="price">$0</span><small> a guest</small></span></div>
