@@ -146,7 +146,8 @@ export async function publicView(token: string, opts: { isOwner: boolean; origin
   const now = opts.now ?? new Date()
   const q = await getQuoteByToken(token)
   if (!q) return CLOSED
-  const state = viewState(q, now)
+  // Owners can preview a draft before sending it; customers can't see one.
+  const state = opts.isOwner && q.status === 'draft' ? 'open' : viewState(q, now)
   if (state === 'closed') return CLOSED
   if (!opts.isOwner) await countView(q, now)
   if (state === 'paying') return { state: 'paying' }

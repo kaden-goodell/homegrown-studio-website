@@ -195,3 +195,19 @@ describe('pickTier', () => {
     expect(await pickTier(q.token, 'tr_simple', NOW)).toEqual({ ok: false, why: 'closed' })
   })
 })
+
+describe('owner preview of a draft', () => {
+  it('shows a draft to an owner, not to a customer', async () => {
+    const { createQuote, newQuoteId, newToken, partyIdForQuote } = await import('@lib/quotes/quote-store')
+    const { publicView } = await import('@lib/quotes/public-view')
+    const id = newQuoteId()
+    const token = newToken()
+    await createQuote({
+      id, requestId: `req-${id}`, partyId: partyIdForQuote(id), token, version: 1, priceKey: 'k', status: 'draft',
+      place: 'studio', address: '', startIso: null, endIso: null, guests: 10, crafters: 'both', targetCents: 5000, note: '',
+      depositPct: 50, expiresAt: '2099-01-01T00:00:00.000Z', tiers: [], held: false, views: 0, history: [],
+    })
+    expect((await publicView(token, { isOwner: false, origin: 'https://x' })).state).toBe('closed')
+    expect((await publicView(token, { isOwner: true, origin: 'https://x' })).state).toBe('open')
+  })
+})
