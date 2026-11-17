@@ -3,8 +3,8 @@
  * One-off private event quote for The Corky Child Care Collective (Kaden,
  * 17 Nov 2026), made by hand before the quote system ships. Invitation
  * design (canvas "C · The Invitation") with a "build your evening" picker:
- * each craft has a time and a normal price; the group price per guest takes
- * 10% off one craft, 15% off two, 20% off three or more. The Hold button is a
+ * each craft has a time, its normal price and her group price (about 20%
+ * off, whole dollars). The Hold button is a
  * fixed Square payment link for the deposit; final picks and names come in by
  * Nov 27 and the owners book the evening in /admin.
  */
@@ -17,16 +17,14 @@ const DEPOSIT = '$1,500'
 const EVENING_MINUTES = 165 // 5:30 to 8:30, less welcome and wrap-up
 const img = (n: string) => `/quote/corky/${n}`
 
-/** Times are Kaden's (TO CONFIRM); prices are the studio's normal menu prices. */
+/** Times are placeholders until Kaden confirms; `price` is the normal menu price, `group` her price (about 20% off, whole dollars). */
 const crafts = [
-  { id: 'tote', name: 'Monogrammed tote', note: 'Her initials, patched her way', price: 35, minutes: 45, img: img('bag.jpg'), pick: true },
-  { id: 'rondelle', name: 'Rondelle necklace', note: 'Strung bead by bead', price: 35, minutes: 30, img: img('rondelle.jpg'), pick: true },
-  { id: 'scarf', name: 'Scarf keychain', note: 'Gold carabiner, silk scarf, charms', price: 20, minutes: 15, img: img('scarf.jpg'), pick: true },
-  { id: 'coasters', name: 'Mosaic coasters', note: 'A set of four, tile by tile', price: 40, minutes: 45, img: img('coaster-blue.jpg'), pick: false },
-  { id: 'earrings', name: 'Christmas earrings', note: 'From our earring bar', price: 20, minutes: 20, img: img('p0632.jpg'), pick: false },
-  { id: 'felt', name: 'Needle-felt ornament', note: 'Soft, small, for the tree', price: 8, minutes: 30, img: img('p0557.jpg'), pick: false },
-  { id: 'wood', name: 'Wood Christmas tree', note: 'Or a nativity, painted your way', price: 20, minutes: 30, img: img('p0538.jpg'), pick: false },
-  { id: 'bubble', name: 'Bubble letter keychain', note: 'A name in bubble letters', price: 15, minutes: 20, img: img('p0525.jpg'), pick: false },
+  { id: 'tote', name: 'Monogrammed tote', note: 'Her initials, patched her way', price: 35, group: 28, minutes: 45, img: img('bag.jpg'), pick: true },
+  { id: 'rondelle', name: 'Rondelle necklace', note: 'Strung bead by bead', price: 35, group: 28, minutes: 30, img: img('rondelle.jpg'), pick: true },
+  { id: 'keychain', name: 'Keychain bar', note: 'Scarves, bubble letters, beads and charms', price: 20, group: 16, minutes: 20, img: img('scarf.jpg'), pick: true },
+  { id: 'coasters', name: 'Mosaic coasters', note: 'A set of four in Christmas colors', price: 40, group: 32, minutes: 45, img: img('p0640.jpg'), pick: false },
+  { id: 'earrings', name: 'Christmas earrings', note: 'From our earring bar', price: 20, group: 16, minutes: 20, img: img('p0632.jpg'), pick: false },
+  { id: 'felt', name: 'Needle-felt ornament', note: 'Soft, small, for the tree', price: 8, group: 6, minutes: 30, img: img('p0557.jpg'), pick: false },
 ]
 ---
 <Layout
@@ -58,20 +56,15 @@ const crafts = [
 
     <section class="build">
       <p class="kicker center">Build your evening</p>
-      <p class="lede">Tap to add. The more you make, the more you save.</p>
-      <ul class="ladder" aria-label="Group savings">
-        <li data-n="1">1 craft<b>10% off</b></li>
-        <li data-n="2">2 crafts<b>15% off</b></li>
-        <li data-n="3">3 or more<b>20% off</b></li>
-      </ul>
+      <p class="lede">Tap to add. About 20% off every craft.</p>
 
       <div class="grid">
         {crafts.map((c) => (
-          <button type="button" class="craft" data-id={c.id} data-name={c.name} data-price={c.price} data-minutes={c.minutes} aria-pressed={c.pick ? 'true' : 'false'}>
+          <button type="button" class="craft" data-id={c.id} data-name={c.name} data-price={c.price} data-group={c.group} data-minutes={c.minutes} aria-pressed={c.pick ? 'true' : 'false'}>
             <span class="ph"><img src={c.img} alt="" loading="lazy" /><span class="tick" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg></span></span>
             <span class="cname">{c.name}</span>
             <span class="cnote">{c.note}</span>
-            <span class="cmeta"><span>{c.minutes} min</span><span>${c.price}</span></span>
+            <span class="cmeta"><span>{c.minutes} min</span><span><s>${c.price}</s> ${c.group}</span></span>
           </button>
         ))}
       </div>
@@ -85,7 +78,7 @@ const crafts = [
       </div>
       <div class="price">
         <div class="row muted"><span>Menu value</span><span class="strike" id="normal">$0 a guest</span></div>
-        <div class="row big"><span class="your">Your price <em id="off"></em></span><span class="amt"><span id="price">$0</span><small> a guest</small></span></div>
+        <div class="row big"><span class="your">Your price</span><span class="amt"><span id="price">$0</span><small> a guest</small></span></div>
         <p class="save" id="save"></p>
         <p class="picked" id="picked"></p>
       </div>
@@ -129,7 +122,6 @@ const crafts = [
 </Layout>
 
 <script define:vars={{ EVENING_MINUTES }}>
-  const OFF = (n) => (n >= 3 ? 0.2 : n === 2 ? 0.15 : n === 1 ? 0.1 : 0)
   const $ = (id) => document.getElementById(id)
   const cards = [...document.querySelectorAll('.craft')]
   const money = (n) => '$' + n.toLocaleString('en-US')
@@ -138,8 +130,7 @@ const crafts = [
     const on = cards.filter((c) => c.getAttribute('aria-pressed') === 'true')
     const normal = on.reduce((s, c) => s + Number(c.dataset.price), 0)
     const minutes = on.reduce((s, c) => s + Number(c.dataset.minutes), 0)
-    const off = OFF(on.length)
-    const price = Math.round(normal * (1 - off))
+    const price = on.reduce((s, c) => s + Number(c.dataset.group), 0)
     $('mins').textContent = String(minutes)
     const pct = Math.min(100, (minutes / EVENING_MINUTES) * 100)
     $('fill').style.width = pct + '%'
@@ -147,12 +138,10 @@ const crafts = [
     $('over').hidden = minutes <= EVENING_MINUTES
     $('normal').textContent = money(normal) + ' a guest'
     $('price').textContent = money(price)
-    $('off').textContent = off ? Math.round(off * 100) + '% off' : ''
     $('save').textContent = normal ? 'You save ' + money(normal - price) + ' a guest, about ' + money((normal - price) * 45) + ' for 45.' : 'Pick a craft or two to start.'
     const names = on.map((c) => c.dataset.name)
     $('picked').textContent = names.join(' · ')
     $('sum').textContent = on.length ? money(price) + ' a guest · ' + on.length + (on.length === 1 ? ' craft' : ' crafts') : 'Your evening'
-    document.querySelectorAll('.ladder li').forEach((li) => li.classList.toggle('on', Math.min(on.length, 3) === Number(li.dataset.n)))
     const body = 'Hi! Our picks for Dec 12 (Corky Child Care Collective): ' + (names.join(', ') || 'still deciding') + '.'
     $('textpicks').setAttribute('href', 'sms:+12564641710?&body=' + encodeURIComponent(body))
   }
@@ -192,11 +181,6 @@ const crafts = [
 
   .build { width: 100%; margin-top: 2.5rem; display: flex; flex-direction: column; align-items: center; gap: 0.75rem; }
   .lede { margin: 0; font-family: 'Playfair Display', serif; font-size: 1.15rem; text-align: center; color: var(--ink); }
-  .ladder { list-style: none; margin: 0.25rem 0 0.5rem; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; width: 100%; }
-  .ladder li { display: flex; flex-direction: column; align-items: center; gap: 0.1rem; padding: 0.55rem 0.25rem; border-radius: 999px; border: 1px dashed var(--gold); font-size: 0.75rem; color: var(--muted); transition: background 0.2s, color 0.2s; }
-  .ladder li b { font-size: 0.85rem; color: var(--ink); }
-  .ladder li.on { background: var(--ink); border-style: solid; border-color: var(--ink); color: #d9cfc4; }
-  .ladder li.on b { color: #f1d7b6; }
 
   .grid { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
   .craft { appearance: none; border: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; background: var(--paper); border-radius: 8px; padding: 0.5rem 0.5rem 0.75rem; box-shadow: 0 0.5rem 1.4rem rgba(61,50,41,0.10); display: flex; flex-direction: column; gap: 0.3rem; position: relative; outline: 2px solid transparent; transition: transform 0.15s ease, outline-color 0.15s ease, box-shadow 0.15s ease; }
@@ -209,6 +193,7 @@ const crafts = [
   .craft[aria-pressed='true'] .tick { background: var(--brown); border-color: var(--brown); color: #fff; }
   .cname { font-family: 'Playfair Display', serif; font-size: 1.02rem; line-height: 1.2; color: var(--ink); margin-top: 0.2rem; }
   .cnote { font-size: 0.75rem; line-height: 1.35; color: var(--muted); }
+  .cmeta s { font-weight: 400; color: #a39589; margin-right: 0.15rem; }
   .cmeta { display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; color: var(--brown); margin-top: 0.15rem; }
 
   .summary { width: 100%; margin-top: 1.25rem; position: sticky; bottom: 0.75rem; z-index: 5; background: var(--paper); border-radius: 10px; box-shadow: 0 0.9rem 2.5rem rgba(61,50,41,0.22); padding: 1rem 1.15rem 1.05rem; display: flex; flex-direction: column; gap: 0.75rem; border: 1px solid #eadcc9; }
