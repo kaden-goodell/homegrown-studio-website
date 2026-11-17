@@ -4,16 +4,16 @@
  * 17 Nov 2026), made by hand before the quote system ships. Invitation
  * design (canvas "C · The Invitation"). Four themed nights, $75 a guest
  * each, no discounts shown. She picks one; "Text us our pick" sends it to the
- * studio. The Hold button is a fixed Square payment link for the $1,500
- * deposit (half of 40 guests); final count and monograms by Nov 27, and the
- * owners book the evening in /admin.
+ * studio. The Hold button opens CorkyDeposit, which takes the $1,500 deposit
+ * (half of 40 guests) right here through /api/quote/corky-deposit.json; final
+ * count and monograms by Nov 27, and the owners book the evening in /admin.
  */
 import Layout from '@layouts/Layout.astro'
 import Shimmer from '@components/shared/Shimmer'
+import CorkyDeposit from '@components/quote/CorkyDeposit'
 
 export const prerender = true
 
-const DEPOSIT_URL = 'https://square.link/u/REPLACE_ME'
 const DEPOSIT = '$1,500'
 const PRICE = 75
 const img = (n: string) => `/quote/corky/${n}`
@@ -132,7 +132,7 @@ const themes = [
       <p class="kicker light">Let us know by Tue, Nov 24</p>
       <img class="sumimg" id="sumimg" src={img('mosaic.jpg')} alt="" hidden />
       <p class="sum" id="sum">${PRICE} a guest · 40 to 50 guests</p>
-      <a class="btn" href={DEPOSIT_URL}>Hold December 12 · {DEPOSIT}</a>
+      <CorkyDeposit client:load />
       <a class="btn ghost" id="textpick" href="sms:+12564641710">Text us your pick</a>
       <p class="fine">Monograms get stitched ahead of time, so names can't change after that. <a href="/policies">Our policies</a></p>
     </section>
