@@ -12,7 +12,7 @@
  */
 
 /** Paths whose page text holds customers' details. */
-const PRIVATE_TEXT_PATHS = /^\/(admin|staff|waiver|party)(\/|$)/
+const PRIVATE_TEXT_PATHS = /^\/(admin|staff|waiver|party|quote)(\/|$)/
 
 export interface PostHogPagePrivacy {
   /** never session-recorded */

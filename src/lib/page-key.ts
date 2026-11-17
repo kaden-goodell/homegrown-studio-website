@@ -19,8 +19,8 @@
  * Client-safe: no imports.
  */
 
-/** /party/… (host page, payment link). */
-export const PRIVATE_PARTY_PATH = /^\/party(\/|$)/
+/** /party/… (host page, payment link) and /quote/<token> (a private event quote: the token is its key). */
+export const PRIVATE_PARTY_PATH = /^\/(party|quote)(\/|$)/
 
 export function isPrivatePartyPage(pathname: string): boolean {
   return PRIVATE_PARTY_PATH.test(pathname)
@@ -44,8 +44,8 @@ export function rememberedPageKey(pathname: string = typeof location !== 'undefi
  * URL, referrer, a clicked link's href in `$elements` / `$elements_chain`) is
  * removed (`data=` is the reader's signed return state on /staff/pos-return,
  * M3: it may be read before the page takes it out of the address bar), and
- * the token in `/classes/cancel/<token>` and `/classes/waitlist/<token>`
- * becomes `[link]` (I2).
+ * the token in `/classes/cancel/<token>`, `/classes/waitlist/<token>` and
+ * `/quote/<token>` becomes `[link]` (I2).
  *
  * The owners' booking test link (`?preview=<secret>`, src/lib/bookings-gate.ts)
  * is answered by the server with a redirect to the same address without it.
@@ -55,7 +55,7 @@ export function rememberedPageKey(pathname: string = typeof location !== 'undefi
  */
 export const PAGE_KEY_SCRIPT = `(function(){try{
 var w=window,d=document,P=${PRIVATE_PARTY_PATH.toString()};
-if(!w.__hsScrubKeys){var S=function(s){if(s.indexOf('/classes/')>=0)s=s.replace(/(\\/classes\\/(?:cancel|waitlist)\\/)[^\\/?#\\s"']+/g,'$1[link]');return s.indexOf('=')<0?s:s.replace(/([?&])(?:key|k|preview|data)=[^&#\\s"']*&?/g,'$1').replace(/[?&](?=$|#|["'\\s])/g,'')};var W=function(v,n){if(n>8||v==null)return v;if(typeof v==='string')return S(v);if(typeof v==='object'){for(var i in v){if(Object.prototype.hasOwnProperty.call(v,i))v[i]=W(v[i],n+1)}}return v};w.__hsScrubKeys=function(e){try{return W(e,0)}catch(_){return e}}}
+if(!w.__hsScrubKeys){var S=function(s){if(s.indexOf('/classes/')>=0)s=s.replace(/(\\/classes\\/(?:cancel|waitlist)\\/)[^\\/?#\\s"']+/g,'$1[link]');if(s.indexOf('/quote/')>=0)s=s.replace(/(\\/quote\\/)[^\\/?#\\s"']+/g,'$1[link]');return s.indexOf('=')<0?s:s.replace(/([?&])(?:key|k|preview|data)=[^&#\\s"']*&?/g,'$1').replace(/[?&](?=$|#|["'\\s])/g,'')};var W=function(v,n){if(n>8||v==null)return v;if(typeof v==='string')return S(v);if(typeof v==='object'){for(var i in v){if(Object.prototype.hasOwnProperty.call(v,i))v[i]=W(v[i],n+1)}}return v};w.__hsScrubKeys=function(e){try{return W(e,0)}catch(_){return e}}}
 if(!w.__hsPageKeyGuard){w.__hsPageKeyGuard=1;d.addEventListener('click',function(e){try{var a=e.target&&e.target.closest&&e.target.closest('a[href]');if(!a)return;var u=new URL(a.href,location.href);if(u.origin===location.origin&&(P.test(u.pathname)||u.searchParams.has('preview')))a.setAttribute('data-astro-reload','')}catch(_){}} ,true)}
 var u=new URL(location.href);if(u.searchParams.has('preview')){u.searchParams.delete('preview');history.replaceState(history.state,'',u.pathname+u.search+u.hash)}if(!P.test(u.pathname))return;
 var k=u.searchParams.get('k')||u.searchParams.get('key');

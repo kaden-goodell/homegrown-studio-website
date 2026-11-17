@@ -22,6 +22,11 @@ describe('private party pages', () => {
     expect(isPrivatePartyPage('/parties')).toBe(false)
     expect(isPrivatePartyPage('/book')).toBe(false)
   })
+
+  it('include the customer quote page /quote/<token> (its token is the key)', () => {
+    expect(isPrivatePartyPage('/quote/abc')).toBe(true)
+    expect(isPrivatePartyPage('/quotes')).toBe(false)
+  })
 })
 
 describe('PAGE_KEY_SCRIPT', () => {
@@ -141,6 +146,19 @@ describe('PostHog key scrubber (window.__hsScrubKeys)', () => {
     expect(ev.properties.pos).toBe('https://ourhometownstudio.com/staff/pos-return?ok=1')
     expect(ev.properties.keep).toBe('https://ourhometownstudio.com/classes/cls_3')
     expect(JSON.stringify(ev)).not.toMatch(/SECRET|SIGNEDSTATE/)
+  })
+
+  it('cuts the token out of a quote link', () => {
+    run()
+    const scrub = (window as any).__hsScrubKeys
+    const ev = scrub({ properties: {
+      $current_url: 'https://ourhometownstudio.com/quote/QSECRET?x=1',
+      $elements_chain: 'a:attr__href="/quote/QSECRET2"',
+      keep: 'https://ourhometownstudio.com/private-events',
+    } })
+    expect(ev.properties.$current_url).toBe('https://ourhometownstudio.com/quote/[link]?x=1')
+    expect(ev.properties.keep).toBe('https://ourhometownstudio.com/private-events')
+    expect(JSON.stringify(ev)).not.toMatch(/QSECRET/)
   })
 
   it('PostHog runs it on every event', () => {

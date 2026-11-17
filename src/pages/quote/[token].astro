@@ -1,0 +1,27 @@
+---
+export const prerender = false
+
+import Layout from '@layouts/Layout.astro'
+import QuotePage from '@components/quote/QuotePage'
+
+// A private event quote (spec §3 Public). The token is the key: the page is
+// bare (no site nav or footer), kept out of search, sends no referrer and runs
+// no analytics (it is also a private page in src/lib/page-key.ts). The island
+// asks /api/quote/view.json for what to show.
+const { token } = Astro.params
+---
+
+<Layout
+  title="An Evening of Making"
+  description="Your private event at Hometown Studio."
+  noindex
+  noAnalytics
+  noReferrer
+  bare
+>
+  <QuotePage client:load token={token ?? ''} />
+</Layout>
+
+<style is:global>
+  body { background: #efe6da; }
+</style>
