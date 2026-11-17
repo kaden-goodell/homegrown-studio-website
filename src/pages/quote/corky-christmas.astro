@@ -2,23 +2,32 @@
 /**
  * One-off private event quote for The Corky Child Care Collective (Kaden,
  * 17 Nov 2026), made by hand before the quote system ships. Invitation
- * design (canvas "C · The Invitation"). The Hold button goes to a Square
- * payment link for the deposit; the owners book the evening in /admin after.
+ * design (canvas "C · The Invitation") with a "build your evening" picker:
+ * each craft has a time and a normal price; the group price per guest takes
+ * 10% off one craft, 15% off two, 20% off three or more. The Hold button is a
+ * fixed Square payment link for the deposit; final picks and names come in by
+ * Nov 27 and the owners book the evening in /admin.
  */
 import Layout from '@layouts/Layout.astro'
 
 export const prerender = true
 
 const DEPOSIT_URL = 'https://square.link/u/REPLACE_ME'
+const DEPOSIT = '$1,500'
+const EVENING_MINUTES = 165 // 5:30 to 8:30, less welcome and wrap-up
 const img = (n: string) => `/quote/corky/${n}`
 
-const menu = [
-  { name: 'Monogrammed tote, patched your way', price: 35 },
-  { name: 'Mosaic tile coasters, set of four', price: 40 },
-  { name: 'Gold carabiner scarf keychain', price: 20 },
+/** Times are Kaden's (TO CONFIRM); prices are the studio's normal menu prices. */
+const crafts = [
+  { id: 'tote', name: 'Monogrammed tote', note: 'Her initials, patched her way', price: 35, minutes: 45, img: img('bag.jpg'), pick: true },
+  { id: 'rondelle', name: 'Rondelle necklace', note: 'Strung bead by bead', price: 35, minutes: 30, img: img('rondelle.jpg'), pick: true },
+  { id: 'scarf', name: 'Scarf keychain', note: 'Gold carabiner, silk scarf, charms', price: 20, minutes: 15, img: img('scarf.jpg'), pick: true },
+  { id: 'coasters', name: 'Mosaic coasters', note: 'A set of four, tile by tile', price: 40, minutes: 45, img: img('coaster-blue.jpg'), pick: false },
+  { id: 'earrings', name: 'Christmas earrings', note: 'From our earring bar', price: 20, minutes: 20, img: img('p0632.jpg'), pick: false },
+  { id: 'felt', name: 'Needle-felt ornament', note: 'Soft, small, for the tree', price: 8, minutes: 30, img: img('p0557.jpg'), pick: false },
+  { id: 'wood', name: 'Wood Christmas tree', note: 'Or a nativity, painted your way', price: 20, minutes: 30, img: img('p0538.jpg'), pick: false },
+  { id: 'bubble', name: 'Bubble letter keychain', note: 'A name in bubble letters', price: 15, minutes: 20, img: img('p0525.jpg'), pick: false },
 ]
-const normal = menu.reduce((s, m) => s + m.price, 0)
-const price = 75
 ---
 <Layout
   title="A Christmas Evening of Making"
@@ -30,7 +39,7 @@ const price = 75
 >
   <main class="inv">
     <div class="polaroids" aria-hidden="true">
-      <img class="pol p1" src={img('coasters.jpg')} alt="" />
+      <img class="pol p1" src={img('rondelle.jpg')} alt="" />
       <img class="pol p2" src={img('bag.jpg')} alt="" />
       <img class="pol p3" src={img('scarf.jpg')} alt="" />
     </div>
@@ -41,35 +50,50 @@ const price = 75
         <h1>A Christmas Evening of Making</h1>
         <svg class="rule" aria-hidden="true" width="120" height="14" viewBox="0 0 120 14" fill="none" stroke="#c4a882" stroke-width="1.2"><path d="M0 7h48M72 7h48" /><path d="M60 1l5 6-5 6-5-6z" /></svg>
         <p class="for">for the educators of<br />The Corky Child Care Collective</p>
-        <p class="when">Saturday, December twelfth<br />half past five to half past seven<br />40 to 50 guests · at the studio</p>
+        <p class="when">Saturday, December twelfth<br />half past five to half past eight<br />40 to 50 guests · at the studio</p>
       </div>
     </section>
 
     <p class="note">You take care of everyone all year.<br />This night, we take care of you.</p>
 
-    <section class="menu">
-      <p class="kicker center">The evening</p>
-      <div class="menu-card">
-        <ul>
-          {menu.map((m) => (
-            <li>
-              <span class="item">{m.name}</span>
-              <span class="dots" aria-hidden="true"></span>
-              <span class="mprice">${m.price}</span>
-            </li>
-          ))}
-        </ul>
-        <div class="totals">
-          <div class="row muted"><span>Menu value</span><span class="strike">${normal} a guest</span></div>
-          <div class="row big"><span class="your">Your price</span><span class="amt">${price}<small> a guest</small></span></div>
-          <p class="save">You save ${normal - price} a guest, about ${(normal - price) * 45} for 45.</p>
-        </div>
+    <section class="build">
+      <p class="kicker center">Build your evening</p>
+      <p class="lede">Tap to add. The more you make, the more you save.</p>
+      <ul class="ladder" aria-label="Group savings">
+        <li data-n="1">1 craft<b>10% off</b></li>
+        <li data-n="2">2 crafts<b>15% off</b></li>
+        <li data-n="3">3 or more<b>20% off</b></li>
+      </ul>
+
+      <div class="grid">
+        {crafts.map((c) => (
+          <button type="button" class="craft" data-id={c.id} data-name={c.name} data-price={c.price} data-minutes={c.minutes} aria-pressed={c.pick ? 'true' : 'false'}>
+            <span class="ph"><img src={c.img} alt="" loading="lazy" /><span class="tick" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg></span></span>
+            <span class="cname">{c.name}</span>
+            <span class="cnote">{c.note}</span>
+            <span class="cmeta"><span>{c.minutes} min</span><span>${c.price}</span></span>
+          </button>
+        ))}
+      </div>
+    </section>
+
+    <section class="summary" aria-live="polite">
+      <div class="time">
+        <div class="time-row"><span>Crafting time</span><span><b id="mins">0</b> of {EVENING_MINUTES} min</span></div>
+        <div class="bar"><div class="fill" id="fill"></div></div>
+        <p class="over" id="over" hidden>That's more than fits in three hours. Drop one, or text us about a longer evening.</p>
+      </div>
+      <div class="price">
+        <div class="row muted"><span>Menu value</span><span class="strike" id="normal">$0 a guest</span></div>
+        <div class="row big"><span class="your">Your price <em id="off"></em></span><span class="amt"><span id="price">$0</span><small> a guest</small></span></div>
+        <p class="save" id="save"></p>
+        <p class="picked" id="picked"></p>
       </div>
     </section>
 
     <section class="photos" aria-hidden="true">
-      <img src={img('bag.jpg')} alt="" />
-      <img src={img('p0641.jpg')} alt="" />
+      <img src={img('totes.jpg')} alt="" />
+      <img src={img('rondelle2.jpg')} alt="" />
       <img src={img('p0031.jpg')} alt="" />
     </section>
 
@@ -83,16 +107,17 @@ const price = 75
     <section class="steps">
       <p class="kicker center">How it works</p>
       <ol>
-        <li><span><b>Hold your evening.</b> $1,500 today, half of 40 guests.</span></li>
-        <li><span><b>Send names by Friday, November 27.</b> Your final count and a monogram for each tote.</span></li>
+        <li><span><b>Hold your evening.</b> {DEPOSIT} today goes toward your total.</span></li>
+        <li><span><b>Send picks and names by Friday, November 27.</b> Your crafts, your final count, and a monogram for each tote.</span></li>
         <li><span><b>Pay for who comes.</b> The rest is settled on the night.</span></li>
       </ol>
     </section>
 
     <section class="reserve">
       <p class="kicker light">Kindly reply by Tuesday, November 24</p>
-      <p class="sum">${price} a guest · 40 to 50 guests</p>
-      <a class="btn" href={DEPOSIT_URL}>Hold December 12 · $1,500</a>
+      <p class="sum" id="sum">Your evening</p>
+      <a class="btn" href={DEPOSIT_URL}>Hold December 12 · {DEPOSIT}</a>
+      <a class="btn ghost" id="textpicks" href="sms:+12564641710">Text us my picks</a>
       <p class="fine">Totes are monogrammed to order, so names can't change once they're made. <a href="/policies">Our policies</a></p>
     </section>
 
@@ -102,6 +127,42 @@ const price = 75
     </footer>
   </main>
 </Layout>
+
+<script define:vars={{ EVENING_MINUTES }}>
+  const OFF = (n) => (n >= 3 ? 0.2 : n === 2 ? 0.15 : n === 1 ? 0.1 : 0)
+  const $ = (id) => document.getElementById(id)
+  const cards = [...document.querySelectorAll('.craft')]
+  const money = (n) => '$' + n.toLocaleString('en-US')
+
+  function render() {
+    const on = cards.filter((c) => c.getAttribute('aria-pressed') === 'true')
+    const normal = on.reduce((s, c) => s + Number(c.dataset.price), 0)
+    const minutes = on.reduce((s, c) => s + Number(c.dataset.minutes), 0)
+    const off = OFF(on.length)
+    const price = Math.round(normal * (1 - off))
+    $('mins').textContent = String(minutes)
+    const pct = Math.min(100, (minutes / EVENING_MINUTES) * 100)
+    $('fill').style.width = pct + '%'
+    $('fill').classList.toggle('full', minutes > EVENING_MINUTES)
+    $('over').hidden = minutes <= EVENING_MINUTES
+    $('normal').textContent = money(normal) + ' a guest'
+    $('price').textContent = money(price)
+    $('off').textContent = off ? Math.round(off * 100) + '% off' : ''
+    $('save').textContent = normal ? 'You save ' + money(normal - price) + ' a guest, about ' + money((normal - price) * 45) + ' for 45.' : 'Pick a craft or two to start.'
+    const names = on.map((c) => c.dataset.name)
+    $('picked').textContent = names.join(' · ')
+    $('sum').textContent = on.length ? money(price) + ' a guest · ' + on.length + (on.length === 1 ? ' craft' : ' crafts') : 'Your evening'
+    document.querySelectorAll('.ladder li').forEach((li) => li.classList.toggle('on', Math.min(on.length, 3) === Number(li.dataset.n)))
+    const body = 'Hi! Our picks for Dec 12 (Corky Child Care Collective): ' + (names.join(', ') || 'still deciding') + '.'
+    $('textpicks').setAttribute('href', 'sms:+12564641710?&body=' + encodeURIComponent(body))
+  }
+
+  cards.forEach((c) => c.addEventListener('click', () => {
+    c.setAttribute('aria-pressed', c.getAttribute('aria-pressed') === 'true' ? 'false' : 'true')
+    render()
+  }))
+  render()
+</script>
 
 <style>
   :global(body) { background: #efe6da; }
@@ -129,21 +190,45 @@ const price = 75
 
   .note { margin: 2.5rem 0 0; font-family: 'Playfair Display', serif; font-style: italic; font-size: 1.3rem; line-height: 1.45; text-align: center; color: var(--ink); }
 
-  .menu { width: 100%; margin-top: 2.5rem; display: flex; flex-direction: column; gap: 1rem; }
-  .menu-card { background: var(--paper); border-radius: 6px; box-shadow: 0 0.9rem 2.5rem rgba(61,50,41,0.12); padding: 1.75rem 1.4rem 1.6rem; }
-  .menu-card ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1rem; }
-  .menu-card li { display: flex; align-items: baseline; gap: 0.5rem; }
-  .item { font-family: 'Playfair Display', serif; font-size: 1.05rem; color: var(--ink); }
-  .dots { flex: 1; min-width: 1rem; border-bottom: 1.5px dotted var(--gold); transform: translateY(-0.25rem); }
-  .mprice { font-size: 0.875rem; color: var(--muted); }
-  .totals { margin-top: 1.4rem; border-top: 1px solid #e4d6c4; padding-top: 1.1rem; display: flex; flex-direction: column; gap: 0.45rem; }
+  .build { width: 100%; margin-top: 2.5rem; display: flex; flex-direction: column; align-items: center; gap: 0.75rem; }
+  .lede { margin: 0; font-family: 'Playfair Display', serif; font-size: 1.15rem; text-align: center; color: var(--ink); }
+  .ladder { list-style: none; margin: 0.25rem 0 0.5rem; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; width: 100%; }
+  .ladder li { display: flex; flex-direction: column; align-items: center; gap: 0.1rem; padding: 0.55rem 0.25rem; border-radius: 999px; border: 1px dashed var(--gold); font-size: 0.75rem; color: var(--muted); transition: background 0.2s, color 0.2s; }
+  .ladder li b { font-size: 0.85rem; color: var(--ink); }
+  .ladder li.on { background: var(--ink); border-style: solid; border-color: var(--ink); color: #d9cfc4; }
+  .ladder li.on b { color: #f1d7b6; }
+
+  .grid { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+  .craft { appearance: none; border: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; background: var(--paper); border-radius: 8px; padding: 0.5rem 0.5rem 0.75rem; box-shadow: 0 0.5rem 1.4rem rgba(61,50,41,0.10); display: flex; flex-direction: column; gap: 0.3rem; position: relative; outline: 2px solid transparent; transition: transform 0.15s ease, outline-color 0.15s ease, box-shadow 0.15s ease; }
+  .craft:active { transform: scale(0.98); }
+  .craft:focus-visible { outline-color: var(--brown); }
+  .craft[aria-pressed='true'] { outline-color: var(--brown); box-shadow: 0 0.7rem 1.8rem rgba(122,74,46,0.22); }
+  .ph { position: relative; display: block; }
+  .ph img { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 5px; }
+  .tick { position: absolute; top: 0.4rem; right: 0.4rem; width: 1.75rem; height: 1.75rem; border-radius: 50%; display: grid; place-items: center; background: rgba(255,253,249,0.85); color: transparent; border: 1.5px solid rgba(61,50,41,0.25); transition: all 0.15s ease; }
+  .craft[aria-pressed='true'] .tick { background: var(--brown); border-color: var(--brown); color: #fff; }
+  .cname { font-family: 'Playfair Display', serif; font-size: 1.02rem; line-height: 1.2; color: var(--ink); margin-top: 0.2rem; }
+  .cnote { font-size: 0.75rem; line-height: 1.35; color: var(--muted); }
+  .cmeta { display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; color: var(--brown); margin-top: 0.15rem; }
+
+  .summary { width: 100%; margin-top: 1.25rem; position: sticky; bottom: 0.75rem; z-index: 5; background: var(--paper); border-radius: 10px; box-shadow: 0 0.9rem 2.5rem rgba(61,50,41,0.22); padding: 1rem 1.15rem 1.05rem; display: flex; flex-direction: column; gap: 0.75rem; border: 1px solid #eadcc9; }
+  .time-row { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--muted); }
+  .time-row b { color: var(--ink); }
+  .bar { height: 0.45rem; border-radius: 999px; background: #efe6da; overflow: hidden; margin-top: 0.35rem; }
+  .fill { height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, #d4a574, #7a4a2e); transition: width 0.35s ease; }
+  .fill.full { background: #b45309; }
+  .over { margin: 0.4rem 0 0; font-size: 0.75rem; color: #9a3b0e; }
+  .price { display: flex; flex-direction: column; gap: 0.2rem; border-top: 1px solid #efe4d6; padding-top: 0.6rem; }
   .row { display: flex; justify-content: space-between; align-items: baseline; }
-  .muted { font-size: 0.875rem; color: var(--muted); }
+  .muted { font-size: 0.8rem; color: var(--muted); }
   .strike { text-decoration: line-through; }
-  .your { font-family: 'Playfair Display', serif; font-size: 1.25rem; color: var(--ink); }
-  .amt { font-family: 'Playfair Display', serif; font-weight: 600; font-size: 2.6rem; color: var(--brown); line-height: 1; }
-  .amt small { font-family: Inter, sans-serif; font-weight: 400; font-size: 0.875rem; color: var(--muted); }
-  .save { margin: 0.35rem 0 0; font-size: 0.85rem; color: var(--brown); font-weight: 600; text-align: right; }
+  .your { font-family: 'Playfair Display', serif; font-size: 1.15rem; color: var(--ink); }
+  .your em { font-family: Inter, sans-serif; font-style: normal; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; color: var(--brown); background: #f6ead9; padding: 0.15rem 0.45rem; border-radius: 999px; margin-left: 0.3rem; vertical-align: middle; }
+  .your em:empty { display: none; }
+  .amt { font-family: 'Playfair Display', serif; font-weight: 600; font-size: 2.1rem; color: var(--brown); line-height: 1; }
+  .amt small { font-family: Inter, sans-serif; font-weight: 400; font-size: 0.8rem; color: var(--muted); }
+  .save { margin: 0.15rem 0 0; font-size: 0.8rem; color: var(--brown); font-weight: 600; text-align: right; }
+  .picked { margin: 0; font-size: 0.75rem; color: var(--muted); text-align: right; }
 
   .photos { width: 100%; margin-top: 1.75rem; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; }
   .photos img { width: 100%; height: 7rem; object-fit: cover; border-radius: 6px; }
@@ -160,7 +245,8 @@ const price = 75
   .reserve { width: 100%; margin-top: 2.25rem; padding: 1.6rem 1.35rem; background: var(--ink); border-radius: 6px; display: flex; flex-direction: column; align-items: center; gap: 0.85rem; text-align: center; box-shadow: 0 1.1rem 2.75rem rgba(61,50,41,0.3); }
   .sum { margin: 0; font-family: 'Playfair Display', serif; font-size: 1.3rem; color: #faf8f5; }
   .btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 3.5rem; border-radius: 999px; background: #f1d7b6; color: var(--ink); font-weight: 600; font-size: 1.05rem; text-decoration: none; transition: transform 0.15s ease, box-shadow 0.15s ease; box-shadow: 0 0.4rem 1.2rem rgba(0,0,0,0.25); }
-  .btn:hover { transform: translateY(-1px); box-shadow: 0 0.6rem 1.5rem rgba(0,0,0,0.3); }
+  .btn.ghost { background: transparent; color: #f1d7b6; border: 1.5px solid rgba(241,215,182,0.5); box-shadow: none; min-height: 3rem; font-size: 0.95rem; }
+  .btn:hover { transform: translateY(-1px); }
   .btn:focus-visible { outline: 3px solid #f1d7b6; outline-offset: 3px; }
   .fine { margin: 0; font-size: 0.75rem; line-height: 1.5; color: #d9cfc4; }
   .fine a { color: #f1d7b6; }
@@ -170,5 +256,5 @@ const price = 75
   .sign .love { font-family: 'Playfair Display', serif; font-style: italic; font-size: 1.25rem; color: var(--brown); }
   .sign a { color: var(--brown); }
 
-  @media (prefers-reduced-motion: reduce) { .pol { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .pol { animation: none; } .fill { transition: none; } }
 </style>
