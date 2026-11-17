@@ -230,3 +230,20 @@ describe('paidOnOrder', () => {
     expect((await paidOnOrder(async () => order)).kind).toBe('unknown')
   })
 })
+
+describe('review: a payment still going through is never booked as paid', () => {
+  it('Square answers APPROVED/PENDING (our "pending") → unknown, the same as the waitlist path; never paid', async () => {
+    mockProcessPayment.mockResolvedValue({ ...paidPayment, status: 'pending' })
+    const r = await chargeOrder(input)
+    expect(r.kind).toBe('unknown')
+  })
+  it('found on the order after no answer, still pending → unknown too', async () => {
+    mockProcessPayment.mockRejectedValue(timeoutErr)
+    mockFindOrderPayment.mockResolvedValue({ ...paidPayment, status: 'pending' })
+    expect((await chargeOrder(input)).kind).toBe('unknown')
+  })
+  it('completed stays paid', async () => {
+    mockProcessPayment.mockResolvedValue(paidPayment)
+    expect((await chargeOrder(input)).kind).toBe('paid')
+  })
+})

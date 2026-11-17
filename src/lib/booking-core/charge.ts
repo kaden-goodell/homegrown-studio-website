@@ -115,6 +115,10 @@ export async function chargeOrder(input: {
   }
   if (!payment) return { kind: 'unknown', error: new Error('no payment returned') }
   if (payment.status === 'failed') return { kind: 'declined', reason: 'failed', codes: [], paymentId: payment.id }
+  // Review (16 Nov 2026): still going through (Square's APPROVED/PENDING) is not
+  // paid yet: unknown, like the waitlist, so the seats stay held and the owners
+  // are told; Square's payment notice or the nightly check settles it.
+  if (payment.status !== 'completed') return { kind: 'unknown', error: new Error(`payment ${payment.id} is still going through (${payment.status})`) }
   return recovered ? { kind: 'paid', payment, recovered: true } : { kind: 'paid', payment }
 }
 
