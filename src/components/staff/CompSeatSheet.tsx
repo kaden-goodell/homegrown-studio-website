@@ -30,7 +30,7 @@ const last4 = (phone: string) => phone.replace(/\D/g, '').slice(-4)
  * Our own classes (`event.own`): no Square dashboard. The seat goes straight
  * on the class's seat ledger, with the option, day(s) and tickets picked
  * here. Sell a seat asks how they pay: "Pay on the iPad" opens the class
- * checkout on this iPad (Apple Pay or card), "Pay at the counter" records the
+ * checkout on this iPad (the customer types their card; no Apple/Google Pay at the door), "Pay at the counter" records the
  * seat and the counter's sale of the class item pays it. A full day refuses
  * until the crew choose to add one more anyway.
  */
@@ -597,7 +597,7 @@ export default function CompSeatSheet({
           <div role="group" aria-label="How are they paying?" style={{ display: 'grid', gap: '0.6rem' }}>
             <p style={{ margin: 0, fontWeight: 700, color: 'var(--color-dark)' }}>How are they paying?</p>
             <button type="button" onClick={() => setPayWay('ipad')} style={{ ...btn(true), minHeight: '3.25rem', fontSize: '1rem' }}>Pay on the iPad</button>
-            <p style={{ margin: '-0.3rem 0 0.2rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Apple Pay or card, right here. They get the usual confirmation.</p>
+            <p style={{ margin: '-0.3rem 0 0.2rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>They type their card right here. They get the usual confirmation.</p>
             <button type="button" onClick={() => setPayWay('counter')} style={{ ...btn(), minHeight: '3.25rem', fontSize: '1rem' }}>Pay at the counter</button>
             <p style={{ margin: '-0.3rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Add the seat here, then ring it up on the register.</p>
             {readerInfo?.on && (readerInfo.linked ? (

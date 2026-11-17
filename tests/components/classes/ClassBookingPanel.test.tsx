@@ -412,6 +412,19 @@ describe('ClassBookingPanel — each person’s picks and extras', () => {
 })
 
 describe('ClassBookingPanel — Pay on the iPad (door mode)', () => {
+  it('offers no Apple Pay or Google Pay at the door: on the studio iPad they would charge the iPad\'s own wallet (Kaden, 17 Nov 2026)', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    const cls = make()
+    const workshop = toPublicClass(cls, { classId: cls.id, lines: [] }, new Date(), { door: true })
+    render(<ClassBookingPanel workshop={workshop} door onClose={() => {}} syncUrl={false} />)
+    fireEvent.click(screen.getByRole('button', { name: /One day/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Sat, Oct 24/ }))
+    cont()
+    await screen.findByTestId('payment-form')
+    fillContact()
+    expect((paymentFormProps as any).wallet).toBeUndefined()
+  })
+
   it('books through the door route, never remembers the customer on the shared iPad, and prices a running session', async () => {
     const { rememberContact, rememberedContact } = await import('@lib/remembered-contact')
     rememberContact({ firstName: 'Last', lastName: 'Customer', email: 'last@x.com', phone: '(256) 555-0000' })

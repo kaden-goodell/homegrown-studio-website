@@ -1332,7 +1332,9 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           <PaymentForm
             bookingKind="workshop"
             ref={paymentFormRef}
-            wallet={shown ? { amount: (shown.totalCents / 100).toFixed(2), label: `Hometown Studio, ${workshop.name}` } : undefined}
+            // No Apple Pay / Google Pay at the door: on the studio iPad they'd charge whoever's card is in
+            // the iPad's wallet, not the customer's (Kaden, 17 Nov 2026). The customer types their card.
+            wallet={shown && !door ? { amount: (shown.totalCents / 100).toFixed(2), label: `Hometown Studio, ${workshop.name}` } : undefined}
             onWalletToken={(token) => handlePay(undefined, token)}
             canPayWithWallet={() => (readyToPay() ? null : 'Add the details marked above first.')}
             onReadyChange={setPaymentReady}
