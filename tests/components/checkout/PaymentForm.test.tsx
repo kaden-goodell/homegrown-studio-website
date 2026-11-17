@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { createRef } from 'react'
 import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import { fireEvent } from '@testing-library/react'
@@ -241,6 +241,16 @@ describe('PaymentForm store mode (stage 4: save a card for the waitlist)', () =>
 })
 
 describe('PaymentForm wallets show the current total (final review I1, I19)', () => {
+  // An iPhone: Apple Pay is built into the browser before Apple's script loads (dev 85e458b reads it
+  // once, when the form's module loads), so the form is loaded again with ApplePaySession present.
+  let PaymentForm: typeof import('@components/checkout/PaymentForm').default
+  beforeEach(async () => {
+    ;(window as any).ApplePaySession = function ApplePaySession() {}
+    vi.resetModules()
+    PaymentForm = (await import('@components/checkout/PaymentForm')).default
+  })
+  afterEach(() => { delete (window as any).ApplePaySession })
+
   function walletSdk(tokenizeResult: { status: string; token?: string; errors?: { message: string }[] }) {
     const script = document.createElement('script')
     script.src = 'https://sandbox.web.squarecdn.com/v1/square.js'
@@ -279,5 +289,27 @@ describe('PaymentForm wallets show the current total (final review I1, I19)', ()
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('Apple Pay didn’t go through. Nothing was charged. Try again, or pay with a card.')
     expect(alert).not.toHaveTextContent(/PaymentRequest/)
+  })
+})
+
+describe('PaymentForm wallets', () => {
+  it('never offers Apple Pay where the browser has no real Apple Pay (Chrome on a computer), but still offers Google Pay', async () => {
+    const script = document.createElement('script')
+    script.src = 'https://sandbox.web.squarecdn.com/v1/square.js'
+    document.head.appendChild(script)
+    const cardStub = { attach: vi.fn(async () => {}), destroy: vi.fn(async () => {}), tokenize: vi.fn() }
+    const googleStub = { attach: vi.fn(async () => {}), destroy: vi.fn(async () => {}), tokenize: vi.fn() }
+    const applePay = vi.fn(async () => ({ destroy: vi.fn(async () => {}), tokenize: vi.fn() }))
+    const googlePay = vi.fn(async () => googleStub)
+    ;(window as any).Square = {
+      payments: () => ({ card: async () => cardStub, paymentRequest: () => ({}), applePay, googlePay, afterpayClearpay: vi.fn(async () => { throw new Error('no') }) }),
+    }
+    // jsdom, like Chrome on a computer, has no built-in ApplePaySession.
+    expect((window as any).ApplePaySession).toBeUndefined()
+    configAnswers('sq0idp-real')
+    render(<PaymentForm environmentOverride="sandbox" wallet={{ amount: '300.00', label: 'Hometown Studio' }} onWalletToken={vi.fn()} />)
+    await waitFor(() => expect(googleStub.attach).toHaveBeenCalled())
+    expect(applePay).not.toHaveBeenCalled()
+    expect(document.querySelector('apple-pay-button')).toBeNull()
   })
 })

@@ -177,6 +177,24 @@ describe('BookingPanel', () => {
     })
   })
 
+  it('on a phone, typing in a field hides the step bar, summary and footer (Brave on iPhone reports no keyboard)', () => {
+    stubMatchMedia(['max-width: 639px'])
+    render(<Flow />)
+    expect(screen.getByText('Fri, Oct 16 · 7–9 PM')).toBeInTheDocument()
+    fireEvent.focus(screen.getByLabelText('A field'))
+    expect(screen.queryByText('Fri, Oct 16 · 7–9 PM')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
+    expect(screen.queryByText('Step 1 of 2')).toBeNull()
+    fireEvent.blur(screen.getByLabelText('A field'))
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument()
+  })
+
+  it('on a computer, focusing a field changes nothing', () => {
+    render(<Flow />)
+    fireEvent.focus(screen.getByLabelText('A field'))
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument()
+  })
+
   it('becomes a bottom sheet on a phone, no taller than the visible window', () => {
     stubMatchMedia(['max-width: 639px'])
     render(<Flow />)
