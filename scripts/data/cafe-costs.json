@@ -1,0 +1,376 @@
+{
+  "_source": "Craft Café pricing artifact BYC29GfJEqPfGdffejyTbp (crafts collection), exported 2026-11-17. costCents = material cost per project/side.",
+  "items": [
+    {
+      "name": "Bedazzle gems",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 0.4,
+      "costCents": 4
+    },
+    {
+      "name": "Bedazzle gems — 50 g bag",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 15,
+      "costCents": 223
+    },
+    {
+      "name": "Bubble Letter Keychain",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 15,
+      "costCents": 131
+    },
+    {
+      "name": "Bubble letters",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 5,
+      "costCents": 89
+    },
+    {
+      "name": "Bulletin Board",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 35,
+      "costCents": 400
+    },
+    {
+      "name": "Character — large",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 1,
+      "costCents": 10
+    },
+    {
+      "name": "Character — small",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 0.5,
+      "costCents": 7
+    },
+    {
+      "name": "Character charms (flat)",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 1,
+      "costCents": 14
+    },
+    {
+      "name": "Claw Clip",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 5,
+      "costCents": 54
+    },
+    {
+      "name": "Clothespin Clip",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 2,
+      "costCents": 15
+    },
+    {
+      "name": "Decoupage Fabric Bowl",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 10,
+      "costCents": 93
+    },
+    {
+      "name": "Denim patch — large",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 3,
+      "costCents": 60
+    },
+    {
+      "name": "Denim patch — medium",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 2,
+      "costCents": 38
+    },
+    {
+      "name": "Denim patch — small",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 1,
+      "costCents": 15
+    },
+    {
+      "name": "Denim Patch Notebook",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 30,
+      "costCents": 478
+    },
+    {
+      "name": "Doodle Magnet",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 3,
+      "costCents": 23
+    },
+    {
+      "name": "Fairy lights",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 5,
+      "costCents": 80
+    },
+    {
+      "name": "Gold Carabiner Scarf Keychain",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 25,
+      "costCents": 136
+    },
+    {
+      "name": "Junk Journal",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 25,
+      "costCents": 0
+    },
+    {
+      "name": "Kinusaiga Board",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 30,
+      "costCents": 242
+    },
+    {
+      "name": "Kinusaiga Board — framed",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 40,
+      "costCents": 875
+    },
+    {
+      "name": "Live moss",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 1,
+      "costCents": 0
+    },
+    {
+      "name": "Loom Pot Holder — Large",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 15,
+      "costCents": 250
+    },
+    {
+      "name": "Loom Pot Holder — Small",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 12,
+      "costCents": 133
+    },
+    {
+      "name": "Loom pot holder kit — large",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 33,
+      "costCents": 1650
+    },
+    {
+      "name": "Loom pot holder kit — small",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 22,
+      "costCents": 1200
+    },
+    {
+      "name": "Mini Gold Frame",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 15,
+      "costCents": 283
+    },
+    {
+      "name": "Mosaic Tile Coaster",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 12,
+      "costCents": 166
+    },
+    {
+      "name": "Mosaic Tile Coasters — set of 4",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 40,
+      "costCents": 665
+    },
+    {
+      "name": "Mosaic tiles",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 8,
+      "costCents": 85
+    },
+    {
+      "name": "Painted Butter Dish",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 40,
+      "costCents": 722
+    },
+    {
+      "name": "Pom pom charms",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 0.5,
+      "costCents": 7
+    },
+    {
+      "name": "Pony Bead Keychain",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 5,
+      "costCents": 43
+    },
+    {
+      "name": "Pony beads",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 0.1,
+      "costCents": 1
+    },
+    {
+      "name": "Pony beads — 100 g bag",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 7,
+      "costCents": 91
+    },
+    {
+      "name": "Pony beads — full bag",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 15,
+      "costCents": 243
+    },
+    {
+      "name": "Rondelle Bead Necklace",
+      "kind": "project",
+      "hidden": true,
+      "priceDollars": 35,
+      "costCents": 0
+    },
+    {
+      "name": "Smiley face charm",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 0.5,
+      "costCents": 35
+    },
+    {
+      "name": "Snail Mail",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 8,
+      "costCents": 160
+    },
+    {
+      "name": "Stickers",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 1,
+      "costCents": 0
+    },
+    {
+      "name": "Succulent (potted)",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": 8,
+      "costCents": 225
+    },
+    {
+      "name": "Succulent Decoupage Pot",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 20,
+      "costCents": 121
+    },
+    {
+      "name": "Terrarium (.5 Gallon)",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 50,
+      "costCents": 850
+    },
+    {
+      "name": "Terrarium (Half Pint)",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 25,
+      "costCents": 350
+    },
+    {
+      "name": "Terrarium (Pint)",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 30,
+      "costCents": 479
+    },
+    {
+      "name": "Terrarium (Quart)",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 40,
+      "costCents": 529
+    },
+    {
+      "name": "Terrarium container — ½ gallon",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": null,
+      "costCents": 0
+    },
+    {
+      "name": "Terrarium container — ½ pint",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": null,
+      "costCents": 0
+    },
+    {
+      "name": "Terrarium container — pint",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": null,
+      "costCents": 0
+    },
+    {
+      "name": "Terrarium container — quart",
+      "kind": "side",
+      "hidden": false,
+      "priceDollars": null,
+      "costCents": 0
+    },
+    {
+      "name": "Trinket Tin",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 12,
+      "costCents": 102
+    },
+    {
+      "name": "White Picture Frame",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 15,
+      "costCents": 182
+    },
+    {
+      "name": "Wire Ring Keychain",
+      "kind": "project",
+      "hidden": false,
+      "priceDollars": 5,
+      "costCents": 31
+    }
+  ]
+}
