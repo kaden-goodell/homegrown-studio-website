@@ -25,4 +25,26 @@ describe('GET /api/staff/parties.json', () => {
     expect(data.parties[0].endIso).toBe('2026-11-14T22:00:00.000Z')
     expect(data.parties[2].endIso).toBe('2026-11-14T21:30:00.000Z')
   })
+
+  it('a private event (even on a weeknight) comes with origin, its package lines, place and address, and is never "weeknight"', async () => {
+    const q = (id: string, chargeId: string | null) => ({ ...item(chargeId), id, kind: 'quote', refId: 'qt_1', label: id === 'itm_dep' ? 'Deposit' : 'Balance', unitCents: 112500, cents: 112500 })
+    parties.list = [
+      // Tue Nov 17 2026, 6 PM CT: a weeknight date.
+      rec('pty_q', {
+        startIso: '2026-11-18T00:00:00.000Z', endIso: '2026-11-18T02:00:00.000Z', guestCount: 30, craftName: 'Holiday Glow Night',
+        origin: 'quote', place: 'away', address: '12 Oak Lane, Madison, AL',
+        quote: { quoteId: 'qt_1', tierName: 'Holiday Glow Night', lines: ['Glass terrarium', 'Earring bar'], guests: 30, pricePerPersonCents: 7500 },
+        items: [q('itm_dep', 'chg_1'), q('itm_bal', null)],
+      }),
+      rec('pty_w'),
+    ]
+    const res = await GET({ request: new Request('http://localhost/api/staff/parties.json') } as any)
+    const { data } = await res.json()
+    const [qp, wp] = data.parties
+    expect(qp).toMatchObject({ origin: 'quote', quoteLines: ['Glass terrarium', 'Earring bar'], place: 'away', address: '12 Oak Lane, Madison, AL', guestCount: 30, kind: 'weekend' })
+    expect(qp.paidOnlineCents).toBe(112500)
+    expect(wp.origin).toBeNull()
+    expect(wp.quoteLines).toBeNull()
+    expect(wp.address).toBeNull()
+  })
 })

@@ -141,6 +141,28 @@ describe('GET /api/party/roster.json — our party records (stage 2)', () => {
     expect(data.party.pay).toBeNull()
   })
 
+  it('a private event (origin quote): says so, carries its package lines and address, and the refund line names the deposit', async () => {
+    const soon = new Date(Date.now() + 5 * 24 * 3600_000).toISOString()
+    const q = { id: 'x', kind: 'quote', refId: 'qt_1', qty: 1, extraMinutes: 0, addedAt: '', by: null }
+    mockGetPartyRecord.mockResolvedValue(ours({
+      startIso: soon, endIso: undefined, origin: 'quote', place: 'away', address: '12 Oak Lane, Madison, AL', guestCount: 30, craftName: 'Holiday Glow Night',
+      quote: { quoteId: 'qt_1', tierName: 'Holiday Glow Night', lines: ['Glass terrarium', 'Earring bar'], guests: 30, pricePerPersonCents: 7500 },
+      items: [{ ...q, id: 'itm_dep', label: 'Deposit', unitCents: 112500, cents: 112500, chargeId: 'chg_1' }, { ...q, id: 'itm_bal', label: 'Balance', unitCents: 112500, cents: 112500, chargeId: null }],
+    }))
+    const { data } = await load()
+    expect(data.party).toMatchObject({ origin: 'quote', place: 'away', address: '12 Oak Lane, Madison, AL', quoteLines: ['Glass terrarium', 'Earring bar'] })
+    expect(data.party.refundLine).toContain('$1,125')
+    expect(data.party.refundLine).not.toContain('$300')
+    expect(data.party.pay).toMatchObject({ cents: 112500, what: 'your private event' })
+  })
+
+  it('a weekend party: no private-event fields', async () => {
+    mockGetPartyRecord.mockResolvedValue(ours())
+    const { data } = await load()
+    expect(data.party.origin).toBeUndefined()
+    expect(data.party.quoteLines).toBeUndefined()
+  })
+
   it('a party booked in Square: no pay link, its end from its length', async () => {
     mockGetPartyRecord.mockResolvedValue({ bookingId: 'party-1', craftName: 'Suncatchers', startIso: '2026-09-05T14:00:00.000Z', durationMinutes: 120, hostName: 'Alice Test', guestCount: 10, title: null })
     const { data } = await GET({ url: new URL('http://localhost/api/party/roster.json?party=party-1&key=good-key') } as any).then((r: Response) => r.json())

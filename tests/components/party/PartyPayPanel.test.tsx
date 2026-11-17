@@ -140,6 +140,34 @@ describe('PartyPayPanel', () => {
     expect(await screen.findByText(/is paid\. These extras were added since\./)).toBeInTheDocument()
   })
 
+  it('a private event: its lines by label, private-event wording, never "extras added since" or crafts at the studio', async () => {
+    const quote = {
+      ...BALANCE, packageName: 'Holiday Glow Night', items: [{ id: 'itm_bal', label: 'Balance', qty: 1, cents: 112500 }],
+      dueCents: 112500, state: 'partly', extrasOnly: false, privateEvent: true,
+    }
+    answers.balance = { body: { data: quote } }
+    render(<PartyPayPanel partyId="pty_1" payKey="key-1" />)
+    expect(await screen.findByText('Balance')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Pay for your private event' })).toBeInTheDocument()
+    expect(screen.getByText(/Your private event on Sat, Nov 8 at 1:30 PM has \$1,125 still due\./)).toBeInTheDocument()
+    expect(screen.queryByText(/extras were added since/)).toBeNull()
+    expect(screen.queryByText(/held for you/)).toBeNull()
+    expect(screen.queryByText(CRAFTS_LINE)).toBeNull()
+    expect(screen.getByText(/Crafts are included/)).toBeInTheDocument()
+  })
+
+  it('a private event paid with more still due: no "extras added since" on the paid screen', async () => {
+    answers.balance = { body: { data: { ...BALANCE, items: [{ id: 'itm_bal', label: 'Balance', qty: 1, cents: 30000 }], dueCents: 30000, state: 'partly', privateEvent: true } } }
+    answers.pay = [{ body: { data: { paidCents: 30000, receiptUrl: null, stillDueCents: 5000 } } }]
+    render(<PartyPayPanel partyId="pty_1" payKey="key-1" />)
+    const button = await screen.findByRole('button', { name: 'Pay $300' })
+    await waitFor(() => expect(button).toBeEnabled())
+    fireEvent.click(button)
+    expect(await screen.findByText(/There is still \$50 to pay on your private event/)).toBeInTheDocument()
+    expect(screen.queryByText(/extras added since/)).toBeNull()
+    expect(screen.queryByText(CRAFTS_LINE)).toBeNull()
+  })
+
   it('after a refresh (the key left the address bar) it uses the key kept in this tab', async () => {
     window.history.replaceState(null, '', '/party/pay/pty_1')
     sessionStorage.setItem('hs-page-key:/party/pay/pty_1', 'kept-key')

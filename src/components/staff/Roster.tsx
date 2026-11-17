@@ -651,9 +651,13 @@ export default function Roster({
         <section aria-label="At the end" data-testid="party-ring-up" style={{ ...card, background: 'rgba(255,255,255,0.92)', borderLeft: '4px solid var(--color-primary)' }}>
           <p style={{ margin: '0 0 0.35rem', fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.12em', color: 'var(--color-primary)' }}>AT THE END</p>
           <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--color-dark)', lineHeight: 1.5 }}>
-            {`Ring up crafts at the register: ${data.partyMoney.ringUp.guests} booked × ${data.partyMoney.ringUp.craftName}`}
-            {data.partyMoney.ringUp.perHeadCents !== null ? ` (${formatMoney(data.partyMoney.ringUp.perHeadCents)} each)` : ' (the price is on the register)'}
-            {'. Count who actually made one.'}
+            {data.partyMoney.craftsIncluded
+              ? 'Crafts are included in the package. Nothing to ring up for crafts.'
+              : <>
+                  {`Ring up crafts at the register: ${data.partyMoney.ringUp.guests} booked × ${data.partyMoney.ringUp.craftName}`}
+                  {data.partyMoney.ringUp.perHeadCents !== null ? ` (${formatMoney(data.partyMoney.ringUp.perHeadCents)} each)` : ' (the price is on the register)'}
+                  {'. Count who actually made one.'}
+                </>}
           </p>
           {data.partyMoney.dueCents > 0 && (
             <p style={{ margin: '0.4rem 0 0', fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-dark)' }}>

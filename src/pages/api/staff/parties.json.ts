@@ -4,6 +4,7 @@ import { isOurs, listParties, partyEndIso } from '@lib/party-store'
 import { dueCents } from '@lib/parties/money'
 import { listWaiversByParty } from '@lib/waiver-store'
 import { partyTermsForStart } from '@lib/party-terms'
+import { isQuoteParty } from '@lib/parties/quote-party'
 
 export const prerender = false
 
@@ -21,6 +22,9 @@ export const GET: APIRoute = async ({ request }) => {
     parties.map(async (p) => {
       const waivers = await listWaiversByParty(p.bookingId)
       const people = waivers.reduce((n, w) => n + 1 + w.minors.length, 0)
+      // A private event (born from a quote) is never a weeknight party, whatever day it falls on: its money is a deposit, crafts included.
+      const quote = isQuoteParty(p)
+      const paidCents = (p.items ?? []).filter((it) => it.chargeId !== null).reduce((t, it) => t + it.cents, 0)
       return {
         bookingId: p.bookingId,
         craftName: p.craftName,
@@ -33,8 +37,12 @@ export const GET: APIRoute = async ({ request }) => {
         guestCount: p.guestCount,
         themeName: p.theme?.displayName ?? null,
         // Weeknight parties paid a craft credit online, not a studio fee.
-        kind: p.kind ?? partyTermsForStart(p.startIso).kind,
-        paidOnlineCents: p.paidOnlineCents ?? partyTermsForStart(p.startIso).chargeNowCents,
+        kind: quote ? 'weekend' : p.kind ?? partyTermsForStart(p.startIso).kind,
+        paidOnlineCents: quote ? paidCents : p.paidOnlineCents ?? partyTermsForStart(p.startIso).chargeNowCents,
+        origin: quote ? 'quote' : null,
+        quoteLines: quote ? p.quote?.lines ?? [] : null,
+        place: quote ? p.place ?? 'studio' : null,
+        address: quote ? p.address ?? null : null,
         rsvpHouseholds: waivers.length,
         rsvpPeople: people,
       }

@@ -29,6 +29,7 @@ import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
 import type { PartyItem } from '@lib/party-store'
 import { newAttemptId } from '@lib/checkout-attempt'
 import { formatMoney } from '@lib/money'
+import { quoteDepositCents, quoteStillDueCents } from '@lib/parties/quote-party'
 import { partyInviteUrl } from '@lib/party-share'
 import { localToUtcISO } from '@lib/party-slots'
 import { formatSlotLabel } from '@lib/studio-time'
@@ -168,6 +169,23 @@ function itemWords(it: PartyItem): string {
   return it.qty > 1 ? `${it.label} × ${it.qty}` : it.label
 }
 
+/** A private event's Details: the package and what's in it, where, the deposit paid and what is still due. */
+function QuoteDetails({ party: p }: { party: AdminParty }) {
+  const deposit = p.items.find((it) => it.kind === 'quote')
+  const depositCents = quoteDepositCents(p)
+  const stillDue = quoteStillDueCents(p)
+  const lines = p.quote?.lines ?? []
+  return (
+    <>
+      {kv('Package', p.quote?.tierName || p.craftName)}
+      {lines.length > 0 && kv('Includes', <span className="adm-stack" style={{ gap: 0 }}>{lines.map((l, i) => <span key={i}>{l}</span>)}</span>)}
+      {kv('Where', p.place === 'away' ? (p.address || 'At their place') : 'At the studio')}
+      {kv('Deposit', depositCents > 0 ? `${formatMoney(depositCents)} ${deposit?.chargeId ? 'paid' : 'not paid'}` : '')}
+      {kv('Balance', stillDue > 0 ? `${formatMoney(stillDue)} due` : 'Nothing due')}
+    </>
+  )
+}
+
 function OurParty({ party: p, guests, notice, staffFirst }: { party: AdminParty; guests: AdminPartyGuest[] | null; notice: PartyNotice | null; staffFirst: boolean }) {
   const { bump } = useRefresh()
   const applied = useApplied()
@@ -188,6 +206,8 @@ function OurParty({ party: p, guests, notice, staffFirst }: { party: AdminParty;
   const extraMinutes = (p.items ?? []).filter((it) => it.kind === 'addon').reduce((m, it) => m + it.extraMinutes, 0)
   const when = p.endIso ? dayAndSpan(p.startIso, p.endIso) : dayAndClock(p.startIso)
   const started = Date.parse(p.startIso) <= Date.now()
+  /** A private event (born from a quote): its package is fixed, crafts included, money is a deposit and a balance. */
+  const isQuote = p.origin === 'quote'
 
   /** What just happened, kept on the sheet (the toast goes after 4 s); focus moves to its heading so it's read out (I4). */
   function show(t: Told) {
@@ -301,7 +321,10 @@ function OurParty({ party: p, guests, notice, staffFirst }: { party: AdminParty;
       </div>
     )
 
-  const statusTag = <span className={`adm-tag${p.paymentState === 'paid' ? ' is-grey' : p.paymentState === 'cancelled' ? ' is-red' : ''}`}>{STATE_WORDS[p.paymentState]}</span>
+  const statusTag = <>
+    {isQuote && <><span className="adm-tag">Private event</span>{' '}</>}
+    <span className={`adm-tag${p.paymentState === 'paid' ? ' is-grey' : p.paymentState === 'cancelled' ? ' is-red' : ''}`}>{STATE_WORDS[p.paymentState]}</span>
+  </>
 
   return (
     <SheetFrame tall title={partyTitle(p.hostName, p.craftName)} subtitle={<>{when} {statusTag}</>} footer={footer}>
@@ -346,9 +369,13 @@ function OurParty({ party: p, guests, notice, staffFirst }: { party: AdminParty;
               {kv('Phone', p.hostPhone ? <a href={telHref(p.hostPhone)}>{prettyPhone(p.hostPhone)}</a> : '')}
               {kv('Email', p.hostEmail ? <a href={`mailto:${p.hostEmail}`}>{p.hostEmail}</a> : '')}
               {kv('Guests', p.guestCount)}
-              {kv('Craft', p.craftName)}
-              {p.items.filter((it) => it.kind === 'package').map((it) => kv('Package', `${it.label} · ${formatMoney(it.cents)}`, it.id))}
-              {kv('Extras', p.items.filter((it) => it.kind === 'addon').map(itemWords).join(', ') || 'None')}
+              {isQuote ? <QuoteDetails party={p} /> : (
+                <>
+                  {kv('Craft', p.craftName)}
+                  {p.items.filter((it) => it.kind === 'package').map((it) => kv('Package', `${it.label} · ${formatMoney(it.cents)}`, it.id))}
+                  {kv('Extras', p.items.filter((it) => it.kind === 'addon').map(itemWords).join(', ') || 'None')}
+                </>
+              )}
               {p.themeName && kv('Themed table', p.themeName)}
               {kv('Payment', STATE_WORDS[p.paymentState])}
               {!p.notTold && p.told && kv('Host told', `${p.told.how === 'email' ? 'Emailed the details' : 'Told by phone or text'} · ${dayAndClock(p.told.at)}${p.told.by ? ` · ${p.told.by.name}` : ''}`)}
@@ -361,7 +388,7 @@ function OurParty({ party: p, guests, notice, staffFirst }: { party: AdminParty;
                     </>
                   )}
                   <button type="button" className="adm-btn is-ghost" onClick={() => setEditing(true)}>Change details</button>
-                  {!adding && <button type="button" className="adm-btn is-ghost" onClick={() => { setAdding(true); setTab('pay') }}>+ Add an extra</button>}
+                  {!adding && !isQuote && <button type="button" className="adm-btn is-ghost" onClick={() => { setAdding(true); setTab('pay') }}>+ Add an extra</button>}
                 </div>
               )}
             </>
@@ -383,7 +410,7 @@ function OurParty({ party: p, guests, notice, staffFirst }: { party: AdminParty;
               </div>
             ))}
             <div className="adm-kv is-tot"><span>{cancelled ? 'Nothing due, the party was cancelled' : p.dueCents > 0 ? 'Still due' : 'Nothing due'}</span><span>{cancelled ? '' : formatMoney(p.dueCents)}</span></div>
-            <p className="adm-small adm-muted adm-gap-top">{`Crafts (${p.craftName}) are rung up on the POS at the studio, for whoever comes.`}</p>
+            <p className="adm-small adm-muted adm-gap-top">{isQuote ? 'Crafts are included in the package. Nothing to ring up for crafts.' : `Crafts (${p.craftName}) are rung up on the POS at the studio, for whoever comes.`}</p>
 
             {canPay && !taking && (
               <div className="adm-stack adm-gap-top">
@@ -402,7 +429,7 @@ function OurParty({ party: p, guests, notice, staffFirst }: { party: AdminParty;
             {canPay && taking && <TakeCard party={p} onClose={() => setTaking(false)} onPaid={(t) => { setTaking(false); show(t) }} />}
           </div>
 
-          {!cancelled && (
+          {!cancelled && !isQuote && (
             <div className="adm-paygroup">
               {adding
                 ? <AddExtra party={p} onClose={() => setAdding(false)} onAdded={(text, warn) => { setAdding(false); toast(text); show({ title: 'Extras', text, warn }) }} />
