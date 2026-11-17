@@ -39,7 +39,7 @@ const themes = [
   },
   {
     id: 'ornament',
-    name: 'Ornament Night',
+    name: 'Ornament Bar',
     photos: [img('orn-hoops.jpg'), img('orn-names.jpg')],
     haul: [img('orn-frame.jpg'), img('orn-harper.jpg'), img('orn-felt.jpg'), img('orn-gingerbread.jpg')],
     tint: '#e8eee9', accent: '#2b4a3a',
@@ -70,7 +70,7 @@ const themes = [
         <h1>Christmas at Hometown Studio</h1>
         <svg class="rule" aria-hidden="true" width="120" height="14" viewBox="0 0 120 14" fill="none" stroke="#c4a882" stroke-width="1.2"><path d="M0 7h48M72 7h48" /><path d="M60 1l5 6-5 6-5-6z" /></svg>
         <p class="for">for the Corky Child Care Collective crew</p>
-        <p class="when">Saturday, December twelfth<br />from 5:30 until the fun runs out<br />40 to 50 guests · at the studio</p>
+        <p class="when">Saturday, December 12<br />from 5:30 until the fun runs out<br />40 to 50 guests · at the studio</p>
       </div>
     </section>
 
@@ -83,7 +83,7 @@ const themes = [
 
     <section class="themes">
       <p class="kicker center">Pick your night</p>
-      <p class="lede">All three are ${PRICE} a person, and everyone leaves with a bunch of stuff they made.</p>
+      <p class="lede">Each option is ${PRICE} a person, with plenty to make and take home.</p>
 
       {themes.map((t, i) => (
         <button type="button" class="theme" data-id={t.id} data-name={t.name} data-photo={t.photos[0]} data-accent={t.accent} aria-pressed="false" style={`--tint:${t.tint};--accent:${t.accent}`}>
@@ -116,7 +116,7 @@ const themes = [
     <section class="photos" aria-hidden="true">
       <img src={img('totes.jpg')} alt="" />
       <img src={img('plants.jpg')} alt="" />
-      <img src={img('p0465.jpg')} alt="" />
+      <img src={img('p0510.jpg')} alt="" />
     </section>
 
     <section class="steps">
@@ -133,7 +133,7 @@ const themes = [
       <img class="sumimg" id="sumimg" src={img('mosaic.jpg')} alt="" hidden />
       <p class="sum" id="sum">${PRICE} a guest · 40 to 50 guests</p>
       <CorkyDeposit client:load />
-      <a class="btn ghost" id="textpick" href="sms:+12564641710">Text us your pick</a>
+      <a class="btn ghost" id="textpick" href={'sms:+12564641710?&body=' + encodeURIComponent("Hi! It's Jessyca from the Corky Child Care Collective. For our Dec 12 night we'd like ")}>Text us your pick</a>
       <p class="fine">Monograms get stitched ahead of time, so names can't change after that. <a href="/policies">Our policies</a></p>
     </section>
 
@@ -191,8 +191,7 @@ const themes = [
     if (!calm) sumimg.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 600, easing: 'ease-out' })
     sumimg.src = card.dataset.photo
     sum.textContent = name + ' · $' + PRICE + ' a guest'
-    text.textContent = 'Text us: ' + name
-    const body = 'Hi! We picked ' + name + ' for Dec 12 (Corky Child Care Collective).'
+    const body = "Hi! It's Jessyca from the Corky Child Care Collective. For our Dec 12 night we'd like " + name + '.'
     text.setAttribute('href', 'sms:+12564641710?&body=' + encodeURIComponent(body))
   }
 
