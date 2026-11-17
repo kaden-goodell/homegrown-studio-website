@@ -141,3 +141,25 @@ describe('GET /api/workshops.json — our own classes', () => {
     spy.mockRestore()
   })
 })
+
+describe('GET /api/workshops.json — a Square class moved to our own system (17 Nov 2026)', () => {
+  it('is not listed: no duplicate of its new class', async () => {
+    mockGetEventMeta.mockImplementation(async (_k: string, id: string) => (id === 'clssch_kinu' ? { options: [], signupCutoffHours: null, movedTo: 'cls_kinunew1' } : null))
+    const names = (await list()).map((w: any) => w.name)
+    expect(names).toContain('clssch_pails')
+    expect(names).not.toContain('clssch_kinu')
+  })
+
+  it('a link to it (?w=) says where it went', async () => {
+    mockGetEventMeta.mockImplementation(async (_k: string, id: string) => (id === 'clssch_kinu' ? { options: [], signupCutoffHours: null, movedTo: 'cls_kinunew1' } : null))
+    const res = await GET({ request: new Request('http://localhost/api/workshops.json?w=inst-clssch_kinu') } as any)
+    const json = await res.json()
+    expect(json.moved).toEqual({ id: 'inst-clssch_kinu', to: 'cls_kinunew1' })
+    expect(json.workshops.map((w: any) => w.name)).not.toContain('clssch_kinu')
+  })
+
+  it('stays listed when its setting cannot be read (a moment\'s duplicate beats a missing class)', async () => {
+    mockGetEventMeta.mockRejectedValue(new Error('blobs down'))
+    expect((await list()).map((w: any) => w.name)).toContain('clssch_kinu')
+  })
+})

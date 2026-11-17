@@ -10,6 +10,7 @@ export interface LegacyClassView {
   capacity?: number
   remaining?: number
   priceCents?: number
+  movedTo?: { id: string; name: string }
   /** Who is booked, with their waiver; null when the list couldn't be read (the counts still show). */
   families: SquareClassFamily[] | null
 }

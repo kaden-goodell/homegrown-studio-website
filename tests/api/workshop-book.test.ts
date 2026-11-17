@@ -662,6 +662,18 @@ describe('POST /api/workshops/book.json', () => {
       await refusedBeforeHold(await POST(ctx(body({ picks: TWO_PICKS }))), 409, 'not_open', 'Sign-ups for this class closed 24 hours before it starts.')
     })
 
+    it('a Square class whose seats moved to our own system points to the new class, before holding anything (17 Nov 2026)', async () => {
+      mockGetEventMeta.mockResolvedValue({ options: [], signupCutoffHours: null, movedTo: 'cls_newkinu1' })
+      const res = await POST(ctx(body()))
+      expect(res.status).toBe(409)
+      const json = await res.json()
+      expect(json.code).toBe('not_open')
+      expect(json.movedTo).toBe('/classes/cls_newkinu1')
+      expect(json.detail).toMatch(/^This class moved to our new booking page\. Book it here: .*\/classes\/cls_newkinu1\. Nothing was charged\.$/)
+      expect(mockReserve).not.toHaveBeenCalled()
+      expect(mockPay).not.toHaveBeenCalled()
+    })
+
     it('a plain class can still be booked half an hour before', async () => {
       vi.setSystemTime(new Date('2026-10-16T23:30:00.000Z'))
       expect((await POST(ctx(body()))).status).toBe(200)

@@ -218,3 +218,16 @@ describe('event-meta — ticket types', () => {
     expect(() => mergeEventMeta(emptyEventMeta(), { tickets: [{ label: 'Solo' }] as any }, by, '2026-10-18T00:00:00.000Z', false)).toThrow(SeatSettingsError)
   })
 })
+
+describe('movedTo (17 Nov 2026)', () => {
+  const by = { id: 'kaden', name: 'Kaden' }
+  it('is kept on later edits and cleared with null', () => {
+    const moved = mergeEventMeta(emptyEventMeta(), { movedTo: 'cls_kinunew1' }, by, '2026-11-17T00:00:00.000Z', false)
+    expect(moved.movedTo).toBe('cls_kinunew1')
+    expect(mergeEventMeta(moved, { capacity: 20 }, by, '2026-11-17T00:01:00.000Z', false).movedTo).toBe('cls_kinunew1')
+    expect(mergeEventMeta(moved, { movedTo: null }, by, '2026-11-17T00:02:00.000Z', false).movedTo).toBeNull()
+  })
+  it('refuses anything but one of our class ids', () => {
+    expect(() => mergeEventMeta(emptyEventMeta(), { movedTo: 'clssch_x' }, by, '2026-11-17T00:00:00.000Z', false)).toThrow()
+  })
+})

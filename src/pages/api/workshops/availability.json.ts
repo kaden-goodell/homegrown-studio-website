@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro'
 import { createLogger } from '@lib/logger'
 import { providers } from '@config/providers'
 import { rateLimited } from '@lib/rate-limit'
+import { withoutMoved } from '@lib/moved-classes'
 
 export const POST: APIRoute = async ({ clientAddress }) => {
   const logger = createLogger('api:workshops:availability')
@@ -12,7 +13,8 @@ export const POST: APIRoute = async ({ clientAddress }) => {
   const startTime = Date.now()
 
   try {
-    const workshops = await providers.workshop.listWorkshops()
+    // Moved Square classes are not offered here; their seats sell on our own class page.
+    const workshops = await withoutMoved(await providers.workshop.listWorkshops(), (w) => w.scheduleId)
 
     logger.info('Workshop availability fetched', {
       duration_ms: Date.now() - startTime,

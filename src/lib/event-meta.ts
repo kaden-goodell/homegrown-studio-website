@@ -32,6 +32,7 @@ export interface EventMetaHistoryEntry {
   capacity?: number | null
   madeToOrder?: boolean
   tickets?: TicketType[] | null
+  movedTo?: string | null
 }
 
 export interface EventMeta {
@@ -50,6 +51,12 @@ export interface EventMeta {
   capacity: number | null
   /** Ticket types with their own prices (Adult / Kid); null = one price per seat. */
   tickets: TicketType[] | null
+  /**
+   * A Square class whose remaining seats now sell on our own system: that
+   * class's id (cls_…). Hidden from everything public; staff and owners keep
+   * its people (Kaden, 17 Nov 2026: "make sure there are not duplicates").
+   */
+  movedTo: string | null
   updatedAt: string // ISO
   by: By
   /** Append-only, capped at 50 (oldest dropped first). */
@@ -65,7 +72,11 @@ export interface EventMetaPatch {
   capacity?: number | null
   madeToOrder?: boolean
   tickets?: TicketType[] | null
+  movedTo?: string | null
 }
+
+/** Our own class ids (cls_…), the only thing movedTo may hold. */
+export const MOVED_TO_RE = /^cls_[A-Za-z0-9_-]{4,40}$/
 
 function key(kind: string, id: string): string {
   return `event-meta-${kind}:${id}`
@@ -73,7 +84,7 @@ function key(kind: string, id: string): string {
 
 export function emptyEventMeta(): EventMeta {
   return {
-    dropOff: false, days: null, options: [], signupCutoffHours: null, optionsCloseHours: null, capacity: null, madeToOrder: false, tickets: null,
+    dropOff: false, days: null, options: [], signupCutoffHours: null, optionsCloseHours: null, capacity: null, madeToOrder: false, tickets: null, movedTo: null,
     updatedAt: new Date(0).toISOString(), by: { id: '', name: '' }, history: [],
   }
 }
@@ -92,6 +103,7 @@ export function normalizeEventMeta(raw: any): EventMeta {
     capacity: capacity.ok ? capacity.value : null,
     madeToOrder: raw?.madeToOrder === true,
     tickets: (() => { const t = validateTicketTypes(raw?.tickets ?? null); return t.ok ? t.value : null })(),
+    movedTo: typeof raw?.movedTo === 'string' && MOVED_TO_RE.test(raw.movedTo) ? raw.movedTo : null,
     updatedAt: typeof raw?.updatedAt === 'string' ? raw.updatedAt : new Date(0).toISOString(),
     by: raw?.by && typeof raw.by === 'object'
       ? { id: String(raw.by.id ?? ''), name: String(raw.by.name ?? '') }
@@ -147,6 +159,11 @@ export function mergeEventMeta(current: EventMeta, patch: EventMetaPatch, by: By
     if (!checked.ok) throw new SeatSettingsError(checked.error)
     tickets = checked.value
   }
+  let movedTo = current.movedTo ?? null
+  if (patch.movedTo !== undefined) {
+    if (patch.movedTo !== null && !MOVED_TO_RE.test(patch.movedTo)) throw new SeatSettingsError('Moved-to must be one of our own class ids (cls_…).')
+    movedTo = patch.movedTo
+  }
   return {
     dropOff,
     days,
@@ -156,9 +173,10 @@ export function mergeEventMeta(current: EventMeta, patch: EventMetaPatch, by: By
     capacity,
     madeToOrder,
     tickets,
+    movedTo,
     updatedAt: now,
     by,
-    history: [...current.history, { at: now, by, dropOff, days, options, signupCutoffHours, optionsCloseHours, capacity, madeToOrder, tickets }].slice(-HISTORY_CAP),
+    history: [...current.history, { at: now, by, dropOff, days, options, signupCutoffHours, optionsCloseHours, capacity, madeToOrder, tickets, movedTo }].slice(-HISTORY_CAP),
   }
 }
 

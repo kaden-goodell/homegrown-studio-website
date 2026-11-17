@@ -17,6 +17,11 @@ vi.mock('@config/providers', () => ({
   },
 }))
 
+const movedSchedules = new Set<string>()
+vi.mock('@lib/moved-classes', () => ({
+  withoutMoved: async (list: any[], of: (x: any) => string) => list.filter((x) => !movedSchedules.has(of(x))),
+}))
+
 vi.mock('@lib/classes/class-store', () => ({ listClasses: (...a: any[]) => mockListClasses(...a) }))
 
 vi.mock('@providers/square/client', () => ({
@@ -124,6 +129,18 @@ describe('GET /api/calendar.json', () => {
       bookable: true,
       href: '/workshops?w=w1',
     })
+  })
+
+  it('hides a Square class whose seats moved to our own system (no duplicate, 17 Nov 2026)', async () => {
+    mockListWorkshops.mockResolvedValue([workshop(), workshop({ id: 'w2', scheduleId: 's2', name: 'Moved' })])
+    movedSchedules.add('s2')
+    try {
+      const { body } = await getMonth('2026-10')
+      expect(ids(body)).toContain('workshop-w1')
+      expect(ids(body)).not.toContain('workshop-w2')
+    } finally {
+      movedSchedules.clear()
+    }
   })
 
   describe('month membership is decided by the studio-local date (HOM-191)', () => {

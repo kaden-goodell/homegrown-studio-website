@@ -35,6 +35,14 @@ describe('Square class sheet', () => {
     expect(f.mock.calls[0][0]).toBe('/api/admin/classes/legacy.json?id=clssch_felt')
   })
 
+  it('a moved class says where new seats sell and links to it (17 Nov 2026)', async () => {
+    f.mockResolvedValue(ok({ data: { booked: 7, capacity: 20, remaining: 13, families: [], movedTo: { id: 'cls_feltnew1', name: 'Needle Felting' } } }))
+    renderSheet(<LegacyDetails item={item} />)
+    const line = await screen.findByTestId('legacy-moved')
+    expect(line).toHaveTextContent('Moved: new seats sell on Needle Felting (new system).')
+    expect(within(line).getByRole('link', { name: 'Needle Felting' })).toHaveAttribute('href', '#class-cls_feltnew1')
+  })
+
   it('nobody yet says so; a list that couldn’t be read points to /staff; a failed load can be tried again', async () => {
     f.mockResolvedValueOnce(ok({ data: { booked: 0, capacity: 20, remaining: 20, families: [] } }))
     const { unmount } = renderSheet(<LegacyDetails item={item} />)

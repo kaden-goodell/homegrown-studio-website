@@ -1,6 +1,7 @@
 ---
 export const prerender = false
 
+import { movedToFor, movedClassUrl } from '@lib/moved-classes'
 import Layout from '@layouts/Layout.astro'
 import { publicPageHeaders } from '@lib/cache-headers'
 import WorkshopExplorer from '@components/workshops/WorkshopExplorer'
@@ -42,6 +43,11 @@ if (/^[A-Za-z0-9_-]{6,64}$/.test(wantedId)) {
   } catch {
     tapped = null
   }
+}
+// A link to a Square class whose seats moved to our own system goes straight to the new class.
+if (tapped) {
+  const to = await movedToFor(tapped.scheduleId)
+  if (to) return Astro.redirect(movedClassUrl(to), 302)
 }
 const { lookingAt, interest } = workshopNotifyContext(tapped, partyConfig.timezone)
 

@@ -1,3 +1,4 @@
+import { withoutMoved } from '@lib/moved-classes'
 import type { APIRoute } from 'astro'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { providers } from '@config/providers'
@@ -135,7 +136,8 @@ async function gatherFacts(now: Date): Promise<StudioFacts> {
     bookingOpen,
     workshopsOpen,
     openPartyStarts,
-    workshops: [...(await Promise.all(workshops.map(squareFact))), ...ours].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt)),
+    // A Square class whose seats moved to our own system is told about once, as ours.
+    workshops: [...(await Promise.all((await withoutMoved(workshops, (w) => w.scheduleId)).map(squareFact))), ...ours].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt)),
     kitsOpen: kitsOpen && siteConfig.features.kits.enabled,
     bookingWindowDays: windowDays,
     timeZone: partyConfig.timezone,

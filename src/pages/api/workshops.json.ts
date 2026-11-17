@@ -7,6 +7,7 @@ import { getEventMeta } from '@lib/event-meta'
 import type { CutoffSettings } from '@lib/seat-options'
 import { resolvedPrice, type TicketType } from '@lib/ticket-types'
 import { createLogger } from '@lib/logger'
+import { movedToFor, withoutMoved } from '@lib/moved-classes'
 import { remember } from '@lib/short-memory'
 import { publicListHeaders } from '@lib/cache-headers'
 import { listClasses } from '@lib/classes/class-store'
@@ -82,11 +83,20 @@ export const GET: APIRoute = async ({ request }) => {
   // (a class added in the last minute). Ask Square again rather than say
   // "finished". The CDN keys on the query, so this answer is fresh too.
   const wanted = new URL(request.url).searchParams.get('w') ?? ''
+  let moved: { id: string; to: string } | null = null
   try {
     let list = await remember('workshops:list', 30_000, () => providers.workshop.listWorkshops())
     if (/^[A-Za-z0-9_-]{6,64}$/.test(wanted) && !list.some((w) => w.id === wanted)) {
       list = await providers.workshop.listWorkshops()
     }
+    // A Square class whose seats moved to our own system is never listed twice:
+    // a link to it says where it went instead.
+    const wantedSquare = wanted ? list.find((w) => w.id === wanted) : undefined
+    if (wantedSquare) {
+      const to = await movedToFor(wantedSquare.scheduleId)
+      if (to) moved = { id: wanted, to }
+    }
+    list = await withoutMoved(list, (w) => w.scheduleId)
     workshops = await Promise.all(
       list.map(async (w) => {
         const { ok, settings, tickets, error } = await settingsFor(w.scheduleId)
@@ -108,7 +118,7 @@ export const GET: APIRoute = async ({ request }) => {
   if (own.failed) failed = true
   // One list, by first session start.
   workshops = [...workshops, ...own.list].sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime))
-  return new Response(JSON.stringify({ workshops, ...(failed ? { incomplete: true } : {}), ...(settingsErrors.length ? { settingsErrors } : {}) }), {
+  return new Response(JSON.stringify({ workshops, ...(moved ? { moved } : {}), ...(failed ? { incomplete: true } : {}), ...(settingsErrors.length ? { settingsErrors } : {}) }), {
     status: 200,
     // A failed lookup is never cached: it must not read as "no workshops", nor
     // keep a class listed without its questions.

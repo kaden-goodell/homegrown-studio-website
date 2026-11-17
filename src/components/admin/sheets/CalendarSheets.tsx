@@ -135,6 +135,11 @@ export function LegacyDetails({ item }: { item: CalendarItem }) {
     <>
       <div className="adm-card" aria-label="Seats">
         <p><b>{seats || 'Seats not known'}</b>{left ? ` · ${left}` : ''}{price ? ` · ${price}` : ''}</p>
+        {view?.data?.movedTo && (
+          <p className="adm-small" data-testid="legacy-moved">
+            Moved: new seats sell on <a href={`#class-${view.data.movedTo.id}`}>{view.data.movedTo.name}</a> (new system). This one is hidden from the website; the people below stay booked.
+          </p>
+        )}
       </div>
       <section className="adm-card" aria-label="Who’s coming">
         <p className="adm-lbl">Who’s coming</p>

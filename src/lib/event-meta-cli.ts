@@ -3,7 +3,7 @@
  * does the reading and writing. The rules themselves (limits, the lock once
  * anyone has picked) are applied by `mergeEventMeta`, same as the gear sheet.
  */
-import type { EventMetaPatch } from '@lib/event-meta'
+import { MOVED_TO_RE, type EventMetaPatch } from '@lib/event-meta'
 import { validateCapacity, validateCutoffHours, validateOptionsCloseHours, type SeatOption } from '@lib/seat-options'
 import { validateTicketTypes } from '@lib/ticket-types'
 
@@ -16,7 +16,7 @@ export interface SetEventArgs {
 
 export const SET_EVENT_USAGE =
   'Usage: set-event.ts (--workshop <clssch_id> | --party <bookingId>) [--on | --off] [--days a,b] ' +
-  '[--option "Label=Choice|Choice" …] [--no-options] [--options-close <hours> | --options-close default] [--cutoff <hours> | --cutoff default] [--capacity <seats> | --capacity none] [--made-to-order | --not-made-to-order] [--ticket "Adult:min=1" --ticket "Kid=15:min=1" … | --no-tickets] [--show]'
+  '[--option "Label=Choice|Choice" …] [--no-options] [--options-close <hours> | --options-close default] [--cutoff <hours> | --cutoff default] [--capacity <seats> | --capacity none] [--made-to-order | --not-made-to-order] [--ticket "Adult:min=1" --ticket "Kid=15:min=1" … | --no-tickets] [--moved-to cls_… | --moved-to none] [--show]'
 
 export function parseSetEventArgs(argv: string[]): SetEventArgs | { error: string } {
   const flag = (n: string) => {
@@ -47,6 +47,14 @@ export function parseSetEventArgs(argv: string[]): SetEventArgs | { error: strin
       options.push({ id: '', label: spec.slice(0, eq).trim(), choices: spec.slice(eq + 1).split('|').map((c) => c.trim()) })
     }
     patch.options = options
+  }
+
+  const movedTo = flag('moved-to')
+  if (movedTo !== undefined) {
+    if (kind !== 'workshop') return { error: 'Moved-to is for Square classes (--workshop) only.' }
+    if (movedTo === 'none') patch.movedTo = null
+    else if (MOVED_TO_RE.test(movedTo)) patch.movedTo = movedTo
+    else return { error: `--moved-to needs one of our class ids (cls_…) or "none", got "${movedTo}".` }
   }
 
   const optionsClose = flag('options-close')

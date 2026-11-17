@@ -171,7 +171,12 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
         if (!res.ok) throw new Error(`workshops fetch failed: ${res.status}`)
         return res.json()
       })
-      .then((data: { workshops?: WorkshopData[]; incomplete?: boolean }) => {
+      .then((data: { workshops?: WorkshopData[]; incomplete?: boolean; moved?: { id: string; to: string } }) => {
+        // A link to a Square class whose seats moved to our own system: go to the new class.
+        if (wanted && data?.moved?.id === wanted && typeof window !== 'undefined') {
+          window.location.replace(`/classes/${encodeURIComponent(data.moved.to)}`)
+          return
+        }
         const list = Array.isArray(data?.workshops) ? data.workshops : []
         // `incomplete` means Square could not be asked: an empty list then says nothing.
         if (data?.incomplete && list.length === 0) throw new Error('workshops lookup incomplete')

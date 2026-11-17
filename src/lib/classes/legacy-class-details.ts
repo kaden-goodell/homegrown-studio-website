@@ -15,6 +15,8 @@
  */
 import { findWorkshop, getEvent } from '@lib/events'
 import { squareClassFamilies, type SquareClassFamily } from '@lib/waiver-reminders'
+import { getEventMeta } from '@lib/event-meta'
+import { getClass } from '@lib/classes/class-store'
 
 export interface LegacyClassCounts {
   /** Seats taken (capacity − seats left). Only when both are known. */
@@ -25,6 +27,8 @@ export interface LegacyClassCounts {
   remaining?: number
   /** Price of one seat, before tax. */
   priceCents?: number
+  /** Its remaining seats now sell on our own system (event-meta movedTo): that class's id and name. */
+  movedTo?: { id: string; name: string }
 }
 
 export type { SquareClassFamily } from '@lib/waiver-reminders'
@@ -51,5 +55,10 @@ export async function legacyClassCounts(scheduleId: string): Promise<LegacyClass
   if (remaining !== undefined) out.remaining = remaining
   if (capacity !== undefined && remaining !== undefined) out.booked = Math.max(0, capacity - remaining)
   if (typeof event.priceCents === 'number') out.priceCents = event.priceCents
+  const to = (await getEventMeta('workshop', scheduleId).catch(() => null))?.movedTo
+  if (to) {
+    const cls = await getClass(to).catch(() => null)
+    out.movedTo = { id: to, name: cls?.content.name ?? 'the new class' }
+  }
   return out
 }

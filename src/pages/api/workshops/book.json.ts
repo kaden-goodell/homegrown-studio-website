@@ -1,3 +1,4 @@
+import { movedMessage, movedClassUrl } from '@lib/moved-classes'
 import type { APIRoute } from 'astro'
 import { randomUUID } from 'node:crypto'
 import { bookingsOpenNow, bookingsClosedResponse } from '@lib/bookings-gate'
@@ -145,6 +146,13 @@ const handle: APIRoute = async ({ request, clientAddress, locals }) => {
       error: String(metaLookup.reason),
     })
     return fail(502, 'unavailable')
+  }
+  // The class's remaining seats now sell on our own system: send them there. Nothing held or charged.
+  if (metaLookup.value?.movedTo) {
+    return new Response(
+      JSON.stringify({ error: 'Unable to book workshop', code: 'not_open', detail: movedMessage(metaLookup.value.movedTo), movedTo: movedClassUrl(metaLookup.value.movedTo) }),
+      { status: 409, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
+    )
   }
   const settings: CutoffSettings = {
     options: metaLookup.value?.options ?? [],

@@ -2,7 +2,9 @@
 /** /admin for classes still run from Square (Kaden, 17 Nov 2026): seats, price, who is booked and their waiver. Read only. */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-const m = vi.hoisted(() => ({ getEvent: vi.fn(), findWorkshop: vi.fn(), families: vi.fn(), busy: vi.fn() }))
+const m = vi.hoisted(() => ({ getEvent: vi.fn(), findWorkshop: vi.fn(), families: vi.fn(), busy: vi.fn(), meta: vi.fn(), getClass: vi.fn() }))
+vi.mock('@lib/event-meta', async (orig) => ({ ...(await orig<typeof import('@lib/event-meta')>()), getEventMeta: m.meta }))
+vi.mock('@lib/classes/class-store', async (orig) => ({ ...(await orig<typeof import('@lib/classes/class-store')>()), getClass: m.getClass }))
 vi.mock('@lib/events', () => ({ getEvent: m.getEvent, findWorkshop: m.findWorkshop }))
 vi.mock('@lib/waiver-reminders', () => ({ squareClassFamilies: m.families }))
 vi.mock('@lib/classes/studio-schedule', async (orig) => ({ ...(await orig<typeof import('@lib/classes/studio-schedule')>()), busyBetween: m.busy }))
@@ -28,6 +30,8 @@ beforeEach(() => {
   m.findWorkshop.mockReset().mockResolvedValue({ scheduleId: 'clssch_felt' })
   m.families.mockReset().mockResolvedValue([{ name: 'Ann Lee', seats: 2, waiver: 'current' }])
   m.busy.mockReset().mockResolvedValue([])
+  m.meta.mockReset().mockResolvedValue(null)
+  m.getClass.mockReset().mockResolvedValue(null)
 })
 afterEach(() => vi.unstubAllEnvs())
 
@@ -44,6 +48,17 @@ describe('legacyClassCounts', () => {
   it('no size known: seats left only, no booked', async () => {
     m.getEvent.mockResolvedValueOnce({ ...FELTING, capacity: undefined })
     expect(await legacyClassCounts('clssch_felt')).toEqual({ remaining: 13, priceCents: 3000 })
+  })
+})
+
+describe('a Square class moved to our own system (17 Nov 2026)', () => {
+  it('still shows on /admin, with its people, and names the new class', async () => {
+    m.meta.mockResolvedValue({ movedTo: 'cls_feltnew1' })
+    m.getClass.mockResolvedValue({ content: { name: 'Christmas Needle Felting' } })
+    const { status, body } = await call(legacyRoute, '/api/admin/classes/legacy.json?id=clssch_felt')
+    expect(status).toBe(200)
+    expect(body.data).toMatchObject({ booked: 7, movedTo: { id: 'cls_feltnew1', name: 'Christmas Needle Felting' } })
+    expect(body.data.families).toEqual([{ name: 'Ann Lee', seats: 2, waiver: 'current' }])
   })
 })
 

@@ -24,6 +24,7 @@ import { classSpanOf, removeClassBlocked, type ClassSpan } from '@lib/conflicts'
 import { listClasses } from '@lib/classes/class-store'
 import type { ScheduledClass } from '@lib/classes/types'
 import { createLogger } from '@lib/logger'
+import { withoutMoved } from '@lib/moved-classes'
 import { remember } from '@lib/short-memory'
 import { publicListHeaders } from '@lib/cache-headers'
 import { isNotFound, onSandbox } from '@lib/parties/legacy-square'
@@ -133,7 +134,8 @@ export const GET: APIRoute = async ({ url, request }) => {
     c.sessions.map((s) => ({ id: s.id, name: c.content.name, startIso: s.startIso, endIso: s.endIso })),
   )
 
-  const workshops = allWorkshops.filter((w: any) => inRangeIso(w.startAt))
+  // A Square class whose seats moved to our own system shows once, as ours (it still blocks party times below).
+  const workshops = await withoutMoved(allWorkshops.filter((w: any) => inRangeIso(w.startAt)), (w: any) => String(w.scheduleId ?? ''))
   const openStudioWindows = allOpenStudioWindows.filter((w) => inRange(w.date))
 
   // Booked (reserved) parties: held or booked in our party book, or booked in Square.

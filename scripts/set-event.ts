@@ -87,7 +87,7 @@ function hasPicks(): boolean {
 function summary(m: EventMeta): string {
   const questions = m.options.map((o) => `${o.label}=${o.choices.join('|')}`).join('; ') || '(none)'
   const cutoff = `${effectiveCutoffHours(m)}h${m.signupCutoffHours === null ? ' (default)' : ''}`
-  return `dropOff=${m.dropOff} days=${m.days ? m.days.join(',') : '(single day)'} questions=${questions} cutoff=${cutoff} capacity=${m.capacity ?? '(unknown)'} madeToOrder=${m.madeToOrder} tickets=${m.tickets ? m.tickets.map((t) => `${t.label}${t.priceCents === null ? '(class price)' : `=$${t.priceCents / 100}`}${t.min ? ` min ${t.min}` : ''}`).join(', ') : '(one price)'}`
+  return `dropOff=${m.dropOff} days=${m.days ? m.days.join(',') : '(single day)'} questions=${questions} cutoff=${cutoff} capacity=${m.capacity ?? '(unknown)'} madeToOrder=${m.madeToOrder} tickets=${m.tickets ? m.tickets.map((t) => `${t.label}${t.priceCents === null ? '(class price)' : `=$${t.priceCents / 100}`}${t.min ? ` min ${t.min}` : ''}`).join(', ') : '(one price)'}${m.movedTo ? ` movedTo=${m.movedTo}` : ''}`
 }
 
 const current = read() ?? emptyEventMeta()

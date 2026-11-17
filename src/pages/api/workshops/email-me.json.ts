@@ -4,6 +4,7 @@ import { SITE_URL } from '@config/site-url'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { remember } from '@lib/short-memory'
+import { movedToFor } from '@lib/moved-classes'
 import { reportServerEvent } from '@lib/posthog-server'
 import { sendClassLinkEmail, type ClassForEmail } from '@lib/class-link-email'
 import { getClass } from '@lib/classes/class-store'
@@ -51,7 +52,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       found = ownClassForEmail(await getClass(classId), new Date())
     } else {
       const list = await remember('workshops:list', 30_000, () => providers.workshop.listWorkshops())
-      found = list.find((w) => w.id === classId)
+      const square = list.find((w) => w.id === classId)
+      // A Square class whose seats moved to our own system: email the new class, never the old one.
+      const to = square ? await movedToFor(square.scheduleId) : null
+      found = to ? ownClassForEmail(await getClass(to), new Date()) : square
     }
   } catch (err) {
     logger.error('Class list unreadable for email-me', { classId, error: err instanceof Error ? err.message : String(err) })

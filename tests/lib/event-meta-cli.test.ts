@@ -110,3 +110,14 @@ describe('echoOptionIds', () => {
     expect(ids(echoOptionIds([], [o('', 'A'), o('', 'B')]))).toEqual(['', ''])
   })
 })
+
+describe('parseSetEventArgs — --moved-to (17 Nov 2026)', () => {
+  it('sets and clears a Square class\'s new home', () => {
+    expect(parseSetEventArgs(['--workshop', 'clssch_kinu', '--moved-to', 'cls_kinunew1'])).toMatchObject({ kind: 'workshop', patch: { movedTo: 'cls_kinunew1' } })
+    expect(parseSetEventArgs(['--workshop', 'clssch_kinu', '--moved-to', 'none'])).toMatchObject({ patch: { movedTo: null } })
+  })
+  it('refuses anything that is not one of our class ids, and parties', () => {
+    expect(parseSetEventArgs(['--workshop', 'clssch_kinu', '--moved-to', 'clssch_other'])).toHaveProperty('error')
+    expect(parseSetEventArgs(['--party', 'bk_1', '--moved-to', 'cls_kinunew1'])).toHaveProperty('error')
+  })
+})
