@@ -735,13 +735,15 @@ describe('More', () => {
     expect(posts(f, '/api/admin/classes/import-square.json')).toEqual([{ dryRun: true }])
   })
 
-  it('Owners and alerts: Admin access, Notifications, Email, texts and Square, and Activity (DV19)', async () => {
+  it('Owners and alerts: Admin access, Notifications, Email, texts and Square, Quote menu, and Activity (DV19)', async () => {
     await signedIn()
     tab('More')
     const owners = await screen.findByRole('list', { name: 'Owners and alerts' })
-    expect(within(owners).getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Admin access', 'Notifications', 'Email, texts and Square', 'Activity'])
+    expect(within(owners).getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Admin access', 'Notifications', 'Email, texts and Square', 'Quote menu', 'Activity'])
     fireEvent.click(within(owners).getByRole('button', { name: /Admin access/ }))
     expect(window.location.hash).toBe('#more-access')
+    fireEvent.click(within(await screen.findByRole('list', { name: 'Owners and alerts' })).getByRole('button', { name: /Quote menu/ }))
+    expect(window.location.hash).toBe('#more-quote-menu')
   })
 
   it('lists the setup pages; Staff says what it holds; Promotions is live (codes, early-bird)', async () => {

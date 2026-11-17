@@ -14,8 +14,8 @@ const TOKEN_RE = /^[A-Za-z0-9._-]{1,120}$/
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 
 export type InboxKind = 'request' | 'message' | 'teacher'
-export type MorePage = 'booking' | 'parties' | 'crafts' | 'hours' | 'closed' | 'staff' | 'promos' | 'register' | 'reports' | 'records' | 'import' | 'sandbox' | 'messages' | 'who' | 'help' | 'access' | 'notify' | 'connections' | 'activity' | 'find' | 'schedule'
-export const MORE_PAGES: MorePage[] = ['booking', 'parties', 'crafts', 'hours', 'closed', 'staff', 'promos', 'register', 'reports', 'records', 'import', 'sandbox', 'messages', 'who', 'help', 'access', 'notify', 'connections', 'activity', 'find', 'schedule']
+export type MorePage = 'booking' | 'parties' | 'crafts' | 'hours' | 'closed' | 'staff' | 'promos' | 'register' | 'reports' | 'records' | 'import' | 'sandbox' | 'messages' | 'who' | 'help' | 'access' | 'notify' | 'connections' | 'activity' | 'find' | 'schedule' | 'quote-menu'
+export const MORE_PAGES: MorePage[] = ['booking', 'parties', 'crafts', 'hours', 'closed', 'staff', 'promos', 'register', 'reports', 'records', 'import', 'sandbox', 'messages', 'who', 'help', 'access', 'notify', 'connections', 'activity', 'find', 'schedule', 'quote-menu']
 
 /** Every sheet /admin can open, as data. */
 export type Sheet =
@@ -44,6 +44,8 @@ export type Sheet =
   | { kind: 'more'; page: MorePage }
   /** A promo code (More › Promotions): `promo-FALLFRIENDS`; `promo-new` is the New code form. */
   | { kind: 'promo'; id: string }
+  /** A private-event request's quote (`quote-<requestId>`): Close goes back to the request. */
+  | { kind: 'quote'; id: string }
 
 const plain = (s: string) => TOKEN_RE.test(s)
 
@@ -87,7 +89,7 @@ export function parseSheet(token: string): Sheet | null {
     const page = token.slice(5) as MorePage
     return MORE_PAGES.includes(page) ? { kind: 'more', page } : null
   }
-  for (const k of ['class', 'edit', 'again', 'libedit', 'libsched', 'lib', 'request', 'message', 'teacher', 'todo', 'promo'] as const) {
+  for (const k of ['class', 'edit', 'again', 'libedit', 'libsched', 'lib', 'request', 'message', 'teacher', 'todo', 'promo', 'quote'] as const) {
     if (token.startsWith(`${k}-`) && token.length > k.length + 1) return { kind: k, id: token.slice(k.length + 1) } as Sheet
   }
   return null
@@ -110,7 +112,7 @@ export function parseHash(hash: string): { tab?: Tab; sheet?: Sheet } {
 /** The tab a sheet belongs under when the address only names the sheet (a link, a bookmark). */
 export function homeTabOf(s: Sheet): Tab {
   switch (s.kind) {
-    case 'request': case 'message': case 'teacher': case 'todo': return 'inbox'
+    case 'request': case 'message': case 'teacher': case 'todo': case 'quote': return 'inbox'
     case 'more': case 'promo': return 'more'
     case 'class': case 'edit': case 'lib': case 'libedit': case 'libsched': case 'again': return 'classes'
     case 'day': case 'legacy': case 'blocked': case 'party': case 'cafe': case 'closed': return 'calendar'
@@ -120,5 +122,5 @@ export function homeTabOf(s: Sheet): Tab {
 
 /** Sheets that hold a long form: on an iPad they open as a centred card, not a side panel. (A class's own sheet stays a panel.) */
 export function isFormSheet(s: Sheet): boolean {
-  return s.kind === 'new' || s.kind === 'again' || s.kind === 'libedit' || s.kind === 'libsched' || s.kind === 'book-party'
+  return s.kind === 'new' || s.kind === 'again' || s.kind === 'libedit' || s.kind === 'libsched' || s.kind === 'book-party' || s.kind === 'quote'
 }
