@@ -123,6 +123,15 @@ export interface PartyRecord {
   changeRequests?: PartyChangeRequest[]
   /** oldest first, capped at PARTY_HISTORY_CAP */
   history?: { at: string; by: By | null; change: string }[]
+
+  // ---- private-event quotes (Nov 2026). All optional: other parties load unchanged.
+  /** Born from a private-event quote: priced per person for a package (crafts included), no studio fee, no craft minimum. */
+  origin?: 'quote'
+  /** What the quote sold, copied when it was paid. `pricePerPersonCents`: the picked tier's price per person. */
+  quote?: { quoteId: string; tierName: string; lines: string[]; guests: number; pricePerPersonCents?: number }
+  /** In the studio, or at the host's place (`address`). */
+  place?: 'studio' | 'away'
+  address?: string
 }
 
 export interface PartyChangeRequest {
@@ -157,7 +166,8 @@ export interface PartyPaying {
 
 export interface PartyItem {
   id: string
-  kind: 'package' | 'addon'
+  /** 'quote': a private-event quote's deposit or balance line */
+  kind: 'package' | 'addon' | 'quote'
   /** the package or extra id in Parties setup */
   refId: string
   label: string

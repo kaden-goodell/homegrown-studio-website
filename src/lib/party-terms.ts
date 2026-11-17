@@ -87,6 +87,23 @@ export function partyTermsForStart(iso: string): PartyTerms {
   return partyTermsOn(studioYmd(iso))
 }
 
+/**
+ * Terms for a party record. A private-event quote (`origin: 'quote'`) has no
+ * studio fee and no craft minimum: the crafts are in its package price. Any
+ * other party: its start's terms (partyTermsForStart).
+ */
+export function partyTermsForParty(p: { origin?: 'quote'; startIso: string; durationMinutes?: number | null }): PartyTerms {
+  if (p.origin !== 'quote') return partyTermsForStart(p.startIso)
+  return {
+    kind: 'weekend',
+    durationMinutes: p.durationMinutes ?? partyConfig.durationMinutes,
+    studioFeeCents: 0,
+    minimumCents: 0,
+    chargeNowCents: 0,
+    chargeIsCraftCredit: false,
+  }
+}
+
 /** What the whole party comes to for a given crafts total: fee + crafts, crafts never under the minimum. */
 export function partyEstimateCents(terms: PartyTerms, craftsCents: number): number {
   return terms.studioFeeCents + Math.max(craftsCents, terms.minimumCents)

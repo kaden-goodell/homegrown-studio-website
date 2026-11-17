@@ -168,7 +168,8 @@ export function quoteAddOn(
  * Square order lines for party items: untaxed ad hoc lines (OWNER-1). The
  * whole-studio package keeps the name it has always had on orders and the tax
  * report ('Whole Studio Party — studio fee'); its extras share the prefix.
- * Other packages read 'Party — <name>'. The note is the package or extra id.
+ * Other packages read 'Party — <name>'. A private-event quote's lines read
+ * 'Private event: <label>'. The note is the package or extra id.
  * `packageId` is the party's package (rec.packageId), always passed: an order
  * for extras paid later has no package line to tell.
  */
@@ -180,7 +181,7 @@ export function orderLineItems(
   const whole = packageId === WHOLE_STUDIO_PACKAGE_ID
   const prefix = whole ? 'Whole Studio Party' : 'Party'
   return items.map((it) => ({
-    name: it.kind === 'package'
+    name: it.kind === 'quote' ? `Private event: ${it.label}` : it.kind === 'package'
       ? (whole ? (it.label === WEEKNIGHT_CREDIT_LABEL ? 'Weeknight Party, craft credit (counts toward your crafts)' : 'Whole Studio Party — studio fee') : `Party — ${pkgName || it.label}`)
       : `${prefix} — ${it.label}`,
     quantity: it.qty,

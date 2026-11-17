@@ -46,6 +46,7 @@ import { holdsBetween, moveTime, NO_HOLD, releaseTime, resizeTime } from './part
 import { localDate, startsOn } from './party-times'
 import { PaymentLinkError, partyWhenLabel, payLinkUrl, sendPaymentLink, whatIsDue } from './payment-link'
 import { quoteAddOn } from './pricing'
+import { isQuoteParty, QUOTE_PARTY_LOCKED } from './quote-party'
 import { describePartyRequest, partyLabel } from './refunds'
 import { getPartySettings } from './settings-store'
 import { partyWritesRefusal } from './test-site'
@@ -747,6 +748,8 @@ async function removeExtraLocked(body: { id?: unknown; itemId?: unknown }, by: B
   const saved = await update(r.bookingId, (cur) => {
     if (cur.status === 'cancelled') stop(409, PARTY_CANCELLED)
     const it = cur.items?.find((x) => x.id === itemId)
+    // A private event's deposit and balance come from its quote: changed with the owners, never taken off here.
+    if (it?.kind === 'quote') stop(409, QUOTE_PARTY_LOCKED)
     if (!it || it.kind !== 'addon') stop(404, 'That extra isn’t on this party.')
     if (it!.chargeId !== null) stop(409, PAID_EXTRA)
     if (paymentGoingThrough(cur, now) && cur.paying?.itemIds?.includes(itemId)) stop(409, paymentWaitMessage(cur, now))
@@ -808,6 +811,8 @@ export async function editPartyDetails(
     if (phone !== (r.hostPhone ?? '')) { patch.hostPhone = phone; said.push('phone') }
   }
   if (body.guests !== undefined) {
+    // A private event is priced for its quote's guests: a different count is a new quote, made with the owners.
+    if (isQuoteParty(r)) throw new PartyActionError(409, QUOTE_PARTY_LOCKED, { field: 'guests' })
     let settings: Awaited<ReturnType<typeof getPartySettings>>
     try {
       settings = await getPartySettings({ strict: true })
