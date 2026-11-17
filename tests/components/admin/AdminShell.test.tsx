@@ -69,9 +69,19 @@ const ok = (body: unknown) => ({ ok: true, status: 200, json: async () => body }
 const status = (code: number, body: unknown = {}) => ({ ok: false, status: code, json: async () => body })
 
 /** The admin routes, by address. `fail` makes one path answer 500; `signedOut` starts at 401 until a sign-in works. */
+/** A request's quote, as by-request.json and draft.json send it. */
+const quoteFor = (v: any) => ({
+  id: 'q_1', requestId: '2026-10-17-abcdef12', partyId: 'pty_q1', token: 'tok', version: 1, priceKey: 'pk', status: v.status === 'expired' ? 'sent' : v.status,
+  place: 'away', address: '100 Main St', startIso: at('2026-11-21', '14:00'), endIso: at('2026-11-21', '16:00'), guests: 18, crafters: 'adults',
+  targetCents: 9700, note: '', depositPct: 50, expiresAt: v.expiresAt ?? '2026-12-01T18:00:00.000Z', held: false, views: v.views ?? 0,
+  tiers: [{ id: 't1', key: 'pick', name: 'Our pick', photoUrl: null, hidden: false, lines: [{ itemId: null, label: 'Desk plants', photoUrl: null, cents: 9700, per: 'person', costCents: null }], priceCents: 9700 }],
+  history: [], ...(v.sentAt ? { sentAt: v.sentAt } : {}),
+})
+
 function server(o: any = {}) {
   const { apps = [app()], requests = [request()], messages = [message()], items = calendar, signedOut = false, passcodeOk = true, sandbox = false, fail = [] as string[], postFails = [] as string[], settings = null, todo = [], staffRows = [] } = o
   let out = signedOut
+  const quoteViews: Record<string, any> = { ...(o.quoteViews ?? {}) }
   const fn = vi.fn(async (url: string, init?: any) => {
     const path = url.split('?')[0]
     if (path === '/api/admin/login.json') {
@@ -135,6 +145,14 @@ function server(o: any = {}) {
         } })
       case '/api/admin/classes/import-square.json': return ok({ data: { create: [], skip: [], addPhoto: [] } })
       case '/api/party/service-info.json': return ok({ data: { crafts: [{ id: 'c1', name: 'Beaded Necklace', perHeadCents: 1800, perHeadMaxCents: 1800 }] } })
+      case '/api/admin/quotes/by-request.json': {
+        const v = quoteViews[new URL(url, 'https://x.test').searchParams.get('requestId') ?? '']
+        return ok({ data: { quote: v ? quoteFor(v) : null, view: v ?? null } })
+      }
+      case '/api/admin/quotes/draft.json':
+        quoteViews[post.requestId] = { status: 'draft', views: 0, sentAt: null }
+        return ok({ data: { quote: quoteFor({ status: 'draft' }) } })
+      case '/api/admin/quote-menu.json': return ok({ data: { items: [], syncedAt: null, packages: [], settings: { capPct: 25, yellowFromPct: 20, depositPct: 50, expiryDays: 14, updatedAt: '' } } })
     }
     throw new Error(`unexpected ${url}`)
   })
@@ -584,7 +602,7 @@ describe('Inbox', () => {
     tab('Inbox')
     const row = await screen.findByRole('button', { name: /Dana Planner · Rocket Co/ })
     expect(row).toHaveTextContent('Private event · Team building · Sat Nov 21 · 2 PM · 18 guests')
-    expect(row).toHaveTextContent('Next: Reply with dates and a quote')
+    expect(row).toHaveTextContent('Next: Make a quote')
     fireEvent.click(row)
     const sheet = dialog()
     expect(within(sheet).getByText('100 Main St')).toBeInTheDocument()
@@ -692,6 +710,59 @@ describe('Inbox', () => {
     fireEvent.click(screen.getByRole('button', { name: /^To decide/ }))
     expect(await screen.findByText('Nothing to decide. Things only an owner should settle land here.')).toBeInTheDocument()
   })
+})
+
+describe('Inbox: a request’s quote', () => {
+  it('no quote: Make a quote drafts one and opens #quote-<id>; Close goes back to the request', async () => {
+    const f = await signedIn()
+    tab('Inbox')
+    fireEvent.click(await screen.findByRole('button', { name: /Dana Planner · Rocket Co/ }))
+    const make = await within(dialog()).findByRole('button', { name: 'Make a quote' }, { timeout: 5000 })
+    // It sits right under the status control.
+    const group = within(dialog()).getByRole('group', { name: 'Status for Dana Planner' })
+    expect(group.compareDocumentPosition(make) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(dialog()).queryByLabelText('Quote status')).toBeNull()
+    fireEvent.click(make)
+    await waitFor(() => expect(window.location.hash).toBe('#quote-2026-10-17-abcdef12'))
+    expect(posts(f, '/api/admin/quotes/draft.json')).toEqual([{ requestId: '2026-10-17-abcdef12' }])
+    // The loading frame is a different dialog with the same title: find the loaded sheet from the screen.
+    expect(await screen.findByRole('region', { name: 'Package 1' }, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Quote for Dana' })).toBeInTheDocument()
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(window.location.hash).toBe('#request-2026-10-17-abcdef12'))
+    expect(await within(dialog()).findByLabelText('Quote status', {}, { timeout: 5000 })).toHaveTextContent('Draft')
+    expect(within(dialog()).getByRole('button', { name: 'Open quote' })).toBeInTheDocument()
+    expect(within(dialog()).getByText('Finish the quote and send it')).toBeInTheDocument()
+  }, 15_000)
+
+  it('with a quote: Open quote, the chip, and Next says how long they’ve had it', async () => {
+    await signedIn(server({
+      requests: [request({ status: 'quoted' })],
+      quoteViews: { '2026-10-17-abcdef12': { status: 'sent', views: 2, sentAt: '2026-10-18T15:00:00Z', lastViewedAt: null, pickedTierId: null, expiresAt: '2026-12-01T18:00:00.000Z', held: false, paidAt: null, url: 'https://x/quote/tok' } },
+    }))
+    tab('Inbox')
+    fireEvent.click(await screen.findByRole('button', { name: /Dana Planner · Rocket Co/ }))
+    expect(await within(dialog()).findByRole('button', { name: 'Open quote' }, { timeout: 5000 })).toBeInTheDocument()
+    expect(within(dialog()).getByLabelText('Quote status')).toHaveTextContent('Viewed 2×')
+    expect(within(dialog()).getByText(/Waiting on them: quote sent Sun Oct 18/)).toBeInTheDocument()
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Open quote' }))
+    await waitFor(() => expect(window.location.hash).toBe('#quote-2026-10-17-abcdef12'))
+  }, 15_000)
+
+  it('a Booked request asks in the sheet before making a quote, then drafts with force', async () => {
+    const confirm = vi.fn(() => true)
+    vi.stubGlobal('confirm', confirm)
+    const f = await signedIn(server({ requests: [request({ status: 'booked' })] }))
+    tab('Inbox')
+    fireEvent.click(await screen.findByRole('button', { name: /Dana Planner · Rocket Co/ }))
+    fireEvent.click(await within(dialog()).findByRole('button', { name: 'Make a quote' }, { timeout: 5000 }))
+    const ask = within(dialog()).getByRole('group', { name: 'Make a quote anyway?' })
+    expect(within(ask).getByText('This request is already Booked. Make a quote anyway?')).toBeInTheDocument()
+    expect(posts(f, '/api/admin/quotes/draft.json')).toHaveLength(0)
+    fireEvent.click(within(ask).getByRole('button', { name: 'Make a quote' }))
+    await waitFor(() => expect(posts(f, '/api/admin/quotes/draft.json')).toEqual([{ requestId: '2026-10-17-abcdef12', force: true }]))
+    expect(confirm).not.toHaveBeenCalled()
+  }, 15_000)
 })
 
 describe('Classes tab', () => {

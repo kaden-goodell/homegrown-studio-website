@@ -275,7 +275,12 @@ function Shell({ who, onSignedOut }: { who: Owner; onSignedOut: () => void }) {
     })
   }, [guard])
 
-  const closeSheet = useCallback(() => guard(() => shut()), [guard, shut])
+  // A quote closes back to its request (spec §6 A); everything else closes to the tab.
+  const closeSheet = useCallback(() => {
+    const cur = openRef.current?.sheet
+    if (cur?.kind === 'quote') openSheet({ kind: 'request', id: cur.id })
+    else guard(() => shut())
+  }, [guard, shut, openSheet])
 
   const goTab = useCallback((t: Tab) => {
     guard(() => {

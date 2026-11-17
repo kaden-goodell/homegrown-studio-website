@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { screen, fireEvent, within, waitFor, configure } from '@testing-library/react'
 import { QuoteMenuPage } from '@components/admin/quotes/QuoteMenuPage'
-import { QuoteSheet } from '@components/admin/quotes/QuoteSheet'
 import { centsFromDollars } from '@components/admin/quotes/api'
 import { homeTabOf, isFormSheet, parseHash, parseSheet, sheetToken } from '@components/admin/shell/router'
 import { ok, posts, refuse, renderSheet } from '../admin/sheets/harness'
@@ -63,11 +62,6 @@ describe('Quote menu: the address', () => {
     expect(homeTabOf({ kind: 'quote', id: 'req_1' })).toBe('inbox')
     expect(isFormSheet({ kind: 'quote', id: 'req_1' })).toBe(true)
     expect(homeTabOf({ kind: 'more', page: 'quote-menu' })).toBe('more')
-  })
-  it('the quote sheet stub names its request', () => {
-    renderSheet(<QuoteSheet id="req_1" />)
-    expect(screen.getByRole('heading', { name: 'Quote' })).toBeInTheDocument()
-    expect(screen.getByText(/req_1/)).toBeInTheDocument()
   })
 })
 
