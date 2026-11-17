@@ -38,10 +38,14 @@ interface Balance {
   extrasOnly?: boolean
   /** the party cancellation policy for this date, in one line */
   refundLine?: string
+  /** a private event (born from a quote): crafts are in its package, and what is due is the event itself */
+  privateEvent?: boolean
 }
 
 export const PAY_HEADING = 'Pay for your party'
 export const CRAFTS_LINE = 'Crafts are paid at the studio for whoever comes.'
+export const PRIVATE_HEADING = 'Pay for your private event'
+export const PRIVATE_CRAFTS_LINE = 'Crafts are included in your package.'
 export const LINK_BROKEN = `This payment link doesn’t work. Please ${TEXT_US} and we’ll send a new one.`
 export const LOAD_FAILED = 'We couldn’t load this payment. Please try again.'
 export const CANCELLED_LINE = partyContent.textNumber
@@ -170,7 +174,7 @@ export default function PartyPayPanel({ partyId, payKey }: Props) {
 
   return (
     <div style={card}>
-      <h1 style={{ margin: '0 0 0.75rem', fontSize: '1.75rem' }}>{PAY_HEADING}</h1>
+      <h1 style={{ margin: '0 0 0.75rem', fontSize: '1.75rem' }}>{balance?.privateEvent ? PRIVATE_HEADING : PAY_HEADING}</h1>
       {renderBody()}
     </div>
   )
@@ -189,18 +193,24 @@ export default function PartyPayPanel({ partyId, payKey }: Props) {
       )
     }
     if (!balance) return <p role="status" style={helpText}>Loading…</p>
+    const isPrivate = balance.privateEvent === true
+    const craftsLine = isPrivate ? PRIVATE_CRAFTS_LINE : CRAFTS_LINE
     if (paid || balance.state === 'paid') {
       const receipt = paid?.receiptUrl ?? balance.receiptUrl
       return (
         <div role="status">
           <p style={{ ...helpText, fontWeight: 700, marginBottom: '0.5rem' }}>
-            {paid && paid.cents > 0 ? `Thank you! You paid ${formatMoney(paid.cents)}.` : 'Your party is paid.'}
+            {paid && paid.cents > 0 ? `Thank you! You paid ${formatMoney(paid.cents)}.` : isPrivate ? 'Your private event is paid.' : 'Your party is paid.'}
           </p>
-          <p style={{ ...helpText, marginBottom: '0.5rem' }}>Your party on {balance.when} is booked.</p>
+          <p style={{ ...helpText, marginBottom: '0.5rem' }}>Your {isPrivate ? 'private event' : 'party'} on {balance.when} is booked.</p>
           {paid && paid.stillDueCents > 0 && (
-            <p style={{ ...helpText, marginBottom: '0.5rem' }}>There is still {formatMoney(paid.stillDueCents)} to pay for extras added since. Refresh this page to pay it.</p>
+            <p style={{ ...helpText, marginBottom: '0.5rem' }}>
+              {isPrivate
+                ? `There is still ${formatMoney(paid.stillDueCents)} to pay on your private event. Refresh this page to pay it.`
+                : `There is still ${formatMoney(paid.stillDueCents)} to pay for extras added since. Refresh this page to pay it.`}
+            </p>
           )}
-          <p style={{ ...helpText, marginBottom: '1rem' }}>{CRAFTS_LINE}</p>
+          <p style={{ ...helpText, marginBottom: '1rem' }}>{craftsLine}</p>
           {receipt && (
             <a href={receipt} target="_blank" rel="noopener noreferrer" className="btn btn-quiet" style={{ width: 'auto' }}>
               See your receipt
@@ -232,7 +242,9 @@ export default function PartyPayPanel({ partyId, payKey }: Props) {
       >
         <p style={{ ...helpText, marginBottom: '1rem' }}>
           {balance.hostFirstName ? `Hi ${balance.hostFirstName}! ` : ''}
-          {balance.extrasOnly ? `Your party on ${balance.when} is paid. These extras were added since.` : `Your party on ${balance.when} is held for you.`}
+          {isPrivate
+            ? `Your private event on ${balance.when} has ${amount} still due.`
+            : balance.extrasOnly ? `Your party on ${balance.when} is paid. These extras were added since.` : `Your party on ${balance.when} is held for you.`}
         </p>
         <ul aria-label="To pay" style={{ listStyle: 'none', padding: 0, margin: '0 0 0.75rem' }}>
           {balance.items.map((it) => (
@@ -246,7 +258,7 @@ export default function PartyPayPanel({ partyId, payKey }: Props) {
             <span>{amount}</span>
           </li>
         </ul>
-        <p style={{ ...helpText, marginBottom: '1rem' }}>{CRAFTS_LINE}</p>
+        <p style={{ ...helpText, marginBottom: '1rem' }}>{craftsLine}</p>
         {balance.refundLine && (
           <p data-testid="pay-policy" style={{ ...helpText, marginBottom: '1.25rem' }}>
             {balance.refundLine}{' '}
@@ -262,7 +274,7 @@ export default function PartyPayPanel({ partyId, payKey }: Props) {
         <PaymentForm
           bookingKind="party"
           ref={paymentFormRef}
-          wallet={{ amount: (balance.dueCents / 100).toFixed(2), label: 'Hometown Studio party', bnpl: true }}
+          wallet={{ amount: (balance.dueCents / 100).toFixed(2), label: isPrivate ? 'Hometown Studio private event' : 'Hometown Studio party', bnpl: true }}
           onWalletToken={(token) => void handlePay(token)}
           onReadyChange={setPaymentReady}
         />

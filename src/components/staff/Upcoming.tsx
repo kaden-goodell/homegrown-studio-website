@@ -30,6 +30,11 @@ interface PartyRow {
   /** Absent on an older server: weekend. */
   kind?: 'weekend' | 'weeknight'
   paidOnlineCents?: number
+  /** A private event (born from a quote): its package lines, and where (an away event's address). Null or absent on any other party. */
+  origin?: 'quote' | null
+  quoteLines?: string[] | null
+  place?: 'studio' | 'away' | null
+  address?: string | null
 }
 
 /**
@@ -84,27 +89,39 @@ export default function Upcoming({
           </div>
         )}
         {!partiesLoading && !partiesError && parties.length === 0 && <p style={{ color: 'var(--color-muted)' }}>No upcoming parties.</p>}
-        {parties.map((p) => (
-          <button
-            key={p.bookingId}
-            type="button"
-            onClick={() => onOpenRoster({ kind: 'party', id: p.bookingId, title: partyDisplayName(p) })}
-            style={{ ...card, background: 'rgba(255,255,255,0.85)', width: '100%', textAlign: 'left', cursor: 'pointer', display: 'block', minHeight: '2.75rem' }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '0.35rem' }}>
-              <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{partyDisplayName(p)}</span>
-                {p.themeName && <Badge tone="muted">🎀 {p.themeName}</Badge>}
-                {p.waitingOnPayment && <Badge tone="warn">Waiting on payment</Badge>}
-                {p.kind === 'weeknight' && <Badge tone="muted">Weeknight · {formatMoney(p.paidOnlineCents ?? partyConfig.weeknightMinimumCents)} paid toward crafts</Badge>}
-              </span>
-              <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{p.endIso ? formatDayAndSpan(p.startIso, p.endIso) : formatWhen(p.startIso)}</span>
-            </div>
-            <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
-              Host: {p.hostName}{p.hostPhone ? ` · ${prettyPhone(p.hostPhone)}` : ''} · <strong style={{ color: 'var(--color-dark)' }}>{p.rsvpHouseholds}</strong> RSVP’d ({p.rsvpPeople} ppl on file)
-            </p>
-          </button>
-        ))}
+        {parties.map((p) => {
+          const isPrivate = p.origin === 'quote'
+          return (
+            <button
+              key={p.bookingId}
+              type="button"
+              onClick={() => onOpenRoster({ kind: 'party', id: p.bookingId, title: partyDisplayName(p) })}
+              style={{ ...card, background: 'rgba(255,255,255,0.85)', width: '100%', textAlign: 'left', cursor: 'pointer', display: 'block', minHeight: '2.75rem' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '0.35rem' }}>
+                <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{partyDisplayName(p)}</span>
+                  {p.themeName && <Badge tone="muted">🎀 {p.themeName}</Badge>}
+                  {p.waitingOnPayment && <Badge tone="warn">Waiting on payment</Badge>}
+                  {isPrivate && <Badge tone="muted">Private event</Badge>}
+                  {!isPrivate && p.kind === 'weeknight' && <Badge tone="muted">Weeknight · {formatMoney(p.paidOnlineCents ?? partyConfig.weeknightMinimumCents)} paid toward crafts</Badge>}
+                </span>
+                <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{p.endIso ? formatDayAndSpan(p.startIso, p.endIso) : formatWhen(p.startIso)}</span>
+              </div>
+              {isPrivate && (p.quoteLines ?? []).length > 0 && (
+                <p style={{ fontSize: '0.875rem', color: 'var(--color-dark)', margin: '0.3rem 0 0' }}>{p.quoteLines!.join(' · ')}</p>
+              )}
+              {isPrivate && (
+                <p style={{ fontSize: '0.875rem', color: 'var(--color-dark)', margin: '0.3rem 0 0' }}>
+                  {`${p.guestCount} ${p.guestCount === 1 ? 'guest' : 'guests'} · ${p.place === 'away' ? `At ${p.address || 'their place'}` : 'At the studio'}`}
+                </p>
+              )}
+              <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
+                Host: {p.hostName}{p.hostPhone ? ` · ${prettyPhone(p.hostPhone)}` : ''} · <strong style={{ color: 'var(--color-dark)' }}>{p.rsvpHouseholds}</strong> RSVP’d ({p.rsvpPeople} ppl on file)
+              </p>
+            </button>
+          )
+        })}
       </div>
     )
   }

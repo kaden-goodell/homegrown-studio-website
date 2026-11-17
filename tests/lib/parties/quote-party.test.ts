@@ -162,6 +162,7 @@ describe('balance.json', () => {
     expect(body.data.extrasOnly).toBe(false)
     expect(body.data.dueCents).toBe(112500)
     expect(body.data.packageName).toBe('Holiday Glow Night')
+    expect(body.data.privateEvent).toBe(true)
     expect(body.data.refundLine).toContain('$1,125')
     expect(body.data.refundLine).not.toContain('$300')
   })
@@ -172,6 +173,7 @@ describe('balance.json', () => {
     expect(body.data.items).toEqual([{ id: 'itm_1', label: 'Studio fee', qty: 1, cents: 30000 }])
     expect(body.data.extrasOnly).toBe(false)
     expect(body.data.refundLine).toContain('$300')
+    expect(body.data.privateEvent).toBeUndefined()
   })
 })
 

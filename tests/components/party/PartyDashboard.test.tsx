@@ -162,6 +162,31 @@ describe('PartyDashboard: our party records', () => {
     expect(screen.getByRole('link', { name: 'Pay $300' })).toHaveAttribute('href', 'https://x.test/party/pay/pty_1?k=pay')
   })
 
+  it('a private event away: says private event, lists the package, shows the address; no studio fee, craft minimum or crafts-at-the-studio line', async () => {
+    const { container } = await show([], {
+      craftName: 'Holiday Glow Night', origin: 'quote', place: 'away', address: '12 Oak Lane, Madison, AL', kind: 'weeknight', paidOnlineCents: 112500,
+      quoteLines: ['Glass terrarium', 'Earring bar'], guestCount: 30,
+      pay: { cents: 112500, what: 'your private event', url: 'https://x.test/party/pay/pty_1?k=pay' },
+    })
+    expect(screen.getByText('Your private event')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Holiday Glow Night' })).toBeInTheDocument()
+    expect(screen.getByText('Glass terrarium')).toBeInTheDocument()
+    expect(screen.getByText('Earring bar')).toBeInTheDocument()
+    expect(screen.getByText('12 Oak Lane, Madison, AL')).toBeInTheDocument()
+    expect(screen.queryByText(/525 Hughes Rd/)).toBeNull()
+    expect(screen.getByText('There’s $1,125 still to pay for your private event.')).toBeInTheDocument()
+    expect(screen.queryByText('Crafts are paid at the studio for whoever comes.')).toBeNull()
+    expect(screen.getByText('Crafts are included in your package.')).toBeInTheDocument()
+    expect(screen.queryByText(/studio fee|craft credit|minimum/i)).toBeNull()
+    expect(container.textContent).not.toMatch(/Weeknight/)
+  })
+
+  it('a private event at the studio shows the studio address', async () => {
+    await show([], { craftName: 'Holiday Glow Night', origin: 'quote', place: 'studio', quoteLines: ['Glass terrarium'] })
+    expect(screen.getByText(/525 Hughes Rd/)).toBeInTheDocument()
+    expect(screen.getByText('Your private event')).toBeInTheDocument()
+  })
+
   it('nothing due: no pay link', async () => {
     await show([], { pay: null })
     expect(screen.queryByRole('link', { name: /^Pay / })).toBeNull()

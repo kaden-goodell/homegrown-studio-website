@@ -9,6 +9,7 @@ import { getCheckin } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
 import { openRequest } from '@lib/parties/change-request'
 import { partyRefundLine } from '@lib/refund-lines'
+import { isQuoteParty, partyRefundBaseCents } from '@lib/parties/quote-party'
 
 export const prerender = false
 
@@ -126,13 +127,19 @@ export const GET: APIRoute = async ({ url }) => {
             /** the calendar file's SEQUENCE (its UID is the booking id), so a re-added invite replaces the old one */
             calendarSeq: party!.calendarSeq ?? 0,
             pay: hostPayment(party!, url.origin),
-            kind: party!.kind ?? 'weekend',
+            // A private event is never a weeknight party (no craft credit, no minimum), whatever day it falls on.
+            kind: isQuoteParty(party!) ? 'weekend' : party!.kind ?? 'weekend',
             paidOnlineCents: party!.paidOnlineCents ?? null,
             hostName: party!.hostName,
             guestCount: party!.guestCount,
             title: party!.title,
             /** Final review I4: the party policy for this date, and the host's last move/cancel request (request-only, D2). */
-            refundLine: partyRefundLine(party!.startIso, new Date(), (party!.items ?? []).filter((it) => it.kind === 'package').reduce((t, it) => t + it.cents, 0) || undefined),
+            // A private event's policy is on its deposit; any other party's on its studio fee.
+            refundLine: partyRefundLine(party!.startIso, new Date(), partyRefundBaseCents(party!)),
+            // A private event (born from a quote): what the package includes, and where (an away event's address).
+            ...(isQuoteParty(party!)
+              ? { origin: 'quote' as const, quoteLines: party!.quote?.lines ?? [], place: party!.place ?? 'studio', address: party!.address ?? null }
+              : {}),
             changeRequest: (() => {
               const r = isOurs(party!) ? openRequest(party!) : null
               return r ? { at: r.at, want: r.want } : null

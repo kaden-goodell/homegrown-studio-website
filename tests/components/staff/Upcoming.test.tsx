@@ -33,4 +33,20 @@ describe('Upcoming', () => {
     expect(screen.getAllByText('Waiting on payment')).toHaveLength(1)
     expect(screen.getByText('Sun, Nov 8 · 1–3 PM')).toBeTruthy()
   })
+
+  it('a private event shows its badge, package lines, guest count and the address for an away event (never the weeknight note)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () => String(url).startsWith('/api/staff/parties.json')
+        ? { data: { parties: [{ ...row('q', '2026-11-18T00:00:00Z'), craftName: 'Holiday Glow Night', guestCount: 30, kind: 'weekend', origin: 'quote', quoteLines: ['Glass terrarium', 'Earring bar'], place: 'away', address: '12 Oak Lane, Madison, AL' }, row('w', '2026-11-19T00:00:00Z')] } }
+        : { data: { events: [], sources: {} } },
+    })))
+    render(<Upcoming staff={{ id: 's', name: 'Sam', role: 'crew' }} onOpenRoster={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Hana’s party · Holiday Glow Night')).toBeTruthy())
+    expect(screen.getAllByText('Private event')).toHaveLength(1)
+    expect(screen.getByText('Glass terrarium · Earring bar')).toBeTruthy()
+    expect(screen.getByText(/30 guests/)).toBeTruthy()
+    expect(screen.getByText(/At 12 Oak Lane, Madison, AL/)).toBeTruthy()
+    expect(screen.queryByText(/Weeknight/)).toBeNull()
+  })
 })

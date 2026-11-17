@@ -47,6 +47,8 @@ export const GET: APIRoute = async ({ request, clientAddress }) => {
       paying: !!rec.paying && Date.parse(rec.paying.until) > Date.now(),
       // Only extras added since are due (the party itself is paid). Never for a private event: its balance is the event.
       extrasOnly: !quote && rec.status !== 'cancelled' && (rec.items ?? []).some((it) => it.chargeId !== null),
+      // A private event (born from a quote): the page says "private event", and crafts are in its package.
+      ...(quote ? { privateEvent: true } : {}),
       // Final review I5: a host booked by phone sees the cancellation policy before paying.
       // A private event's policy is on its deposit, not the studio fee.
       refundLine: partyRefundLine(rec.startIso, new Date(), partyRefundBaseCents(rec)),

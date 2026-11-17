@@ -58,6 +58,13 @@ interface Roster {
     changeRequest?: { at: string; want: 'move' | 'cancel' | 'other' } | null
     /** one of our own parties, still booked: the request form shows */
     canAskToChange?: boolean
+    /** a private event (born from a quote): no studio fee or craft minimum, crafts in the package */
+    origin?: 'quote'
+    /** what the private event's package includes */
+    quoteLines?: string[]
+    place?: 'studio' | 'away'
+    /** an away event's address */
+    address?: string | null
   }
   summary: { households: number; people: number }
   households: Household[]
@@ -254,7 +261,10 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
   }
 
   const { party, summary, households } = roster
-  const heading = party.title || `${party.craftName} Party`
+  const isPrivate = party.origin === 'quote'
+  const heading = party.title || (isPrivate ? party.craftName : `${party.craftName} Party`)
+  const eyebrow = isPrivate ? 'Your private event' : 'Your party'
+  const where = isPrivate && party.place === 'away' && party.address ? party.address : inviteContent.where
   const slotLabel = formatWhen(party.startIso) + ' CT'
   const endIso = party.endIso ?? addMinutesIso(party.startIso, party.durationMinutes ?? partyTermsForStart(party.startIso).durationMinutes)
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
@@ -266,8 +276,8 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
     title: heading + ' — Hometown Studio',
     startIso: party.startIso,
     endIso,
-    details: `Your private party at Hometown Studio.\n\nInvitation link for guests: ${inviteUrl}`,
-    location: inviteContent.where,
+    details: `Your private ${isPrivate ? 'event' : 'party'} with Hometown Studio.\n\nInvitation link for guests: ${inviteUrl}`,
+    location: where,
   }
 
   async function shareInvite() {
@@ -294,7 +304,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
     return (
       <div>
         <div style={{ ...card, textAlign: 'center' }} data-testid="party-cancelled">
-          <p className="eyebrow tone-party" style={{ marginBottom: '0.5rem' }}>Your party</p>
+          <p className="eyebrow tone-party" style={{ marginBottom: '0.5rem' }}>{eyebrow}</p>
           <h1 style={{ fontSize: '1.75rem', fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)', margin: 0 }}>{heading}</h1>
           {/* Which party (a host may have two), then the news, then where to ask about money. */}
           <p style={{ color: 'var(--color-muted)', marginTop: '0.5rem' }} data-testid="party-when">{`${formatDayAndSpan(party.startIso, endIso)} CT`}</p>
@@ -314,14 +324,19 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
       {/* Party header */}
       <div style={{ ...card, textAlign: 'center' }}>
         <p className="eyebrow tone-party" style={{ marginBottom: '0.5rem' }}>
-          Your party
+          {eyebrow}
         </p>
         <h1 style={{ fontSize: '1.75rem', fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)', margin: 0 }}>
           {heading}
         </h1>
         <p style={{ color: 'var(--color-dark)', fontWeight: 600, marginTop: '0.5rem' }} data-testid="party-when">{`${formatDayAndSpan(party.startIso, endIso)} CT`}</p>
-        <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem' }}>{inviteContent.where}</p>
-        {party.kind === 'weeknight' && (
+        <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem' }}>{where}</p>
+        {isPrivate && (party.quoteLines ?? []).length > 0 && (
+          <ul aria-label="Your package" style={{ listStyle: 'none', padding: 0, margin: '0.6rem 0 0', color: 'var(--color-dark)', fontSize: '0.9375rem', lineHeight: 1.5 }}>
+            {party.quoteLines!.map((line, i) => <li key={i}>{line}</li>)}
+          </ul>
+        )}
+        {!isPrivate && party.kind === 'weeknight' && (
           <p style={{ color: 'var(--color-dark)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
             {partyContent.kinds.hostCreditLine(party.paidOnlineCents ?? partyTermsForStart(party.startIso).chargeNowCents)}
           </p>
@@ -360,7 +375,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
           <p style={{ color: 'var(--color-dark)', fontWeight: 600, margin: 0 }}>
             {`There’s ${formatMoney(party.pay.cents)} still to pay for ${party.pay.what}.`}
           </p>
-          <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', margin: '0.35rem 0 0' }}>Crafts are paid at the studio for whoever comes.</p>
+          <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', margin: '0.35rem 0 0' }}>{isPrivate ? 'Crafts are included in your package.' : 'Crafts are paid at the studio for whoever comes.'}</p>
           <a
             href={party.pay.url}
             className="ph-no-capture"

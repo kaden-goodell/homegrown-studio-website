@@ -171,6 +171,14 @@ describe('Roster: a party says what to ring up at the end (I10)', () => {
     expect(await screen.findByTestId('party-ring-up')).toHaveTextContent('Catherine or Kaden sent them a payment link.')
   })
 
+  it('a private event: crafts included, nothing to ring up for crafts; the still-to-pay stays', async () => {
+    serveParty(money({ craftsIncluded: true, ringUp: { craftName: 'Holiday Glow Night', perHeadCents: null, guests: 30 }, dueCents: 112500 }))
+    const box = await screen.findByTestId('party-ring-up')
+    expect(box).toHaveTextContent('Crafts are included in the package. Nothing to ring up for crafts.')
+    expect(box).not.toHaveTextContent('Ring up crafts at the register')
+    expect(box).toHaveTextContent('Still to pay: $1,125.')
+  })
+
   it('a cancelled party shows no ring-up', async () => {
     serveParty(money({ cancelled: true }))
     await screen.findByText('Cancelled')

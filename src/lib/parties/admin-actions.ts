@@ -237,6 +237,11 @@ export interface AdminPartyView {
   told: PartyRecord['told'] | null
   /** Bumped by every change to the party's time or details (calendarSeq): "Free the old time" sends it back so a stale screen is refused (N1). */
   timeVersion: number
+  /** A private event (born from a quote): its package, place and address. Absent on any other party. */
+  origin?: 'quote'
+  quote?: PartyRecord['quote']
+  place?: PartyRecord['place']
+  address?: string
 }
 
 export function adminPartyView(r: PartyRecord, now: Date = new Date(), origin?: string): AdminPartyView {
@@ -282,6 +287,7 @@ export function adminPartyView(r: PartyRecord, now: Date = new Date(), origin?: 
     lastTold: last ? { startIso: last.startIso, at: last.at } : null,
     told: r.told ?? null,
     timeVersion: r.calendarSeq ?? 0,
+    ...(r.origin === 'quote' ? { origin: 'quote' as const, quote: r.quote, place: r.place, address: r.address } : {}),
   }
 }
 
