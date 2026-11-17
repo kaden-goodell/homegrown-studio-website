@@ -107,7 +107,8 @@ function createBurst(width: number): BurstParticle[] {
   }))
 }
 
-export default function Shimmer({ enabled }: { enabled: boolean }) {
+/** `season` pins a page to one look (a quote page keeps its gold glitter in December); the ?season= preview still wins. */
+export default function Shimmer({ enabled, season: pinned }: { enabled: boolean; season?: 'glitter' | 'winter' | 'fall' }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -133,7 +134,7 @@ export default function Shimmer({ enabled }: { enabled: boolean }) {
 
     resize()
     let particles = createParticles(window.innerWidth, window.innerHeight)
-    const season = seasonFor(new Date(), new URLSearchParams(window.location.search).get('season'))
+    const season = seasonFor(new Date(), new URLSearchParams(window.location.search).get('season') ?? pinned ?? null)
     let drifters: Drifter[] = season === 'glitter' ? [] : createDrifters(season, window.innerWidth, window.innerHeight)
     let clock = Math.random() * 600 // start somewhere in the breeze's cycle
 
@@ -325,7 +326,7 @@ export default function Shimmer({ enabled }: { enabled: boolean }) {
       window.removeEventListener('resize', onResize)
       window.removeEventListener(CELEBRATE_EVENT, celebrate)
     }
-  }, [enabled])
+  }, [enabled, pinned])
 
   if (!enabled) return null
 

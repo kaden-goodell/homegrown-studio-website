@@ -1,0 +1,278 @@
+---
+/**
+ * One-off private event quote for The Corky Child Care Collective (Kaden,
+ * 17 Nov 2026), made by hand before the quote system ships. Invitation
+ * design (canvas "C · The Invitation"). Four themed nights, $75 a guest
+ * each, no discounts shown. She picks one; "Text us our pick" sends it to the
+ * studio. The Hold button opens CorkyDeposit, which takes the $1,500 deposit
+ * (half of 40 guests) right here through /api/quote/corky-deposit.json; final
+ * count and monograms by Nov 27, and the owners book the evening in /admin.
+ * A small first-party visit log (corky-visit-client.ts → /api/quote/corky-visit.json)
+ * feeds the owners' deposit text: what she picked and how she browsed.
+ * Page behaviour (picks, the tote night's monogram add-on, the paid lock-in
+ * read from /api/quote/corky-status.json) lives in src/lib/quote/corky-page.ts.
+ */
+import Layout from '@layouts/Layout.astro'
+import Shimmer from '@components/shared/Shimmer'
+import CorkyDeposit from '@components/quote/CorkyDeposit'
+
+export const prerender = true
+
+const DEPOSIT = '$1,500'
+const PRICE = 75
+const MONOGRAM = 15
+const img = (n: string) => `/quote/corky/${n}`
+
+const themes = [
+  {
+    id: 'mosaic',
+    name: 'Mosaics & Plant Bar',
+    photos: [img('mosaic.jpg'), img('tile-bar.jpg')],
+    haul: [img('mosaic-xmas.jpg'), img('succulents.jpg'), img('mosaic-xmas-trio.jpg'), img('plants.jpg')],
+    tint: '#f5ebe7', accent: '#7d2530',
+    blurb: 'Mosaic coasters, trays and more, plus a succulent to take home.',
+    addon: '',
+  },
+  {
+    id: 'tote',
+    name: 'Tote & Keychain Bar',
+    photos: [img('bag.jpg'), img('keychain-virginia.jpg')],
+    haul: [img('totes.jpg'), img('scarf.jpg'), img('keychain-tree.jpg'), img('keychain-emma.jpg')],
+    tint: '#f4ede0', accent: '#8a6a35',
+    blurb: 'Pick a bag, cover it in patches and charms, and make a keychain to go with it.',
+    addon: 'Want it monogrammed? $15 more per person.',
+  },
+  {
+    id: 'ornament',
+    name: 'Ornament Bar',
+    photos: [img('orn-hoops.jpg'), img('orn-names.jpg')],
+    haul: [img('orn-frame.jpg'), img('orn-harper.jpg'), img('orn-felt.jpg'), img('orn-gingerbread.jpg')],
+    tint: '#e8eee9', accent: '#2b4a3a',
+    blurb: 'A bunch of different ornaments to try, felted, stitched and painted. Take them all home.',
+    addon: '',
+  },
+]
+---
+<Layout
+  title="Christmas at Hometown Studio"
+  description="Your evening at Hometown Studio, Saturday, December 12."
+  noindex
+  noAnalytics
+  noReferrer
+  bare
+>
+  <Shimmer enabled season="glitter" client:idle />
+  <main class="inv">
+    <div class="polaroids" aria-hidden="true">
+      <img class="pol p1" src={img('mosaic.jpg')} alt="" />
+      <img class="pol p2" src={img('scarf.jpg')} alt="" />
+      <img class="pol p3" src={img('orn-names.jpg')} alt="" />
+    </div>
+
+    <section class="card">
+      <div class="frame">
+        <p class="kicker">Hometown Studio presents</p>
+        <h1>Christmas at Hometown Studio</h1>
+        <svg class="rule" aria-hidden="true" width="120" height="14" viewBox="0 0 120 14" fill="none" stroke="#c4a882" stroke-width="1.2"><path d="M0 7h48M72 7h48" /><path d="M60 1l5 6-5 6-5-6z" /></svg>
+        <p class="for">for the Corky Child Care Collective crew</p>
+        <p class="when">Saturday, December 12<br />from 5:30 until the fun runs out<br />40 to 50 guests · at the studio</p>
+      </div>
+    </section>
+
+    <p class="note">You take care of kids all year.<br />It's our turn to take care of you.</p>
+
+    <figure class="storefront">
+      <img src={img('storefront.jpg')} alt="The Hometown Studio storefront glowing at dusk" />
+      <figcaption>Hometown Studio · 525 Hughes Rd, Madison</figcaption>
+    </figure>
+
+    <section class="themes">
+      <p class="kicker center">Pick your night</p>
+      <p class="lede">Each option is ${PRICE} a person, with plenty to make and take home.</p>
+
+      {themes.map((t, i) => (
+        <button type="button" class="theme" data-id={t.id} data-name={t.name} data-photo={t.photos[0]} data-accent={t.accent} aria-pressed="false" style={`--tint:${t.tint};--accent:${t.accent}`}>
+          <span class="pics">
+            <img class="a" src={t.photos[0]} alt="" loading={i === 0 ? 'eager' : 'lazy'} />
+            <img class="b" src={t.photos[1]} alt="" loading="lazy" />
+            <span class="tick" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg></span>
+          </span>
+          <span class="tbody">
+            <span class="tname">{t.name}</span>
+            <span class="tblurb">{t.blurb}</span>
+            {t.addon && <span class="taddon">{t.addon}</span>}
+            <span class="haul">
+              <span class="haul-label">You take home</span>
+              <span class="haul-row">{t.haul.map((h) => <img src={h} alt="" loading="lazy" />)}</span>
+            </span>
+            <span class="tfoot"><span class="tprice">${PRICE}<small> a guest</small></span><span class="tpick">Pick this one</span></span>
+          </span>
+        </button>
+      ))}
+    </section>
+
+    <section class="included">
+      <div><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2b4a3a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="3.5" /><path d="M5 21c0-3.9 3.1-7 7-7s7 3.1 7 7" /></svg><span>We host</span></div>
+      <div><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2b4a3a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h10" /></svg><span>All supplies included</span></div>
+      <div><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2b4a3a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l3-3 4 4 8-8 3 3-11 11z" /></svg><span>We set up and clean up</span></div>
+      <div><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2b4a3a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h16v11H4zM12 9v11M4 9l2-5h12l2 5" /></svg><span>You keep everything</span></div>
+    </section>
+
+    <section class="photos" aria-hidden="true">
+      <img src={img('totes.jpg')} alt="" />
+      <img src={img('plants.jpg')} alt="" />
+      <img src={img('p0510.jpg')} alt="" />
+    </section>
+
+    <section class="steps">
+      <p class="kicker center">How it works</p>
+      <ol>
+        <li><span><b>Hold the date.</b> {DEPOSIT} now, and it comes off your total.</span></li>
+        <li><span><b>Send your headcount by Fri, Nov 27,</b> plus names if you want monograms.</span></li>
+        <li><span><b>Pay for whoever shows up.</b> We'll settle up that night.</span></li>
+      </ol>
+    </section>
+
+    <section class="reserve" data-price={PRICE}>
+      <p class="kicker light">Let us know by Tue, Nov 24</p>
+      <img class="sumimg" id="sumimg" src={img('mosaic.jpg')} alt="" hidden />
+      <p class="sum" id="sum" aria-live="polite">${PRICE} a guest · 40 to 50 guests</p>
+      <p class="sumnote" id="monohint">Monograms on the tote night, +${MONOGRAM} a guest</p>
+      <label class="mono" id="monorow" hidden>
+        <input type="checkbox" id="monogram" />
+        <span class="switch" aria-hidden="true"></span>
+        <span id="monolabel">Add monograms · +${MONOGRAM} a guest</span>
+      </label>
+      <p class="sumnote" id="namesdue" hidden>Names due Fri, Nov 27.</p>
+      <CorkyDeposit client:load />
+      <a class="btn ghost" id="textpick" href={'sms:+12564641710?&body=' + encodeURIComponent("Hi! It's Jessyca from the Corky Child Care Collective. For our Dec 12 night we'd like ")}>Text us your pick</a>
+      <p class="fine">Monograms get stitched ahead of time, so names can't change after that. <a href="/policies">Our policies</a></p>
+    </section>
+
+    <footer class="sign">
+      <p class="love">Catherine &amp; Kaden</p>
+      <p>Questions? <a href="sms:+12564641710">Text us at (256) 464-1710</a></p>
+    </footer>
+  </main>
+</Layout>
+
+<script>
+  // Picking a night, the monogram add-on, the paid lock-in (corky-page.ts), and our own
+  // small visit log (corky-visit-client.ts; no GA/Meta/PostHog here).
+  import { initCorkyPage } from '@lib/quote/corky-page'
+  import { startCorkyVisit } from '@lib/quote/corky-visit-client'
+  initCorkyPage()
+  startCorkyVisit()
+</script>
+
+<style>
+  :global(html) { background: #f3ece2; }
+  :global(body) { background: transparent; }
+  .inv {
+    --ink: #23392f; --text: #3f3a33; --muted: #6f665b; --gold: #b8925a; --brown: #7d2530; --paper: #fffdf8; --pine: #1f3329;
+    max-width: 30rem; margin: 0 auto; padding: 0 1rem 3rem; color: var(--text); font-family: Inter, sans-serif;
+    display: flex; flex-direction: column; align-items: center; overflow-x: hidden;
+  }
+  .kicker { margin: 0; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.3em; text-transform: uppercase; color: #9a7a46; }
+  .kicker.center { text-align: center; }
+  .kicker.light { color: #d8bd8a; }
+
+  .polaroids { position: relative; width: 100%; max-width: 24rem; height: 16.5rem; margin-top: 1.25rem; }
+  .pol { position: absolute; width: 9.6rem; height: 11.6rem; object-fit: cover; border: 0.5rem solid #fff; box-shadow: 0 0.75rem 1.75rem rgba(61,50,41,0.22); animation: drop 0.9s cubic-bezier(.2,.8,.2,1) both; }
+  .p1 { left: 0; top: 1.4rem; transform: rotate(-7deg); animation-delay: 0.05s; }
+  .p2 { left: 50%; top: 3.2rem; margin-left: -4.8rem; transform: rotate(3deg); z-index: 1; animation-delay: 0.2s; }
+  .p3 { right: 0; top: 0.8rem; transform: rotate(8deg); animation-delay: 0.35s; }
+  @keyframes drop { from { opacity: 0; translate: 0 -1.5rem; } to { opacity: 1; translate: 0 0; } }
+
+  .card { width: 100%; margin-top: -1.5rem; position: relative; z-index: 2; background: var(--paper); border-radius: 6px; box-shadow: 0 1.1rem 3rem rgba(61,50,41,0.16); padding: 0.6rem; }
+  .frame { border: 1px solid var(--gold); outline: 1px solid var(--gold); outline-offset: -6px; padding: 2.25rem 1.5rem 1.9rem; display: flex; flex-direction: column; align-items: center; gap: 0.85rem; text-align: center; }
+  h1 { margin: 0; font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: clamp(2.2rem, 9vw, 2.75rem); line-height: 1.05; color: var(--ink); }
+  .for { margin: 0; font-family: 'Playfair Display', serif; font-size: 1.15rem; color: var(--text); line-height: 1.35; }
+  .when { margin: 0; font-size: 0.875rem; line-height: 1.6; color: var(--muted); }
+
+  .note { margin: 2.5rem 0 0; font-family: 'Playfair Display', serif; font-style: italic; font-size: 1.3rem; line-height: 1.45; text-align: center; color: var(--ink); }
+
+  .storefront { width: 100%; margin: 1.75rem 0 0; padding: 0.5rem 0.5rem 0.75rem; background: var(--paper); border-radius: 6px; box-shadow: 0 1rem 2.6rem rgba(31,51,41,0.16); }
+  .storefront img { display: block; width: 100%; height: auto; border-radius: 3px; }
+  .storefront figcaption { margin-top: 0.6rem; text-align: center; font-family: 'Playfair Display', serif; font-style: italic; font-size: 0.95rem; color: var(--ink); }
+  .themes { width: 100%; margin-top: 2.5rem; display: flex; flex-direction: column; align-items: center; gap: 1.1rem; }
+  .lede { margin: -0.35rem 0 0.25rem; font-family: 'Playfair Display', serif; font-size: 1.1rem; text-align: center; color: var(--ink); }
+
+  .theme { position: relative; overflow: hidden; --tint: #fffdf9; --accent: #7a4a2e; appearance: none; border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; width: 100%; background: linear-gradient(180deg, var(--paper) 0%, var(--tint) 100%); border-radius: 10px; padding: 0.6rem; box-shadow: 0 0.8rem 2.2rem rgba(61,50,41,0.12); display: flex; flex-direction: column; gap: 0.9rem; outline: 2px solid transparent; transition: transform 0.35s ease, outline-color 0.35s ease, box-shadow 0.35s ease; }
+  .theme:focus-visible { outline-color: var(--brown); }
+  .theme[aria-pressed='true'] { outline-color: var(--accent); outline-width: 1.5px; outline-offset: 3px; transform: translateY(-2px); box-shadow: 0 1rem 2.6rem rgba(122,74,46,0.25); }
+
+  .pics { position: relative; display: grid; grid-template-columns: 3fr 2fr; gap: 0.35rem; }
+  .pics img { width: 100%; height: 12.5rem; object-fit: cover; display: block; }
+  .pics .a { border-radius: 5px 0 0 5px; }
+  .pics .b { border-radius: 0 5px 5px 0; }
+  .tick { position: absolute; top: 0.6rem; right: 0.6rem; width: 2rem; height: 2rem; border-radius: 50%; display: grid; place-items: center; background: rgba(255,253,249,0.9); color: transparent; border: 1.5px solid rgba(61,50,41,0.25); transition: all 0.15s ease; }
+  .theme[aria-pressed='true'] .tick { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .tbody { display: flex; flex-direction: column; gap: 0.8rem; padding: 0 0.6rem 0.6rem; }
+  .theme.down { transform: scale(0.99); }
+  .theme .pics img { transition: filter 0.3s ease; }
+  .theme[aria-pressed='false'] .pics img { filter: saturate(0.92); }
+  .theme[aria-pressed='true'] .pics img { filter: saturate(1.12) brightness(1.03); }
+  .sparkle { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+  .sparkle i { position: absolute; display: block; border-radius: 50%; box-shadow: 0 0 4px rgba(218,165,32,0.6); }
+  .haul { display: flex; flex-direction: column; gap: 0.4rem; }
+  .haul-label { font-size: 0.65rem; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); }
+  .haul-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.35rem; }
+  .haul-row img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 6px; border: 2px solid #fff; box-shadow: 0 0.25rem 0.6rem rgba(61,50,41,0.12); }
+    .tname { font-family: 'Playfair Display', serif; font-style: italic; font-size: 1.6rem; line-height: 1.1; color: var(--accent); }
+  .tblurb { font-size: 0.95rem; line-height: 1.5; color: var(--text); }
+  .taddon { font-size: 0.8rem; font-style: italic; color: var(--brown); margin-top: -0.35rem; }
+  .dots { border-bottom: 1.5px dotted var(--gold); transform: translateY(-0.25rem); }
+  .tfoot { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #efe4d6; padding-top: 0.75rem; }
+  .tprice { font-family: 'Playfair Display', serif; font-weight: 600; font-size: 1.75rem; color: var(--accent); line-height: 1; }
+  .tprice small { font-family: Inter, sans-serif; font-weight: 400; font-size: 0.8rem; color: var(--muted); }
+  .tpick { font-size: 0.85rem; font-weight: 600; color: var(--accent); border: 1.5px solid var(--accent); transition: background 0.2s, color 0.2s; border-radius: 999px; padding: 0.55rem 0.9rem; min-height: 2.75rem; display: inline-flex; align-items: center; }
+  .theme[aria-pressed='true'] .tpick { background: var(--accent); color: #fff; }
+
+  .included { width: 100%; margin-top: 2rem; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
+  .included div { padding: 1.1rem 0.8rem; border-radius: 6px; background: rgba(255,253,249,0.7); display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-align: center; font-size: 0.875rem; color: var(--ink); }
+
+  .photos { width: 100%; margin-top: 1.25rem; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; }
+  .photos img { width: 100%; height: 7rem; object-fit: cover; border-radius: 6px; }
+
+  .steps { width: 100%; margin-top: 2.25rem; display: flex; flex-direction: column; gap: 1rem; }
+  .steps ol { margin: 0; padding: 0; list-style: none; counter-reset: s; display: flex; flex-direction: column; gap: 0.9rem; }
+  .steps li { counter-increment: s; display: grid; grid-template-columns: 2.1rem 1fr; gap: 0.75rem; align-items: center; font-size: 0.95rem; line-height: 1.45; }
+  .steps li::before { content: counter(s); width: 2.1rem; height: 2.1rem; border-radius: 50%; border: 1px dashed var(--gold); display: grid; place-items: center; font-family: 'Playfair Display', serif; font-style: italic; color: var(--brown); }
+  .steps b { color: var(--ink); font-weight: 600; }
+
+  .reserve { width: 100%; margin-top: 2.25rem; padding: 1.6rem 1.35rem; background: var(--pine); border-radius: 6px; display: flex; flex-direction: column; align-items: center; gap: 0.85rem; text-align: center; box-shadow: 0 1.1rem 2.75rem rgba(31,51,41,0.3); border: 1px solid rgba(184,146,90,0.45); outline: 1px solid rgba(184,146,90,0.25); outline-offset: -7px; }
+  .reserve { --accent: #7a4a2e; }
+  .sumimg { width: 4.5rem; height: 4.5rem; object-fit: cover; border: 0.3rem solid #fff; border-radius: 3px; transform: rotate(-3deg); box-shadow: 0 0.5rem 1.2rem rgba(0,0,0,0.35); }
+  .sum { margin: 0; font-family: 'Playfair Display', serif; font-size: 1.3rem; color: #faf8f5; }
+  .sumnote { margin: -0.4rem 0 0; font-size: 0.8rem; font-style: italic; color: #d8bd8a; animation: soft 0.45s ease-out both; }
+  .mono { position: relative; display: flex; align-items: center; justify-content: center; gap: 0.7rem; min-height: 2.9rem; padding: 0.35rem 1rem; margin-top: -0.25rem; border: 1px solid rgba(216,189,138,0.5); border-radius: 999px; color: #f3e6cc; font-size: 0.9rem; cursor: pointer; animation: soft 0.45s ease-out both; transition: border-color 0.25s ease, background 0.25s ease; }
+  .mono[hidden], .sumnote[hidden] { display: none; }
+  .mono input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+  .mono .switch { position: relative; flex: none; width: 2.1rem; height: 1.2rem; border-radius: 999px; border: 1px solid #d8bd8a; background: transparent; transition: background 0.25s ease; }
+  .mono .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: calc(1.2rem - 6px); height: calc(1.2rem - 6px); border-radius: 50%; background: #d8bd8a; transition: transform 0.25s ease, background 0.25s ease; }
+  .mono:has(input:checked) { border-color: #d8bd8a; background: rgba(216,189,138,0.1); }
+  .mono:has(input:checked) .switch { background: #d8bd8a; }
+  .mono:has(input:checked) .switch::after { transform: translateX(0.9rem); background: var(--pine); }
+  .mono:has(input:focus-visible) { outline: 2px solid #f1d7b6; outline-offset: 3px; }
+  .mono.locked { cursor: default; border-style: dashed; }
+  .mono.locked input { cursor: default; }
+  .mono.locked .switch { display: none; }
+  .theme.locked { cursor: default; }
+  .theme.faded { opacity: 0.55; filter: saturate(0.7); transform: none; box-shadow: 0 0.5rem 1.4rem rgba(61,50,41,0.08); transition: opacity 0.6s ease, filter 0.6s ease; }
+  @keyframes soft { from { opacity: 0; } to { opacity: 1; } }
+  .btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 3.5rem; border-radius: 999px; background: linear-gradient(180deg, #ecd9b4, #d9bf8e); color: var(--pine); font-weight: 600; font-size: 1.05rem; text-decoration: none; transition: transform 0.15s ease; box-shadow: 0 0.4rem 1.2rem rgba(0,0,0,0.25); }
+  .btn.ghost { background: transparent; color: #ecd9b4; border: 1px solid rgba(216,189,138,0.55); box-shadow: none; min-height: 3rem; font-size: 0.95rem; }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:focus-visible { outline: 3px solid #f1d7b6; outline-offset: 3px; }
+  .fine { margin: 0; font-size: 0.75rem; line-height: 1.5; color: #d9cfc4; }
+  .fine a { color: #ecd9b4; }
+
+  .sign { margin-top: 2.25rem; display: flex; flex-direction: column; align-items: center; gap: 0.35rem; text-align: center; }
+  .sign p { margin: 0; font-size: 0.85rem; color: var(--muted); }
+  .sign .love { font-family: 'Playfair Display', serif; font-style: italic; font-size: 1.25rem; color: var(--brown); }
+  .sign a { color: var(--brown); }
+
+  @media (prefers-reduced-motion: reduce) { .pol, .mono, .sumnote { animation: none; } .mono, .mono .switch, .mono .switch::after, .theme.faded { transition: none; } }
+</style>

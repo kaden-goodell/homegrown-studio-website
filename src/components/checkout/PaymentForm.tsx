@@ -55,8 +55,9 @@ interface PaymentFormProps {
    *  never offers Pay before there is a card field to pay with. */
   onReadyChange?: (ready: boolean) => void
   /** 'allowed' (default) offers a "pay with a gift card instead" toggle;
-   *  'cards-only' shows a line saying gift cards can't be used here. */
-  giftCards?: 'allowed' | 'cards-only'
+   *  'cards-only' shows a line saying gift cards can't be used here;
+   *  'none' offers no gift card and says nothing about it. */
+  giftCards?: 'allowed' | 'cards-only' | 'none'
   /** Which booking flow this form is in, so its problems are counted against it. */
   bookingKind?: BookingKindForAnalytics
   /**
@@ -642,7 +643,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
               Gift cards can’t be used for class seats — {TEXT_US} and we’ll add you.
             </p>
           ) : (
-            <p className="text-sm text-gray-500" style={{ margin: 0 }}>{STORE_NOTE}</p>
+            store ? <p className="text-sm text-gray-500" style={{ margin: 0 }}>{STORE_NOTE}</p> : null
           )}
         </div>
       )
@@ -733,7 +734,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
             Gift cards can’t be used for class seats — {TEXT_US} and we’ll add you.
           </p>
         ) : (
-          <p className="text-sm text-gray-500" style={{ margin: 0 }}>{STORE_NOTE}</p>
+          store ? <p className="text-sm text-gray-500" style={{ margin: 0 }}>{STORE_NOTE}</p> : null
         )}
       </div>
     )
