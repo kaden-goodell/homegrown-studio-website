@@ -1,0 +1,174 @@
+---
+/**
+ * One-off private event quote for The Corky Child Care Collective (Kaden,
+ * 17 Nov 2026), made by hand before the quote system ships. Invitation
+ * design (canvas "C · The Invitation"). The Hold button goes to a Square
+ * payment link for the deposit; the owners book the evening in /admin after.
+ */
+import Layout from '@layouts/Layout.astro'
+
+export const prerender = true
+
+const DEPOSIT_URL = 'https://square.link/u/REPLACE_ME'
+const img = (n: string) => `/quote/corky/${n}`
+
+const menu = [
+  { name: 'Monogrammed tote, patched your way', price: 35 },
+  { name: 'Mosaic tile coasters, set of four', price: 40 },
+  { name: 'Gold carabiner scarf keychain', price: 20 },
+]
+const normal = menu.reduce((s, m) => s + m.price, 0)
+const price = 75
+---
+<Layout
+  title="A Christmas Evening of Making"
+  description="Your evening at Hometown Studio, Saturday, December 12."
+  noindex
+  noAnalytics
+  noReferrer
+  bare
+>
+  <main class="inv">
+    <div class="polaroids" aria-hidden="true">
+      <img class="pol p1" src={img('coasters.jpg')} alt="" />
+      <img class="pol p2" src={img('bag.jpg')} alt="" />
+      <img class="pol p3" src={img('scarf.jpg')} alt="" />
+    </div>
+
+    <section class="card">
+      <div class="frame">
+        <p class="kicker">Hometown Studio presents</p>
+        <h1>A Christmas Evening of Making</h1>
+        <svg class="rule" aria-hidden="true" width="120" height="14" viewBox="0 0 120 14" fill="none" stroke="#c4a882" stroke-width="1.2"><path d="M0 7h48M72 7h48" /><path d="M60 1l5 6-5 6-5-6z" /></svg>
+        <p class="for">for the educators of<br />The Corky Child Care Collective</p>
+        <p class="when">Saturday, December twelfth<br />half past five to half past seven<br />40 to 50 guests · at the studio</p>
+      </div>
+    </section>
+
+    <p class="note">You take care of everyone all year.<br />This night, we take care of you.</p>
+
+    <section class="menu">
+      <p class="kicker center">The evening</p>
+      <div class="menu-card">
+        <ul>
+          {menu.map((m) => (
+            <li>
+              <span class="item">{m.name}</span>
+              <span class="dots" aria-hidden="true"></span>
+              <span class="mprice">${m.price}</span>
+            </li>
+          ))}
+        </ul>
+        <div class="totals">
+          <div class="row muted"><span>Menu value</span><span class="strike">${normal} a guest</span></div>
+          <div class="row big"><span class="your">Your price</span><span class="amt">${price}<small> a guest</small></span></div>
+          <p class="save">You save ${normal - price} a guest, about ${(normal - price) * 45} for 45.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="photos" aria-hidden="true">
+      <img src={img('bag.jpg')} alt="" />
+      <img src={img('p0641.jpg')} alt="" />
+      <img src={img('p0031.jpg')} alt="" />
+    </section>
+
+    <section class="included">
+      <div><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7a4a2e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="3.5" /><path d="M5 21c0-3.9 3.1-7 7-7s7 3.1 7 7" /></svg><span>Your own hosts</span></div>
+      <div><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7a4a2e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h10" /></svg><span>Every supply</span></div>
+      <div><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7a4a2e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l3-3 4 4 8-8 3 3-11 11z" /></svg><span>We set up &amp; clean up</span></div>
+      <div><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7a4a2e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h16v11H4zM12 9v11M4 9l2-5h12l2 5" /></svg><span>Everything goes home</span></div>
+    </section>
+
+    <section class="steps">
+      <p class="kicker center">How it works</p>
+      <ol>
+        <li><span><b>Hold your evening.</b> $1,500 today, half of 40 guests.</span></li>
+        <li><span><b>Send names by Friday, November 27.</b> Your final count and a monogram for each tote.</span></li>
+        <li><span><b>Pay for who comes.</b> The rest is settled on the night.</span></li>
+      </ol>
+    </section>
+
+    <section class="reserve">
+      <p class="kicker light">Kindly reply by Tuesday, November 24</p>
+      <p class="sum">${price} a guest · 40 to 50 guests</p>
+      <a class="btn" href={DEPOSIT_URL}>Hold December 12 · $1,500</a>
+      <p class="fine">Totes are monogrammed to order, so names can't change once they're made. <a href="/policies">Our policies</a></p>
+    </section>
+
+    <footer class="sign">
+      <p class="love">with love, Catherine &amp; Kaden</p>
+      <p>Questions? <a href="sms:+12564641710">Text us at (256) 464-1710</a></p>
+    </footer>
+  </main>
+</Layout>
+
+<style>
+  :global(body) { background: #efe6da; }
+  .inv {
+    --ink: #3d3229; --text: #4a403a; --muted: #6f635b; --gold: #c4a882; --brown: #7a4a2e; --paper: #fffdf9;
+    max-width: 30rem; margin: 0 auto; padding: 0 1rem 3rem; color: var(--text); font-family: Inter, sans-serif;
+    display: flex; flex-direction: column; align-items: center; overflow-x: hidden;
+  }
+  .kicker { margin: 0; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.3em; text-transform: uppercase; color: #8a6a4c; }
+  .kicker.center { text-align: center; }
+  .kicker.light { color: #e2bf96; }
+
+  .polaroids { position: relative; width: 100%; max-width: 24rem; height: 16.5rem; margin-top: 1.25rem; }
+  .pol { position: absolute; width: 9.6rem; height: 11.6rem; object-fit: cover; border: 0.5rem solid #fff; box-shadow: 0 0.75rem 1.75rem rgba(61,50,41,0.22); animation: drop 0.9s cubic-bezier(.2,.8,.2,1) both; }
+  .p1 { left: 0; top: 1.4rem; transform: rotate(-7deg); animation-delay: 0.05s; }
+  .p2 { left: 50%; top: 3.2rem; margin-left: -4.8rem; transform: rotate(3deg); z-index: 1; animation-delay: 0.2s; }
+  .p3 { right: 0; top: 0.8rem; transform: rotate(8deg); animation-delay: 0.35s; }
+  @keyframes drop { from { opacity: 0; translate: 0 -1.5rem; } to { opacity: 1; translate: 0 0; } }
+
+  .card { width: 100%; margin-top: -1.5rem; position: relative; z-index: 2; background: var(--paper); border-radius: 6px; box-shadow: 0 1.1rem 3rem rgba(61,50,41,0.16); padding: 0.6rem; }
+  .frame { border: 1px solid var(--gold); outline: 1px solid var(--gold); outline-offset: -6px; padding: 2.25rem 1.5rem 1.9rem; display: flex; flex-direction: column; align-items: center; gap: 0.85rem; text-align: center; }
+  h1 { margin: 0; font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: clamp(2.2rem, 9vw, 2.75rem); line-height: 1.05; color: var(--ink); }
+  .for { margin: 0; font-family: 'Playfair Display', serif; font-size: 1.15rem; color: var(--text); line-height: 1.35; }
+  .when { margin: 0; font-size: 0.875rem; line-height: 1.6; color: var(--muted); }
+
+  .note { margin: 2.5rem 0 0; font-family: 'Playfair Display', serif; font-style: italic; font-size: 1.3rem; line-height: 1.45; text-align: center; color: var(--ink); }
+
+  .menu { width: 100%; margin-top: 2.5rem; display: flex; flex-direction: column; gap: 1rem; }
+  .menu-card { background: var(--paper); border-radius: 6px; box-shadow: 0 0.9rem 2.5rem rgba(61,50,41,0.12); padding: 1.75rem 1.4rem 1.6rem; }
+  .menu-card ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1rem; }
+  .menu-card li { display: flex; align-items: baseline; gap: 0.5rem; }
+  .item { font-family: 'Playfair Display', serif; font-size: 1.05rem; color: var(--ink); }
+  .dots { flex: 1; min-width: 1rem; border-bottom: 1.5px dotted var(--gold); transform: translateY(-0.25rem); }
+  .mprice { font-size: 0.875rem; color: var(--muted); }
+  .totals { margin-top: 1.4rem; border-top: 1px solid #e4d6c4; padding-top: 1.1rem; display: flex; flex-direction: column; gap: 0.45rem; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; }
+  .muted { font-size: 0.875rem; color: var(--muted); }
+  .strike { text-decoration: line-through; }
+  .your { font-family: 'Playfair Display', serif; font-size: 1.25rem; color: var(--ink); }
+  .amt { font-family: 'Playfair Display', serif; font-weight: 600; font-size: 2.6rem; color: var(--brown); line-height: 1; }
+  .amt small { font-family: Inter, sans-serif; font-weight: 400; font-size: 0.875rem; color: var(--muted); }
+  .save { margin: 0.35rem 0 0; font-size: 0.85rem; color: var(--brown); font-weight: 600; text-align: right; }
+
+  .photos { width: 100%; margin-top: 1.75rem; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; }
+  .photos img { width: 100%; height: 7rem; object-fit: cover; border-radius: 6px; }
+
+  .included { width: 100%; margin-top: 1.75rem; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
+  .included div { padding: 1.1rem 0.8rem; border-radius: 6px; background: rgba(255,253,249,0.7); display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-align: center; font-size: 0.875rem; color: var(--ink); }
+
+  .steps { width: 100%; margin-top: 2.25rem; display: flex; flex-direction: column; gap: 1rem; }
+  .steps ol { margin: 0; padding: 0; list-style: none; counter-reset: s; display: flex; flex-direction: column; gap: 0.9rem; }
+  .steps li { counter-increment: s; display: grid; grid-template-columns: 2.1rem 1fr; gap: 0.75rem; align-items: center; font-size: 0.95rem; line-height: 1.45; }
+  .steps li::before { content: counter(s); width: 2.1rem; height: 2.1rem; border-radius: 50%; border: 1px dashed var(--gold); display: grid; place-items: center; font-family: 'Playfair Display', serif; font-style: italic; color: var(--brown); }
+  .steps b { color: var(--ink); font-weight: 600; }
+
+  .reserve { width: 100%; margin-top: 2.25rem; padding: 1.6rem 1.35rem; background: var(--ink); border-radius: 6px; display: flex; flex-direction: column; align-items: center; gap: 0.85rem; text-align: center; box-shadow: 0 1.1rem 2.75rem rgba(61,50,41,0.3); }
+  .sum { margin: 0; font-family: 'Playfair Display', serif; font-size: 1.3rem; color: #faf8f5; }
+  .btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 3.5rem; border-radius: 999px; background: #f1d7b6; color: var(--ink); font-weight: 600; font-size: 1.05rem; text-decoration: none; transition: transform 0.15s ease, box-shadow 0.15s ease; box-shadow: 0 0.4rem 1.2rem rgba(0,0,0,0.25); }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 0.6rem 1.5rem rgba(0,0,0,0.3); }
+  .btn:focus-visible { outline: 3px solid #f1d7b6; outline-offset: 3px; }
+  .fine { margin: 0; font-size: 0.75rem; line-height: 1.5; color: #d9cfc4; }
+  .fine a { color: #f1d7b6; }
+
+  .sign { margin-top: 2.25rem; display: flex; flex-direction: column; align-items: center; gap: 0.35rem; text-align: center; }
+  .sign p { margin: 0; font-size: 0.85rem; color: var(--muted); }
+  .sign .love { font-family: 'Playfair Display', serif; font-style: italic; font-size: 1.25rem; color: var(--brown); }
+  .sign a { color: var(--brown); }
+
+  @media (prefers-reduced-motion: reduce) { .pol { animation: none; } }
+</style>
