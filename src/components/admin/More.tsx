@@ -13,6 +13,7 @@ const ROWS: [MorePage, string, string][] = [
   ['crafts', 'Crafts', 'Party and Craft Café crafts: photos, prices, words'],
   ['hours', 'Hours & Craft Café', 'Café hours and special days'],
   ['closed', 'Closed days', ''],
+  ['schedule', 'Print schedule', 'A week’s schedule for the window'],
   ['staff', 'Staff', 'Who’s on, who can work, calendar links'],
   ['promos', 'Promotions', 'Codes, early-bird'],
   ['register', 'Register setup', 'The class tax and Classes category on the register'],

@@ -33,6 +33,7 @@ import { ActivitySheet } from './sheets/ActivitySheet'
 import { RecordsSheet } from './sheets/RecordsSheet'
 import { CraftsSheet } from './sheets/CraftsSheet'
 import { HelpSheet } from './sheets/HelpSheet'
+import { PrintScheduleSheet } from './sheets/PrintScheduleSheet'
 import { FindSheet } from './sheets/FindSheet'
 import { AdminAccessSheet, ConnectionsSheet, NotifySheet } from './sheets/OwnerSheets'
 import { PromoSheet, PromosSheet } from './promos/PromosSheet'
@@ -480,6 +481,7 @@ function SheetContent({ sheet: s }: { sheet: Sheet }) {
         case 'help': return <HelpSheet />
         case 'activity': return <ActivitySheet />
         case 'find': return <FindSheet />
+        case 'schedule': return <PrintScheduleSheet />
       }
   }
 }

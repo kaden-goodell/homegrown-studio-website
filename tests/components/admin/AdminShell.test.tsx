@@ -748,7 +748,7 @@ describe('More', () => {
     await signedIn()
     tab('More')
     const setup = await screen.findByRole('list', { name: 'Setup' })
-    expect(within(setup).getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Online booking', 'Parties setup', 'Crafts', 'Hours & Craft Café', 'Closed days', 'Staff', 'Promotions', 'Register setup', 'Reports', 'Records'])
+    expect(within(setup).getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Online booking', 'Parties setup', 'Crafts', 'Hours & Craft Café', 'Closed days', 'Print schedule', 'Staff', 'Promotions', 'Register setup', 'Reports', 'Records'])
     expect(within(setup).getByRole('button', { name: /Staff/ })).toHaveTextContent('Who’s on, who can work, calendar links')
     expect(within(setup).getByRole('button', { name: /Promotions/ })).toHaveTextContent('Codes, early-bird')
     // The row says what's set, from the saved Parties setup.
