@@ -145,7 +145,7 @@ const themes = [
       </label>
       <p class="sumnote" id="namesdue" hidden>Names due Fri, Nov 27.</p>
       <CorkyDeposit client:load />
-      <a class="btn ghost" id="textpick" href={'sms:+12564641710?&body=' + encodeURIComponent("Hi! It's Jessyca from the Corky Child Care Collective. For our Dec 12 night we'd like ")}>Text us your pick</a>
+      <a class="btn ghost" id="textpick" hidden href={'sms:+12564641710?&body=' + encodeURIComponent("Hi! It's Jessyca from the Corky Child Care Collective. For our Dec 12 night we'd like ")}>Text us your pick</a>
       <p class="fine"><span id="monofine" hidden>Monograms get stitched ahead of time, so names can't change after that. </span><a href="/policies">Our policies</a></p>
     </section>
 
@@ -263,6 +263,7 @@ const themes = [
   .theme.faded { opacity: 0.55; filter: saturate(0.7); transform: none; box-shadow: 0 0.5rem 1.4rem rgba(61,50,41,0.08); transition: opacity 0.6s ease, filter 0.6s ease; }
   @keyframes soft { from { opacity: 0; } to { opacity: 1; } }
   .btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 3.5rem; border-radius: 999px; background: linear-gradient(180deg, #ecd9b4, #d9bf8e); color: var(--pine); font-weight: 600; font-size: 1.05rem; text-decoration: none; transition: transform 0.15s ease; box-shadow: 0 0.4rem 1.2rem rgba(0,0,0,0.25); }
+  .btn[hidden] { display: none; }
   .btn.ghost { background: transparent; color: #ecd9b4; border: 1px solid rgba(216,189,138,0.55); box-shadow: none; min-height: 3rem; font-size: 0.95rem; }
   .btn:hover { transform: translateY(-1px); }
   .btn:focus-visible { outline: 3px solid #f1d7b6; outline-offset: 3px; }
