@@ -1,6 +1,6 @@
 import { PAYMENT_FORM_UNAVAILABLE, TEXT_US } from '@lib/checkout-messages'
 import { reportBookingTrouble, troubleKind } from '@lib/booking-trouble'
-import { trackBookingProblem, trackGiftCardToggle, type BookingKindForAnalytics } from '@lib/analytics'
+import { trackBookingProblem, trackGiftCardToggle, trackWalletStep, type BookingKindForAnalytics } from '@lib/analytics'
 import {
   createElement,
   forwardRef,
@@ -110,6 +110,15 @@ const APPLE_PAY_JS_SDK = 'https://applepay.cdn-apple.com/jsapi/1.latest/apple-pa
  */
 const NATIVE_APPLE_PAY = typeof window !== 'undefined' && typeof (window as any).ApplePaySession !== 'undefined'
 
+/** What the browser says about Apple Pay, for the wallet-step analytics. */
+function walletEnv(): Record<string, unknown> {
+  const A = typeof window !== 'undefined' ? (window as any).ApplePaySession : undefined
+  let canMake: unknown = null
+  try { canMake = A ? A.canMakePayments() : null } catch (e) { canMake = `threw: ${String(e).slice(0, 80)}` }
+  return { native: NATIVE_APPLE_PAY, has_session: !!A, can_make: canMake, host: typeof location !== 'undefined' ? location.host : '' }
+}
+
+
 function loadApplePaySdk(): Promise<void> {
   const existing = document.querySelector(`script[src="${APPLE_PAY_JS_SDK}"]`)
   if (existing) return Promise.resolve()
@@ -175,6 +184,20 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
     // Mock mode only: the typed stand-in for the gift card field.
     const [mockGiftValue, setMockGiftValue] = useState('')
     const applePayRef = useRef<WalletInstance | null>(null)
+    const applePayButtonRef = useRef<HTMLElement | null>(null)
+    // Latest tap handler, so the element's listener never goes stale.
+    const applePayTap = useRef<() => void>(() => {})
+    applePayTap.current = () => {
+      trackWalletStep(bookingKind, 'Apple Pay', 'tap')
+      void tokenizeWallet(applePayRef.current, 'Apple Pay')
+    }
+    useEffect(() => {
+      const el = applePayButtonRef.current
+      if (!el || !applePayReady) return
+      const onTap = () => applePayTap.current()
+      el.addEventListener('click', onTap)
+      return () => el.removeEventListener('click', onTap)
+    }, [applePayReady])
     const googlePayRef = useRef<WalletInstance | null>(null)
     const afterpayRef = useRef<WalletInstance | null>(null)
     const googlePayContainerRef = useRef<HTMLDivElement>(null)
@@ -413,18 +436,35 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
     }, [ready])
 
     async function tokenizeWallet(instance: WalletInstance | null, name: string) {
-      if (!instance || !onWalletToken) return
+      // Every step of a wallet tap goes to analytics, so a button that "does
+      // nothing" says where it stopped (Kaden, 16 Nov 2026: Apple Pay on
+      // parties never opened, for him or the Oct 20 customer).
+      const step = (s: string, extra?: Record<string, unknown>) => trackWalletStep(bookingKind, name, s, extra)
+      if (!instance || !onWalletToken) {
+        step('no_instance', { instance: !!instance, handler: !!onWalletToken })
+        return
+      }
       const blocker = canPayWithWallet?.()
       if (blocker) {
+        step('blocked', { reason: blocker })
         setWalletError(blocker)
         return
       }
       setWalletError(null)
       // The sheet opens with the total on the Pay button right now.
       pushWalletTotal()
+      step('tokenize_start', walletEnv())
+      // A sheet that never opens leaves tokenize() waiting with no answer: say so.
+      const slow = setTimeout(() => {
+        step('no_answer_10s')
+        setWalletError(`${name} didn’t open. Please pay with your card below.`)
+      }, 10_000)
       try {
         const result = await instance.tokenize()
+        clearTimeout(slow)
+        step('tokenize_result', { status: result.status, errors: result.errors?.map((e) => e.message).join(' | ').slice(0, 200) })
         if (result.status === 'OK' && result.token) {
+          setWalletError(null)
           onWalletToken(result.token)
           return
         }
@@ -436,6 +476,8 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           setWalletError(walletFailedMessage(name))
         }
       } catch (err) {
+        clearTimeout(slow)
+        step('tokenize_threw', { message: err instanceof Error ? `${err.name}: ${err.message}`.slice(0, 200) : String(err).slice(0, 200) })
         trackBookingProblem(bookingKind, 'wallet_failed', `${name}: ${err instanceof Error ? err.message : 'error'}`)
         setWalletError(walletFailedMessage(name))
       }
@@ -617,7 +659,9 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
               locale: 'en-US',
               role: 'button',
               'aria-label': 'Pay with Apple Pay',
-              onClick: () => tokenizeWallet(applePayRef.current, 'Apple Pay'),
+              // A listener on the element itself, not React's: a tap on Apple's
+              // button reached nothing for the Oct 20 customer or Kaden (16 Nov).
+              ref: applePayButtonRef,
             })}
           </>
         )}
