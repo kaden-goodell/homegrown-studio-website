@@ -742,10 +742,22 @@ async function finishPaid(
   const reread = await getClass(cls.id).then((c) => ({ c }), () => null)
   const cancelled = cls.status === 'cancelled' || (reread !== null && (reread.c === null || reread.c.status === 'cancelled'))
   // The entry first: once Square has the money, nobody may ever charge this person again.
-  const added = await updateEntry(cls.id, entry.id, (e) => ({
-    ...patchAttempt(e, a.n, { orderId, amountCents: chargedCents, outcome: 'paid', paymentId: payment.id, ...(cancelled ? { cancelledPaid: true } : {}) }), state: 'added', bookingId: a.bookingId,
-  }), { by: ctx.by, change: `Added and charged ${money(chargedCents)} to the card ending ${entry.square.last4}` }, now)
+  // Review (16 Nov 2026): only the run that moves this try to paid tells anyone;
+  // another run that settled the same try first already did.
+  let movedNow = false
+  const added = await updateEntry(cls.id, entry.id, (e) => {
+    const already = e.state === 'added' && e.attempts.some((x) => x.n === a.n && x.outcome === 'paid')
+    movedNow = !already
+    if (already) return null
+    return {
+      ...patchAttempt(e, a.n, { orderId, amountCents: chargedCents, outcome: 'paid', paymentId: payment.id, ...(cancelled ? { cancelledPaid: true } : {}) }), state: 'added', bookingId: a.bookingId,
+    }
+  }, { by: ctx.by, change: `Added and charged ${money(chargedCents)} to the card ending ${entry.square.last4}` }, now)
   if (!added) logger.error('WAITLIST PAID BUT ENTRY NOT MARKED ADDED', { entryId: entry.id, orderId })
+  if (added && !movedNow) {
+    logger.info('Waitlist try already settled by another run — nothing sent again', { entryId: entry.id, n: a.n })
+    return 'next'
+  }
   result.added++
 
   let recorded = true

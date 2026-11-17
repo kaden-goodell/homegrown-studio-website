@@ -34,7 +34,7 @@ import { quote } from '@lib/classes/pricing'
 import { defaultRules } from '@lib/classes/validate'
 import { getWaitlist } from '@lib/classes/waitlist-store'
 import { closeWaitlist, consentFor, joinWaitlist } from '@lib/classes/waitlist'
-import { askAboutEntry, chargeSaved, runWaitlist, sweepWaitlists } from '@lib/classes/waitlist-runner'
+import { askAboutEntry, chargeSaved, runWaitlist, sweepWaitlists, RUN_LOCK_MS } from '@lib/classes/waitlist-runner'
 import { waitlistGoesFirst } from '@lib/classes/waitlist-rules'
 import { classRefundBook } from '@lib/classes/refunds'
 import type { ScheduledClass } from '@lib/classes/types'
@@ -252,6 +252,31 @@ describe('runWaitlist', () => {
     expect((await entries(cls))[0]).toMatchObject({ state: 'added' })
     expect(h.square.chargeSavedCardCalls).toHaveLength(1)
     expect((await getLedger(cls.id)).lines.find((l) => l.bookingId === jane.attempts[0].bookingId)).toMatchObject({ state: 'confirmed', square: { paymentId: 'PAY-LATE' } })
+  })
+
+  it('review: two runs settling the same paid try at once send one "you’re in" text and one owners’ note', async () => {
+    const cls = makeClass()
+    const other = await fill(cls)
+    await join(cls, 'Jane', 'TIMEOUT_LATER')
+    await release(cls.id, other)
+    await runWaitlist(cls.id, { reason: 'seat-freed' }, NOW)
+    const jane = (await entries(cls))[0]
+    // A slow run asks Square and stalls; its lock runs out, a second run takes over and settles the same try; then the slow one finishes.
+    let release1!: () => void
+    const stalled = new Promise<void>((r) => { release1 = r })
+    const paid = { id: 'PAY-LATE', orderId: jane.attempts[0].orderId, amount: 2180, status: 'completed' }
+    let calls = 0
+    vi.spyOn(h.square, 'findOrderPayment').mockImplementation(async () => { if (++calls === 1) await stalled; return paid as any })
+    texts.mockClear(); owners.mockClear()
+    const t1 = new Date(NOW.getTime() + 60_000)
+    const slow = runWaitlist(cls.id, { reason: 'sweep' }, t1)
+    await vi.waitFor(() => expect(calls).toBe(1))
+    await runWaitlist(cls.id, { reason: 'sweep' }, new Date(t1.getTime() + RUN_LOCK_MS + 1000))
+    release1()
+    await slow
+    expect(texts.mock.calls.filter(([m]) => /you're in/.test(m.content))).toHaveLength(1)
+    expect(owners.mock.calls.filter(([m]) => /^Waitlist added/.test(m))).toHaveLength(1)
+    expect(h.square.chargeSavedCardCalls).toHaveLength(1)
   })
 
   it('a lost reply that did charge is found paid at once (LOST_REPLY_LATER)', async () => {
