@@ -37,15 +37,6 @@ const themes = [
     ],
   },
   {
-    id: 'jewelry',
-    name: 'Jewelry Night',
-    photos: [img('rondelle.jpg'), img('p0632.jpg')],
-    items: [
-      { name: 'Rondelle necklace', note: 'Strung bead by bead' },
-      { name: 'Earring bar', note: 'Christmas earrings, made your way' },
-    ],
-  },
-  {
     id: 'ornament',
     name: 'Ornament Night',
     photos: [img('p0436.jpg'), img('p0557.jpg')],
@@ -69,7 +60,7 @@ const themes = [
     <div class="polaroids" aria-hidden="true">
       <img class="pol p1" src={img('mosaic.jpg')} alt="" />
       <img class="pol p2" src={img('bag.jpg')} alt="" />
-      <img class="pol p3" src={img('rondelle.jpg')} alt="" />
+      <img class="pol p3" src={img('scarf.jpg')} alt="" />
     </div>
 
     <section class="card">
@@ -86,7 +77,7 @@ const themes = [
 
     <section class="themes">
       <p class="kicker center">Choose your night</p>
-      <p class="lede">Four nights to choose from, each ${PRICE} a guest.</p>
+      <p class="lede">Three nights to choose from, each ${PRICE} a guest.</p>
 
       {themes.map((t, i) => (
         <button type="button" class="theme" data-id={t.id} data-name={t.name} aria-pressed="false">
@@ -121,7 +112,7 @@ const themes = [
 
     <section class="photos" aria-hidden="true">
       <img src={img('totes.jpg')} alt="" />
-      <img src={img('rondelle2.jpg')} alt="" />
+      <img src={img('plants.jpg')} alt="" />
       <img src={img('p0031.jpg')} alt="" />
     </section>
 
