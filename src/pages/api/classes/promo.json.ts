@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { bookingsOpenNow, bookingsClosedResponse } from '@lib/bookings-gate'
+import { bookingsOpenNow, bookingsClosedResponse, ownSystemNow } from '@lib/bookings-gate'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { getClass } from '@lib/classes/class-store'
@@ -27,6 +27,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   const door = new URL(request.url).searchParams.get('door') === '1'
   if (door && !(await staffAuthorized(request))) return refuse(401, 'Sign in to /staff first.')
   if (!door && !await bookingsOpenNow(request, 'workshops')) return await bookingsClosedResponse()
+  // LEGACY FALLBACK — delete after 2027-01-15.
+  if (!door && !await ownSystemNow(request, 'classes')) return await bookingsClosedResponse()
   if (rateLimited(`class-promo:${clientAddress}`, 10, 60_000)) {
     return refuse(429, 'That’s a lot of codes in a row. Give it a minute, then try again.')
   }

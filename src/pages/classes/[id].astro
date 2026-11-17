@@ -11,7 +11,7 @@ import { ownPriceLabel, sessionsLine } from '@lib/classes/public-class'
 import { earlyBirdLabel } from '@lib/classes/early-bird'
 import { summarize } from '@lib/seo'
 import { formatDay } from '@lib/studio-time'
-import { bookingPageGate } from '@lib/bookings-gate'
+import { bookingPageGate, systemForEveryoneNow } from '@lib/bookings-gate'
 import { createLogger } from '@lib/logger'
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 
@@ -36,7 +36,8 @@ if (!workshop) Astro.response.status = failed ? 503 : 404
 // The owners' online booking switch; their test link unlocks this browser.
 const gate = await bookingPageGate({ url: Astro.url, request: Astro.request, setCookie: (n, v, o) => Astro.cookies.set(n, v, o) }, 'workshops')
 if (gate.redirect) return Astro.redirect(gate.redirect, 302) // the test link: cookie set, secret out of the address
-const bookingsOpen = gate.open
+// LEGACY FALLBACK — delete after 2027-01-15: while classes run on the old Square booking, only the test link books here.
+const bookingsOpen = gate.open && (gate.preview || (await systemForEveryoneNow('classes')) === 'own')
 Astro.response.headers.set('Cache-Control', 'private, no-store')
 
 const when = workshop?.own ? sessionsLine(workshop.own) || formatDay(workshop.startTime) : ''

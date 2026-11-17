@@ -15,6 +15,7 @@ import { judge, type DueItem, type StudioFacts, type WorkshopFact } from '@lib/s
 import { getEventMeta } from '@lib/event-meta'
 import type { CutoffSettings } from '@lib/seat-options'
 import { listClasses } from '@lib/classes/class-store'
+import { systemForEveryoneNow } from '@lib/bookings-gate'
 import { getLedger } from '@lib/classes/seat-ledger'
 import { listedPublicly, toPublicClass } from '@lib/classes/public-view'
 
@@ -76,6 +77,8 @@ const OWN_AHEAD_MS = 400 * 86_400_000
  */
 async function ownClassFacts(now: Date): Promise<WorkshopFact[]> {
   try {
+    // LEGACY FALLBACK — delete after 2027-01-15: nothing announced while classes run on Square.
+    if ((await systemForEveryoneNow('classes')) !== 'own') return []
     const classes = (await listClasses({ fromIso: now.toISOString(), toIso: new Date(now.getTime() + OWN_AHEAD_MS).toISOString() })).filter(listedPublicly)
     return await Promise.all(
       classes.map(async (cls): Promise<WorkshopFact> => {

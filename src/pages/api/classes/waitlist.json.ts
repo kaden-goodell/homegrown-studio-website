@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { bookingsOpenNow, bookingsClosedResponse } from '@lib/bookings-gate'
+import { bookingsOpenNow, bookingsClosedResponse, ownSystemNow } from '@lib/bookings-gate'
 import { isAttemptId } from '@lib/checkout-attempt'
 import { CONTACT_MESSAGES, isPhone } from '@lib/contact-rules'
 import { createLogger } from '@lib/logger'
@@ -44,6 +44,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     if (body.action !== 'join') return fail(400, 'invalid', WAITLIST_MESSAGES.unavailable)
 
     if (!await bookingsOpenNow(request, 'workshops')) return await bookingsClosedResponse()
+    // LEGACY FALLBACK — delete after 2027-01-15.
+    if (!await ownSystemNow(request, 'classes')) return await bookingsClosedResponse()
     if (rateLimited(`waitlist-join:${clientAddress}`, 5, 60_000)) return fail(429, 'unavailable', 'That’s a lot of tries in a row. Give it a minute, then try again.')
     const classId = typeof body.classId === 'string' ? body.classId : ''
     const passId = typeof body.passId === 'string' ? body.passId : ''

@@ -19,8 +19,12 @@ import { DIDNT_SAVE, useToast } from '../shell/Toast'
 export const ONLINE_BOOKING = '/api/admin/online-booking.json'
 
 type Kind = 'parties' | 'workshops' | 'kits'
+type SystemKind = 'parties' | 'classes'
+type BookingSystem = 'square' | 'own'
 export interface OnlineBookingView {
   open: Record<Kind, boolean>
+  /** Which system takes new online bookings ('square' = today's Square booking). Missing on an older server = 'square'. */
+  system?: Record<SystemKind, BookingSystem>
   pauseNote: string
   pauseNoteWritten: string
   /** M2: paused kinds that open again by themselves, and the day. */
@@ -34,6 +38,9 @@ export interface OnlineBookingView {
   noteMax: number
   kitsExist: boolean
   readOnly: boolean
+  /** LEGACY FALLBACK — delete after 2027-01-15: until when "Old Square booking" can be chosen. */
+  fallbackUntil?: string
+  fallbackAvailable?: boolean
 }
 
 const NAME: Record<Kind, string> = { parties: 'Parties', workshops: 'Classes & workshops', kits: 'Take-home kits' }
@@ -43,6 +50,12 @@ const PAUSE_LABEL: Record<Kind, string> = { parties: 'Pause parties', workshops:
 const OPEN_LABEL: Record<Kind, string> = { parties: 'Open parties', workshops: 'Open classes and workshops', kits: 'Open take-home kits' }
 const PAGE: Record<Kind, string> = { parties: '/book', workshops: '/workshops', kits: '/kits' }
 const STALE = 'Someone else changed online booking. Check it and save again.'
+const SYSTEM_NAME: Record<SystemKind, string> = { parties: 'Parties', classes: 'Classes & workshops' }
+const SYSTEM_LOWER: Record<SystemKind, string> = { parties: 'parties', classes: 'classes and workshops' }
+/** The system in force for a kind ('square' when the server didn't say). */
+export function systemOf(v: OnlineBookingView, k: SystemKind): BookingSystem {
+  return v.system?.[k] ?? 'square'
+}
 
 /** "Tue Nov 3, 3:10 PM" by the studio's clock (the date too, so last week's pause isn't mistaken for today's). */
 export function whenLabel(iso: string): string {
@@ -107,7 +120,10 @@ function OnlineBookingForm({ v, setV }: { v: OnlineBookingView; setV: (v: Online
   useSheetDirty(noteDirty)
   useEffect(() => { if (!noteDirty) setNote(v.pauseNoteWritten) }, [v.updatedAt])
 
-  async function save(change: { open?: Partial<Record<Kind, boolean>>; pauseNote?: string; newTestLink?: boolean; reopenOn?: Partial<Record<Kind, string | null>> }): Promise<OnlineBookingView | null> {
+  /** The "Runs on" choice being confirmed. */
+  const [askingSystem, setAskingSystem] = useState<{ kind: SystemKind; to: BookingSystem } | null>(null)
+
+  async function save(change: { open?: Partial<Record<Kind, boolean>>; pauseNote?: string; newTestLink?: boolean; reopenOn?: Partial<Record<Kind, string | null>>; system?: Partial<Record<SystemKind, BookingSystem>> }): Promise<OnlineBookingView | null> {
     setBusy(true)
     setStale('')
     const r = await api<OnlineBookingView & { changed: string[] }>(ONLINE_BOOKING, {
@@ -115,6 +131,7 @@ function OnlineBookingForm({ v, setV }: { v: OnlineBookingView; setV: (v: Online
       pauseNote: change.pauseNote ?? v.pauseNoteWritten,
       newTestLink: change.newTestLink === true,
       ...(change.reopenOn ? { reopenOn: change.reopenOn } : {}),
+      ...(change.system ? { system: change.system } : {}),
       expectedUpdatedAt: v.updatedAt,
     })
     setBusy(false)
@@ -134,6 +151,15 @@ function OnlineBookingForm({ v, setV }: { v: OnlineBookingView; setV: (v: Online
     toast(open
       ? `${NAME[kind]} are open online again.`
       : `${NAME[kind]} are paused online${day ? ` until ${shortDay(day)}, when they open again by themselves` : ''}. People already booked keep their booking.`)
+  }
+
+  async function switchSystem(kind: SystemKind, to: BookingSystem) {
+    setAskingSystem(null)
+    const saved = await save({ system: { [kind]: to } })
+    if (!saved) return
+    toast(to === 'own'
+      ? `${SYSTEM_NAME[kind]} now book on the new booking system.`
+      : `${SYSTEM_NAME[kind]} are back on the old Square booking. Bookings already made stay as they are.`)
   }
 
   async function keepPaused(kind: Kind) {
@@ -230,6 +256,48 @@ function OnlineBookingForm({ v, setV }: { v: OnlineBookingView; setV: (v: Online
           </fieldset>
         )
       })}
+
+      {v.fallbackAvailable !== false && (<>
+      {/* LEGACY FALLBACK — delete after 2027-01-15 (this whole "Runs on" block). */}
+      <p className="adm-lbl">Runs on</p>
+      <p className="adm-small adm-muted">{`Which booking system takes new bookings on the website. Bookings already made stay where they are. Fallback to Square available until ${v.fallbackUntil ? shortDay(v.fallbackUntil) : 'Jan 15'}; after that everything books on the new system.`}</p>
+      {(['parties', 'classes'] as SystemKind[]).map((k) => (
+        <fieldset key={`sys-${k}`} className="adm-date">
+          <legend>{SYSTEM_NAME[k]}</legend>
+          <Seg
+            label={`${SYSTEM_NAME[k]} run on`}
+            value={systemOf(v, k)}
+            options={[['square', 'Old Square booking'], ['own', 'New booking system']]}
+            onChange={(next) => {
+              if (locked) return
+              const to = next as BookingSystem
+              if (to !== systemOf(v, k)) setAskingSystem({ kind: k, to })
+            }}
+          />
+          <p className="adm-small adm-muted">
+            {systemOf(v, k) === 'own'
+              ? (k === 'parties' ? 'New parties are booked and paid here, with no Square booking.' : 'Classes you make in Classes are on the website and book here.')
+              : (k === 'parties' ? 'New parties book in Square, the way they always have.' : 'Only the classes in Square are on the website. Classes you make in Classes are hidden, except with the test link.')}
+          </p>
+          {askingSystem?.kind === k && (
+            <div className="adm-panel" role="group" aria-label={askingSystem.to === 'own' ? `Move ${SYSTEM_LOWER[k]} to the new booking system?` : `Put ${SYSTEM_LOWER[k]} back on Square?`}>
+              <b>{askingSystem.to === 'own' ? `Move ${SYSTEM_LOWER[k]} to the new booking system?` : `Put ${SYSTEM_LOWER[k]} back on the old Square booking?`}</b>
+              <span className="adm-small">
+                {askingSystem.to === 'own'
+                  ? 'New bookings go through the new system within a minute. Bookings already in Square stay in Square.'
+                  : 'New bookings go back to Square within a minute. Bookings already made on the new system stay there and still show in /admin and /staff.'}
+              </span>
+              <div className="adm-two">
+                <button type="button" className="adm-btn is-ghost" onClick={() => setAskingSystem(null)}>Keep it as it is</button>
+                <button type="button" className="adm-btn is-pri" disabled={locked} onClick={() => switchSystem(k, askingSystem.to)}>
+                  {askingSystem.to === 'own' ? 'Use the new system' : 'Go back to Square'}
+                </button>
+              </div>
+            </div>
+          )}
+        </fieldset>
+      ))}
+      </>)}
 
       <p className="adm-lbl">Note while paused</p>
       <label className="adm-fld">

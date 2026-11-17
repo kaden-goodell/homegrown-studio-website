@@ -25,6 +25,7 @@ import type { By } from '@lib/staff-auth'
 import { siteConfig } from '@config/site.config'
 import { CAS_ATTEMPTS, casPause } from '@lib/cas-retry'
 import { chicagoYmd, isYmd, shortDay } from '@lib/classes/chicago-day'
+import { LEGACY_FALLBACK_UNTIL } from '@config/legacy-fallback'
 
 const logger = createLogger('booking-switch')
 const kv = makeKvStore('site-switches', 'site-switches')
@@ -43,6 +44,25 @@ export function defaultPauseNote(): string {
   return `Online booking is paused for now. Call or text us at ${siteConfig.contactPhone} and we’ll get you set up.`
 }
 
+/**
+ * LEGACY FALLBACK — delete after 2027-01-15 (the whole "which system" choice:
+ * SystemKind, envSystems, legacyFallbackAvailable, sunset, and `system` in the
+ * document, state, input, validation and save; everything then books on the new system).
+ *
+ * Which booking system takes NEW online bookings (Kaden, 16 Nov 2026):
+ * 'square' = today's flow (party: a Square Appointments booking + the $300
+ * charge; classes: only the classes held in Square are listed and booked);
+ * 'own' = our own booking system. 'square' until an owner switches it, so a
+ * deploy moves nothing, and switching back is instant if anything goes wrong.
+ * Bookings already made in either system stay where they are.
+ */
+export type SystemKind = 'parties' | 'classes'
+export type BookingSystem = 'square' | 'own'
+export const SYSTEM_KINDS: SystemKind[] = ['parties', 'classes']
+export const SYSTEM_NAME: Record<SystemKind, string> = { parties: 'Parties', classes: 'Classes & workshops' }
+export const DEFAULT_SYSTEM: Record<SystemKind, BookingSystem> = { parties: 'square', classes: 'square' }
+const isSystem = (v: unknown): v is BookingSystem => v === 'square' || v === 'own'
+
 export interface SwitchChange {
   at: string
   by: By
@@ -59,6 +79,8 @@ export interface SwitchDoc {
   previewToken: string
   /** M2: a paused kind opens again by itself from the start of this studio day (YYYY-MM-DD). */
   reopenOn?: Partial<Record<SwitchKind, string>>
+  /** Which system takes new bookings; missing = 'square'. */
+  system?: Partial<Record<SystemKind, BookingSystem>>
   updatedAt: string
   by: By
   history: SwitchChange[]
@@ -73,6 +95,8 @@ export interface SwitchState {
   pauseNoteWritten: string
   /** M2: paused kinds that open again by themselves, and the day (YYYY-MM-DD). */
   reopenOn: Partial<Record<SwitchKind, string>>
+  /** Which system takes new online bookings (see SystemKind). */
+  system: Record<SystemKind, BookingSystem>
   previewToken: string
   /**
    * 'saved' once an owner saved here; 'setup' = still the site's hosting
@@ -114,6 +138,34 @@ export function envKindOpen(kind: string): boolean {
   return all || kinds.has(kind)
 }
 
+/**
+ * BOOKING_SYSTEMS (hosting setting, like BOOKINGS_OPEN): which system takes new
+ * bookings until an owner chooses in /admin. "own" = both on the new system;
+ * or a list like "parties=own,classes=square". Unset (production) = 'square'.
+ * A choice saved in /admin wins.
+ */
+/** Is the old Square booking still offered as a fallback on this studio day? */
+export function legacyFallbackAvailable(now: Date = new Date()): boolean {
+  return chicagoYmd(now) <= LEGACY_FALLBACK_UNTIL
+}
+
+/** After LEGACY_FALLBACK_UNTIL every kind runs on the new system, whatever was saved. */
+function sunset(system: Record<SystemKind, BookingSystem>, now: Date): Record<SystemKind, BookingSystem> {
+  return legacyFallbackAvailable(now) ? system : { parties: 'own', classes: 'own' }
+}
+
+export function envSystems(): Record<SystemKind, BookingSystem> {
+  const raw = (readEnv('BOOKING_SYSTEMS') ?? '').trim().toLowerCase()
+  const out: Record<SystemKind, BookingSystem> = { ...DEFAULT_SYSTEM }
+  if (!raw) return out
+  if (isSystem(raw)) return { parties: raw, classes: raw }
+  for (const part of raw.split(',')) {
+    const [k, v] = part.split('=').map((x) => x.trim())
+    if ((k === 'parties' || k === 'classes') && isSystem(v)) out[k] = v
+  }
+  return out
+}
+
 export function envPreviewToken(): string {
   return readEnv('PREVIEW_TOKEN') ?? ''
 }
@@ -126,6 +178,7 @@ export function stateOf(doc: SwitchDoc | null, now: Date = new Date()): SwitchSt
       pauseNote: defaultPauseNote(),
       pauseNoteWritten: '',
       reopenOn: {},
+      system: sunset(envSystems(), now),
       previewToken: envPreviewToken(),
       source: 'setup',
       updatedAt: null,
@@ -148,6 +201,7 @@ export function stateOf(doc: SwitchDoc | null, now: Date = new Date()): SwitchSt
     pauseNote: doc.pauseNote || defaultPauseNote(),
     pauseNoteWritten: doc.pauseNote,
     reopenOn,
+    system: sunset({ ...envSystems(), ...(doc.system ?? {}) }, now),
     // A saved document without a test link of its own keeps the old one working.
     previewToken: doc.previewToken || envPreviewToken(),
     source: 'saved',
@@ -175,6 +229,7 @@ export function unreadableState(): SwitchState {
     pauseNote: note,
     pauseNoteWritten: '',
     reopenOn: {},
+    system: sunset({ ...DEFAULT_SYSTEM }, new Date()),
     previewToken: '',
     source: 'unreadable',
     updatedAt: null,
@@ -212,6 +267,9 @@ function parse(json: string | null): SwitchDoc | null {
     previewToken: typeof d.previewToken === 'string' ? d.previewToken : '',
     ...(d.reopenOn && typeof d.reopenOn === 'object'
       ? { reopenOn: Object.fromEntries(SWITCH_KINDS.filter((k) => isYmd(d.reopenOn[k])).map((k) => [k, d.reopenOn[k]])) }
+      : {}),
+    ...(d.system && typeof d.system === 'object'
+      ? { system: Object.fromEntries(SYSTEM_KINDS.filter((k) => isSystem(d.system[k])).map((k) => [k, d.system[k]])) }
       : {}),
     updatedAt: d.updatedAt,
     by: d.by ?? { id: 'admin', name: 'Owner' },
@@ -278,6 +336,8 @@ export interface SwitchInput {
   newTestLink?: boolean
   /** M2: per paused kind, the day it opens again by itself; null clears it. Left out = unchanged. */
   reopenOn?: Partial<Record<SwitchKind, string | null>>
+  /** Which system takes new bookings, per kind. Left out = unchanged. */
+  system?: Partial<Record<SystemKind, BookingSystem>>
 }
 
 /** How far ahead an open-again day may be. */
@@ -308,11 +368,27 @@ export function validateSwitchInput(body: any): SwitchInput {
       reopenOn[k] = v
     }
   }
-  return { open, pauseNote: note, newTestLink: body.newTestLink === true, ...(reopenOn ? { reopenOn } : {}) }
+  let system: SwitchInput['system']
+  if (body.system !== undefined) {
+    if (!body.system || typeof body.system !== 'object') throw new SettingsError(400, 'Say which booking system to use.', 'system')
+    system = {}
+    for (const k of SYSTEM_KINDS) {
+      const v = body.system[k]
+      if (v === undefined) continue
+      if (!isSystem(v)) throw new SettingsError(400, `Say which booking system ${SYSTEM_NAME[k].toLowerCase()} use.`, `system.${k}`)
+      if (v === 'square' && !legacyFallbackAvailable()) throw new SettingsError(400, 'The old Square booking isn’t available anymore. Everything books on the new system.', `system.${k}`)
+      system[k] = v
+    }
+  }
+  return { open, pauseNote: note, newTestLink: body.newTestLink === true, ...(reopenOn ? { reopenOn } : {}), ...(system ? { system } : {}) }
 }
 
-export function describeSwitchChanges(before: SwitchState, after: { open: Record<SwitchKind, boolean>; pauseNoteWritten: string; newTestLink: boolean; reopenOn?: Partial<Record<SwitchKind, string>> }): string[] {
+export function describeSwitchChanges(before: SwitchState, after: { open: Record<SwitchKind, boolean>; pauseNoteWritten: string; newTestLink: boolean; reopenOn?: Partial<Record<SwitchKind, string>>; system?: Record<SystemKind, BookingSystem> }): string[] {
   const out: string[] = []
+  for (const k of SYSTEM_KINDS) {
+    const was = before.system?.[k] ?? 'square', now = after.system?.[k] ?? was
+    if (was !== now) out.push(now === 'own' ? `${SYSTEM_NAME[k]} now book on the new booking system` : `${SYSTEM_NAME[k]} back on the old Square booking`)
+  }
   for (const k of SWITCH_KINDS) {
     if (before.open[k] !== after.open[k]) out.push(`${after.open[k] ? 'Opened' : 'Paused'} ${KIND_NAME[k].toLowerCase()}`)
     const was = before.reopenOn?.[k], now = after.reopenOn?.[k]
@@ -370,11 +446,12 @@ export async function saveSwitches(
       const day = asked === undefined ? before.reopenOn[k] : asked
       if (day) reopen[k] = day
     }
-    const changed = describeSwitchChanges(before, { open: input.open, pauseNoteWritten: input.pauseNote, newTestLink: !!input.newTestLink, reopenOn: reopen })
+    const system: Record<SystemKind, BookingSystem> = { ...before.system, ...(input.system ?? {}) }
+    const changed = describeSwitchChanges(before, { open: input.open, pauseNoteWritten: input.pauseNote, newTestLink: !!input.newTestLink, reopenOn: reopen, system })
     const now = opts.now ?? new Date()
     const stamp = cur && now.toISOString() <= cur.updatedAt ? new Date(Date.parse(cur.updatedAt) + 1).toISOString() : now.toISOString()
     const history = [{ at: stamp, by: opts.by, changed }, ...(cur?.history ?? [])].slice(0, SWITCH_HISTORY_CAP)
-    const doc: SwitchDoc = { v: 1, open: input.open, pauseNote: input.pauseNote, previewToken: token, ...(Object.keys(reopen).length ? { reopenOn: reopen } : {}), updatedAt: stamp, by: opts.by, history }
+    const doc: SwitchDoc = { v: 1, open: input.open, pauseNote: input.pauseNote, previewToken: token, ...(Object.keys(reopen).length ? { reopenOn: reopen } : {}), system, updatedAt: stamp, by: opts.by, history }
     if (await kv.setIfMatch(KEY, JSON.stringify(doc), etag, value !== null)) {
       cached = { at: Date.now(), doc }
       return { saved: stateOf(doc), before, changed }

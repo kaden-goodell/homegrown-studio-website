@@ -150,6 +150,25 @@ afterEach(() => vi.useRealTimers())
 const linesOf = async (cls: ScheduledClass) => (await getLedger(cls.id)).lines.filter((l) => l.bookingId === bookingIdFor(ATTEMPT))
 
 describe('POST /api/classes/book.json', () => {
+  // LEGACY FALLBACK — delete after 2027-01-15.
+  it('while classes run on the old Square booking (production’s default), our classes take no online booking: nothing held or charged', async () => {
+    const saved = process.env.BOOKING_SYSTEMS
+    const { resetSwitchCache } = await import('@lib/booking-switch')
+    try {
+      delete process.env.BOOKING_SYSTEMS
+      resetSwitchCache()
+      const cls = makeClass()
+      const res = await POST(ctx(body(cls)))
+      expect(res.status).toBe(403)
+      expect(mockCreateClassOrder).not.toHaveBeenCalled()
+      expect(mockProcessPayment).not.toHaveBeenCalled()
+      expect(await linesOf(cls)).toEqual([])
+    } finally {
+      process.env.BOOKING_SYSTEMS = saved
+      resetSwitchCache()
+    }
+  })
+
   it('books: one order of catalog lines, one charge, seats confirmed', async () => {
     const cls = makeClass()
     const res = await POST(ctx(body(cls)))

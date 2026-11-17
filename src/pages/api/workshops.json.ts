@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro'
+import { systemForEveryoneNow } from '@lib/bookings-gate'
 import { providers } from '@config/providers'
 import { toWorkshopData, withSignupInfo } from '@components/workshops/workshop-view-model'
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
@@ -42,6 +43,9 @@ const OWN_AHEAD_MS = 400 * 24 * 60 * 60 * 1000
  * whose ledger can't be read is left out and the list marked incomplete.
  */
 async function ownClasses(now: Date): Promise<{ list: WorkshopData[]; failed: boolean }> {
+  // LEGACY FALLBACK — delete after 2027-01-15: while classes run on the old
+  // Square booking, only Square's classes are listed.
+  if ((await systemForEveryoneNow('classes')) !== 'own') return { list: [], failed: false }
   const classes = (await listClasses({ fromIso: now.toISOString(), toIso: new Date(now.getTime() + OWN_AHEAD_MS).toISOString() })).filter(listedPublicly)
   let failed = false
   const list = await Promise.all(

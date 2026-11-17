@@ -27,7 +27,7 @@
  * Server only.
  */
 import { timingSafeEqual } from 'node:crypto'
-import { envKindOpen, envPreviewToken, getSwitchState, type SwitchState } from '@lib/booking-switch'
+import { envKindOpen, envPreviewToken, getSwitchState, type SwitchState, type SystemKind } from '@lib/booking-switch'
 
 const PREVIEW_COOKIE = 'hg_preview'
 
@@ -160,4 +160,24 @@ export async function bookingPageGate(
   }
   const preview = queryMatch || secretMatches(cookieValue(page.request, PREVIEW_COOKIE), token)
   return { open: openIn(state, kind) || preview, preview, note: state.pauseNote, ...(redirect ? { redirect } : {}) }
+}
+
+/**
+ * LEGACY FALLBACK — delete after 2027-01-15 (ownSystemNow, systemForEveryoneNow).
+ *
+ * Does the NEW booking system take this new online booking? Yes when the
+ * owners switched this kind to it in /admin › More › Online booking, or when
+ * the browser holds the test-link cookie (the owners' own test bookings
+ * before switching everyone over). Otherwise today's Square flow takes it.
+ * Always `await` it.
+ */
+export async function ownSystemNow(request: Request | undefined, kind: SystemKind): Promise<boolean> {
+  if ((await getSwitchState()).system[kind] === 'own') return true
+  if (request && (await hasValidPreviewCookieNow(request))) return true
+  return false
+}
+
+/** The system in force for everyone (no test-link cookie considered). */
+export async function systemForEveryoneNow(kind: SystemKind): Promise<'square' | 'own'> {
+  return (await getSwitchState()).system[kind]
 }

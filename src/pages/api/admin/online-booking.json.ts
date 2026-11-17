@@ -6,9 +6,10 @@ import { createLogger } from '@lib/logger'
 import { classWritesRefusal, TestSiteStoreError } from '@lib/classes/test-site-guard'
 import { purgeBookingPages } from '@lib/booking-cache'
 import {
-  defaultPauseNote, getSwitchStateStrict, PAUSE_NOTE_MAX, saveSwitches, SettingsError, StaleSwitchError, validateSwitchInput, type SwitchState,
+  defaultPauseNote, getSwitchStateStrict, legacyFallbackAvailable, PAUSE_NOTE_MAX, saveSwitches, SettingsError, StaleSwitchError, validateSwitchInput, type SwitchState,
 } from '@lib/booking-switch'
 import { siteConfig } from '@config/site.config'
+import { LEGACY_FALLBACK_UNTIL } from '@config/legacy-fallback'
 
 export const prerender = false
 const logger = createLogger('api:admin:online-booking')
@@ -23,6 +24,9 @@ function view(state: SwitchState) {
     noteMax: PAUSE_NOTE_MAX,
     kitsExist: siteConfig.features.kits.enabled,
     readOnly: !!classWritesRefusal(),
+    // LEGACY FALLBACK — delete after 2027-01-15: the "Runs on" choice and its end date.
+    fallbackUntil: LEGACY_FALLBACK_UNTIL,
+    fallbackAvailable: legacyFallbackAvailable(),
   }
 }
 

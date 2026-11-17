@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { bookingsOpenNow, bookingsClosedResponse } from '@lib/bookings-gate'
+import { bookingsOpenNow, bookingsClosedResponse, ownSystemNow } from '@lib/bookings-gate'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { providers } from '@config/providers'
@@ -99,6 +99,8 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   const testSite = classWritesRefusal(request)
   if (testSite) return fail(503, 'unavailable', testSite)
   if (!door && !await bookingsOpenNow(request, 'workshops')) return await bookingsClosedResponse()
+  // LEGACY FALLBACK — delete after 2027-01-15: classes on the old Square booking (test link excepted).
+  if (!door && !await ownSystemNow(request, 'classes')) return await bookingsClosedResponse()
   if (!door && rateLimited(`class-book:${clientAddress}`, 5, 60_000)) {
     return fail(429, 'unavailable', 'That’s a lot of attempts in a row. Give it a minute, then try again.')
   }

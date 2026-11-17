@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro'
 import { SITE_URL } from '@config/site-url'
 import { absoluteUrl } from '@lib/seo'
 import { listClasses } from '@lib/classes/class-store'
+import { systemForEveryoneNow } from '@lib/bookings-gate'
 import type { ScheduledClass } from '@lib/classes/types'
 import { shopLive } from '@config/shop.config'
 
@@ -31,7 +32,8 @@ export const GET: APIRoute = async () => {
   let classes: string[] = []
   try {
     // A date range: listClasses reads only the classes the class index says fall in it.
-    classes = classPages(await listClasses({ fromIso: new Date().toISOString(), toIso: new Date(Date.now() + 400 * 86_400_000).toISOString() }))
+    // LEGACY FALLBACK — delete after 2027-01-15: no class pages while classes run on Square.
+    if ((await systemForEveryoneNow('classes')) === 'own') classes = classPages(await listClasses({ fromIso: new Date().toISOString(), toIso: new Date(Date.now() + 400 * 86_400_000).toISOString() }))
   } catch (e) {
     // The fixed pages still go out; the classes come back on the next read.
     console.warn(`[sitemap] classes unreadable: ${e instanceof Error ? e.message : e}`)

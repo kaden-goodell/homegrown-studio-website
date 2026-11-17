@@ -6,6 +6,7 @@ const mockGetEventMeta = vi.fn()
 vi.mock('@lib/event-meta', () => ({ getEventMeta: (...a: any[]) => mockGetEventMeta(...a) }))
 
 import { GET } from '@pages/api/workshops.json'
+import { resetSwitchCache } from '@lib/booking-switch'
 import { forgetAll } from '@lib/short-memory'
 import * as classStore from '@lib/classes/class-store'
 import { createClass } from '@lib/classes/class-store'
@@ -111,6 +112,23 @@ describe('GET /api/workshops.json — our own classes', () => {
     expect(ours).toMatchObject({ price: 3000, remainingSeats: 12, signupClosed: false, own: { classId: open.id } })
     expect(ours.own.sessions[0]).toMatchObject({ left: 12, closed: false })
     expect(all.find((w: any) => w.id === closed.id)).toMatchObject({ signupClosed: true, remainingSeats: null })
+  })
+
+  // LEGACY FALLBACK — delete after 2027-01-15.
+  it('while classes run on the old Square booking (production’s default), only the Square classes are listed; switched over, ours appear', async () => {
+    const saved = process.env.BOOKING_SYSTEMS
+    try {
+      await createClass({ content: content('Ours open'), sessions: at('2026-10-20T18:00:00.000Z'), status: 'open', by })
+      delete process.env.BOOKING_SYSTEMS
+      resetSwitchCache()
+      expect((await list()).map((w: any) => w.name)).toEqual(['clssch_pails', 'clssch_kinu'])
+      process.env.BOOKING_SYSTEMS = 'classes=own'
+      resetSwitchCache()
+      expect((await list()).map((w: any) => w.name)).toContain('Ours open')
+    } finally {
+      process.env.BOOKING_SYSTEMS = saved
+      resetSwitchCache()
+    }
   })
 
   it('still lists Square classes when ours can’t be read, and never caches that list', async () => {

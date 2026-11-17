@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro'
 import { randomUUID } from 'node:crypto'
-import { bookingsOpenNow, bookingsClosedResponse } from '@lib/bookings-gate'
+import { bookingsOpenNow, bookingsClosedResponse, ownSystemNow } from '@lib/bookings-gate'
+import { bookPartyOnSquare } from '@lib/legacy-square/party-square-flow-adapter' // LEGACY FALLBACK — delete after 2027-01-15
 import { rateLimited } from '@lib/rate-limit'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 import { isAttemptId, type CheckoutErrorCode } from '@lib/checkout-attempt'
@@ -34,6 +35,12 @@ const WORDS = {
  * no `packageId`) books the default package.
  */
 const handle: APIRoute = async ({ request, clientAddress }) => {
+  // Parties run on the old Square booking until an owner switches them in
+  // /admin › More › Online booking › Runs on (the test link books here too).
+  if (!(await ownSystemNow(request, 'parties'))) {
+    const body = await request.clone().json().catch(() => ({}))
+    return bookPartyOnSquare({ request, clientAddress }, body && typeof body === 'object' ? body : {})
+  }
   const open = await bookingsOpenNow(request, 'parties')
   if (open && rateLimited(`party-book:${clientAddress}`, 5, 60_000)) {
     return errorResponse(WORDS.slowDown, 429)

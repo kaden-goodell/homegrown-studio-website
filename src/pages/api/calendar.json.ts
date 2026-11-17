@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro'
+import { systemForEveryoneNow } from '@lib/bookings-gate'
 import { bookingsOpenNow } from '@lib/bookings-gate'
 import { OPENING_DATE, GRAND_OPENING_DATE } from '@config/opening'
 import { closureOn, daysOf, reopensOn } from '@config/closures'
@@ -175,7 +176,10 @@ export const GET: APIRoute = async ({ url, request }) => {
     openStudioWindows,
     includePartySlots ? partyAvailable : [],
     partyBooked,
-    publicClasses,
+    // LEGACY FALLBACK — delete after 2027-01-15: while classes run on the old
+    // Square booking, our own classes stay off the calendar (they still keep
+    // party times clear).
+    (await systemForEveryoneNow('classes')) === 'own' ? publicClasses : [],
   )
   // Walk-in hours come from Square and don't know about closures: a closed day
   // never shows Craft Café (e.g. Sat 26 Dec, the Christmas holidays).

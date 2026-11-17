@@ -52,3 +52,4 @@ One topic per file. Dates are when the note was written; check the code before t
 - [square-sdk-v44-shapes.md](square-sdk-v44-shapes.md) — Square Node SDK v44 catalog API response shapes — the project uses unwrapping wrong in places, and there's a latent bug in catalog.ts that hasn't bitten yet
 - [test-campaign-aug2026.md](test-campaign-aug2026.md) — HOM-163 'beyond rock solid' test campaign — 5 launch blockers found+fixed (Aug 2–6, 2026); what's verified, what remains; Linear connector lost Homegrown workspace after 8/6 /login
 - [visual-overhaul-progress.md](visual-overhaul-progress.md) — Visual Overhaul Progress — 2026-03-02
+- [legacy-square-fallback.md](legacy-square-fallback.md) — 16 Nov 2026 — Old Square booking fallback for parties and classes: how to flip both in /admin › Online booking › Runs on, ends 2027-01-15, exact delete list, then cancel Appointments Plus
