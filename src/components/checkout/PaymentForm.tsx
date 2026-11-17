@@ -68,6 +68,11 @@ interface PaymentFormProps {
 }
 
 /** A wallet sheet that didn't finish: plain words, never Square's error text. */
+/** True when Square's tokenize status means the customer closed the wallet sheet ("Cancel", any case). */
+export function isWalletCancel(status: string | undefined): boolean {
+  return typeof status === 'string' && status.toUpperCase() === 'CANCEL'
+}
+
 export function walletFailedMessage(name: string): string {
   return `${name} didn’t go through. Nothing was charged. Try again, or pay with a card.`
 }
@@ -475,8 +480,9 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           onWalletToken(result.token)
           return
         }
-        // "Cancel" means the user closed the wallet sheet — not an error worth showing.
-        if (result.status !== 'CANCEL') {
+        // The customer closed the wallet sheet: not an error, nothing shown, no alert.
+        // Square sends "Cancel" (not "CANCEL"), so compare without case (Kaden, 17 Nov 2026).
+        if (!isWalletCancel(result.status)) {
           // Square's own words go to the log only; the customer gets a plain sentence.
           const message = result.errors?.map((e) => e.message).join(', ') ?? `${name} payment failed.`
           trackBookingProblem(bookingKind, 'wallet_failed', `${name}: ${message}`)
