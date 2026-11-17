@@ -4,7 +4,8 @@
  * the credit is always used up and nothing is ever refunded at the counter.
  *
  * Weekend parties are rung up as before (crafts for whoever crafts), so this
- * says nothing for them.
+ * says nothing for them. A private event (origin 'quote') has its crafts in
+ * the package: no minimum, nothing to ring up for crafts.
  *
  * Client-safe.
  */
@@ -19,9 +20,12 @@ export interface RegisterNote {
 }
 
 export function weeknightRegisterNote(
-  pay: { kind: 'weekend' | 'weeknight'; paidOnlineCents: number; perHeadCents?: number } | undefined,
+  pay: { kind: 'weekend' | 'weeknight'; paidOnlineCents: number; perHeadCents?: number; origin?: 'quote' } | undefined,
   crafting: number,
 ): RegisterNote | null {
+  if (pay?.origin === 'quote') {
+    return { headline: 'Private event · crafts included', how: 'The crafts are part of the package. Nothing to ring up for crafts.' }
+  }
   if (!pay || pay.kind !== 'weeknight') return null
   const paid = formatMoney(pay.paidOnlineCents)
   const terms = { ...termsForKind('weeknight'), chargeNowCents: pay.paidOnlineCents }

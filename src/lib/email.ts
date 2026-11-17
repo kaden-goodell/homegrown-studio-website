@@ -209,6 +209,12 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
   updated?: PartyDetailsUpdate
   /** A weeknight party: what was paid is a craft credit, not a studio fee, and crafts have this minimum. */
   craftCredit?: { minimumCents: number }
+  /**
+   * A private event from a quote: what was paid is its deposit, the package
+   * (its `lines`) includes the crafts, and `stillDueCents` of `totalCents`
+   * is left. `address`: held at the host's place, not the studio.
+   */
+  privateEvent?: { guests: number; perPersonCents?: number; totalCents: number; stillDueCents: number; lines: string[]; address?: string }
 }): Promise<{ sent: boolean }> {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
   const fee = dollars(input.totalChargedCents)
@@ -234,7 +240,17 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
     : `Crafts have a ${minimum} minimum. Anything over ${fee} is paid at the studio.`
   // A re-send after a move or an edit keeps its own cost note (what is paid or still due).
   const credit = input.craftCredit && !updated
-  const costLine = credit
+  const pe = input.privateEvent ?? null
+  const peCost = pe
+    ? updated
+      ? updated.costNote
+      : `You paid ${formatMoney(input.totalChargedCents)} today as your deposit. Your private event is for ${pe.guests} guests${pe.perPersonCents ? ` at ${formatMoney(pe.perPersonCents)} per person` : ''}, ${formatMoney(pe.totalCents)} in all. ${pe.stillDueCents > 0 ? `${formatMoney(pe.stillDueCents)} is still due.` : 'Nothing else is due.'}`
+    : ''
+  const peIncluded = pe && pe.lines.length ? pe.lines : []
+  const peAway = pe?.address ? pe.address : null
+  const costLine = pe
+    ? peCost
+    : credit
     ? `${creditLead} ${creditRest}`
     : perPerson
       ? `${feeSentence} ${input.craftName} is ${perPerson} per person, paid at the studio for whoever crafts.`.trim()
@@ -249,7 +265,9 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
   const heading = moved ? 'Your party has a new time' : 'Your party details'
   const arriveLine = input.arriveEarlyMinutes ? `Arrive up to ${input.arriveEarlyMinutes} minutes early to set up.` : ''
   // Final review I6: nothing sends a headcount text, so the email promises none; the host tells us.
-  const headcountLine = input.craftCredit
+  const headcountLine = pe
+    ? `Your price is for ${pe.guests} guests. If your headcount changes, text us.`
+    : input.craftCredit
     ? `Know your headcount closer to the day? Text us so we can prep. You pay for who comes, and your ${fee} credit counts toward it.`
     : `Know your headcount closer to the day? Text us so we can prep. You pay for who comes${input.minGuests ? `, with a minimum of ${input.minGuests}` : ''}.`
   // Final review I4 (request-only): how to ask to move or cancel, with the policy for this date.
@@ -260,11 +278,16 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
     updated ? `${heading}. ${input.craftName} · ${input.slotLabel}` : `You're booked! ${input.craftName} · ${input.slotLabel}`,
     ...(updated ? [``, updatedLine] : []),
     ``,
-    `We're at Hometown Studio, ${address}`,
-    ...(input.directionsUrl ? [`Get directions ${input.directionsUrl}`] : []),
-    ...(arriveLine ? [arriveLine] : []),
+    ...(peAway
+      ? [`Where ${peAway}`]
+      : [
+          `We're at Hometown Studio, ${address}`,
+          ...(input.directionsUrl ? [`Get directions ${input.directionsUrl}`] : []),
+          ...(arriveLine ? [arriveLine] : []),
+        ]),
     ``,
     ...(description ? [`About your craft`, ...description.split('\n'), ``] : []),
+    ...(peIncluded.length ? [`What's included`, ...peIncluded, ``] : []),
     ...(themeLine ? [themeLine] : []),
     costLine,
     ...(pay ? [`${pay.label} here`, pay.url] : []),
@@ -309,13 +332,15 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
   ${updated ? `<p style="${P}margin-bottom:14px;">${esc(updatedLine)}</p>` : ''}
   ${input.craftImageUrl ? `<img src="${esc(input.craftImageUrl)}" alt="${esc(input.craftName)}" width="552" style="display:block;width:100%;max-width:552px;border-radius:12px;margin:0 0 14px;" />` : ''}
   <p style="${LABEL}">Where</p>
-  <p style="${P}">Hometown Studio, ${esc(address)}${input.directionsUrl ? `<br /><a href="${esc(input.directionsUrl)}" style="${LINK}font-size:13px;">Get directions</a>` : ''}</p>
-  ${arriveLine ? `<p style="${P}">${esc(arriveLine)}</p>` : ''}
+  ${peAway ? `<p style="${P}">${esc(peAway)}</p>` : `<p style="${P}">Hometown Studio, ${esc(address)}${input.directionsUrl ? `<br /><a href="${esc(input.directionsUrl)}" style="${LINK}font-size:13px;">Get directions</a>` : ''}</p>
+  ${arriveLine ? `<p style="${P}">${esc(arriveLine)}</p>` : ''}`}
   <div style="height:10px;"></div>
-  ${descriptionHtml ? `<p style="${LABEL}">About your craft</p>${descriptionHtml}<div style="height:10px;"></div>` : ''}
+  ${descriptionHtml ? `<p style="${LABEL}">About your craft</p>${descriptionHtml}<div style="height:10px;"></div>` : ''}${peIncluded.length ? `<p style="${LABEL}">What&rsquo;s included</p>${peIncluded.map((l) => `<p style="${P}">${esc(l)}</p>`).join('')}<div style="height:10px;"></div>` : ''}
   ${themeLine ? `<p style="${P}">${esc(themeLine)}</p>` : ''}
   ${
-    credit
+    pe
+      ? `<p style="${P}">${esc(peCost)}</p>`
+      : credit
       ? `<p style="${P}"><strong>${esc(creditLead)}</strong> ${esc(creditRest)}</p>`
       : `<p style="${P}">${feeSentence ? `<strong>${esc(feeSentence)}</strong>` : ''}${perPerson ? ` ${esc(input.craftName)} is <strong>${esc(perPerson)} per person</strong>, paid at the studio for whoever crafts.` : ' Crafts are paid at the studio for whoever comes.'}</p>`
   }
@@ -973,9 +998,20 @@ export async function sendPartyPaymentLinkEmail(input: {
   extrasOnly?: boolean
   /** what the money is for: "the studio fee", "the studio fee and Goodie bags", "Goodie bags" (never crafts, D1) */
   what?: string
+  /** a private event from a quote: its time is booked and its crafts are in the package */
+  privateEvent?: boolean
 }): Promise<{ sent: boolean }> {
   const amount = formatMoney(input.dueCents)
   const what = input.what || (input.extrasOnly ? 'the extras' : 'the studio fee')
+  if (input.privateEvent) {
+    return partyMoneyEmail({
+      to: input.to,
+      subject: 'Pay for your private event',
+      givenName: input.givenName,
+      lines: [`Your private event on ${input.whenLabel} has ${amount} still due.`, `Pay ${amount} here.`],
+      button: { label: `Pay ${amount}`, url: input.payUrl },
+    })
+  }
   return partyMoneyEmail({
     to: input.to,
     subject: input.extrasOnly ? 'Pay for the extras on your party' : 'Pay the studio fee for your party',
@@ -1000,8 +1036,15 @@ export async function sendPartyPaidEmail(input: {
   to: string; givenName: string; whenLabel: string; paidCents: number; receiptUrl: string | null; stillDueCents?: number
   /** what it paid for: "the studio fee", "Goodie bags" (never crafts, D1) */
   what?: string
+  /** a private event from a quote: crafts are in the package, so no crafts line */
+  privateEvent?: boolean
 }): Promise<{ sent: boolean }> {
-  const lines = [
+  const lines = input.privateEvent ? [
+    `Thank you! We got your ${formatMoney(input.paidCents)} payment. Your private event is on ${input.whenLabel}.`,
+    input.stillDueCents && input.stillDueCents > 0
+      ? `There is still ${formatMoney(input.stillDueCents)} to pay.`
+      : 'Nothing else is due before your event.',
+  ] : [
     `Thank you! We got your ${formatMoney(input.paidCents)} payment${input.what ? ` for ${input.what}` : ''}. Your party is on ${input.whenLabel}.`,
     input.stillDueCents && input.stillDueCents > 0
       ? `There is still ${formatMoney(input.stillDueCents)} to pay for extras added since.`

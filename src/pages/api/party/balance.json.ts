@@ -5,6 +5,7 @@ import { partyForLink, LINK_NOT_FOUND_MESSAGE } from '@lib/parties/pay-balance'
 import { dueCents, paymentState } from '@lib/parties/money'
 import { getPartySettings } from '@lib/parties/settings-store'
 import { partyWhenLabel } from '@lib/parties/payment-link'
+import { isQuoteParty, partyRefundBaseCents } from '@lib/parties/quote-party'
 
 /**
  * GET /api/party/balance.json?id=<party>&k=<payment key>: what the payment
@@ -31,11 +32,12 @@ export const GET: APIRoute = async ({ request, clientAddress }) => {
   } catch { /* the package item's label is shown instead */ }
   const items = (rec.items ?? []).filter((it) => it.chargeId === null)
   const last = rec.charges?.length ? rec.charges[rec.charges.length - 1] : null
+  const quote = isQuoteParty(rec)
   return json({
     data: {
       when: partyWhenLabel(rec.startIso),
       hostFirstName: rec.hostName.split(' ')[0] ?? '',
-      packageName: packageName || rec.items?.find((it) => it.kind === 'package')?.label || 'Party',
+      packageName: quote ? rec.craftName : packageName || rec.items?.find((it) => it.kind === 'package')?.label || 'Party',
       // D1: the link only ever carries the studio fee and priced extras (crafts are paid at the studio), and says so.
       items: rec.status === 'cancelled' ? [] : items.map((it) => ({ id: it.id, label: it.kind === 'package' ? 'Studio fee' : it.label, qty: it.qty, cents: it.cents })),
       dueCents: dueCents(rec),
@@ -43,10 +45,11 @@ export const GET: APIRoute = async ({ request, clientAddress }) => {
       receiptUrl: last?.receiptUrl ?? null,
       // A payment is going through right now (another tab, an unclear charge): the page says so instead of offering a second one.
       paying: !!rec.paying && Date.parse(rec.paying.until) > Date.now(),
-      // Only extras added since are due (the party itself is paid).
-      extrasOnly: rec.status !== 'cancelled' && (rec.items ?? []).some((it) => it.chargeId !== null),
+      // Only extras added since are due (the party itself is paid). Never for a private event: its balance is the event.
+      extrasOnly: !quote && rec.status !== 'cancelled' && (rec.items ?? []).some((it) => it.chargeId !== null),
       // Final review I5: a host booked by phone sees the cancellation policy before paying.
-      refundLine: partyRefundLine(rec.startIso, new Date(), (rec.items ?? []).filter((it) => it.kind === 'package').reduce((t, it) => t + it.cents, 0) || undefined),
+      // A private event's policy is on its deposit, not the studio fee.
+      refundLine: partyRefundLine(rec.startIso, new Date(), partyRefundBaseCents(rec)),
     },
   }, 200)
 }

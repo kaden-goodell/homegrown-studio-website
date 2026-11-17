@@ -72,7 +72,7 @@ export interface StudioEvent {
    * How a party settles at the register (parties only). Weeknight parties paid
    * a craft credit online that comes off the crafts; weekend ones a studio fee.
    */
-  partyPay?: { kind: 'weekend' | 'weeknight'; paidOnlineCents: number; perHeadCents?: number }
+  partyPay?: { kind: 'weekend' | 'weeknight'; paidOnlineCents: number; perHeadCents?: number; origin?: 'quote' }
   /** Present only when an event-meta override exists for this event. */
   updatedAt?: string
   by?: By
@@ -130,6 +130,8 @@ function partyPayOf(p: PartyRecord): NonNullable<StudioEvent['partyPay']> {
     kind,
     paidOnlineCents: p.paidOnlineCents ?? (kind === terms.kind ? terms.chargeNowCents : termsForKind(kind).chargeNowCents),
     ...(p.craftPerHeadCents ? { perHeadCents: p.craftPerHeadCents } : {}),
+    // A private event: crafts in the package (the register note says so).
+    ...(p.origin === 'quote' ? { origin: 'quote' as const } : {}),
   }
 }
 

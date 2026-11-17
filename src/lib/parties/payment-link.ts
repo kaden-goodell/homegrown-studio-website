@@ -18,6 +18,7 @@ import { formatMoney } from '@lib/money'
 import type { By } from '@lib/staff-auth'
 import { updatePartyRecord, type PartyRecord } from '@lib/party-store'
 import { dueCents } from './money'
+import { isQuoteParty } from './quote-party'
 
 const logger = createLogger('parties:payment-link')
 
@@ -34,6 +35,8 @@ export function partyWhenLabel(startIso: string): string {
 
 /** Only extras added since are due (something on the party is already paid). */
 export function extrasOnly(rec: PartyRecord): boolean {
+  // A private event's deposit is paid and its balance due: that's the event itself, never "extras added since".
+  if (isQuoteParty(rec)) return false
   return (rec.items ?? []).some((it) => it.chargeId !== null)
 }
 
@@ -53,13 +56,15 @@ export function andList(words: string[]): string {
 const midSentence = (label: string) => (/^[A-Z][a-z]/.test(label) ? label.charAt(0).toLowerCase() + label.slice(1) : label)
 
 export function whatIsDue(rec: PartyRecord, items = (rec.items ?? []).filter((it) => it.chargeId === null)): string {
-  const words = [...new Set(items.map((it) => (it.kind === 'package' ? 'the studio fee' : midSentence(it.label))))]
+  const words = [...new Set(items.map((it) => (it.kind === 'quote' ? 'your private event' : it.kind === 'package' ? 'the studio fee' : midSentence(it.label))))]
   return andList(words) || 'your party'
 }
 
 /** DRAFT copy for Kaden: the text with the link (a second wording when only extras are due). No colons, no crafts charge. */
 export function paymentLinkText(rec: PartyRecord, url: string): string {
   const amount = formatMoney(dueCents(rec))
+  // A private event: crafts are in the package, and the time is already booked (the deposit is paid).
+  if (isQuoteParty(rec)) return `Hometown Studio here. Your private event on ${partyWhenLabel(rec.startIso)} has ${amount} still due. Pay it here ${url}`
   if (extrasOnly(rec)) return `Hometown Studio here. Pay ${amount} for ${whatIsDue(rec)}, added to your party on ${partyWhenLabel(rec.startIso)}. ${url}`
   return `Hometown Studio here. Your party on ${partyWhenLabel(rec.startIso)} is held for you. Pay ${amount} for ${whatIsDue(rec)} here to finish booking. Crafts are paid at the studio. ${url}`
 }
@@ -85,7 +90,7 @@ export async function sendPaymentLink(
   let email = false
   if (rec.hostEmail) {
     try {
-      email = (await sendPartyPaymentLinkEmail({ to: rec.hostEmail, givenName, whenLabel: partyWhenLabel(rec.startIso), dueCents: due, payUrl: url, extrasOnly: extrasOnly(rec), what: whatIsDue(rec) })).sent
+      email = (await sendPartyPaymentLinkEmail({ to: rec.hostEmail, givenName, whenLabel: partyWhenLabel(rec.startIso), dueCents: due, payUrl: url, extrasOnly: extrasOnly(rec), what: whatIsDue(rec), ...(isQuoteParty(rec) ? { privateEvent: true } : {}) })).sent
     } catch (err) {
       logger.error('Payment link email failed', { partyId: rec.bookingId, error: String(err) })
     }

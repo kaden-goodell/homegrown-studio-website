@@ -51,6 +51,7 @@ import { getPartySettings } from './settings-store'
 import { partyWritesRefusal } from './test-site'
 import { partyWhenLabel, whatIsDue } from './payment-link'
 import { confirmationDone, giftCardRefusal, sendPartyBookedEmail } from './checkout'
+import { isQuoteParty } from './quote-party'
 
 const logger = createLogger('parties:pay-balance')
 const MINUTE = 60_000
@@ -453,6 +454,9 @@ export async function tellLinkPaid(
   }
   let emailed: HostEmailed
   const givenName = rec.hostName.split(' ')[0] ?? ''
+  const quote = isQuoteParty(rec)
+  // A private event's first payment is its deposit: the quote's pay flow tells the owners itself ("Private event booked").
+  const firstQuotePayment = quote && !rec.confirmation
   if (!rec.confirmation) {
     // First payment on a party booked without paying: the booking confirmation, once.
     let minGuests: number | undefined
@@ -470,6 +474,7 @@ export async function tellLinkPaid(
     try {
       sent = (await sendPartyPaidEmail({
         to: rec.hostEmail, givenName, whenLabel, paidCents: charge.cents, receiptUrl: charge.receiptUrl, stillDueCents: dueCents(rec), what: paidFor,
+        ...(quote ? { privateEvent: true } : {}),
       })).sent
     } catch (err) {
       logger.error('Link payment email failed (payment recorded)', { partyId: rec.bookingId, error: String(err) })
@@ -477,7 +482,11 @@ export async function tellLinkPaid(
     emailed = { kind: 'receipt', sent }
   }
   // An owner took this card themselves, or just recorded it from To decide: they already know.
-  if (charge.via === 'admin-card' || opts.ownerDecided) return emailed
+  if (charge.via === 'admin-card' || opts.ownerDecided || firstQuotePayment) return emailed
+  if (quote) {
+    await alertOwners(`Private event paid: ${rec.hostName} paid ${dollars(charge.cents)} by payment link, event on ${whenLabel}.`).catch(() => undefined)
+    return emailed
+  }
   await alertOwners(`Party paid: ${rec.hostName} paid ${dollars(charge.cents)} for ${paidFor} by payment link, party on ${whenLabel}.`).catch(() => undefined)
   return emailed
 }

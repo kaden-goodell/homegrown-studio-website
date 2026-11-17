@@ -45,6 +45,7 @@ import { formatSlotLabel, formatCalendarDate } from '@lib/studio-time'
 import { lookupHouseholdEntry } from '@lib/waiver-store'
 import { withUtm } from '@lib/utm'
 import { partyRefundLine } from '@lib/refund-lines'
+import { isQuoteParty, partyRefundBaseCents, quoteStillDueCents, quoteTotalCents } from './quote-party'
 import { findPartyCraft, type CatalogCraft } from '@lib/craft-catalog'
 import { getStudioDays } from '@lib/studio-settings'
 import { tierFor, weekKeyFor } from '@lib/kit-dates'
@@ -418,13 +419,16 @@ export async function sendPartyBookedEmail(input: {
     ? withUtm(`${origin}/party/${encodeURIComponent(partyId)}?key=${encodeURIComponent(input.rec.hostToken)}`, { source: 'email', medium: 'email', campaign: 'party_confirmation' })
     : null
   const inviteUrl = partyInviteUrl({ bookingId: partyId, craftName, slotLabel, startIso: draft.startIso }, origin)
+  // A private event from a quote: what was paid is its deposit, the package includes the crafts (balance may not be on the party yet).
+  const quote = isQuoteParty(draft)
+  const away = quote && draft.place === 'away' && draft.address ? draft.address : null
   // Token-free on purpose: hosts invite guests from this very calendar event.
   const calEvent = {
     title: `${craftName} — Party at Hometown Studio`,
     startIso: draft.startIso,
     endIso: draft.endIso ?? endOf(draft.startIso, draft.durationMinutes ?? partyConfig.durationMinutes),
     details: `Your private party at Hometown Studio.\n\nInvitation link for guests: ${inviteUrl}`,
-    location: inviteContent.where,
+    location: away ?? inviteContent.where,
   }
   try {
     const { sent } = await sendPartyConfirmationEmail({
@@ -452,12 +456,26 @@ export async function sendPartyBookedEmail(input: {
       agreementLine: await agreementLineFor(input.email),
       arriveEarlyMinutes: partyConfig.hostArrivalMinutesEarly,
       minGuests: input.minGuests ?? partyConfig.minGuests,
-      // The policy names the studio fee only (how extras are refunded is the owners' call, never promised here).
-      refundLine: partyRefundLine(draft.startIso, new Date(), studioFeeCents(draft) || (input.chargedCents > 0 ? input.chargedCents : undefined)),
+      // The policy names the studio fee only (how extras are refunded is the owners' call, never promised here); a private event's, its deposit.
+      refundLine: quote
+        ? partyRefundLine(draft.startIso, new Date(), partyRefundBaseCents(draft) ?? (input.chargedCents > 0 ? input.chargedCents : undefined))
+        : partyRefundLine(draft.startIso, new Date(), studioFeeCents(draft) || (input.chargedCents > 0 ? input.chargedCents : undefined)),
       directionsUrl: STUDIO_DIRECTIONS_URL,
       ...(input.updated ? { updated: input.updated } : {}),
       // Weeknight: what they paid is a craft credit toward the crafts, not a studio fee.
-      ...(draft.kind === 'weeknight' ? { craftCredit: { minimumCents: partyConfig.weeknightMinimumCents } } : {}),
+      ...(draft.kind === 'weeknight' && !quote ? { craftCredit: { minimumCents: partyConfig.weeknightMinimumCents } } : {}),
+      ...(quote
+        ? {
+            privateEvent: {
+              guests: draft.quote?.guests ?? draft.guestCount,
+              ...(draft.quote?.pricePerPersonCents ? { perPersonCents: draft.quote.pricePerPersonCents } : {}),
+              totalCents: quoteTotalCents(draft),
+              stillDueCents: quoteStillDueCents(draft),
+              lines: draft.quote?.lines ?? [],
+              ...(away ? { address: away } : {}),
+            },
+          }
+        : {}),
     })
     return sent
   } catch (err) {

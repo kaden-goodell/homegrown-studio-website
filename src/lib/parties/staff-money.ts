@@ -15,6 +15,7 @@ import { isOurs, type PartyCharge, type PartyRecord } from '@lib/party-store'
 import { dueCents, refundableOn } from './money'
 import { describePartyRequest } from './refunds'
 import { findPartyCraft } from '@lib/craft-catalog'
+import { isQuoteParty } from './quote-party'
 
 export interface CrewPartyMoney {
   /** who the money goes back to */
@@ -27,6 +28,8 @@ export interface CrewPartyMoney {
   cancelled: boolean
   /** What the crew ring up at the register after the party (D1: crafts are never charged online). */
   ringUp: { craftName: string; perHeadCents: number | null; guests: number }
+  /** A private event: the crafts are in the package, nothing to ring up for them (ringUp.perHeadCents is null). */
+  craftsIncluded?: boolean
   /** How the "Still to pay" gets paid: a payment link already went out, or take it at the register. */
   stillToPayBy: 'link' | 'register'
 }
@@ -46,7 +49,8 @@ export async function crewPartyMoney(rec: PartyRecord): Promise<CrewPartyMoney |
   } catch { /* the panel still refunds; a waiting refund is caught by the server's own check */ }
   // The craft's price per guest today, from the catalog; unknown → the crew are told to look it up on the register.
   let perHeadCents: number | null = null
-  if (rec.craftId) {
+  const quote = isQuoteParty(rec)
+  if (rec.craftId && !quote) {
     try { perHeadCents = (await findPartyCraft(rec.craftId))?.perHeadCents ?? null } catch { /* unknown */ }
   }
   return {
@@ -57,5 +61,6 @@ export async function crewPartyMoney(rec: PartyRecord): Promise<CrewPartyMoney |
     cancelled: rec.status === 'cancelled',
     ringUp: { craftName: rec.craftName, perHeadCents, guests: rec.guestCount },
     stillToPayBy: (rec.linkSent ?? []).length > 0 ? 'link' : 'register',
+    ...(quote ? { craftsIncluded: true } : {}),
   }
 }
