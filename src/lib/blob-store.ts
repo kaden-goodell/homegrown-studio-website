@@ -197,6 +197,13 @@ export function makeKvStore(
         return true
       }
       if (!etag && exists) {
+        // Review (16 Nov 2026): on a deployed site the version tag is what keeps
+        // two buyers off the last seat. Without it, refuse the write (fail closed,
+        // logged loudly) rather than quietly let the last write win.
+        if (onNetlify() && process.env.NETLIFY_DEV !== 'true') {
+          logger.error('Blob store returned no version tag on a deployed site — refusing an unguarded write', { key })
+          throw new Error(`Blob store "${storeName}" returned no version tag for "${key}"; refusing an unguarded write`)
+        }
         // Backend returned a value without an etag (local BlobsServer does this)
         // — a conditional write can never succeed, so write unconditionally.
         if (!warnedNoEtag) {

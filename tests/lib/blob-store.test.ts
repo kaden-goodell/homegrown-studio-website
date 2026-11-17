@@ -102,6 +102,27 @@ describe('makeKvStore (blob mode via injection)', () => {
     expect(setCalls[0]?.onlyIfNew).toBeUndefined()
   })
 
+  it('review: on a deployed Netlify site, a value with no etag refuses the write (fails closed) instead of last-write-wins', async () => {
+    const before = { netlify: process.env.NETLIFY, dev: process.env.NETLIFY_DEV }
+    try {
+      process.env.NETLIFY = 'true'
+      delete process.env.NETLIFY_DEV
+      const fakeStore = makeFakeStore()
+      const setCalls: any[] = []
+      const origSet = fakeStore.set.bind(fakeStore)
+      fakeStore.set = async (key: string, value: string, opts?: any) => { setCalls.push(opts); return origSet(key, value, opts) }
+      const store = makeKvStore('test', 'test', { _blobStore: fakeStore })
+      await expect(store.setIfMatch('key', '{}', null, true)).rejects.toThrow(/version tag/)
+      expect(setCalls).toHaveLength(0)
+      // netlify dev's local BlobsServer still gets the old behaviour.
+      process.env.NETLIFY_DEV = 'true'
+      expect(await store.setIfMatch('key', '{}', null, true)).toBe(true)
+    } finally {
+      if (before.netlify === undefined) delete process.env.NETLIFY; else process.env.NETLIFY = before.netlify
+      if (before.dev === undefined) delete process.env.NETLIFY_DEV; else process.env.NETLIFY_DEV = before.dev
+    }
+  })
+
   it('get delegates to the blob store when injected', async () => {
     const fakeStore = makeFakeStore()
     fakeStore._data['mykey'] = 'stored-value'
