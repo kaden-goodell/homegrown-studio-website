@@ -12,8 +12,15 @@
  *                    when an acknowledged one keeps happening, and closes
  *                    problems that have gone quiet.
  *
+ * How it reaches him (Kaden, 17 Nov 2026): Pushover first (src/lib/pushover.ts).
+ * Urgent incidents go as Pushover emergencies (ring through silent, Pushover
+ * repeats them every 5 minutes for an hour; our own repeats then come hourly);
+ * heads-ups, "Fixed" and "Still happening" as normal Pushover notes. When
+ * Pushover isn't set up or doesn't take it, the old text goes out instead, so
+ * nothing is lost. "Got it" stops both (it cancels Pushover's repeats too).
+ *
  * Never throws. If the store can't be read or written, it logs loudly and
- * still tries to send the text once.
+ * still tries to send the alarm once.
  *
  * Server only.
  */
@@ -21,6 +28,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { makeKvStore, type KvStore } from '@lib/blob-store'
 import { createLogger } from '@lib/logger'
 import { quoConfigured, sendQuoText } from '@lib/quo'
+import { cancelPushoverReceipt, EMERGENCY_EXPIRE_SECONDS, sendPushover, type PushoverMessage, type PushoverResult } from '@lib/pushover'
 import { SITE_URL } from '@config/site-url'
 import {
   ALARM_STORE,
@@ -52,6 +60,10 @@ export interface Incident {
   countAtAck: number | null
   /** Clears by itself when the thing works again (watchdog, a booking that went through). */
   autoResolve: boolean
+  /** How the last alarm about it went out. */
+  via?: 'pushover' | 'text'
+  /** Pushover emergency receipt: "Got it" cancels Pushover's own repeats. */
+  receipt?: string
 }
 
 function env(name: string): string {
@@ -62,6 +74,8 @@ function env(name: string): string {
 interface Deps {
   store: KvStore
   send: (to: string, content: string) => Promise<void>
+  push: (m: PushoverMessage) => Promise<PushoverResult>
+  cancelPush: (receipt: string) => Promise<boolean>
   now: () => Date
   phone: () => string
   secret: () => string
@@ -75,6 +89,8 @@ const defaults = (): Deps => ({
     if (!quoConfigured()) throw new Error('Quo is not set up (QUO_API_KEY / QUO_FROM_NUMBER)')
     await sendQuoText({ to, content })
   },
+  push: sendPushover,
+  cancelPush: cancelPushoverReceipt,
   now: () => new Date(),
   phone: () => env('ALERT_PHONE') || ALERT_PHONE_DEFAULT,
   secret: () => env('LOOKUP_SIGNING_SECRET') || 'dev-only-incident-secret',
@@ -124,6 +140,45 @@ async function text(content: string): Promise<boolean> {
   }
 }
 
+/** "BOOKING FAILED (class)" from "BOOKING FAILED (class): Sarah Lee …". */
+function titleOf(content: string): string {
+  const head = content.split(':')[0].trim()
+  return head && head.length <= 60 && head !== content ? head : 'Hometown Studio'
+}
+
+interface Delivery { sent: boolean; via?: 'pushover' | 'text'; receipt?: string }
+
+/**
+ * Pushover first, the text if that didn't go. `urgent` = emergency priority
+ * (rings through silent). `ack` = the "Got it" link: Pushover's link button,
+ * or the end of the text.
+ */
+async function deliver(content: string, opts: { urgent: boolean; ack?: string }): Promise<Delivery> {
+  let pushed: PushoverResult = { sent: false }
+  try {
+    pushed = await d().push({
+      title: titleOf(content),
+      message: content,
+      priority: opts.urgent ? 2 : 0,
+      ...(opts.ack ? { url: opts.ack, urlTitle: 'Got it (stop the alarm)' } : {}),
+    })
+  } catch (err) {
+    logger.error('Pushover alarm failed — texting instead', { error: err instanceof Error ? err.message : String(err) })
+  }
+  if (pushed.sent) return { sent: true, via: 'pushover', ...(pushed.receipt ? { receipt: pushed.receipt } : {}) }
+  const sent = await text(opts.ack ? `${content} Got it: ${opts.ack}` : content)
+  return sent ? { sent, via: 'text' } : { sent: false }
+}
+
+async function cancelReceipt(inc: Incident): Promise<void> {
+  if (!inc.receipt) return
+  try {
+    await d().cancelPush(inc.receipt)
+  } catch (err) {
+    logger.warn('Could not stop Pushover repeats', { key: inc.key, error: err instanceof Error ? err.message : String(err) })
+  }
+}
+
 async function load(key: string): Promise<Incident | null> {
   const raw = await d().store.get(storeKey(key))
   return raw ? (JSON.parse(raw) as Incident) : null
@@ -152,8 +207,8 @@ export async function raiseIncident(input: RaiseInput): Promise<boolean> {
   try {
     existing = await load(input.key)
   } catch (err) {
-    logger.error('INCIDENT STORE UNREADABLE — texting anyway', { key: input.key, error: String(err) })
-    return text(`${input.text}`)
+    logger.error('INCIDENT STORE UNREADABLE — alarming anyway', { key: input.key, error: String(err) })
+    return (await deliver(input.text, { urgent: input.urgent ?? true })).sent
   }
   if (existing) {
     existing.count += 1
@@ -178,10 +233,13 @@ export async function raiseIncident(input: RaiseInput): Promise<boolean> {
     countAtAck: null,
     autoResolve: input.autoResolve ?? false,
   }
-  const sent = await text(`${inc.text}${inc.urgent ? ` Got it: ${ackUrl(inc)}` : ''}`)
+  const out = await deliver(inc.text, { urgent: inc.urgent, ...(inc.urgent ? { ack: ackUrl(inc) } : {}) })
+  const sent = out.sent
   if (sent) {
     inc.texts = 1
     inc.lastTextAt = now
+    inc.via = out.via
+    if (out.receipt) inc.receipt = out.receipt
   }
   try {
     await save(inc)
@@ -197,7 +255,8 @@ export async function resolveIncident(key: string, fixedText?: string): Promise<
     const inc = await load(key)
     if (!inc) return false
     await d().store.delete(storeKey(key))
-    if (inc.texts > 0) await text(fixedText ?? `Fixed: ${short(inc.text)} (${inc.count} time${inc.count === 1 ? '' : 's'} since ${clock(inc.openedAt)}).`)
+    await cancelReceipt(inc)
+    if (inc.texts > 0) await deliver(fixedText ?? `Fixed: ${short(inc.text)} (${inc.count} time${inc.count === 1 ? '' : 's'} since ${clock(inc.openedAt)}).`, { urgent: false })
     return true
   } catch (err) {
     logger.error('Could not resolve incident', { key, error: String(err) })
@@ -232,6 +291,8 @@ export async function ackIncident(key: string, signature: string): Promise<boole
       inc.ackedAt = d().now().toISOString()
       inc.countAtAck = inc.count
       await save(inc)
+      // And stop Pushover's own emergency repeats.
+      await cancelReceipt(inc)
     }
     return true
   } catch (err) {
@@ -279,7 +340,7 @@ export async function sweepIncidents(): Promise<{ open: number; repeated: number
       // Acknowledged: one note an hour while it keeps happening.
       const more = inc.count - (inc.countAtAck ?? inc.count)
       if (more > 0 && sinceText >= REPEAT_SLOW_MINUTES * MIN) {
-        if (await text(`Still happening: ${short(inc.text)} ${more} more since you tapped Got it.`)) {
+        if ((await deliver(`Still happening: ${short(inc.text)} ${more} more since you tapped Got it.`, { urgent: false })).sent) {
           inc.countAtAck = inc.count
           inc.lastTextAt = now.toISOString()
           inc.texts += 1
@@ -296,12 +357,21 @@ export async function sweepIncidents(): Promise<{ open: number; repeated: number
       continue
     }
     if (!inc.urgent) continue
-    const every = (inc.texts <= REPEAT_FAST_TIMES ? REPEAT_FAST_MINUTES : REPEAT_SLOW_MINUTES) * MIN
+    // A Pushover emergency already rings every 5 minutes for an hour by
+    // itself: ours comes again once that has run out. A text repeats on our own
+    // schedule (every 10 minutes, then hourly).
+    const every = inc.via === 'pushover'
+      ? Math.max(EMERGENCY_EXPIRE_SECONDS * 1000, REPEAT_SLOW_MINUTES * MIN)
+      : (inc.texts <= REPEAT_FAST_TIMES ? REPEAT_FAST_MINUTES : REPEAT_SLOW_MINUTES) * MIN
     if (sinceText < every) continue
     const times = inc.count === 1 ? '' : ` (${inc.count} times since ${clock(inc.openedAt)})`
-    if (await text(`STILL BROKEN${times}: ${inc.text} Got it: ${ackUrl(inc)}`)) {
+    const again = await deliver(`STILL BROKEN${times}: ${inc.text}`, { urgent: true, ack: ackUrl(inc) })
+    if (again.sent) {
       inc.texts += 1
       inc.lastTextAt = now.toISOString()
+      inc.via = again.via
+      if (again.receipt) inc.receipt = again.receipt
+      else delete inc.receipt
       out.repeated += 1
       await save(inc).catch(() => undefined)
     }

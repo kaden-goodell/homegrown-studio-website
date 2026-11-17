@@ -32,13 +32,45 @@ export async function run(
 
 /**
  * If the site itself is down, the site can't text anyone, so this does: the
- * second failed knock in a row texts Kaden straight through Quo, then once an
- * hour while it stays down, and "Fixed" when it answers again.
+ * second failed knock in a row alarms Kaden (Pushover, else a Quo text), then
+ * once an hour while it stays down, and "Fixed" when it answers again.
  */
 export function siteDownAction(failsBefore: number, ok: boolean): { fails: number; send: 'down' | 'fixed' | null } {
   if (ok) return { fails: 0, send: failsBefore >= 2 ? 'fixed' : null }
   const fails = failsBefore + 1
   return { fails, send: fails === 2 || (fails > 2 && (fails - 2) % 12 === 0) ? 'down' : null }
+}
+
+/**
+ * Pushover first (Kaden, 17 Nov 2026): "SITE DOWN" as an emergency (rings
+ * through silent; Pushover repeats it every 5 minutes for an hour), "Fixed" as
+ * a normal note. False when Pushover isn't set up or didn't take it.
+ */
+export async function pushKaden(content: string, emergency: boolean, ask: typeof fetch = fetch): Promise<boolean> {
+  const token = process.env.PUSHOVER_APP_TOKEN
+  const user = process.env.PUSHOVER_USER_KEY
+  if (!token || !user) return false
+  const body = new URLSearchParams({
+    token,
+    user,
+    title: emergency ? 'SITE DOWN' : 'Fixed',
+    message: content,
+    priority: emergency ? '2' : '0',
+    ...(emergency ? { retry: '300', expire: '3600' } : {}),
+  })
+  const res = await ask('https://api.pushover.net/1/messages.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  }).catch(() => null)
+  if (!res?.ok) console.log('alerts-tick', 'Pushover did not take the alarm', res?.status ?? 'unreachable')
+  return !!res?.ok
+}
+
+/** Pushover, or the text if that didn't go. */
+export async function alarmKaden(content: string, emergency: boolean, ask: typeof fetch = fetch): Promise<void> {
+  if (await pushKaden(content, emergency, ask)) return
+  await textKaden(content)
 }
 
 async function textKaden(content: string): Promise<void> {
@@ -66,8 +98,8 @@ export default async (_req: Request, context: Context) => {
     const before = Number(await store.get('site-down-fails')) || 0
     const next = siteDownAction(before, outcome.ok)
     if (next.fails !== before) await store.set('site-down-fails', String(next.fails))
-    if (next.send === 'down') await textKaden(`SITE DOWN: ourhometownstudio.com isn't answering (${outcome.reason}, ${next.fails} checks in a row, 5 min apart). Nobody can book. Check Netlify.`)
-    if (next.send === 'fixed') await textKaden('Fixed: ourhometownstudio.com is answering again.')
+    if (next.send === 'down') await alarmKaden(`SITE DOWN: ourhometownstudio.com isn't answering (${outcome.reason}, ${next.fails} checks in a row, 5 min apart). Nobody can book. Check Netlify.`, true)
+    if (next.send === 'fixed') await alarmKaden('Fixed: ourhometownstudio.com is answering again.', false)
   } catch (err) {
     console.log('alerts-tick', 'site-down tracking failed', err instanceof Error ? err.message : String(err))
   }

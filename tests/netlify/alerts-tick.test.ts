@@ -25,3 +25,21 @@ describe('alerts-tick function', () => {
     expect(res.status).toBe(401)
   })
 })
+
+describe('site down goes through Pushover first (Kaden, 17 Nov 2026)', () => {
+  it('"SITE DOWN" is a Pushover emergency; "Fixed" a normal note; no keys → not sent', async () => {
+    const { pushKaden } = await import('../../netlify/functions/alerts-tick')
+    const seen: URLSearchParams[] = []
+    const ask = (async (_u: string, init: RequestInit) => { seen.push(new URLSearchParams(String(init.body))); return { ok: true } as Response }) as typeof fetch
+    expect(await pushKaden('SITE DOWN: x', true, ask)).toBe(false)
+    process.env.PUSHOVER_APP_TOKEN = 't'; process.env.PUSHOVER_USER_KEY = 'u'
+    try {
+      expect(await pushKaden('SITE DOWN: x', true, ask)).toBe(true)
+      expect(await pushKaden('Fixed: y', false, ask)).toBe(true)
+      expect([seen[0].get('priority'), seen[0].get('retry'), seen[0].get('expire')]).toEqual(['2', '300', '3600'])
+      expect([seen[1].get('priority'), seen[1].has('retry')]).toEqual(['0', false])
+    } finally {
+      delete process.env.PUSHOVER_APP_TOKEN; delete process.env.PUSHOVER_USER_KEY
+    }
+  })
+})
