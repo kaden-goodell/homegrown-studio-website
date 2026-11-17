@@ -22,10 +22,18 @@ describe('useKeyboardViewport', () => {
     const vv = fakeViewport(800)
     const { result } = renderHook(() => useKeyboardViewport(true))
     expect(result.current).toBeNull()
+    // A keyboard only opens for a field in use (17 Nov 2026: without one, a size change is browser chrome).
+    const field = document.createElement('input')
+    document.body.appendChild(field)
+    field.focus()
     act(() => vv.fire(450, 12))
     expect(result.current).toEqual({ top: 12, height: 450 })
     act(() => vv.fire(760))
     expect(result.current).toBeNull() // small change = browser chrome, not a keyboard
+    field.blur()
+    act(() => vv.fire(450, 12))
+    expect(result.current).toBeNull() // a big change with no field in use = Brave's toolbars, not a keyboard
+    field.remove()
   })
   it('does nothing on wide screens', () => {
     vi.stubGlobal('innerHeight', 800)
@@ -51,12 +59,13 @@ describe('BookingPanel while typing on a phone', () => {
     render(ui())
     expect(screen.getByText('6 magnets')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy()
+    act(() => screen.getByLabelText('Email').focus())
     act(() => vv.fire(420))
     expect(screen.queryByText('6 magnets')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
     expect(screen.queryByRole('progressbar')).toBeNull()
     expect(screen.getByLabelText('Email')).toBeTruthy()
-    act(() => vv.fire(800))
+    act(() => { screen.getByLabelText('Email').blur(); vv.fire(800) })
     expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy()
   })
 })

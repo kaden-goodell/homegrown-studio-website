@@ -90,6 +90,9 @@ function usePhoneSheet(): boolean {
   return sheet
 }
 
+/** Fields that bring up the on-screen keyboard. */
+const TEXT_FIELD = 'input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=range]), textarea'
+
 /**
  * The part of the screen the on-screen keyboard leaves visible (phones only).
  * iOS Safari overlays the keyboard without shrinking the layout viewport, so a
@@ -107,20 +110,32 @@ export function useKeyboardViewport(enabled: boolean): { top: number; height: nu
     let tallest = Math.max(window.innerHeight, vv.height)
     const update = () => {
       tallest = Math.max(tallest, window.innerHeight, vv.height)
+      // No text field in use means no keyboard, whatever the sizes say: Brave's
+      // toolbars grow and shrink by more than 100px as the page settles, and
+      // read as a keyboard, pinning the sheet half-height to the top (Kaden,
+      // 17 Nov 2026).
+      const active = typeof document !== 'undefined' ? document.activeElement : null
+      const typing = !!active && active instanceof HTMLElement && active.matches(TEXT_FIELD)
       // A keyboard takes well over 100px; smaller differences are browser chrome.
       const covered = Math.max(window.innerHeight - vv.height, tallest - vv.height)
-      setVp(covered > 100 ? { top: vv.offsetTop, height: vv.height } : null)
+      setVp(typing && covered > 100 ? { top: vv.offsetTop, height: vv.height } : null)
     }
+    // Focus moving in or out of a field changes the answer even when no resize comes.
+    const onFocusChange = () => setTimeout(update, 0)
+    document.addEventListener('focusin', onFocusChange)
+    document.addEventListener('focusout', onFocusChange)
     update()
     vv.addEventListener('resize', update)
     vv.addEventListener('scroll', update)
-    return () => { vv.removeEventListener('resize', update); vv.removeEventListener('scroll', update) }
+    return () => {
+      vv.removeEventListener('resize', update)
+      vv.removeEventListener('scroll', update)
+      document.removeEventListener('focusin', onFocusChange)
+      document.removeEventListener('focusout', onFocusChange)
+    }
   }, [enabled])
   return vp
 }
-
-/** Fields that bring up the on-screen keyboard. */
-const TEXT_FIELD = 'input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=range]), textarea'
 
 function useReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false)

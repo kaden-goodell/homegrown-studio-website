@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useState } from 'react'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import BookingPanel from '@components/shared/BookingPanel'
 
 function stubMatchMedia(matching: string[] = []) {
@@ -192,6 +192,21 @@ describe('BookingPanel', () => {
   it('on a computer, focusing a field changes nothing', () => {
     render(<Flow />)
     fireEvent.focus(screen.getByLabelText('A field'))
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument()
+  })
+
+  it('Brave\'s toolbars changing the screen height is not a keyboard: the sheet stays at the bottom, full height (Kaden, 17 Nov 2026)', () => {
+    stubMatchMedia(['max-width: 639px'])
+    const listeners: Record<string, () => void> = {}
+    const vv = { height: 800, offsetTop: 0, addEventListener: (t: string, f: () => void) => { listeners[t] = f }, removeEventListener: vi.fn() }
+    vi.stubGlobal('visualViewport', vv)
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 })
+    render(<Flow />)
+    // The toolbars tuck away and come back: 150px less, but nobody is typing.
+    vv.height = 650
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 650 })
+    act(() => listeners.resize?.())
+    expect(screen.getByRole('dialog')).toHaveStyle({ maxHeight: '94dvh' })
     expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument()
   })
 
