@@ -33,10 +33,29 @@ const APP_LABEL: Record<ApplicationStatus, string> = { new: 'New', talking: 'Tal
 const sent = (iso: string) => dayLabel(localDate(iso))
 const quote = (s: string, n = 60) => `“${s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s}”`
 
-export function describeItem(kind: InboxKind, item: EventRequest | ContactMessage | ArtistApplication): Described {
+/** What the request sheet knows about a request's quote (its state, and when it went out). */
+export interface QuoteHint { status: string; sentAt: string | null }
+
+/** The request's Next: from its quote when it has one, else from its status. */
+function requestNext(r: EventRequest, quote?: QuoteHint | null): string {
+  if (quote && r.status !== 'booked' && r.status !== 'not-now') {
+    switch (quote.status) {
+      case 'draft': return 'Finish the quote and send it'
+      case 'sent': case 'picked': return quote.sentAt ? `Waiting on them: quote sent ${sent(quote.sentAt)}` : 'Waiting on them to answer the quote'
+      case 'paying': return 'They’re paying the deposit'
+      case 'expired': return 'The quote ran out: reopen it, or mark Not this time'
+      case 'paid': return ''
+    }
+  }
+  if (r.status === 'new') return 'Make a quote'
+  if (r.status === 'quoted') return 'Mark Booked or Not this time when they answer'
+  return ''
+}
+
+export function describeItem(kind: InboxKind, item: EventRequest | ContactMessage | ArtistApplication, hint?: QuoteHint | null): Described {
   if (kind === 'request') {
     const r = item as EventRequest
-    const next = r.status === 'new' ? 'Reply with dates and a quote' : r.status === 'quoted' ? 'Mark Booked or Not this time when they answer' : ''
+    const next = requestNext(r, hint)
     return {
       name: `${r.about.name}${r.about.org ? ` · ${r.about.org}` : ''}`,
       title: r.about.name,

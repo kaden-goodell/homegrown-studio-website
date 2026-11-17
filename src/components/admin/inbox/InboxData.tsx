@@ -40,6 +40,10 @@ export function useInbox(): InboxApi {
   if (!v) throw new Error('useInbox outside InboxProvider')
   return v
 }
+/** The inbox when there is one (the quote sheet reads its request from it), else null. */
+export function useInboxMaybe(): InboxApi | null {
+  return useContext(InboxContext)
+}
 
 /** A record the list can show (a bad stored one shows "One item couldn't be shown" and isn't counted). */
 function readable(kind: InboxKind, x: InboxItem): boolean {
