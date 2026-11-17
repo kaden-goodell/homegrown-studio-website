@@ -85,6 +85,14 @@ const SQUARE_CDN: Record<string, string> = {
  */
 const APPLE_PAY_JS_SDK = 'https://applepay.cdn-apple.com/jsapi/1.latest/apple-pay-sdk.js'
 
+/**
+ * Real Apple Pay: Safari, and every browser on iPhone/iPad, has ApplePaySession
+ * built in. Read before Apple's script loads: that script adds a stand-in in
+ * Chrome on a computer, Square then offers the button, and tapping it does
+ * nothing (Kaden, 16 Nov 2026). Without it, Chrome shows Google Pay instead.
+ */
+const NATIVE_APPLE_PAY = typeof window !== 'undefined' && typeof (window as any).ApplePaySession !== 'undefined'
+
 function loadApplePaySdk(): Promise<void> {
   const existing = document.querySelector(`script[src="${APPLE_PAY_JS_SDK}"]`)
   if (existing) return Promise.resolve()
@@ -238,6 +246,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
 
             if (paymentRequest) {
               try {
+                if (!NATIVE_APPLE_PAY) throw new Error('No Apple Pay in this browser')
                 await loadApplePaySdk()
                 const applePay = await payments.applePay(paymentRequest)
                 if (cancelled) {

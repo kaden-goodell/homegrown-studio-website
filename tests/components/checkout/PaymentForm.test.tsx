@@ -172,3 +172,25 @@ describe('PaymentForm gift card field with the real SDK', () => {
     await waitFor(() => expect(giftStub.destroy).toHaveBeenCalled())
   })
 })
+
+describe('PaymentForm wallets', () => {
+  it('never offers Apple Pay where the browser has no real Apple Pay (Chrome on a computer), but still offers Google Pay', async () => {
+    const script = document.createElement('script')
+    script.src = 'https://sandbox.web.squarecdn.com/v1/square.js'
+    document.head.appendChild(script)
+    const cardStub = { attach: vi.fn(async () => {}), destroy: vi.fn(async () => {}), tokenize: vi.fn() }
+    const googleStub = { attach: vi.fn(async () => {}), destroy: vi.fn(async () => {}), tokenize: vi.fn() }
+    const applePay = vi.fn(async () => ({ destroy: vi.fn(async () => {}), tokenize: vi.fn() }))
+    const googlePay = vi.fn(async () => googleStub)
+    ;(window as any).Square = {
+      payments: () => ({ card: async () => cardStub, paymentRequest: () => ({}), applePay, googlePay, afterpayClearpay: vi.fn(async () => { throw new Error('no') }) }),
+    }
+    // jsdom, like Chrome on a computer, has no built-in ApplePaySession.
+    expect((window as any).ApplePaySession).toBeUndefined()
+    configAnswers('sq0idp-real')
+    render(<PaymentForm environmentOverride="sandbox" wallet={{ amount: '300.00', label: 'Hometown Studio' }} onWalletToken={vi.fn()} />)
+    await waitFor(() => expect(googleStub.attach).toHaveBeenCalled())
+    expect(applePay).not.toHaveBeenCalled()
+    expect(document.querySelector('apple-pay-button')).toBeNull()
+  })
+})

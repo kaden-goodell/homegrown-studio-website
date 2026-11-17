@@ -85,9 +85,15 @@ export function useKeyboardViewport(enabled: boolean): { top: number; height: nu
   useEffect(() => {
     const vv = typeof window !== 'undefined' ? window.visualViewport : null
     if (!enabled || !vv) { setVp(null); return }
+    // The tallest the screen has been while this is open. Brave and Chrome on
+    // iPhone shrink the whole page for the keyboard (innerHeight drops too), so
+    // "innerHeight minus visible height" stays near 0 there; comparing with the
+    // tallest seen still catches the keyboard (Kaden, 16 Nov 2026).
+    let tallest = Math.max(window.innerHeight, vv.height)
     const update = () => {
+      tallest = Math.max(tallest, window.innerHeight, vv.height)
       // A keyboard takes well over 100px; smaller differences are browser chrome.
-      const covered = window.innerHeight - vv.height
+      const covered = Math.max(window.innerHeight - vv.height, tallest - vv.height)
       setVp(covered > 100 ? { top: vv.offsetTop, height: vv.height } : null)
     }
     update()
@@ -97,6 +103,9 @@ export function useKeyboardViewport(enabled: boolean): { top: number; height: nu
   }, [enabled])
   return vp
 }
+
+/** Fields that bring up the on-screen keyboard. */
+const TEXT_FIELD = 'input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=range]), textarea'
 
 function useReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false)
@@ -133,8 +142,10 @@ export default function BookingPanel({
   const keepRef = useRef<HTMLButtonElement>(null)
   const sheet = usePhoneSheet()
   const keyboard = useKeyboardViewport(sheet)
+  /** A text field has focus (on a phone the keyboard is up, whatever the browser reports). */
+  const [fieldFocused, setFieldFocused] = useState(false)
   /** Keyboard up on a phone: give the field the room — title only, no step bar, summary or footer. */
-  const typing = keyboard !== null
+  const typing = keyboard !== null || (sheet && fieldFocused)
   const reducedMotion = useReducedMotion()
 
   // Latest handlers, so the key listener never goes stale.
@@ -351,7 +362,15 @@ export default function BookingPanel({
           onFocus={(e) => {
             // Keep the field being typed in visible once the keyboard has opened.
             const el = e.target as HTMLElement
-            if (sheet && el.matches('input, textarea, select')) setTimeout(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300)
+            if (sheet && el.matches(TEXT_FIELD)) {
+              setFieldFocused(true)
+              setTimeout(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300)
+            }
+          }}
+          onBlur={(e) => {
+            // Moving from one field to the next keeps the keyboard up.
+            const next = e.relatedTarget as HTMLElement | null
+            if (!next || !next.matches(TEXT_FIELD)) setFieldFocused(false)
           }}
           className="booking-panel-scroll"
           style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', padding: `0.25rem ${pad} 1.25rem` }}
