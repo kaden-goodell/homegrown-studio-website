@@ -134,6 +134,10 @@ type SetCookie = (name: string, value: string, opts: { path: string; httpOnly: b
 export function urlWithoutPreview(url: URL): string {
   const clean = new URL(url.toString())
   clean.searchParams.delete('preview')
+  // Netlify puts the request's own query back on a redirect whose address has
+  // none, so "/workshops" became "/workshops?preview=…" again and the browser
+  // looped (Kaden, 17 Nov 2026). Keep one harmless parameter so it can't.
+  if (![...clean.searchParams.keys()].length) clean.searchParams.set('test', 'on')
   return clean.pathname + clean.search + clean.hash
 }
 

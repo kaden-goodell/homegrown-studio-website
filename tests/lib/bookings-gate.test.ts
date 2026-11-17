@@ -292,6 +292,11 @@ describe('the test link (?preview=)', () => {
     expect(urlWithoutPreview(new URL('https://x/book?preview=a&date=2026-12-05'))).toBe('/book?date=2026-12-05')
   })
 
+  it('a test link with nothing else in the address keeps one harmless parameter (Netlify re-adds the query to a bare redirect, which looped)', () => {
+    expect(urlWithoutPreview(new URL('https://x/workshops?preview=a'))).toBe('/workshops?test=on')
+    expect(urlWithoutPreview(new URL('https://x/classes/cls_1?preview=a'))).toBe('/classes/cls_1?test=on')
+  })
+
   it('every booking page answers the test link with the redirect', () => {
     const { readFileSync } = require('node:fs') as typeof import('node:fs')
     for (const f of ['src/pages/book.astro', 'src/pages/workshops.astro', 'src/pages/classes/[id].astro', 'src/pages/calendar.astro']) {
