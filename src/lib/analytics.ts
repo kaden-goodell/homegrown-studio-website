@@ -217,6 +217,11 @@ export function trackBookingAbandoned(kind: BookingKindForAnalytics, lastStep: s
 }
 
 /** Something went wrong in front of a customer (no dates loaded, time taken, card declined…). */
+/** One step of a wallet tap (Apple Pay / Google Pay / Afterpay): where a tap that "does nothing" stopped. */
+export function trackWalletStep(kind: BookingKindForAnalytics, wallet: string, step: string, extra?: Record<string, unknown>): void {
+  capture('wallet_step', { booking_kind: kind, wallet, step, ...(extra ?? {}) })
+}
+
 export function trackBookingProblem(kind: BookingKindForAnalytics, problem: string, detail?: string): void {
   capture('booking_problem', { booking_kind: kind, problem, ...(detail ? { detail: detail.slice(0, 100) } : {}) })
 }
