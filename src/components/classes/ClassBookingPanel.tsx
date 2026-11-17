@@ -1399,6 +1399,9 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
             {' '}applies.
           </p>
         </div>
+        <p data-testid="waitlist-card-note" style={{ margin: '0 0 0.75rem', fontSize: '0.875rem', color: 'var(--color-text)' }}>
+          Apple Pay and Google Pay can’t be saved for later, so add a card. Nothing is charged unless a seat opens up for you.
+        </p>
         <PaymentForm bookingKind="workshop" mode="store" ref={paymentFormRef} onReadyChange={setPaymentReady} />
 
         {error && <p role="alert" className="field-error" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5 }}>{error}</p>}

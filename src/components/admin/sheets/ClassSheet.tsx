@@ -817,9 +817,20 @@ function BookingRow({ b, cls, ticket, canEmail, onChanged }: { b: ClassBooking; 
   const c = cls.content
   const name = nameOf(b)
   const seatCount = Object.values(b.seats).reduce((a, n) => a + n, 0)
+  // Who's coming, with the seats let go named (Kaden, 17 Nov 2026: a refunded Kid still read "1 Adult, 2 Kid").
+  // "refunded" when money went back; "freed" only for a seat let go with nothing to refund (a comp, a free booking).
+  const coming = b.comingSeats ?? b.seats
+  const goneBy = Object.fromEntries(Object.entries(b.seats).map(([t, n]) => [t, n - (coming[t] ?? 0)]).filter(([, n]) => (n as number) > 0)) as Record<string, number>
+  const someGone = b.state !== 'held' && b.seatsComing > 0 && Object.keys(goneBy).length > 0
+  const goneWord = b.refundedCents > 0 ? 'refunded' : 'freed'
   const seats = c.ticketTypes.length > 1
-    ? Object.entries(b.seats).map(([t, n]) => `${n} ${ticket(t)}`).join(', ')
-    : `${seatCount} ${seatCount === 1 ? 'seat' : 'seats'}`
+    ? [
+        Object.entries(someGone ? coming : b.seats).filter(([, n]) => n > 0).map(([t, n]) => `${n} ${ticket(t)}`).join(', '),
+        someGone ? `${Object.entries(goneBy).map(([t, n]) => `${n} ${ticket(t)}`).join(', ')} ${goneWord}` : '',
+      ].filter(Boolean).join(' · ')
+    : someGone
+      ? `${b.seatsComing} ${b.seatsComing === 1 ? 'seat' : 'seats'} · ${seatCount - b.seatsComing} ${goneWord}`
+      : `${seatCount} ${seatCount === 1 ? 'seat' : 'seats'}`
   const pass = c.passes.length > 1 ? c.passes.find((p) => p.id === b.passId)?.label : ''
   // A seat freed with no money back reads as that, never "Refunded" for $0.
   const freedOnly = (b.state === 'refunded' || b.state === 'part refunded') && b.refundedCents === 0

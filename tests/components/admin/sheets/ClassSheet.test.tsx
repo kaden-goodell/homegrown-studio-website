@@ -330,6 +330,18 @@ describe('class sheet › Cancel', () => {
     expect(within(row).queryByText('Refunded')).toBeNull()
   })
 
+  it('a part-refunded booking reads as who is coming: "1 Adult, 1 Kid · 1 Kid refunded" (Kaden, 17 Nov 2026)', async () => {
+    const two = cls({ content: content({ ticketTypes: [{ id: 'adult', label: 'Adult' }, { id: 'kid', label: 'Kid' }], prices: { pas_full: { adult: 100, kid: 100 } } }) })
+    const part = booking({
+      seats: { adult: 1, kid: 2 }, comingSeats: { adult: 1, kid: 1 }, seatsComing: 2, state: 'part refunded', paidCents: 327, refundedCents: 109,
+    })
+    vi.stubGlobal('fetch', server({ the: two, bookings: [part], seatsTaken: { ses_1: 2 } }))
+    renderSheet(<ClassSheet id="cls_1" />)
+    const row = await screen.findByRole('article', { name: 'Ada Lovelace' })
+    expect(row.textContent).toContain('1 Adult, 1 Kid · 1 Kid refunded')
+    expect(row.textContent).not.toContain('2 Kid')
+  })
+
   it('a stale cancel says so and shows the class as it is now', async () => {
     let gets = 0
     const f = server({ post: () => refuse(409, { error: 'Someone else changed this class. Reload to see their changes.', stale: true }) })

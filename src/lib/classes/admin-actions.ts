@@ -816,6 +816,8 @@ export interface BookingView {
    * everyone and every count use this, never `state`.
    */
   seatsComing: number
+  /** Seats coming by ticket type ({ adult: 1, kid: 1 }), so a part-refunded booking reads as who's coming, not what was bought. */
+  comingSeats: Record<string, number>
   overCapacity: boolean
   lineIds: string[]
   /** What each paid seat can still give back, for the refund panel (the server works it out again). */
@@ -872,6 +874,7 @@ export function groupBookings(ledger: Ledger, now = new Date()): BookingView[] {
       refunds,
       state,
       seatsComing: lines.filter((l) => takesSeat(l, now)).length,
+      comingSeats: lines.filter((l) => takesSeat(l, now)).reduce<Record<string, number>>((m, l) => ({ ...m, [l.ticketTypeId]: (m[l.ticketTypeId] ?? 0) + 1 }), {}),
       overCapacity: lines.some((l) => l.overCapacity === true),
       lineIds: lines.map((l) => l.id),
       refundable: lines.filter(isPaidLine).map((l) => ({
