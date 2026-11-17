@@ -37,6 +37,8 @@ vi.mock('@lib/classes/class-store', () => ({
 vi.mock('@lib/classes/seat-ledger', async (orig) => ({
   ...(await orig<typeof import('@lib/classes/seat-ledger')>()),
   getLedger: async (id: string) => own.ledgers.get(id) ?? { classId: id, lines: [] },
+  // The half-hourly job reads the display copy (no database wake every 30 minutes).
+  getLedgerForDisplay: async (id: string) => own.ledgers.get(id) ?? { classId: id, lines: [] },
 }))
 
 const partySettings = vi.hoisted(() => ({ windowDays: 90 as number | null }))

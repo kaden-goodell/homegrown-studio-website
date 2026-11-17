@@ -901,16 +901,16 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R
 
 /** Every class with someone on its list (or a card still to take off): settle, close passed cutoffs, add who fits. Stops starting classes after `budgetMs`. */
 export async function sweepWaitlists(now = new Date(), opts: { budgetMs?: number; ids?: string[] } = {}): Promise<{ classes: number; added: number; declined: number; closed: number; unknown: number; left: number }> {
-  const { waitlistClassIds, inactiveWaitlists, markWaitlistsInactive } = await import('./waitlist-store')
+  const { sweepLook, markWaitlistsInactive } = await import('./waitlist-store')
   const started = Date.now()
   const out = { classes: 0, added: 0, declined: 0, closed: 0, unknown: 0, left: 0 }
   // I-6: finished waitlists are skipped for good; the rest are read in parallel (a few at a time).
-  let ids = opts.ids ?? (await waitlistClassIds())
-  if (!opts.ids) {
-    const done = await inactiveWaitlists().catch(() => new Set<string>())
-    ids = ids.filter((id) => !done.has(id))
-  }
-  const lists = await mapLimit(ids, 8, (id) => getWaitlist(id).catch(() => null))
+  // The first look is the snapshot copies (no database wake every 10 minutes); runWaitlist below reads
+  // the real list for each class that has work.
+  const look = opts.ids ? null : await sweepLook()
+  let ids = opts.ids ?? look!.ids
+  if (look) ids = ids.filter((id) => !look.inactive.has(id))
+  const lists = await mapLimit(ids, 8, (id) => (look ? look.read(id) : getWaitlist(id)).catch(() => null))
   const working = ids.filter((_, i) => lists[i] && hasWork(lists[i]!.entries))
   // Lists with no work whose class is over (every date passed) never have work again: off the sweep.
   if (!opts.ids) {

@@ -16,7 +16,7 @@ import { getEventMeta } from '@lib/event-meta'
 import type { CutoffSettings } from '@lib/seat-options'
 import { listClasses } from '@lib/classes/class-store'
 import { systemForEveryoneNow } from '@lib/bookings-gate'
-import { getLedger } from '@lib/classes/seat-ledger'
+import { getLedgerForDisplay } from '@lib/classes/seat-ledger'
 import { listedPublicly, toPublicClass } from '@lib/classes/public-view'
 
 export const prerender = false
@@ -82,7 +82,7 @@ async function ownClassFacts(now: Date): Promise<WorkshopFact[]> {
     const classes = (await listClasses({ fromIso: now.toISOString(), toIso: new Date(now.getTime() + OWN_AHEAD_MS).toISOString() })).filter(listedPublicly)
     return await Promise.all(
       classes.map(async (cls): Promise<WorkshopFact> => {
-        const w = toPublicClass(cls, await getLedger(cls.id), now)
+        const w = toPublicClass(cls, await getLedgerForDisplay(cls.id), now)
         return {
           id: w.id,
           name: w.name,

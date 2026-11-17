@@ -10,7 +10,7 @@
  *
  * Server only.
  */
-import { makeKvStore } from '@lib/blob-store'
+import { makeKvStore, snapshotRead } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
 import type { AgreedLine, BookingRequest } from './pricing'
 import type { CardTrouble } from '@lib/saved-cards'
@@ -135,6 +135,23 @@ export async function waitlistClassIds(): Promise<string[]> {
   return (await kv.list('wl-')).filter((k) => k.startsWith('wl-')).map((k) => k.slice(3))
 }
 
+/**
+ * The 10-minute sweep's first look, from the snapshot copies (Kaden, 16 Nov 2026: the waitlists moved to
+ * Postgres; reading it every 10 minutes would keep the database awake all day). Only a class that has
+ * work by this look is then run, and running it reads the real list. A list changed in the last moment
+ * is picked up on the next sweep, or straight away by the booking or cancel that changed it.
+ */
+export async function sweepLook(): Promise<{ ids: string[]; inactive: Set<string>; read(classId: string): Promise<Waitlist> }> {
+  const snap = snapshotRead(kv)
+  const ids = (await snap.list('wl-')).filter((k) => k.startsWith('wl-')).map((k) => k.slice(3))
+  const json = await snap.get(INACTIVE).catch(() => null)
+  return {
+    ids,
+    inactive: new Set(json ? (JSON.parse(json) as string[]) : []),
+    read: async (classId) => parse(classId, await snap.get(key(classId))),
+  }
+}
+
 // I-6: waitlists that can never have work again (every date passed, nobody waiting, every card off) are
 // listed once here so the 10-minute sweep stops reading them. Never read by anything that shows owners
 // items (To decide still reads every list). The key doesn't start with 'wl-'.
@@ -213,6 +230,15 @@ export async function updateEntry(
 }
 
 /** For pages that only show counts: the waitlist, or null when it can't be read (nothing on a paying path uses this). */
+/** Display only (public class pages): the snapshot copy, a moment old at most; null when unreadable. */
+export async function waitlistForDisplay(classId: string): Promise<Waitlist | null> {
+  try {
+    return parse(classId, await snapshotRead(kv).get(key(classId)))
+  } catch {
+    return null
+  }
+}
+
 export async function waitlistOrNull(classId: string): Promise<Waitlist | null> {
   try {
     return await getWaitlist(classId)

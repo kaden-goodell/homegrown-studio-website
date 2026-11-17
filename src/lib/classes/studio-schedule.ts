@@ -138,9 +138,9 @@ export async function legacyClassSpans(fromIso: string, toIso: string): Promise<
  * `labels: false` skips the record reads that name the host (public reads,
  * which only need the times).
  */
-export async function partyBusy(fromIso: string, toIso: string, now: Date = new Date(), opts: { labels?: boolean } = {}): Promise<Busy[]> {
+export async function partyBusy(fromIso: string, toIso: string, now: Date = new Date(), opts: { labels?: boolean; display?: boolean } = {}): Promise<Busy[]> {
   const labels = opts.labels !== false
-  const [book, legacy] = await Promise.all([holdsBetween(fromIso, toIso, now), legacyPartyBusy(fromIso, toIso, { labels })])
+  const [book, legacy] = await Promise.all([holdsBetween(fromIso, toIso, now, { display: opts.display }), legacyPartyBusy(fromIso, toIso, { labels })])
   const ours = await Promise.all(book.map(async (h) => {
     const b = holdBusy(h)
     // Public reads never show who: no record read per party (cold starts).
@@ -177,7 +177,7 @@ export async function busyBetween(
   fromIso: string,
   toIso: string,
   days?: StudioDays,
-  opts: { legacyClasses?: 'strict' | 'ignore-failure'; partyLabels?: boolean } = {},
+  opts: { legacyClasses?: 'strict' | 'ignore-failure'; partyLabels?: boolean; display?: boolean } = {},
 ): Promise<Busy[]> {
   // The owners' closed days and café hours: read once, never guessed (throws when unreadable).
   const studio = days ?? (await getStudioDays({ strict: true }))
@@ -194,7 +194,7 @@ export async function busyBetween(
           return [] as ClassSpan[]
         })
       : legacyClasses,
-    partyBusy(fromIso, toIso, new Date(), { labels: opts.partyLabels }),
+    partyBusy(fromIso, toIso, new Date(), { labels: opts.partyLabels, display: opts.display }),
     blockedAndClosedBusy(fromIso, toIso, studio),
   ])
   const legacyBusy: Busy[] = legacy.map((c) => ({ kind: 'legacy-class', id: c.id, label: c.name, startIso: c.startIso, endIso: c.endIso }))

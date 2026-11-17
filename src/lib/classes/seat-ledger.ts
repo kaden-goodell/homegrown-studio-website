@@ -5,7 +5,7 @@
  * per class, so two buyers racing for the last seat cannot both get it: the
  * loser's write fails, it re-reads, re-checks capacity and comes back sold out.
  */
-import { makeKvStore } from '@lib/blob-store'
+import { makeKvStore, snapshotRead } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
 import type { LineDiscount, Quote } from './pricing'
 import type { Cents, ScheduledClass } from './types'
@@ -128,6 +128,15 @@ const parse = (classId: string, json: string | null): Ledger => (json ? (JSON.pa
 
 export async function getLedger(classId: string): Promise<Ledger> {
   return parse(classId, await kv.get(key(classId)))
+}
+
+/**
+ * Display only (seats left on public pages, the half-hourly emails): the
+ * snapshot copy, a moment old at most, so a page view doesn't wake the
+ * database. A booking always re-checks with the real ledger.
+ */
+export async function getLedgerForDisplay(classId: string): Promise<Ledger> {
+  return parse(classId, await snapshotRead(kv).get(key(classId)))
 }
 
 /**

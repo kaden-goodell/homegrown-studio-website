@@ -87,13 +87,17 @@ function clashesFor(startIso: string, minutes: number, busy: Busy[], ignoreParty
   )
 }
 
-/** `labels`: name the parties in the way (owners only; public reads skip the record reads). */
-async function scheduleAround(fromIso: string, toIso: string, days: StudioDays, labels = false): Promise<Busy[]> {
+/**
+ * `labels`: name the parties in the way (owners only; public reads skip the record reads).
+ * `display`: the public pickers read party times from the snapshot copy (no database wake per page view);
+ * checkStart (a booking) and the owners' views read the real book.
+ */
+async function scheduleAround(fromIso: string, toIso: string, days: StudioDays, labels = false, display = false): Promise<Busy[]> {
   return busyBetween(
     new Date(Date.parse(fromIso) - PAD_MS).toISOString(),
     new Date(Date.parse(toIso) + PAD_MS).toISOString(),
     days,
-    { legacyClasses: 'ignore-failure', partyLabels: labels },
+    { legacyClasses: 'ignore-failure', partyLabels: labels, display },
   )
 }
 
@@ -133,7 +137,7 @@ export async function partyStartsOnDate(date: string, want: PartyWant = {}, now:
   const offered = partyStartsForDate(settings, date, now, days, { minutes, admin: want.admin })
   if (offered.length === 0) return { minutes, offered, unblocked: [], open: [] }
   const { startIso, endIso } = studioDayUtcRange(date)
-  return judge(offered, minutes, await scheduleAround(startIso, endIso, days), want.ignorePartyId, (st) => partyMinutesAt(settings, st, want))
+  return judge(offered, minutes, await scheduleAround(startIso, endIso, days, false, true), want.ignorePartyId, (st) => partyMinutesAt(settings, st, want))
 }
 
 /** Open party starts (UTC ISO) on a studio-local date. Throws when anything can't be read. */
@@ -162,7 +166,7 @@ export async function partyStartsInWindow(
   const toIso = new Date(to).toISOString()
   const offered = partyStartsInRange(settings, from.toISOString(), toIso, now, days, { minutes })
   if (offered.length === 0) return { ...none, offered }
-  return { ...judge(offered, minutes, await scheduleAround(from.toISOString(), toIso, days), undefined, (st) => partyMinutesAt(settings, st, want)), windowDays }
+  return { ...judge(offered, minutes, await scheduleAround(from.toISOString(), toIso, days, false, true), undefined, (st) => partyMinutesAt(settings, st, want)), windowDays }
 }
 
 /** Every open party start online across the booking window. Throws when anything can't be read. */

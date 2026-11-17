@@ -33,7 +33,7 @@
  * Residual race: a class saved in its own store at the same moment as a party
  * hold. Accepted as in stage 1; the daily "class over party" warning catches it.
  */
-import { makeKvStore } from '@lib/blob-store'
+import { makeKvStore, snapshotRead } from '@lib/blob-store'
 import { assertClassWritesAllowed } from '@lib/classes/test-site-guard'
 import { clashes, clashMessage, type Busy } from '@lib/classes/studio-schedule'
 import { localDate, PARTY_CLEANUP_MINUTES } from './party-times'
@@ -148,10 +148,15 @@ function monthsBetween(fromIso: string, toIso: string): string[] {
   return out
 }
 
-/** Unexpired held and booked party times overlapping [fromIso, toIso), by start. Throws when the book can't be read. */
-export async function holdsBetween(fromIso: string, toIso: string, now: Date): Promise<PartyHold[]> {
+/**
+ * Unexpired held and booked party times overlapping [fromIso, toIso), by start. Throws when the book can't be read.
+ * `display`: the public pickers' read, from the snapshot copy (a moment old at most, so a page view doesn't
+ * wake the database). Holding a time always re-checks the real book (holdTime).
+ */
+export async function holdsBetween(fromIso: string, toIso: string, now: Date, opts: { display?: boolean } = {}): Promise<PartyHold[]> {
   const from = Date.parse(fromIso), to = Date.parse(toIso)
-  const docs = await Promise.all(monthsBetween(fromIso, toIso).map(async (m) => parse(m, await kv.get(keyOf(m)))))
+  const read = opts.display ? snapshotRead(kv) : kv
+  const docs = await Promise.all(monthsBetween(fromIso, toIso).map(async (m) => parse(m, await read.get(keyOf(m)))))
   return docs
     .flatMap((d) => d.holds)
     .filter((h) => !isExpired(h, now) && Date.parse(h.endIso) > from && Date.parse(h.startIso) < to)
