@@ -12,10 +12,11 @@ export const CLIENT_PROBLEMS = {
   booking_network: 'The booking request never reached the site (or got no answer)',
   booking_bad_answer: 'The booking request got a broken answer (not from our code)',
   crash: 'The booking pop-up crashed',
+  rage: 'Someone tapped the same thing over and over (rage taps)',
 } as const
 export type ClientProblem = keyof typeof CLIENT_PROBLEMS
 
-const KINDS = new Set(['class', 'party', 'shop', 'kit'])
+const KINDS = new Set(['class', 'party', 'shop', 'kit', 'site'])
 const quiet = () => new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } })
 
 /** Error text from browser add-ons and other sites' scripts, not our booking code. */
@@ -48,6 +49,17 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   const page = String(body?.page ?? '').slice(0, 80)
   logger.error('Booking broke in a browser', { kind, problem, detail, page })
   if (!alertsLiveFor(request.url)) return quiet()
+  if (problem === 'rage') {
+    // Any page (Kaden, 16 Nov 2026: "add all rage clicks to alerts"). One text
+    // per page and thing until it goes quiet; not repeated: it's a heads-up.
+    await raiseIncident({
+      key: `rage:${page}:${detail}`.slice(0, 200),
+      text: `RAGE TAPS on ${page || 'the site'}: someone tapped ${detail || 'something'} over and over. Check that it works.`,
+      urgent: false,
+      autoResolve: true,
+    })
+    return quiet()
+  }
   await raiseIncident({
     key: `booking:${kind}:browser-${problem}`,
     text: `BOOKING BROKE on a customer's phone (${kind}): ${CLIENT_PROBLEMS[problem]}.${detail ? ` "${detail}"` : ''}${page ? ` Page: ${page}.` : ''} They could not book. Nothing was charged by this step.`,
