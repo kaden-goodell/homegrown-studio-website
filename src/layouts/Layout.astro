@@ -110,7 +110,7 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     )}
     {!bare && <Footer transition:persist />}
     {!bare && <RenameNotice client:idle transition:persist />}
-    <script>import '@lib/fade-in'; import '@lib/nav-progress'</script>
+    <script>import '@lib/fade-in'; import '@lib/nav-progress'; import { startRageWatch } from '@lib/rage-watch'; startRageWatch()</script>
     {/* Staff tools (the console, the counter-iPad agreement) aren't visitors. */}
     {!bare && !noAnalytics && <Analytics />}
   </body>

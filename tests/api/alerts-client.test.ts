@@ -22,6 +22,12 @@ describe('/api/alerts/client.json', () => {
     expect(texts[0]).toMatch(/^BOOKING BROKE on a customer's phone \(class\): The booking pop-up crashed\. "TypeError: x is undefined" Page: \/workshops\./)
   })
 
+  it('a rage tap anywhere texts Kaden once, as a heads-up with no repeat link', async () => {
+    await send({ kind: 'site', problem: 'rage', detail: 'apple-pay-button "Pay with Apple Pay"', page: '/book' })
+    await send({ kind: 'site', problem: 'rage', detail: 'apple-pay-button "Pay with Apple Pay"', page: '/book' }, undefined, '10.8.8.8')
+    expect(texts).toEqual(['RAGE TAPS on /book: someone tapped apple-pay-button "Pay with Apple Pay" over and over. Check that it works.'])
+  })
+
   it('many phones with the same problem are one text', async () => {
     for (let i = 0; i < 5; i++) await send({ kind: 'party', problem: 'payment_form' }, undefined, `10.1.0.${i}`)
     expect(texts).toHaveLength(1)
