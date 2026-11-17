@@ -2,7 +2,7 @@
 /**
  * One-off private event quote for The Corky Child Care Collective (Kaden,
  * 17 Nov 2026), made by hand before the quote system ships. Invitation
- * design (canvas "C · The Invitation"). Three themed nights, $75 a guest
+ * design (canvas "C · The Invitation"). Four themed nights, $75 a guest
  * each, no discounts shown. She picks one; "Text us our pick" sends it to the
  * studio. The Hold button is a fixed Square payment link for the $1,500
  * deposit (half of 40 guests); final count and monograms by Nov 27, and the
@@ -45,6 +45,16 @@ const themes = [
       { name: 'Earring bar', note: 'Christmas earrings, made your way' },
     ],
   },
+  {
+    id: 'ornament',
+    name: 'Ornament Night',
+    photos: [img('p0436.jpg'), img('p0557.jpg')],
+    items: [
+      { name: 'Needle-felt bar', note: 'Soft little ornaments, shaped by hand' },
+      { name: 'Gold frame ornaments', note: 'Hand-embroidered, framed in gold' },
+      { name: 'Laser-cut ornaments', note: 'Cut in our studio, painted your way' },
+    ],
+  },
 ]
 ---
 <Layout
@@ -76,7 +86,7 @@ const themes = [
 
     <section class="themes">
       <p class="kicker center">Choose your night</p>
-      <p class="lede">Three nights to choose from, each ${PRICE} a guest.</p>
+      <p class="lede">Four nights to choose from, each ${PRICE} a guest.</p>
 
       {themes.map((t, i) => (
         <button type="button" class="theme" data-id={t.id} data-name={t.name} aria-pressed="false">
