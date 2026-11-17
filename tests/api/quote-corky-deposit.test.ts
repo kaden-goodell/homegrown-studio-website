@@ -15,7 +15,25 @@ const m = vi.hoisted(() => ({
   sendEmail: vi.fn(),
   bypass: { on: false },
   testSite: null as string | null,
+  rows: new Map<string, string>(),
+  kvFail: false,
 }))
+
+// Jessyca's visit log: an in-memory 'quote-visits' store; every other store is real.
+vi.mock('@lib/blob-store', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@lib/blob-store')>()
+  return {
+    ...real,
+    makeKvStore: (name: string, dir: string) => (name !== 'quote-visits' ? real.makeKvStore(name, dir) : {
+      get: async (k: string) => m.rows.get(k) ?? null,
+      set: async (k: string, v: string) => { m.rows.set(k, v) },
+      list: async (p?: string) => { if (m.kvFail) throw new Error('blobs down'); return [...m.rows.keys()].filter((k) => !p || k.startsWith(p)) },
+      delete: async (k: string) => { m.rows.delete(k) },
+      getWithMeta: async () => ({ value: null, etag: null }),
+      setIfMatch: async () => true,
+    }),
+  }
+})
 
 vi.mock('@config/providers', () => ({
   providers: {
@@ -51,6 +69,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   m.bypass.on = false
   m.testSite = null
+  m.rows.clear()
+  m.kvFail = false
   m.createOrder.mockImplementation(async (req: any) => ({
     id: `ord-${req.idempotencyKey}`, totalAmount: req.lineItems.reduce((t: number, l: any) => t + l.quantity * l.pricePerUnit, 0),
   }))
@@ -81,7 +101,7 @@ describe('POST /api/quote/corky-deposit.json', () => {
     expect(res).toEqual({ status: 200, json: { data: { paid: true, receiptUrl: 'https://squareup.com/receipt/1' } } })
     expect(m.processPayment.mock.calls[0][0].verificationToken).toBe('verf-1')
     expect(m.alert).toHaveBeenCalledTimes(1)
-    expect(m.alert).toHaveBeenCalledWith('Deposit paid: Corky Child Care Collective, Dec 12, $1,500 (Jessyca Test, (256) 555-0100)', 'booking-alerts')
+    expect(m.alert).toHaveBeenCalledWith('Deposit paid $1,500: Corky Child Care, Sat Dec 12. Jessyca Test (256) 555-0100. No night picked yet. No page visits on record.', 'booking-alerts')
     expect(m.sendEmail).toHaveBeenCalledTimes(1)
     expect(m.sendEmail.mock.calls[0][0]).toMatchObject({ to: 'owners@example.com', subject: expect.stringContaining('Deposit paid') })
   })
@@ -151,5 +171,98 @@ describe('POST /api/quote/corky-deposit.json', () => {
     const res = await post(body())
     expect(res.status).toBe(503)
     expect(m.createOrder).not.toHaveBeenCalled()
+  })
+
+  describe('the owners hear what she picked and how she browsed', () => {
+    // Mon Nov 16 2026, 9:02 AM in Madison (CST = UTC−6).
+    const T0 = Date.UTC(2026, 10, 16, 15, 2)
+    const PHONE = 'aaaa1111-0000-0000-0000-000000000001'
+    const LAPTOP = 'bbbb2222-0000-0000-0000-000000000002'
+    const seed = (visitorId: string, sessionId: string, v: Record<string, unknown>) =>
+      m.rows.set(`corky-${visitorId}-${sessionId}`, JSON.stringify({
+        visitorId, sessionId, first: T0, last: T0, device: 'iPhone', referrer: null, activeSeconds: 0, scroll: 0, events: [], pick: null, ...v,
+      }))
+    const pick = (id: string, at: number) => ({ type: 'pick', id, at })
+
+    function seedFourVisits() {
+      seed(PHONE, 's1aaaaaaaa', { first: T0, device: 'iPhone', referrer: 'facebook.com', activeSeconds: 240, scroll: 80, events: [pick('tote', 30), pick('ornament', 50), pick('tote', 70)] })
+      seed(LAPTOP, 's2aaaaaaaa', { first: T0 + 26 * 3600_000, device: 'Mac', activeSeconds: 300, scroll: 100, events: [pick('ornament', 20), { type: 'text', at: 90 }] })
+      seed(PHONE, 's3aaaaaaaa', { first: T0 + 50 * 3600_000, device: 'iPhone', activeSeconds: 100, scroll: 60, events: [] })
+      seed(LAPTOP, 's4aaaaaaaa', { first: T0 + 51 * 3600_000, device: 'Mac', activeSeconds: 80, scroll: 100, events: [pick('tote', 10), { type: 'sheet', at: 40 }, { type: 'pay', at: 70 }] })
+      m.rows.set('other-thing', '{}')
+    }
+
+    it('the text has the pick and the visit counts, in 300 characters or fewer', async () => {
+      seedFourVisits()
+      const res = await post(body({ firstName: 'Jessyca', lastName: 'Lope', phone: '(256) 975-0563', night: 'Tote & Keychain Bar', visitorId: LAPTOP }))
+      expect(res.status).toBe(200)
+      const text: string = m.alert.mock.calls[0][0]
+      expect(text).toBe('Deposit paid $1,500: Corky Child Care, Sat Dec 12. Jessyca Lope (256) 975-0563. Picked: Tote & Keychain Bar. 4 visits on 2 devices since Nov 16, 12 min on page. Tapped Tote ×3, Ornament ×2. Tapped "Text us".')
+      expect(text.length).toBeLessThanOrEqual(300)
+      expect(m.alert.mock.calls[0][1]).toBe('booking-alerts')
+    })
+
+    it('the email has every visit, her contact and the details', async () => {
+      seedFourVisits()
+      await post(body({ firstName: 'Jessyca', lastName: 'Lope', email: 'jessyca@example.com', phone: '(256) 975-0563', night: 'Tote & Keychain Bar', visitorId: LAPTOP }))
+      const mail = m.sendEmail.mock.calls[0][0]
+      expect(mail.subject).toBe('Deposit paid: Corky Child Care Collective, Dec 12 · Tote & Keychain Bar')
+      expect(mail.text).toContain('Jessyca Lope · (256) 975-0563 · jessyca@example.com')
+      expect(mail.text).toContain('Picked: Tote & Keychain Bar (the one with the $15 monogram offer)')
+      expect(mail.text).toContain('Visits: 4 visits on 2 devices, first opened Mon Nov 16 9:02 AM')
+      expect(mail.text).toContain('Time on page: 12 min in all · deepest scroll 100%')
+      expect(mail.text).toContain('Nights tapped: Tote & Keychain Bar ×3, Ornament Bar ×2')
+      expect(mail.text).toContain('Tapped "Text us your pick": yes')
+      expect(mail.text).toContain('Came from: facebook.com')
+      expect(mail.text).toContain('Paid from: Mac')
+      expect(mail.text).toContain('- Mon Nov 16 9:02 AM · iPhone · 4 min · 80% scrolled · tapped Tote, Ornament, Tote')
+      expect(mail.text).toContain('- Tue Nov 17 11:02 AM · Mac · 5 min · 100% scrolled · tapped Ornament · tapped Text us')
+      expect(mail.text).toContain('- Wed Nov 18 11:02 AM · iPhone · 2 min · 60% scrolled · no taps')
+      expect(mail.text).toContain('- Wed Nov 18 12:02 PM · Mac · 1 min · 100% scrolled · tapped Tote · opened deposit · started paying')
+      expect(mail.html).toContain('Tote &amp; Keychain Bar')
+    })
+
+    it('no pick → "No night picked yet"', async () => {
+      seedFourVisits()
+      await post(body({ night: null }))
+      expect(m.alert.mock.calls[0][0]).toContain('No night picked yet.')
+      expect(m.sendEmail.mock.calls[0][0].text).toContain('No night picked yet')
+    })
+
+    it('a night that is not on the page is treated as no pick', async () => {
+      await post(body({ night: 'Free Pony Bar' }))
+      expect(m.alert.mock.calls[0][0]).toContain('No night picked yet.')
+      expect(m.alert.mock.calls[0][0]).not.toContain('Pony')
+    })
+
+    it('a very long name still fits: the visit details drop off first', async () => {
+      seedFourVisits()
+      await post(body({ firstName: 'J'.repeat(60), lastName: 'L'.repeat(60), night: 'Ornament Bar' }))
+      const text: string = m.alert.mock.calls[0][0]
+      expect(text.length).toBeLessThanOrEqual(300)
+      expect(text).toContain('Picked: Ornament Bar.')
+    })
+
+    it('the visit log failing still answers 200 paid, with the plain text', async () => {
+      seedFourVisits()
+      m.kvFail = true
+      const res = await post(body({ night: 'Ornament Bar' }))
+      expect(res).toEqual({ status: 200, json: { data: { paid: true, receiptUrl: 'https://squareup.com/receipt/1' } } })
+      expect(m.alert).toHaveBeenCalledWith('Deposit paid $1,500: Corky Child Care, Sat Dec 12. Jessyca Test (256) 555-0100. Picked: Ornament Bar.', 'booking-alerts')
+      expect(m.sendEmail).toHaveBeenCalledTimes(1)
+    })
+
+    it('unclear payment: the text adds the pick', async () => {
+      m.processPayment.mockRejectedValue(new Error('socket hang up'))
+      await post(body({ night: 'Mosaics & Plant Bar' }))
+      expect(m.alert.mock.calls[0][0]).toMatch(/^Deposit unclear: Corky Child Care Collective, Dec 12, \$1,500 \(Jessyca Test, \(256\) 555-0100\)\. Check Square.*\. Picked: Mosaics & Plant Bar\.$/)
+    })
+
+    it('payment bypass: no summary, no texts', async () => {
+      seedFourVisits()
+      m.bypass.on = true
+      await post(body({ night: 'Ornament Bar', paymentToken: 'mock' }))
+      expect(m.alert).not.toHaveBeenCalled()
+    })
   })
 })

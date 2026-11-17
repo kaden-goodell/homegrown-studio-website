@@ -15,6 +15,7 @@ import { createPortal } from 'react-dom'
 import PaymentForm from '@components/checkout/PaymentForm'
 import type { PaymentFormRef } from '@components/checkout/PaymentForm'
 import { attemptIdFor, forgetPendingAttempt, newAttemptId, rememberPendingAttempt } from '@lib/checkout-attempt'
+import { noteVisit, readVisitorId } from '@lib/quote/corky-visit-client'
 
 export const BUTTON_LABEL = 'Hold December 12 · $1,500'
 export const TITLE = 'Hold December 12'
@@ -31,6 +32,12 @@ const SCOPE = 'corky-deposit'
 const SHAPE = '150000'
 const AMOUNT = '1500.00'
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+
+/** The night she picked on the page (set by the page's pick()), or null. */
+export function currentNight(): string | null {
+  const v = typeof document !== 'undefined' ? document.body.dataset.pick : undefined
+  return v ? v : null
+}
 
 type Field = 'firstName' | 'lastName' | 'email' | 'phone'
 type Stage = 'form' | 'done' | 'unclear'
@@ -93,6 +100,7 @@ export default function CorkyDeposit() {
     if (!attemptId.current) attemptId.current = attemptIdFor(SCOPE, SHAPE)
     setError(null)
     setOpen(true)
+    noteVisit('sheet')
   }
 
   function close() {
@@ -138,6 +146,7 @@ export default function CorkyDeposit() {
     setError(null)
     if (!checkFields()) return
     setProcessing(true)
+    noteVisit('pay')
     try {
       let token = walletToken
       let verificationToken: string | undefined
@@ -166,6 +175,7 @@ export default function CorkyDeposit() {
           body: JSON.stringify({
             attemptId: attemptId.current, paymentToken: token, ...(verificationToken ? { verificationToken } : {}), sourceKind,
             firstName: contact.firstName.trim(), lastName: contact.lastName.trim(), email: contact.email.trim(), phone: contact.phone.trim(),
+            night: currentNight(), visitorId: readVisitorId(),
           }),
         })
       } catch {
@@ -176,6 +186,7 @@ export default function CorkyDeposit() {
       const body = await res.json().catch(() => null)
       if (res.status === 200 && body?.data?.paid) {
         endAttempt()
+        noteVisit('paid')
         setReceiptUrl(typeof body.data.receiptUrl === 'string' ? body.data.receiptUrl : null)
         setStage('done')
         return

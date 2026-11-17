@@ -95,6 +95,33 @@ describe('CorkyDeposit', () => {
     expect(sent).not.toHaveProperty('amount')
   })
 
+  it('sends the night she picked on the page and this browser’s visitor id; nothing picked → null', async () => {
+    const store = new Map([['hts-corky-visitor', 'aaaa1111-0000-0000-0000-000000000001']])
+    vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v), clear: () => store.clear() })
+    document.body.dataset.pick = 'Tote & Keychain Bar'
+    const seen: string[] = []
+    const listen = (e: Event) => seen.push((e as CustomEvent).detail.type)
+    window.addEventListener('corky-visit', listen)
+    try {
+      await openIt()
+      fill()
+      await pay()
+      await screen.findByRole('heading', { name: DONE_TITLE })
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ night: 'Tote & Keychain Bar', visitorId: 'aaaa1111-0000-0000-0000-000000000001' })
+      expect(seen).toEqual(['sheet', 'pay', 'paid'])
+    } finally {
+      window.removeEventListener('corky-visit', listen)
+      delete document.body.dataset.pick
+      localStorage.clear()
+    }
+    cleanup()
+    await openIt()
+    fill()
+    await pay()
+    await screen.findByRole('heading', { name: DONE_TITLE })
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({ night: null, visitorId: null })
+  })
+
   it('a wallet token pays straight away', async () => {
     await openIt()
     fill()

@@ -11,9 +11,10 @@ import { alertOwners } from '@lib/owner-alert'
 import { emailsFor } from '@lib/notify-settings'
 import { sendEmail } from '@lib/email'
 import { createLogger } from '@lib/logger'
+import { isVisitId, loadVisits, nightByName, paidEmailLines, paidText, summarize, type PaidFacts, type VisitSummary } from '@lib/quote/corky-visits'
 
 /**
- * POST /api/quote/corky-deposit.json { attemptId, paymentToken, verificationToken?, sourceKind?, firstName, lastName, email, phone }
+ * POST /api/quote/corky-deposit.json { attemptId, paymentToken, verificationToken?, sourceKind?, firstName, lastName, email, phone, night?, visitorId? }
  *
  * The $1,500 deposit that holds Saturday, December 12 for the Corky Child
  * Care Collective (the one-off quote page /quote/corky-christmas). The amount
@@ -28,6 +29,12 @@ import { createLogger } from '@lib/logger'
  * Nothing here refunds or cancels anything. Payment bypass (local dev and
  * previews with DEV_BYPASS_PAYMENT=true) simulates the charge without Square
  * and sends no texts or emails.
+ *
+ * On a real payment the owners' text says what she picked (`night`, one of the
+ * three names on the page) and sums up her visits from the page's own visit
+ * log (src/lib/quote/corky-visits.ts); the email has every visit. Building that
+ * summary can never hold up or fail the payment answer: it times out and falls
+ * back to the plain text.
  */
 
 export const prerender = false
@@ -48,6 +55,22 @@ export const ORDER_FAILED_MESSAGE = `We couldn’t start the payment. Nothing wa
 export const PRICE_MESSAGE = `Something’s off with the price, so nothing was charged. Please ${TEXT_US}.`
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+/** How long the visit summary may take before the owners get the plain text. */
+const SUMMARY_TIMEOUT_MS = 3_000
+
+/** Her visits, or null when the log can't be read in time (the text then leaves them out). */
+async function visitSummary(): Promise<VisitSummary | null> {
+  try {
+    let t: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<null>((resolve) => { t = setTimeout(() => resolve(null), SUMMARY_TIMEOUT_MS) })
+    const s = await Promise.race([loadVisits().then(summarize), late]).finally(() => clearTimeout(t))
+    if (!s) logger.warn('Visit summary timed out — plain deposit text')
+    return s
+  } catch (err) {
+    logger.warn('Visit summary failed — plain deposit text', { error: err instanceof Error ? err.message : String(err) })
+    return null
+  }
+}
 
 interface Buyer {
   firstName: string
@@ -91,6 +114,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (!buyer) return fail(INVALID_MESSAGE, 400, 'invalid')
   const attemptId: string = body.attemptId
   const who = `${buyer.firstName} ${buyer.lastName}`
+  const night = nightByName(body.night)?.name ?? null
+  const visitorId = isVisitId(body.visitorId) ? body.visitorId : null
 
   // ── Simulated (local dev, previews with the payment bypass): no Square, no texts. ──
   if (paymentBypassEnabled(request)) {
@@ -108,8 +133,6 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     logger.warn('Corky deposit refused on a test site', { attemptId })
     return fail(testSite, 503, 'unavailable')
   }
-
-  const line = `Deposit paid: Corky Child Care Collective, Dec 12, $1,500 (${who}, ${buyer.phone})`
 
   try {
     // ── One Square order (same key on a retry → the same order) ──────────────
@@ -160,14 +183,26 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   }
 
   async function paid(receiptUrl: string | null, orderId: string): Promise<Response> {
-    logger.info('Corky deposit paid', { attemptId, orderId })
+    logger.info('Corky deposit paid', { attemptId, orderId, night })
+    const facts: PaidFacts = { who, phone: buyer!.phone, email: buyer!.email, orderId, night, visitorId }
+    const summary = await visitSummary()
+    let text: string
+    let lines: string[]
+    try {
+      text = paidText(facts, summary)
+      lines = paidEmailLines(facts, summary)
+    } catch (err) {
+      logger.warn('Visit summary wording failed — plain deposit text', { error: err instanceof Error ? err.message : String(err) })
+      text = paidText(facts, null)
+      lines = paidEmailLines(facts, null)
+    }
     await Promise.allSettled([
-      alertOwners(line, 'booking-alerts'),
+      alertOwners(text, 'booking-alerts'),
       (async () => sendEmail({
         to: await emailsFor('booking-alerts'),
-        subject: 'Deposit paid: Corky Child Care Collective, Dec 12',
-        text: `${line}.\n\n${buyer!.email}\nSquare order ${orderId}`,
-        html: `<p>${esc(line)}.</p><p style="color:#6f635b;">${esc(buyer!.email)}<br />Square order ${esc(orderId)}</p>`,
+        subject: `Deposit paid: Corky Child Care Collective, Dec 12${night ? ` · ${night}` : ''}`,
+        text: lines.join('\n'),
+        html: `<div style="font-family:sans-serif;line-height:1.5;">${lines.map((l) => (l ? `<div>${esc(l)}</div>` : '<br />')).join('')}</div>`,
       }))(),
     ]).then((rs) => rs.forEach((r) => { if (r.status === 'rejected') logger.error('Deposit announcement failed', { error: String(r.reason) }) }))
     return paidResponse(receiptUrl, false)
@@ -177,7 +212,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     logger.error('CORKY DEPOSIT OUTCOME UNKNOWN — needs a person', {
       attemptId, orderId: o?.id ?? null, codes: squareErrorCodes(err), error: err instanceof Error ? err.message : String(err),
     })
-    await alertOwners(`Deposit unclear: Corky Child Care Collective, Dec 12, $1,500 (${who}, ${buyer!.phone}). Check Square${o ? ` for order ${o.id}` : ''}.`).catch(() => undefined)
+    await alertOwners(`Deposit unclear: Corky Child Care Collective, Dec 12, $1,500 (${who}, ${buyer!.phone}). Check Square${o ? ` for order ${o.id}` : ''}.${night ? ` Picked: ${night}.` : ''}`).catch(() => undefined)
     return json({ why: 'checking', code: 'unknown_outcome' }, 202)
   }
 }

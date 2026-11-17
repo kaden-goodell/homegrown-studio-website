@@ -7,6 +7,8 @@
  * studio. The Hold button opens CorkyDeposit, which takes the $1,500 deposit
  * (half of 40 guests) right here through /api/quote/corky-deposit.json; final
  * count and monograms by Nov 27, and the owners book the evening in /admin.
+ * A small first-party visit log (corky-visit-client.ts → /api/quote/corky-visit.json)
+ * feeds the owners' deposit text: what she picked and how she browsed.
  */
 import Layout from '@layouts/Layout.astro'
 import Shimmer from '@components/shared/Shimmer'
@@ -186,6 +188,9 @@ const themes = [
     if (!calm) card.querySelector('.tick').animate([{ opacity: 0, transform: 'scale(.85)' }, { opacity: 1, transform: 'scale(1)' }], { duration: 450, easing: 'ease-out' })
     if (!was) sparkle(card, x, y)
     const name = card.dataset.name
+    // The deposit sheet sends this along, so the owners' text says what she picked.
+    document.body.dataset.pick = name
+    document.body.dataset.pickId = card.dataset.id
     reserve.style.setProperty('--accent', card.dataset.accent)
     sumimg.hidden = false
     if (!calm) sumimg.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 600, easing: 'ease-out' })
@@ -205,6 +210,12 @@ const themes = [
       pick(c, x, y)
     })
   })
+</script>
+
+<script>
+  // Our own small visit log (no GA/Meta/PostHog here): what she tapped and how long she looked.
+  import { startCorkyVisit } from '@lib/quote/corky-visit-client'
+  startCorkyVisit()
 </script>
 
 <style>
