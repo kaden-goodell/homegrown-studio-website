@@ -4,6 +4,8 @@ const sweep = vi.hoisted(() => vi.fn(async (_now: Date) => ({ classes: 1, added:
 vi.mock('@lib/classes/waitlist-runner', () => ({ sweepWaitlists: sweep }))
 const partySweep = vi.hoisted(() => vi.fn(async (_now: Date) => ({ checked: 0, recorded: 0 })))
 vi.mock('@lib/parties/square-orders', () => ({ settleStuckPartyCheckouts: partySweep }))
+const quoteSweep = vi.hoisted(() => vi.fn(async (_now: Date) => ({ expired: 0, told: 0 })))
+vi.mock('@lib/quotes/expiry', () => ({ sweepExpiredQuotes: quoteSweep }))
 const owner = vi.hoisted(() => ({ signedIn: false }))
 vi.mock('@lib/admin-auth', () => ({ adminAuthorized: () => owner.signedIn }))
 
@@ -17,6 +19,7 @@ beforeEach(() => {
   vi.stubEnv('LOOKUP_SIGNING_SECRET', SECRET)
   owner.signedIn = false
   sweep.mockClear()
+  quoteSweep.mockClear()
 })
 afterEach(() => vi.unstubAllEnvs())
 
@@ -28,6 +31,16 @@ describe('/api/jobs/waitlist-sweep.json', () => {
     expect(sweep).toHaveBeenCalledTimes(1)
     // I-1: party checkouts left mid-charge are finished on the same 10-minute run
     expect(partySweep).toHaveBeenCalledTimes(1)
+    // S-41: expired quotes are told about after the existing work
+    expect(quoteSweep).toHaveBeenCalledTimes(1)
+    expect(quoteSweep.mock.invocationCallOrder[0]).toBeGreaterThan(sweep.mock.invocationCallOrder[0])
+  })
+
+  it('a quote expiry sweep that throws is logged and never fails the job', async () => {
+    quoteSweep.mockRejectedValueOnce(new Error('quotes down'))
+    const res = await call(waitlistSweepJobKey(SECRET))
+    expect(res.status).toBe(200)
+    expect((await res.json()).data).toMatchObject({ classes: 1, added: 1 })
   })
 
   it('a wrong key, no key, or a key from another secret → 403 and nothing runs', async () => {
