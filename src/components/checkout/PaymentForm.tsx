@@ -472,12 +472,15 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           // Square's own words go to the log only; the customer gets a plain sentence.
           const message = result.errors?.map((e) => e.message).join(', ') ?? `${name} payment failed.`
           trackBookingProblem(bookingKind, 'wallet_failed', `${name}: ${message}`)
+          // Square's own words reach us even on pages with analytics off (the party pay link, 17 Nov 2026).
+          reportBookingTrouble(troubleKind(bookingKind), 'wallet', `${name}: ${message}`.slice(0, 160))
           setWalletError(walletFailedMessage(name))
         }
       } catch (err) {
         clearTimeout(slow)
         step('tokenize_threw', { message: err instanceof Error ? `${err.name}: ${err.message}`.slice(0, 200) : String(err).slice(0, 200) })
         trackBookingProblem(bookingKind, 'wallet_failed', `${name}: ${err instanceof Error ? err.message : 'error'}`)
+        reportBookingTrouble(troubleKind(bookingKind), 'wallet', `${name}: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`.slice(0, 160))
         setWalletError(walletFailedMessage(name))
       }
     }

@@ -28,6 +28,11 @@ describe('/api/alerts/client.json', () => {
     expect(texts).toEqual(['RAGE TAPS on /book: someone tapped apple-pay-button "Pay with Apple Pay" over and over. Check that it works.'])
   })
 
+  it('a failed Apple Pay sends Square\'s own reason as a heads-up, no Got it link (17 Nov 2026)', async () => {
+    await send({ kind: 'party', problem: 'wallet', detail: 'Apple Pay: Payment request rejected', page: '/party/pay/pty_1' }, undefined, '10.7.7.7')
+    expect(texts).toEqual(['WALLET FAILED (party) on /party/pay/pty_1: Apple Pay: Payment request rejected. Nothing was charged; they can still pay by card.'])
+  })
+
   it('many phones with the same problem are one text', async () => {
     for (let i = 0; i < 5; i++) await send({ kind: 'party', problem: 'payment_form' }, undefined, `10.1.0.${i}`)
     expect(texts).toHaveLength(1)

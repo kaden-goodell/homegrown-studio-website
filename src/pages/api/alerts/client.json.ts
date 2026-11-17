@@ -13,6 +13,7 @@ export const CLIENT_PROBLEMS = {
   booking_bad_answer: 'The booking request got a broken answer (not from our code)',
   crash: 'The booking pop-up crashed',
   rage: 'Someone tapped the same thing over and over (rage taps)',
+  wallet: 'Apple Pay or Google Pay didn’t go through (Square said why)',
 } as const
 export type ClientProblem = keyof typeof CLIENT_PROBLEMS
 
@@ -49,6 +50,17 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   const page = String(body?.page ?? '').slice(0, 80)
   logger.error('Booking broke in a browser', { kind, problem, detail, page })
   if (!alertsLiveFor(request.url)) return quiet()
+  if (problem === 'wallet') {
+    // A heads-up with Square's own error text: nothing was charged, the customer can still pay by card.
+    logger.warn('Wallet payment failed in a browser', { kind, detail, page })
+    await raiseIncident({
+      key: `wallet:${kind}:${detail}`.slice(0, 200),
+      text: `WALLET FAILED (${kind}) on ${page || 'the site'}: ${detail || 'no reason given'}. Nothing was charged; they can still pay by card.`,
+      urgent: false,
+      autoResolve: true,
+    })
+    return quiet()
+  }
   if (problem === 'rage') {
     // Any page (Kaden, 16 Nov 2026: "add all rage clicks to alerts"). One text
     // per page and thing until it goes quiet; not repeated: it's a heads-up.

@@ -7,7 +7,7 @@
  * Client-safe.
  */
 export type TroubleKind = 'class' | 'party' | 'shop' | 'kit'
-export type TroubleProblem = 'payment_form' | 'booking_network' | 'booking_bad_answer' | 'crash'
+export type TroubleProblem = 'payment_form' | 'booking_network' | 'booking_bad_answer' | 'crash' | 'wallet'
 
 const sent = new Set<string>()
 
