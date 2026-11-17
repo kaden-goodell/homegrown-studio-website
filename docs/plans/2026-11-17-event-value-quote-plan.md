@@ -66,10 +66,11 @@
 
 ## Dependency waves
 - **Wave 0:** T0 → T1 → T2
-- **Wave 1 (parallel):** T3, T4, T5a, T5b
-- **Wave 2 (parallel):** T6 (T2,T4), T7 (T2,T4,T5a), T8 (T2)
+- **Wave 1 (parallel):** T3, T4, T5a
+- **Wave 2 (parallel):** T5b (T5a), T6 (T2,T4), T7 (T2,T4,T5a), T8 (T2)
 - **Wave 3 (parallel):** T9 (T3,T6), T10 (T7,T8), T11 (T6), T15 (T8)
-- **Wave 4 (parallel):** T12 (T9), T13 (T9), T14 (T10)
+- **Wave 4 (parallel):** T12 (T9) owns ALL router.ts/AdminShell.tsx edits (adds both `more-quote-menu` and the `quote` sheet kind with a stub); T14 (T10)
+- **Wave 5:** T13 (T12) fills the quote sheet
 - **Wave 5:** T16 (all)
 
 ---
@@ -479,6 +480,17 @@ export function draftTiers(d: DraftInput, s: QuoteSettings): Tier[] {
 - [ ] **Step 4:** On the dev preview: Load from Square, make a quote from a real request, send to Kaden's phone only, pay a $1 test deposit by card (set price to make the deposit $1), confirm the event shows in admin and staff. Record proof in the PRD log.
 
 ---
+
+## Plan review fixes (plan-logic reviewer, 2026-11-17) — these override the task text above
+1. T5b moved to Wave 2; T13 after T12 (T12 owns router/shell edits).
+2. T5a also branches `tellLinkPaid` in `pay-balance.ts` (~456-481) and `sendPartyBookedEmail` in `checkout.ts:406` on `origin==='quote'`: no "Party paid" owner text, private-event confirmation copy computed from `quote.guests` × tier price (balance may not exist yet). T7 sends the single "Private event booked" owner alert.
+3. `payQuote` input adds `requestUrl` and maps `pay` to `LinkPay` exactly like `src/pages/api/party/pay.json.ts:28-43` (incl. `paymentBypassEnabled`).
+4. T7 adds `deletePartyRecord(id)` to `party-store.ts` (refuses when the record has charges).
+5. `money.ts`/`draft.ts` stay browser-safe (already: `priceKey` is in server-only `price-key.ts`).
+6. T4: don't touch `class-guard.ts` (holdsBetween already includes quote holds); in `partyBusy` set both `label` and `hostName` for quote holds. Test `freeOrphanHold` BEFORE expiry (expect refusal) and `partyWarnings` AFTER expiry.
+7. T5a real names: `partyTermsForStart`, `termsForKind`, `partyEstimateCents` (party-terms.ts:56-99); add `craftsIncluded?: boolean` to `CrewPartyMoney` (`ringUp` stays required: set to null-equivalent per its type). `staff/parties.json.ts:36` branches on `origin` before computing kind (T5b).
+8. T13 sheet: `{kind:'quote', id: requestId}` (router uses `id`). T14: private path regex `PRIVATE_PARTY_PATH` in `src/lib/page-key.ts:23-27` and `__hsScrubKeys` (~58) gain `/quote/`.
+9. T6 `draftQuote` runs under `withPartyLock('quote-req-' + requestId)` so two quick taps can't make two quotes.
 
 ## Self-review
 - Coverage: S-1 T2 · S-2 T2 · S-3 T5a · S-4 T1/T6 · S-5 T9 · S-6/S-7 T3/T9 · S-8 T9 · S-9 T9/T13 · S-10 T6/T9 · S-11 T6/T7/T8/T10 · S-12..S-15 T6/T9 · S-16..S-18 T8/T10 · S-19/S-20 T7/T10 · S-21 T10 · S-22..S-29 T1 · S-26 T6 · S-30 T4/T6 · S-31 T2/T6/T7 · S-32..S-37 T7 · S-38..S-40 T4 · S-41 T11 · S-42/S-43 T6 · S-44 T6/T7/T5b · S-45 T3 · S-46 T5a · S-47..S-50 T13 · S-51 T12 · S-52..S-54 T14 · S-55 T15 · S-56 T5b · S-57 T13.
