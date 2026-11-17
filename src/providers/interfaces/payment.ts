@@ -123,9 +123,9 @@ export interface PaymentProvider {
      * returns the original payment and never charges twice. A retry with a
      * NEW payment token under the same key is refused by the backend, not
      * replayed, so callers ask findOrderPayment() what happened first.
-     * Omitted → a fresh key per call.
+     * Required (review, 16 Nov 2026): every caller names its own; at most 45 characters.
      */
-    idempotencyKey?: string
+    idempotencyKey: string
     /** Sent only when given: the Square customer the payment belongs to. */
     customerId?: string
     /** Sent only when given: the Web Payments SDK's verifyBuyer token (SCA). */

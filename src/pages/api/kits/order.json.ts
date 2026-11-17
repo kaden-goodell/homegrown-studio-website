@@ -401,6 +401,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         amount: order.totalAmount,
         currency: 'USD',
         buyerEmailAddress: contact.email,
+        // Review (16 Nov 2026): one key per order, so a repeated request never charges twice.
+        idempotencyKey: `kitpay-${order.id}`,
       })
     } catch (err) {
       logger.error('processPayment threw — voiding order', { orderId: order.id, error: String(err) })

@@ -1,3 +1,4 @@
+import { checkSquareKey } from './idempotency'
 import { createLogger } from '../../lib/logger'
 import type {
   PaymentProvider,
@@ -255,7 +256,7 @@ export class SquarePaymentProvider implements PaymentProvider {
 
     const response = await this.client.payments.create({
       sourceId: params.paymentToken,
-      idempotencyKey: params.idempotencyKey ?? crypto.randomUUID(),
+      idempotencyKey: checkSquareKey(params.idempotencyKey),
       amountMoney: {
         amount: BigInt(params.amount),
         currency: params.currency as any,
@@ -439,7 +440,7 @@ export class SquarePaymentProvider implements PaymentProvider {
     })
 
     const response = await this.client.refunds.refundPayment({
-      idempotencyKey: input.idempotencyKey,
+      idempotencyKey: checkSquareKey(input.idempotencyKey),
       paymentId: input.paymentId,
       amountMoney: {
         amount: BigInt(input.amountCents),

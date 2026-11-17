@@ -191,6 +191,13 @@ describe('SquarePaymentProvider', () => {
   })
 
   describe('processPayment', () => {
+    it('review: refuses with no key or a key over 45 characters, before calling Square', async () => {
+      mockPaymentsCreate.mockClear()
+      await expect(provider.processPayment({ orderId: 'o', paymentToken: 'n', amount: 1, currency: 'USD', idempotencyKey: '' } as any)).rejects.toThrow(/idempotency key/)
+      await expect(provider.processPayment({ orderId: 'o', paymentToken: 'n', amount: 1, currency: 'USD', idempotencyKey: 'k'.repeat(46) })).rejects.toThrow(/45/)
+      expect(mockPaymentsCreate).not.toHaveBeenCalled()
+    })
+
     it('processes a successful payment', async () => {
       mockPaymentsCreate.mockResolvedValue({
         payment: {
@@ -202,6 +209,7 @@ describe('SquarePaymentProvider', () => {
 
       const result = await provider.processPayment({
         orderId: 'order-1',
+        idempotencyKey: 'key-order-1',
         paymentToken: 'cnon:card-nonce',
         amount: 5000,
         currency: 'USD',
@@ -234,6 +242,7 @@ describe('SquarePaymentProvider', () => {
 
       const result = await provider.processPayment({
         orderId: 'order-2',
+        idempotencyKey: 'key-order-2',
         paymentToken: 'cnon:bad-nonce',
         amount: 3000,
         currency: 'USD',
@@ -253,6 +262,7 @@ describe('SquarePaymentProvider', () => {
 
       const result = await provider.processPayment({
         orderId: 'order-3',
+        idempotencyKey: 'key-order-3',
         paymentToken: 'cnon:nonce',
         amount: 2000,
         currency: 'USD',
