@@ -76,6 +76,10 @@ const themes = [
 
     <p class="note">You take care of kids all year.<br />It's our turn to take care of you.</p>
 
+    <figure class="storefront">
+      <img src={img('storefront.jpg')} alt="The Hometown Studio storefront glowing at dusk" />
+    </figure>
+
     <section class="themes">
       <p class="kicker center">Pick your night</p>
       <p class="lede">All three are ${PRICE} a person, and everyone leaves with a bunch of stuff they made.</p>
@@ -230,6 +234,8 @@ const themes = [
 
   .note { margin: 2.5rem 0 0; font-family: 'Playfair Display', serif; font-style: italic; font-size: 1.3rem; line-height: 1.45; text-align: center; color: var(--ink); }
 
+  .storefront { width: 100%; margin: 1.75rem 0 0; padding: 0.5rem; background: var(--paper); border-radius: 6px; box-shadow: 0 1rem 2.6rem rgba(31,51,41,0.16); }
+  .storefront img { display: block; width: 100%; height: auto; border-radius: 3px; }
   .themes { width: 100%; margin-top: 2.5rem; display: flex; flex-direction: column; align-items: center; gap: 1.1rem; }
   .lede { margin: -0.35rem 0 0.25rem; font-family: 'Playfair Display', serif; font-size: 1.1rem; text-align: center; color: var(--ink); }
 
