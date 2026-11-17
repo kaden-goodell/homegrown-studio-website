@@ -24,6 +24,8 @@ vi.mock('@lib/owner-alert', () => ({ alertOwners: owners }))
 const setupAlert = vi.hoisted(() => vi.fn(async () => true))
 vi.mock('@lib/saved-card-alerts', () => ({ alertCardSetupOnce: setupAlert }))
 vi.mock('@lib/audit', () => ({ recordAudit: vi.fn(async () => undefined) }))
+const kaden = vi.hoisted(() => vi.fn(async (..._a: any[]) => true))
+vi.mock('@lib/kaden-alarm', () => ({ alarmKaden: kaden, alarmFixed: vi.fn(async () => undefined) }))
 /** Audit A I2: classes & workshops open/paused online (More › Online booking). */
 const gate = vi.hoisted(() => ({ open: true }))
 vi.mock('@lib/bookings-gate', () => ({ waitlistChargesAllowedNow: async () => gate.open }))
@@ -238,6 +240,18 @@ describe('runWaitlist', () => {
     expect(janeCalls[1]).toEqual(janeCalls[0]) // identical details, same key: Square can't charge twice
     expect(sam.state).toBe('added') // a second seat was free
     expect(owners.mock.calls.filter(([t]) => /unclear/.test(t))).toHaveLength(1)
+  })
+
+  it('alarms: an unclear charge texts Kaden once (money:waitlist:…), as well as the owners’ note', async () => {
+    const cls = makeClass()
+    const other = await fill(cls)
+    await join(cls, 'Jane', 'TIMEOUT_LATER')
+    await release(cls.id, other)
+    kaden.mockClear()
+    await runWaitlist(cls.id, { reason: 'seat-freed' }, NOW)
+    expect(kaden).toHaveBeenCalledTimes(1)
+    expect(kaden.mock.calls[0][0]).toMatch(/^money:waitlist:/)
+    expect(kaden.mock.calls[0][1]).toMatch(/^WAITLIST CHARGE UNCLEAR: Jane Doe, Potholder Looms.*MAY have been charged/)
   })
 
   it('no answer, then Square shows it paid → added, never charged again', async () => {

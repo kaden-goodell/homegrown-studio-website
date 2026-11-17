@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro'
+import { alarmKaden } from '@lib/kaden-alarm'
 import { createLogger } from '@lib/logger'
 import { verifySquareSignature } from '@lib/webhook-verify'
 import { providers } from '@config/providers'
@@ -124,8 +125,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
   // work runs after the 200 when Netlify gives us waitUntil; a failure is
   // logged, never a non-2xx (Square would retry the event).
   if (CLASS_EVENTS.has(eventType)) {
-    const work = Promise.resolve().then(() => handleSquareEvent(event)).catch((err) => {
+    const work = Promise.resolve().then(() => handleSquareEvent(event)).catch(async (err) => {
       logger.error('Class webhook processing failed', { eventType, error: err instanceof Error ? err.message : String(err) })
+      // A notice we couldn't use: seats or refunds may be out of step with Square until the nightly check.
+      await alarmKaden(`webhook:${eventType}`, `SQUARE NOTICE FAILED: a ${eventType} from Square couldn't be used (${err instanceof Error ? err.message.slice(0, 80) : 'error'}). Seats or refunds may be out of step until the 3 AM check. Look at /admin › To decide.`, { request, autoResolve: true })
     })
     const netlify = (locals as { netlify?: { context?: { waitUntil?: (p: Promise<unknown>) => void } } } | undefined)?.netlify?.context
     if (typeof netlify?.waitUntil === 'function') netlify.waitUntil(work)

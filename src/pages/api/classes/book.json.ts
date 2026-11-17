@@ -1,4 +1,6 @@
 import type { APIRoute } from 'astro'
+import { watchBooking } from '@lib/booking-watch'
+import { getClass as getClassForAlarm } from '@lib/classes/class-store'
 import { bookingsOpenNow, bookingsClosedResponse, ownSystemNow } from '@lib/bookings-gate'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
@@ -87,7 +89,7 @@ const dollars = (cents: number): string => `$${(cents / 100).toFixed(2)}`
  * a code bigger than the price, a $0 early-bird) books with no card, no
  * Square order and no payment.
  */
-export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
+const handle: APIRoute = async ({ request, clientAddress, locals }) => {
   // "Pay on the iPad" (/staff Sell a seat, ?door=1): the same checkout, run by the crew at the door.
   // Only signed-in staff; the seats are 'door-card', a running session can still be sold, and the
   // online sign-up cutoff doesn't apply.
@@ -837,3 +839,15 @@ function fail(status: number, code: ClassCheckoutCode, detail?: string) {
     { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
   )
 }
+
+/** A failure on our side texts Kaden (src/lib/booking-watch.ts): who, which class, whether money moved. */
+export const POST: APIRoute = watchBooking('class', handle, async (body) => {
+  const cls = typeof body?.classId === 'string' ? await getClassForAlarm(body.classId).catch(() => null) : null
+  const seats = body?.tickets && typeof body.tickets === 'object' ? Object.values(body.tickets as Record<string, unknown>).reduce((n: number, v) => n + (Number(v) || 0), 0) : 0
+  return {
+    who: [body?.customer?.givenName, body?.customer?.familyName].filter(Boolean).join(' '),
+    phone: body?.customer?.phone ? String(body.customer.phone) : undefined,
+    what: `${cls?.content.name ?? 'a class'}${seats ? `, ${seats} seat${seats === 1 ? '' : 's'}` : ''}`,
+    amount: Number(body?.expectedTotalCents) > 0 ? `$${(Number(body.expectedTotalCents) / 100).toFixed(2)}` : undefined,
+  }
+})

@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro'
+import { alarmKaden, alarmFixed } from '@lib/kaden-alarm'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { reconcileClasses, reconcileUnfinished } from '@lib/classes/square-events'
 import { studioClock } from '@lib/studio-time'
@@ -62,9 +63,11 @@ export const POST: APIRoute = async ({ request, url }) => {
     }
     const data = await reconcileClasses(now, { budgetMs: CALL_BUDGET_MS })
     logger.info('Classes reconcile run', { ...data, manual: force })
+    await alarmFixed('job:reconcile-classes', 'Fixed: the nightly Square check ran.')
     return json({ data }, 200)
   } catch (err) {
     logger.error('Classes reconcile failed', { error: err instanceof Error ? err.message : String(err) })
+    await alarmKaden('job:reconcile-classes', `NIGHTLY SQUARE CHECK FAILED: counter sales and refunds made in Square may not be on the class rosters (${err instanceof Error ? err.message.slice(0, 80) : 'error'}). It tries again next hour.`, { request })
     return json({ error: 'failed' }, 500)
   }
 }

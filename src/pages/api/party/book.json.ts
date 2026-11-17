@@ -170,7 +170,8 @@ function bookedResponse(
 export const POST: APIRoute = watchBooking('party', handle, (body) => ({
   who: [body?.customer?.firstName, body?.customer?.lastName].filter(Boolean).join(' '),
   phone: body?.customer?.phone ? String(body.customer.phone) : undefined,
-  what: `a party${body?.craft?.name ? ` (${String(body.craft.name).slice(0, 60)})` : ''}${Number(body?.people) > 0 ? `, about ${Math.floor(Number(body.people))} guests` : ''}`,
+  what: `a party${body?.craft?.name ? ` (${String(body.craft.name).slice(0, 60)})` : ''}${Number(body?.guests ?? body?.people) > 0 ? `, about ${Math.floor(Number(body.guests ?? body.people))} guests` : ''}`,
+  amount: Number(body?.expectedTotalCents) > 0 ? `$${(Number(body.expectedTotalCents) / 100).toFixed(2)}` : undefined,
   when: body?.startTime && !Number.isNaN(Date.parse(String(body.startTime))) ? formatSlotLabel(String(body.startTime)) : undefined,
 }))
 

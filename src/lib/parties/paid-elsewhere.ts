@@ -36,6 +36,7 @@ import { PAID_ELSEWHERE_SCOPE, runRefund, type RefundBook } from '@lib/booking-c
 import { RefundError, refundKeyRaw } from '@lib/booking-core/refund-words'
 import { idFor } from '@lib/booking-core/ids'
 import { createLogger } from '@lib/logger'
+import { alarmKaden } from '@lib/kaden-alarm'
 import { alertOwners } from '@lib/owner-alert'
 import { providers } from '@config/providers'
 import { decidedKv, tokenOf } from '@lib/classes/decided'
@@ -297,6 +298,7 @@ export async function reopenAfterFailedRefund(orderId: string, req: SavedRefundR
   const reopened = await reopenPaidElsewhere(orderId, { refundFailed: { cents: req.totalCents, at: now.toISOString() } })
   if (!reopened) return false
   await decidedKv.set(`done-${paidElsewhereItemId(orderId)}`, '').catch(() => undefined)
+  await alarmKaden(`refund:party:${req.id}`, `REFUND FAILED: a ${formatMoney(req.totalCents)} refund of a party payment didn't go through in Square, so nothing was refunded. It's in /admin › To decide.`)
   await alertOwners(`A ${formatMoney(req.totalCents)} refund of a party payment didn't go through in Square, so nothing was refunded. It's back in /admin › To decide.`).catch(() => undefined)
   return true
 }

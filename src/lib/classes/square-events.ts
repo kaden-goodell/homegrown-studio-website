@@ -54,6 +54,7 @@ import { codeFromDiscountName, codeOnLines } from '@lib/promos/rules'
 import { bookingInNote } from './reader'
 import { confirmUse, countUse } from '@lib/promos/promo-store'
 import { confirmBooking, getLedger, moveLines, paidBy, recordPos, recordRefund, type LedgerLine, type PosLineInput } from './seat-ledger'
+import { alarmKaden } from '@lib/kaden-alarm'
 import { alertOwners } from '@lib/owner-alert'
 import { siteConfig } from '@config/site.config'
 import { formatSlotLabel } from '@lib/studio-time'
@@ -1105,6 +1106,7 @@ async function reopenPaidNotSeatedAfterFailure(p: PaidNotSeated, req: SavedRefun
   }))
   if (!(await reopenPaidNotSeated(p.id, { cents: req.totalCents, at: now.toISOString() }))) return
   await decidedKv.set(`done-${tokenOf(p.id)}`, '').catch(() => undefined)
+  await alarmKaden(`refund:class:${req.id}`, `REFUND FAILED: a $${(req.totalCents / 100).toFixed(2)} refund of a class payment didn't go through in Square, so nothing was refunded. It's in /admin › To decide.`)
   await alertOwners(`A $${(req.totalCents / 100).toFixed(2)} refund of a class payment didn't go through in Square, so nothing was refunded. It's back in /admin › To decide.`).catch(() => undefined)
 }
 

@@ -59,6 +59,7 @@ import { judgeDrift, tellOwnersOfDrift } from '@lib/booking-core/charge'
 import { idFor } from '@lib/booking-core/ids'
 import { chargeOutcomeOf, squareErrorCodes } from '@lib/checkout-attempt'
 import { sendWaitlistMissedEmail, sendWaitlistOffEmail } from '@lib/email'
+import { alarmKaden } from '@lib/kaden-alarm'
 import { createLogger } from '@lib/logger'
 import { alertOwners } from '@lib/owner-alert'
 import { sendQuoText } from '@lib/quo'
@@ -870,6 +871,7 @@ async function unknownOutcome(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt
   result.unknown++
   result.stopped = 'unknown'
   if (first) {
+    await alarmKaden(`money:waitlist:${entry.id}:${a.n}`, `WAITLIST CHARGE UNCLEAR: ${nameOfEntry(entry)}, ${cls.content.name}${a.amountCents ? `, ${money(a.amountCents)}` : ''}. Their card MAY have been charged. Check Square first; the seat is held and the waitlist asks Square again every 10 minutes.`)
     await alertOwners(`Waitlist charge unclear: ${nameOfEntry(entry)}, ${cls.content.name}${a.amountCents ? `, ${money(a.amountCents)}` : ''}. Their seat is held and we ask Square again every 10 minutes. If Square shows it paid they're added and texted. Square never takes the same charge twice. See /admin › To decide.`).catch(() => undefined)
   }
   return 'stop'

@@ -10,6 +10,8 @@ vi.mock('@config/providers', () => ({
 }))
 
 const mockHandleEvent = vi.fn()
+const mockKaden = vi.fn(async (..._a: any[]) => true)
+vi.mock('@lib/kaden-alarm', () => ({ alarmKaden: (...a: any[]) => mockKaden(...a) }))
 vi.mock('@lib/classes/square-events', () => ({
   CLASS_EVENTS: new Set(['order.created', 'order.updated', 'payment.created', 'payment.updated', 'refund.created', 'refund.updated']),
   handleSquareEvent: (...a: any[]) => mockHandleEvent(...a),
@@ -251,5 +253,19 @@ describe('verifySquareSignature', () => {
 
   it('returns false for empty key', () => {
     expect(verifySquareSignature('body', 'sig', '', 'url')).toBe(false)
+  })
+})
+
+describe('a Square notice we can’t use texts Kaden (own booking system)', () => {
+  it('handleSquareEvent fails → still 200 to Square (no retry storm), and one alarm', async () => {
+    mockHandleEvent.mockRejectedValueOnce(new Error('ledger unreadable'))
+    mockKaden.mockClear()
+    const body = JSON.stringify({ type: 'payment.updated', event_id: 'ev_fail', data: { type: 'payment', id: 'p1', object: {} } })
+    const url = process.env.SQUARE_WEBHOOK_URL || 'https://ourhometownstudio.com/api/webhooks/square.json'
+    const sig = createHmac('sha256', TEST_SIGNATURE_KEY).update(url + body).digest('base64')
+    const res = await POST({ request: new Request(url, { method: 'POST', headers: { 'x-square-hmacsha256-signature': sig }, body }), locals: {} } as any)
+    expect(res.status).toBe(200)
+    expect(mockKaden).toHaveBeenCalledTimes(1)
+    expect(mockKaden.mock.calls[0][0]).toBe('webhook:payment.updated')
   })
 })
