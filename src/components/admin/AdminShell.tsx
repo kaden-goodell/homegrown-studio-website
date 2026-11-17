@@ -40,6 +40,8 @@ import { PromoSheet, PromosSheet } from './promos/PromosSheet'
 import { ClosedDaysSheet, HoursSheet, RegisterSetupSheet } from './sheets/SettingsSheets'
 import { OnlineBookingSheet } from './sheets/OnlineBookingSheet'
 import { ImportSquareSheet } from './sheets/ImportSquareSheet'
+import { QuoteMenuPage } from './quotes/QuoteMenuPage'
+import { QuoteSheet } from './quotes/QuoteSheet'
 import { StudioProvider } from './shell/studio'
 
 const LABEL: Record<Tab, string> = { home: 'Home', calendar: 'Calendar', classes: 'Classes', inbox: 'Inbox', more: 'More' }
@@ -459,6 +461,7 @@ function SheetContent({ sheet: s }: { sheet: Sheet }) {
     case 'request': case 'message': case 'teacher': return <InboxItemSheet kind={s.kind} id={s.id} />
     case 'todo': return <ToDecideSheet id={s.id} />
     case 'promo': return <PromoSheet id={s.id} />
+    case 'quote': return <QuoteSheet id={s.id} />
     case 'more':
       switch (s.page) {
         case 'booking': return <OnlineBookingSheet />
@@ -482,6 +485,7 @@ function SheetContent({ sheet: s }: { sheet: Sheet }) {
         case 'activity': return <ActivitySheet />
         case 'find': return <FindSheet />
         case 'schedule': return <PrintScheduleSheet />
+        case 'quote-menu': return <QuoteMenuPage />
       }
   }
 }
