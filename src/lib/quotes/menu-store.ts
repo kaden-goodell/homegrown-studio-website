@@ -25,7 +25,7 @@ async function readJson<T>(key: string, empty: T): Promise<{ value: T; etag: str
 /** Read-modify-write one document; `fn` returning null writes nothing. */
 async function update<T>(key: string, empty: T, fn: (cur: T) => T | null): Promise<T> {
   assertClassWritesAllowed()
-  return casRetry(async () => {
+  return casRetry<T>(async () => {
     const cur = await readJson(key, empty)
     const next = fn(cur.value)
     if (next === null) return { done: true, value: cur.value }
