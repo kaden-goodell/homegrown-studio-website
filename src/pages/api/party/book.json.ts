@@ -21,6 +21,7 @@ import { STUDIO_DIRECTIONS_URL } from '@config/studio-address'
 import { attemptKey, chargeOutcomeOf, isAttemptId, squareErrorCodes, type CheckoutErrorCode } from '@lib/checkout-attempt'
 import { partyMessages, giftCardShortMessage } from '@lib/checkout-messages'
 import { alertOwners } from '@lib/owner-alert'
+import { watchBooking } from '@lib/booking-watch'
 import { tierFor, weekKeyFor } from '@lib/kit-dates'
 import { claimWeek, confirmWeekClaim, releaseWeekClaim, listKitOrders, kitOrderToLedgerRecord } from '@lib/kit-store'
 import type { LedgerRecord } from '@lib/kit-ledger'
@@ -166,7 +167,7 @@ async function agreementLineFor(email: string): Promise<string | undefined> {
   }
 }
 
-export const POST: APIRoute = async ({ request, clientAddress }) => {
+const handle: APIRoute = async ({ request, clientAddress }) => {
   if (!bookingsOpen(request, 'parties')) return bookingsClosedResponse()
   if (rateLimited(`party-book:${clientAddress}`, 5, 60_000)) {
     return errorResponse('Too many booking attempts — give it a minute.', 429)
@@ -852,6 +853,14 @@ async function giftCardRefusal(token: string, totalCents: number): Promise<Respo
 }
 
 /** A plain sentence for the customer, plus a code the booking panel can act on. */
+/** A failure on our side texts Kaden (src/lib/booking-watch.ts). */
+export const POST: APIRoute = watchBooking('party', handle, (body) => ({
+  who: [body?.customer?.firstName, body?.customer?.lastName].filter(Boolean).join(' '),
+  phone: body?.customer?.phone ? String(body.customer.phone) : undefined,
+  what: `a party${body?.craft?.name ? ` (${String(body.craft.name).slice(0, 60)})` : ''}${Number(body?.people) > 0 ? `, about ${Math.floor(Number(body.people))} guests` : ''}`,
+  when: body?.startTime && !Number.isNaN(Date.parse(String(body.startTime))) ? formatSlotLabel(String(body.startTime)) : undefined,
+}))
+
 function errorResponse(detail: string, status: number, code?: CheckoutErrorCode, extra?: Record<string, unknown>) {
   const resolved: CheckoutErrorCode =
     code ?? (status === 400 ? 'invalid' : status === 409 ? 'slot_taken' : status === 402 ? 'card_declined' : 'unavailable')

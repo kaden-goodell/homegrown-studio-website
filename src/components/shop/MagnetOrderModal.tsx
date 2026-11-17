@@ -112,6 +112,7 @@ export default function MagnetOrderModal({ onClose, initialSlots }: { onClose: (
 
   return (
     <BookingPanel
+      troubleKind="shop"
       title={C.title}
       onRequestClose={done ? onClose : () => { if (!processing) setAskToLeave(true) }}
       stepKey={done ? 'confirmed' : editing ? 'crop' : step}

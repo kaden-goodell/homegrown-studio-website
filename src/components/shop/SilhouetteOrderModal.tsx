@@ -107,6 +107,7 @@ export default function SilhouetteOrderModal({ onClose, initialItems }: { onClos
 
   return (
     <BookingPanel
+      troubleKind="shop"
       title={C.title}
       onRequestClose={done ? onClose : () => { if (!processing) setAskToLeave(true) }}
       stepKey={done ? 'confirmed' : editing ? 'edit' : step}

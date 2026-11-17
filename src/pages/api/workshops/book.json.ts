@@ -9,6 +9,9 @@ import { asSeatBookingError } from '@lib/errors'
 import { attemptKey, classifyClassBookingError, isAttemptId, type CheckoutErrorCode } from '@lib/checkout-attempt'
 import { workshopMessages, TEXT_US } from '@lib/checkout-messages'
 import { alertOwners } from '@lib/owner-alert'
+import { watchBooking } from '@lib/booking-watch'
+import { alertsLiveFor, raiseIncident } from '@lib/booking-alarms'
+import { formatMoney } from '@lib/money'
 import { formatSlotLabel } from '@lib/studio-time'
 import { sendWorkshopConfirmation } from '@lib/workshop-confirmation'
 import { issueEmailFixTicket, onFileToAskAbout, type EmailFixTicket } from '@lib/email-fix'
@@ -67,7 +70,7 @@ export function paymentTokensFor(body: any, seats: number): string[] | null {
   return raw as string[]
 }
 
-export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
+const handle: APIRoute = async ({ request, clientAddress, locals }) => {
   if (!bookingsOpen(request, 'workshops')) return bookingsClosedResponse()
   if (rateLimited(`workshop-book:${clientAddress}`, 5, 60_000)) {
     return fail(429, 'unavailable', 'That’s a lot of attempts in a row. Give it a minute, then try again.')
@@ -365,6 +368,13 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
           (unclear.length ? ` Seat${unclear.length === 1 ? '' : 's'} ${list(unclear)}: payment unclear. Check Square (booking${unclear.length === 1 ? '' : 's'} ${unclear.map((seat) => holds[seat - 1].bookingId).join(', ')}).` : '') +
           ' They were told on screen.',
       ).catch(() => undefined)
+      if (unclear.length > 0 && alertsLiveFor(request.url)) {
+        await raiseIncident({
+          key: `money:class:partly:${booked.bookingId}`,
+          text: `BOOKING PROBLEM (class): ${who} booked ${workshop.name}, ${formatSlotLabel(workshop.startAt)}. Seat${unclear.length === 1 ? '' : 's'} ${list(unclear)} payment unclear: their card MAY have been charged for seats they don't have. Check Square (booking${unclear.length === 1 ? '' : 's'} ${unclear.map((seat) => holds[seat - 1].bookingId).join(', ')}).`,
+          urgent: true,
+        })
+      }
     }
   }
 
@@ -519,6 +529,19 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
   )
 }
+
+/** A failure on our side texts Kaden (src/lib/booking-watch.ts). */
+export const POST: APIRoute = watchBooking('class', handle, async (body) => {
+  const seats = Number(body?.seats ?? 1) || 1
+  const w = await lookUp(typeof body?.workshopId === 'string' ? body.workshopId : '', String(body?.classScheduleId ?? ''), String(body?.startAt ?? '')).catch(() => null)
+  return {
+    who: [body?.customer?.givenName, body?.customer?.familyName].filter(Boolean).join(' '),
+    phone: body?.customer?.phone ? String(body.customer.phone) : undefined,
+    what: `${w?.name ?? 'a class'}, ${seats} seat${seats === 1 ? '' : 's'}`,
+    when: body?.startAt ? formatSlotLabel(String(body.startAt)) : undefined,
+    amount: w ? `${formatMoney(w.priceCents * seats)} before tax` : undefined,
+  }
+})
 
 async function lookUp(workshopId: string, scheduleId: string, startAt: string): Promise<Workshop | null> {
   const find = async () => {

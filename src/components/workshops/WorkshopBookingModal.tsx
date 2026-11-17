@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { isForeignFailure, reportBookingTrouble } from '@lib/booking-trouble'
 import { CLASS_BOOKING_APP_ID, MAX_SEATS_PER_BOOKING } from '@config/class-booking.config'
 import { checkoutPolicySummary, POLICY_PATH, POLICY_ANCHORS } from '@config/policy-content'
 import { STUDIO_ADDRESS, STUDIO_ADDRESS_LINE, STUDIO_DIRECTIONS_URL } from '@config/studio-address'
@@ -271,14 +272,16 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
             sourceKind,
           }),
         })
-      } catch {
+      } catch (err) {
         // The request left and nothing came back. It may have gone through.
+        reportBookingTrouble('class', 'booking_network', err)
         throw new Error(UNKNOWN_OUTCOME_MESSAGE)
       }
 
       if (!bookRes.ok) {
         const errData = await bookRes.json().catch(() => null)
         const failure = { status: bookRes.status, body: errData }
+        if (isForeignFailure(bookRes.status, errData)) reportBookingTrouble('class', 'booking_bad_answer', `HTTP ${bookRes.status}`)
         // We were told plainly what happened (declined, class full…): that
         // attempt is over, and the next try is a new one.
         if (!outcomeUnknown(failure)) attemptId.current = newAttemptId()
@@ -766,6 +769,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   const seatsLeft = workshop.remainingSeats
   return (
     <BookingPanel
+      troubleKind="class"
       title={workshop.name}
       onRequestClose={completed ? finish : requestClose}
       stepKey={completed ? 'confirmed' : step}

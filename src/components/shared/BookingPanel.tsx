@@ -1,4 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import BookingErrorBoundary from '@components/shared/BookingErrorBoundary'
+import type { TroubleKind } from '@lib/booking-trouble'
 import { createPortal } from 'react-dom'
 import '../../styles/booking-panel.css'
 
@@ -46,6 +48,8 @@ export interface BookingPanelProps {
   footer?: ReactNode
   /** Sits beside the ×, e.g. a share icon. */
   headerAction?: ReactNode
+  /** Which booking this is, for the "it crashed" alarm. */
+  troubleKind?: TroubleKind
   /** Wide suits a two-column picker; narrow suits a form. */
   width?: 'wide' | 'narrow'
   /** The leave prompt, when the flow wants one shown. */
@@ -130,6 +134,7 @@ export default function BookingPanel({
   onBack,
   footer,
   headerAction,
+  troubleKind,
   width = 'narrow',
   leavePrompt,
   children,
@@ -385,7 +390,7 @@ export default function BookingPanel({
               Back
             </button>
           )}
-          {children}
+          <BookingErrorBoundary kind={troubleKind}>{children}</BookingErrorBoundary>
         </div>
 
         {/* Fixed bottom: the button that moves the booking on */}

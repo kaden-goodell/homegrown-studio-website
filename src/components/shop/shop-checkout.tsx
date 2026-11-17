@@ -3,6 +3,7 @@
  * The pickup-or-shipping step, the payment step and the charge logic every shop product shares
  * (photo magnets, framed silhouettes). The server prices the order; this only sends it.
  */
+import { isForeignFailure, reportBookingTrouble } from '@lib/booking-trouble'
 import { useEffect, useRef, useState } from 'react'
 import AddressInput from '@components/shared/AddressInput'
 import PaymentForm, { type PaymentFormRef } from '@components/checkout/PaymentForm'
@@ -89,6 +90,7 @@ export function useShopPay(o: ShopPayOptions) {
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
+        if (isForeignFailure(res.status, body)) reportBookingTrouble('shop', 'booking_bad_answer', `HTTP ${res.status}`)
         setError(body?.detail ?? 'Something went wrong. Try again.')
         trackPaymentFailed(body?.code ?? `http_${res.status}`)
         if (body?.code === 'unknown_outcome') { setUnknownOutcome(true); return } // keep the attempt id: a retry must find the same charge
@@ -100,8 +102,9 @@ export function useShopPay(o: ShopPayOptions) {
       setUnknownOutcome(false)
       trackPaymentCompleted(o.quote.totalCents / 100, { kind: 'shop', transactionId: body.data.reference, items: [o.analyticsItem], extra: { sets: o.sets, product: o.product } })
       setDone({ reference: body.data.reference, emailSent: !!body.data.emailSent })
-    } catch {
+    } catch (err) {
       // The card was read; the order request never came back. It may or may not have charged.
+      reportBookingTrouble('shop', 'booking_network', err)
       setUnknownOutcome(true)
       setError(C.connectionLost)
     } finally { setProcessing(false) }
