@@ -22,27 +22,27 @@ const themes = [
     id: 'mosaic',
     name: 'Mosaics & Plant Bar',
     photos: [img('mosaic.jpg'), img('plants.jpg')],
-    blurb: 'Tile anything from our mosaic bar, then pot a succulent to take home.',
+    blurb: 'Mosaic coasters, trays and more, plus a succulent to take home.',
     addon: '',
   },
   {
     id: 'tote',
     name: 'Tote & Keychain Bar',
     photos: [img('bag.jpg'), img('scarf.jpg')],
-    blurb: 'Pick a bag and make it yours with patches, charms and a keychain to match.',
-    addon: 'Add a monogram for $15 a guest.',
+    blurb: 'Pick a bag, cover it in patches and charms, and make a keychain to go with it.',
+    addon: 'Want it monogrammed? $15 more per person.',
   },
   {
     id: 'ornament',
     name: 'Ornament Night',
     photos: [img('p0436.jpg'), img('p0557.jpg')],
-    blurb: "Felt, stitch and paint your way through a whole tree's worth of ornaments.",
+    blurb: 'A bunch of different ornaments to try, felted, stitched and painted. Take them all home.',
     addon: '',
   },
 ]
 ---
 <Layout
-  title="A Christmas Evening of Making"
+  title="Christmas at Hometown Studio"
   description="Your evening at Hometown Studio, Saturday, December 12."
   noindex
   noAnalytics
@@ -59,18 +59,18 @@ const themes = [
     <section class="card">
       <div class="frame">
         <p class="kicker">Hometown Studio presents</p>
-        <h1>A Christmas Evening of Making</h1>
+        <h1>Christmas at Hometown Studio</h1>
         <svg class="rule" aria-hidden="true" width="120" height="14" viewBox="0 0 120 14" fill="none" stroke="#c4a882" stroke-width="1.2"><path d="M0 7h48M72 7h48" /><path d="M60 1l5 6-5 6-5-6z" /></svg>
-        <p class="for">for the educators of<br />The Corky Child Care Collective</p>
+        <p class="for">for the Corky Child Care Collective crew</p>
         <p class="when">Saturday, December twelfth<br />from 5:30 until the fun runs out<br />40 to 50 guests · at the studio</p>
       </div>
     </section>
 
-    <p class="note">You take care of everyone all year.<br />This night, we take care of you.</p>
+    <p class="note">You take care of kids all year.<br />This one's for you.</p>
 
     <section class="themes">
-      <p class="kicker center">Choose your night</p>
-      <p class="lede">Three nights, each ${PRICE} a guest. Lots to choose from, and everyone goes home with an armful.</p>
+      <p class="kicker center">Pick your night</p>
+      <p class="lede">All three are ${PRICE} a person, and everyone leaves with a bunch of stuff they made.</p>
 
       {themes.map((t, i) => (
         <button type="button" class="theme" data-id={t.id} data-name={t.name} aria-pressed="false">
@@ -83,17 +83,17 @@ const themes = [
             <span class="tname">{t.name}</span>
             <span class="tblurb">{t.blurb}</span>
             {t.addon && <span class="taddon">{t.addon}</span>}
-            <span class="tfoot"><span class="tprice">${PRICE}<small> a guest</small></span><span class="tpick">Choose this night</span></span>
+            <span class="tfoot"><span class="tprice">${PRICE}<small> a guest</small></span><span class="tpick">Pick this one</span></span>
           </span>
         </button>
       ))}
     </section>
 
     <section class="included">
-      <div><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7a4a2e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="3.5" /><path d="M5 21c0-3.9 3.1-7 7-7s7 3.1 7 7" /></svg><span>Your own hosts</span></div>
-      <div><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7a4a2e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h10" /></svg><span>Every supply</span></div>
-      <div><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7a4a2e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l3-3 4 4 8-8 3 3-11 11z" /></svg><span>We set up &amp; clean up</span></div>
-      <div><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7a4a2e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h16v11H4zM12 9v11M4 9l2-5h12l2 5" /></svg><span>Everything goes home</span></div>
+      <div><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7a4a2e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="3.5" /><path d="M5 21c0-3.9 3.1-7 7-7s7 3.1 7 7" /></svg><span>We host</span></div>
+      <div><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7a4a2e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h10" /></svg><span>All supplies included</span></div>
+      <div><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7a4a2e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l3-3 4 4 8-8 3 3-11 11z" /></svg><span>We set up and clean up</span></div>
+      <div><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7a4a2e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h16v11H4zM12 9v11M4 9l2-5h12l2 5" /></svg><span>You keep everything</span></div>
     </section>
 
     <section class="photos" aria-hidden="true">
@@ -105,22 +105,22 @@ const themes = [
     <section class="steps">
       <p class="kicker center">How it works</p>
       <ol>
-        <li><span><b>Hold your evening.</b> {DEPOSIT} today goes toward your total.</span></li>
-        <li><span><b>Send your count by Friday, November 27.</b> Your night, your final count, and names if you're adding monograms.</span></li>
-        <li><span><b>Pay for who comes.</b> The rest is settled on the night.</span></li>
+        <li><span><b>Hold the date.</b> {DEPOSIT} now, and it comes off your total.</span></li>
+        <li><span><b>Send your headcount by Fri, Nov 27,</b> plus names if you want monograms.</span></li>
+        <li><span><b>Pay for whoever shows up.</b> We'll settle up that night.</span></li>
       </ol>
     </section>
 
     <section class="reserve">
-      <p class="kicker light">Kindly reply by Tuesday, November 24</p>
+      <p class="kicker light">Let us know by Tue, Nov 24</p>
       <p class="sum" id="sum">${PRICE} a guest · 40 to 50 guests</p>
       <a class="btn" href={DEPOSIT_URL}>Hold December 12 · {DEPOSIT}</a>
-      <a class="btn ghost" id="textpick" href="sms:+12564641710">Text us our pick</a>
-      <p class="fine">Monograms are stitched before the night, so names can't change once they're made. <a href="/policies">Our policies</a></p>
+      <a class="btn ghost" id="textpick" href="sms:+12564641710">Text us your pick</a>
+      <p class="fine">Monograms get stitched ahead of time, so names can't change after that. <a href="/policies">Our policies</a></p>
     </section>
 
     <footer class="sign">
-      <p class="love">with love, Catherine &amp; Kaden</p>
+      <p class="love">Catherine &amp; Kaden</p>
       <p>Questions? <a href="sms:+12564641710">Text us at (256) 464-1710</a></p>
     </footer>
   </main>
