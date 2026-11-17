@@ -166,3 +166,19 @@ describe('the register note for staff', () => {
     expect(weeknightRegisterNote(undefined, 12)).toBeNull()
   })
 })
+
+describe('review: weeknight balance when the minimum and the credit differ', () => {
+  // A $250 credit with a $300 minimum (the numbers are equal today, which hid the difference).
+  const t = { kind: 'weeknight' as const, durationMinutes: 120, studioFeeCents: 0, minimumCents: 30000, chargeNowCents: 25000, chargeIsCraftCredit: true }
+  it('crafts under the minimum: the minimum less the credit is due', () => {
+    expect(dueAtStudioCents(t, 10000)).toBe(5000)
+    expect(partyEstimateCents(t, 10000)).toBe(30000)
+  })
+  it('crafts over the minimum: the crafts less the credit', () => {
+    expect(dueAtStudioCents(t, 42000)).toBe(17000)
+    expect(partyEstimateCents(t, 42000)).toBe(42000)
+  })
+  it('a credit above the minimum never goes negative', () => {
+    expect(dueAtStudioCents({ ...t, chargeNowCents: 35000 }, 10000)).toBe(0)
+  })
+})

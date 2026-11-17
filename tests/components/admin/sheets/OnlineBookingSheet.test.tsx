@@ -27,7 +27,7 @@ function server(start: any = base(), o: { stale?: boolean } = {}) {
     const at = `2026-11-02T2${++n}:10:00.000Z`
     const changed = (['parties', 'workshops', 'kits'] as const).filter((k) => b.open[k] !== cur.open[k]).map((k) => `${b.open[k] ? 'Opened' : 'Paused'} ${k}`)
     cur = {
-      ...cur, open: b.open, pauseNoteWritten: b.pauseNote, pauseNote: b.pauseNote || DEFAULT, source: 'saved', updatedAt: at,
+      ...cur, open: b.open, ...(b.system ? { system: { ...(cur.system ?? { parties: 'square', classes: 'square' }), ...b.system } } : {}), pauseNoteWritten: b.pauseNote, pauseNote: b.pauseNote || DEFAULT, source: 'saved', updatedAt: at,
       previewToken: b.newTestLink || !cur.previewToken ? `tok${n}` : cur.previewToken,
       by: { id: 'owner-catherine', name: 'Catherine' }, history: [{ at, by: { id: 'owner-catherine', name: 'Catherine' }, changed }, ...cur.history],
     }
@@ -94,7 +94,8 @@ describe('More › Online booking', () => {
     const box = await screen.findByLabelText(/What customers read/)
     expect(screen.getByText(`0 of 140. Left blank, it says: “${DEFAULT}”`)).toBeInTheDocument()
     fireEvent.change(box, { target: { value: 'Back Monday!' } })
-    expect(dirty()).toBe(true)
+    // The sheet reports "unsaved" from an effect: wait for it (review: flaky under a loaded run).
+    await waitFor(() => expect(dirty()).toBe(true))
     fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
     await screen.findByText('Note saved. Customers see it while booking is paused.')
     expect(posts(f, URL_)[0].body).toMatchObject({ pauseNote: 'Back Monday!', expectedUpdatedAt: 'u1' })
@@ -153,5 +154,28 @@ describe('Home › paused online', () => {
     const { container } = render(<HomeBookingPaused onOpen={vi.fn()} />)
     await waitFor(() => expect(f).toHaveBeenCalled())
     expect(container).toBeEmptyDOMElement()
+  })
+
+  // LEGACY FALLBACK — delete after 2027-01-15 (this test).
+  it('Runs on: old Square booking by default, with the end date; switching parties asks first and saves only that', async () => {
+    const f = server(base({ system: { parties: 'square', classes: 'square' }, fallbackUntil: '2027-01-15', fallbackAvailable: true }))
+    vi.stubGlobal('fetch', f)
+    renderSheet(<OnlineBookingSheet />)
+    const parties = await screen.findByRole('group', { name: 'Parties run on' })
+    expect(parties.querySelector('[aria-pressed="true"]')?.textContent).toBe('Old Square booking')
+    expect(screen.getByText(/Fallback to Square available until Fri Jan 15/)).toBeInTheDocument()
+    fireEvent.click(screen.getAllByRole('button', { name: 'New booking system' })[0])
+    expect(posts(f, URL_)).toHaveLength(0) // asks first
+    fireEvent.click(screen.getByRole('button', { name: 'Use the new system' }))
+    await screen.findByText('Parties now book on the new booking system.')
+    expect(posts(f, URL_)[0].body).toMatchObject({ system: { parties: 'own' } })
+    expect(posts(f, URL_)[0].body.system.classes).toBeUndefined()
+  })
+
+  it('Runs on is gone after the fallback ends', async () => {
+    vi.stubGlobal('fetch', server(base({ system: { parties: 'own', classes: 'own' }, fallbackUntil: '2027-01-15', fallbackAvailable: false })))
+    renderSheet(<OnlineBookingSheet />)
+    await screen.findByLabelText(/What customers read/)
+    expect(screen.queryByRole('group', { name: 'Parties run on' })).toBeNull()
   })
 })

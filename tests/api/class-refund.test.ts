@@ -122,6 +122,26 @@ beforeEach(() => {
 })
 afterEach(() => vi.unstubAllEnvs())
 
+describe('review: on the weekend the clocks fall back (a fixed clock)', () => {
+  // Fri Oct 30, 2026, noon Central: the class "7 days from now" is after Sun Nov 1, when clocks go back an hour.
+  it('a whole-booking refund is the same as any other week: every line, one Square call, seats freed', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], shouldAdvanceTime: true })
+    vi.setSystemTime(new Date('2026-10-30T17:00:00.000Z'))
+    try {
+      const a = line({ seat: 1 }), b = line({ seat: 2 })
+      const classId = await setup([a, b])
+      const r = await admin({ classId, bookingId: 'bkg_r1', kind: 'booking' })
+      expect(r.status).toBe(200)
+      expect(r.body.data.cents).toBe(6540)
+      expect(mocks.refundPayment).toHaveBeenCalledTimes(1)
+      const after = await byId(classId)
+      expect([after[a.id].state, after[b.id].state]).toEqual(['refunded', 'refunded'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('owner refunds', () => {
   it('needs the owner cookie', async () => {
     const r = await admin({}, false)

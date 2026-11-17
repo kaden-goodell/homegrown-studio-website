@@ -282,6 +282,16 @@ describe('quote — discounts per line (stage 4)', () => {
     expect(q.lines[0]).toMatchObject({ cents: 1050, taxCents: 94 })
     expect(q.totalCents).toBe(1144)
   })
+  it('review: 15% off $33.33 × 3 rounds each line to the nearest cent ($5.00 off each), checked to the cent with tax', () => {
+    // 15% of 3333 = 499.95 → 500 off (a floor would give 499 and miss by 3 cents); 3 × 2833 = 8499; 9% = 764.91 → 765.
+    const c = one({ prices: { all: { person: 3333 } } })
+    const q = ok(quote(c, req({ tickets: { person: 3 } }), NOW, 9, { promo: promo({ off: { kind: 'percent', percent: 15 } }) }))
+    expect(q.lines.map((l) => [l.cents, l.discounts[0]?.cents])).toEqual([[2833, 500], [2833, 500], [2833, 500]])
+    expect(q.promo).toEqual({ code: 'FALLFRIENDS', cents: 1500 })
+    expect(q.subtotalCents).toBe(8499)
+    expect(q.lines.reduce((s, l) => s + l.taxCents, 0)).toBe(765)
+    expect(q.totalCents).toBe(9264)
+  })
   it('a code that is off, ended or not for this class is not applied by quote()', () => {
     expect(ok(quote(one(), req(), NOW, 9, { promo: promo({ active: false }) })).promo).toBeNull()
     expect(ok(quote(one(), req(), NOW, 9, { promo: promo({ endsYmd: '2026-10-19' }) })).promo).toBeNull()
