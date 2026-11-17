@@ -4,6 +4,7 @@ import { createLogger } from '@lib/logger'
 import { adminAuthorized } from '@lib/admin-auth'
 import { sweepWaitlists } from '@lib/classes/waitlist-runner'
 import { settleStuckPartyCheckouts } from '@lib/parties/square-orders'
+import { sweepExpiredQuotes } from '@lib/quotes/expiry'
 
 export const prerender = false
 const logger = createLogger('api:jobs:waitlist-sweep')
@@ -34,7 +35,8 @@ function allowed(request: Request): boolean {
  * with people waiting is run: unclear charges are asked about again (never
  * charged twice), passed cutoffs close (cards off), and the next people who
  * fit a free seat are added and charged. Catches seats freed with no hook
- * (an expired checkout hold). An owner signed in to /admin can run it now.
+ * (an expired checkout hold). Then quotes past their expiry text the owners
+ * once (S-41). An owner signed in to /admin can run it now.
  */
 export const POST: APIRoute = async ({ request }) => {
   if (!allowed(request) && !(await adminAuthorized(request))) return json({ error: 'Not allowed' }, 403)
@@ -45,6 +47,13 @@ export const POST: APIRoute = async ({ request }) => {
     if (parties.checked) logger.info('Party checkouts left mid-charge', parties)
     const data = await sweepWaitlists(now)
     if (data.classes) logger.info('Waitlist sweep', data)
+    // S-41: owners hear once when a quote expires unpaid. Never fails the job.
+    try {
+      const quotes = await sweepExpiredQuotes(now)
+      if (quotes.expired) logger.info('Quotes expired', quotes)
+    } catch (err) {
+      logger.error('Quote expiry sweep failed', { error: err instanceof Error ? err.message : String(err) })
+    }
     return json({ data: { ...data, parties } }, 200)
   } catch (err) {
     logger.error('Waitlist sweep failed', { error: err instanceof Error ? err.message : String(err) })
