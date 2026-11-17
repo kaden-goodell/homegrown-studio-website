@@ -119,6 +119,60 @@ async function coverage(r: SeatChoiceRecord, scheduleId: string, now: Date): Pro
   return 'none'
 }
 
+/** One family booked on a class still run from Square, for /admin (LEGACY: goes with the last Square class). */
+export interface SquareClassFamily {
+  name: string
+  /** Seats this family holds (every still-booked record, added up). */
+  seats: number
+  /** The same rule as the class-day reminder: current, none on file, expired, older terms; unknown when it couldn't be checked. */
+  waiver: 'current' | 'none' | 'expired' | 'outdated' | 'unknown'
+  /** A seat staff gave away (comp). */
+  comped?: boolean
+}
+
+/**
+ * Who is booked on one Square class and whether each family has signed
+ * (Kaden, 17 Nov 2026: owners see who's coming and their waiver, like /staff).
+ * The class-day reminder's own sources and rules: our seat records, each
+ * re-checked with Square (a cancelled seat drops out; one Square couldn't
+ * confirm stays, marked unknown), then the agreement by booking link, email
+ * or phone. Read only; never throws for one family (it shows as unknown).
+ * Throws only when the seat records can't be read at all.
+ */
+export async function squareClassFamilies(w: Workshop, now: Date): Promise<SquareClassFamily[]> {
+  const records = (await listSeatChoicesByEvent('workshop', w.scheduleId)).filter((r) => !r.simulated)
+  const byFamily = new Map<string, { r: SeatChoiceRecord; seats: number; comped: boolean; unsure: boolean }>()
+  for (const r of records) {
+    let unsure = false
+    try {
+      if (!(await stillBooked(r, w))) continue
+    } catch {
+      unsure = true
+    }
+    const k = familyKey(r)
+    const cur = byFamily.get(k)
+    if (cur) {
+      cur.seats += Math.max(1, r.seats || 1)
+      cur.comped = cur.comped || !!r.comped
+      cur.unsure = cur.unsure || unsure
+    } else {
+      byFamily.set(k, { r, seats: Math.max(1, r.seats || 1), comped: !!r.comped, unsure })
+    }
+  }
+  const out: SquareClassFamily[] = []
+  for (const f of byFamily.values()) {
+    let waiver: SquareClassFamily['waiver']
+    try {
+      waiver = f.unsure ? 'unknown' : await coverage(f.r, w.scheduleId, now)
+    } catch {
+      waiver = 'unknown'
+    }
+    const name = `${f.r.customer.givenName} ${f.r.customer.familyName}`.trim() || 'Someone'
+    out.push({ name, seats: f.seats, waiver, ...(f.comped ? { comped: true as const } : {}) })
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name))
+}
+
 interface OwnBooking {
   bookingId: string
   customer: NonNullable<LedgerLine['customer']>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { legacyBookedLabel } from '@lib/classes/legacy-label'
 import type { ClassTotals } from '@lib/classes/admin-actions'
 import type { LibraryClass, ScheduledClass } from '@lib/classes/types'
 import { notOnRegister } from '@lib/classes/pos-plan'
@@ -194,7 +195,7 @@ function StillInSquare({ onOpen }: { onOpen: (s: Sheet, data?: unknown) => void 
         <section key={d} aria-label={dayLabel(d)}>
           <p className="adm-dayname">{dayLabel(d)}</p>
           {legacy.filter((i) => localDate(i.startIso) === d).map((i) => (
-            <ItemRow key={itemKey(i)} item={i} sub="" tag="In Square" onOpen={() => onOpen(sheetOf(i, d), i)} />
+            <ItemRow key={itemKey(i)} item={i} sub={legacyBookedLabel(i)} tag="In Square" onOpen={() => onOpen(sheetOf(i, d), i)} />
           ))}
         </section>
       ))}

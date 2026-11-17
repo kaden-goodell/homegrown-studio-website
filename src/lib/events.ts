@@ -111,7 +111,7 @@ async function cachedWorkshopList(): Promise<Workshop[]> {
  * list stays as the fallback for a provider that doesn't implement it (or
  * throws).
  */
-async function findWorkshop(id: string): Promise<Workshop | null> {
+export async function findWorkshop(id: string): Promise<Workshop | null> {
   try {
     const w = await providers.workshop.getWorkshop?.(id)
     if (w) return w

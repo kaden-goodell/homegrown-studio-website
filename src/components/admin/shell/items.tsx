@@ -5,6 +5,7 @@ import { localDate } from '@lib/party-slots'
 import { addDays, dayLabel } from '../classes/dates'
 import type { Sheet } from './router'
 import { SafeRow } from './Boundary'
+import { legacyBookedLabel } from '@lib/classes/legacy-label'
 
 /** Each kind's name in the Key and its colour class (see admin.css). */
 export const KIND_STYLE = {
@@ -46,7 +47,7 @@ export function itemName(i: CalendarItem): string {
 export function itemSub(i: CalendarItem): string {
   switch (i.kind) {
     case 'class': return i.booked !== undefined && i.capacity !== undefined ? `${i.booked} of ${i.capacity} booked` : 'Our class'
-    case 'legacy-class': return 'Square class'
+    case 'legacy-class': return legacyBookedLabel(i) || 'Square class'
     case 'party': {
       const guests = i.guests ? `${i.guests} guests` : 'Party'
       // Booked in Square shows as a tag; the money state of ours rides on the sub-line (paid says nothing).

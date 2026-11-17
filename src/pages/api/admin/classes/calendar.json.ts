@@ -11,6 +11,7 @@ import { listBlocked } from '@lib/classes/blocked-time'
 import { paymentState } from '@lib/parties/money'
 import { hereNowCount } from '@lib/open-studio-store'
 import { localDate } from '@lib/party-slots'
+import { legacyClassCounts } from '@lib/classes/legacy-class-details'
 
 export const prerender = false
 
@@ -27,6 +28,9 @@ export type CalendarItem = Busy & {
   note?: string
   /** Craft Café, today or before: people the crew checked in ("12 at Craft Café"). */
   visits?: number
+  /** Classes still run from Square: seats Square still offers, and one seat's price (LEGACY). */
+  remaining?: number
+  priceCents?: number
 }
 
 /**
@@ -75,6 +79,11 @@ export const GET: APIRoute = async ({ request, url }) => {
       if (b.kind === 'blocked') {
         const note = (await notes)[b.id]
         return note ? { ...b, note } : b
+      }
+      if (b.kind === 'legacy-class') {
+        // Classes still run from Square (Kaden, 17 Nov 2026): booked of size, seats left, price. Each part optional.
+        const counts = await legacyClassCounts(b.id).catch(() => ({}))
+        return { ...b, ...counts }
       }
       if (b.kind === 'party') {
         const record = await getPartyRecord(b.id).catch(() => null)

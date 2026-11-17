@@ -15,6 +15,9 @@ import { StaffRow } from '../staffing/StaffRow'
 import { Failed, ItemRow, itemKey, itemName, itemTime, sheetOf, Skeleton } from '../shell/items'
 import { SheetFrame, useSheet } from '../shell/Sheet'
 import { DIDNT_SAVE, useToast } from '../shell/Toast'
+import { legacyBookedLabel } from '@lib/classes/legacy-label'
+import { formatMoney } from '@lib/money'
+import type { LegacyClassView } from '@pages/api/admin/classes/legacy.json'
 
 /** The item a sheet is about: handed over by the list that opened it, or found again on its day (after a refresh). */
 function useItem(day: string, id: string): { item: CalendarItem | null; loading: boolean; error: string; retry: () => void } {
@@ -86,9 +89,83 @@ export function LegacySheet({ day, id }: { day: string; id: string }) {
   if (!item) return <Gone title="Square class" />
   return (
     <SheetFrame title={item.label} subtitle={whenOf(item)}>
+      <LegacyDetails item={item} />
       <div className="adm-card"><p>This class lives in Square. Change it there.</p><SquareHow how={SQ_LEGACY_CLASS} /></div>
       <StaffRow eventKey={`legacy:${item.id}`} startIso={item.startIso} />
     </SheetFrame>
+  )
+}
+
+/** The waiver status in /staff's words. */
+export const WAIVER_WORDS: Record<NonNullable<LegacyClassView['families']>[number]['waiver'], { text: string; ok: boolean }> = {
+  current: { text: 'Waiver signed ✓', ok: true },
+  none: { text: 'Needs to sign', ok: false },
+  expired: { text: 'Waiver expired', ok: false },
+  outdated: { text: 'Needs to sign again (new terms)', ok: false },
+  unknown: { text: 'Couldn’t check', ok: false },
+}
+
+/**
+ * A class still run from Square (Kaden, 17 Nov 2026): seats booked of its
+ * size, seats left, the price, and who is booked with their waiver, like
+ * /staff. Read only. Check-in and comps stay on /staff (the button opens
+ * this class's roster there). LEGACY: goes with the last Square class.
+ */
+export function LegacyDetails({ item }: { item: CalendarItem }) {
+  const [view, setView] = useState<{ data: LegacyClassView | null; error: string } | null>(null)
+  const [tries, setTries] = useState(0)
+  useEffect(() => {
+    let live = true
+    setView(null)
+    api<LegacyClassView>(`/api/admin/classes/legacy.json?${new URLSearchParams({ id: item.id })}`).then((r) => {
+      if (live) setView(r.ok && r.data ? { data: r.data, error: '' } : { data: null, error: r.error ?? '' })
+    })
+    return () => { live = false }
+  }, [item.id, tries])
+  // The row's counts show at once; the sheet's own read refreshes them.
+  const counts = view?.data ?? item
+  const seats = legacyBookedLabel(counts)
+  const left = typeof counts.remaining === 'number' && typeof counts.capacity === 'number' ? `${counts.remaining} left` : ''
+  const price = typeof counts.priceCents === 'number' ? `${formatMoney(counts.priceCents)} a seat` : ''
+  const families = view?.data?.families
+  const listed = families ? families.reduce((n, f) => n + f.seats, 0) : 0
+  const notListed = families && typeof counts.booked === 'number' ? Math.max(0, counts.booked - listed) : 0
+  const unsigned = families ? families.filter((f) => !WAIVER_WORDS[f.waiver].ok).length : 0
+  return (
+    <>
+      <div className="adm-card" aria-label="Seats">
+        <p><b>{seats || 'Seats not known'}</b>{left ? ` · ${left}` : ''}{price ? ` · ${price}` : ''}</p>
+      </div>
+      <section className="adm-card" aria-label="Who’s coming">
+        <p className="adm-lbl">Who’s coming</p>
+        {!view && <Skeleton rows={2} label="Loading who’s coming" />}
+        {view?.error && <Failed message={view.error} onRetry={() => setTries((n) => n + 1)} />}
+        {view?.data && families === null && <p className="adm-muted">The list couldn’t be read just now. The roster on /staff has everyone.</p>}
+        {families && families.length === 0 && <p className="adm-muted">Nobody has booked online yet.</p>}
+        {families && families.length > 0 && (
+          <>
+            {unsigned > 0 && <p className="adm-small"><b>{unsigned === 1 ? '1 family still needs' : `${unsigned} families still need`} to sign the waiver.</b> The class-day reminder goes out at 9 AM.</p>}
+            <ul aria-label="Booked" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+              {families.map((f, i) => {
+                const w = WAIVER_WORDS[f.waiver]
+                return (
+                  <li key={`${f.name}-${i}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', padding: '0.4rem 0' }}>
+                    <span>{f.name} · {f.seats === 1 ? '1 seat' : `${f.seats} seats`}{f.comped ? ' · comp' : ''}</span>
+                    <span style={{ color: w.ok ? 'var(--color-dark)' : 'var(--color-error, #b42318)', fontWeight: w.ok ? 400 : 600 }}>{w.text}</span>
+                  </li>
+                )
+              })}
+            </ul>
+          </>
+        )}
+        {notListed > 0 && (
+          <p className="adm-muted adm-small">{notListed === 1 ? '1 seat was' : `${notListed} seats were`} added in Square directly, so {notListed === 1 ? 'it isn’t' : 'they aren’t'} listed here.</p>
+        )}
+        <a className="adm-btn is-sm" href={`/staff?open=${encodeURIComponent(`workshop:${item.id}`)}`} style={{ marginTop: '0.5rem', display: 'inline-flex' }}>
+          Open the roster on /staff
+        </a>
+      </section>
+    </>
   )
 }
 

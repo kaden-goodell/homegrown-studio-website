@@ -471,3 +471,34 @@ describe('our own classes', () => {
     expect(summary.subject).toMatch(/1 to check/)
   })
 })
+
+describe('squareClassFamilies (/admin: who is booked on a Square class, and their waiver)', () => {
+  it('one row per family, seats added up, the waiver by the reminder’s own rule; a cancelled seat drops out', async () => {
+    const { squareClassFamilies } = await import('@lib/waiver-reminders')
+    const signed = seat({ givenName: 'Ann', familyName: 'Signed', email: 'ann@example.com', record: { seats: 2 } })
+    const signedAgain = seat({ givenName: 'Ann', familyName: 'Signed', email: 'ann@example.com' })
+    const unsigned = seat({ givenName: 'Ben', familyName: 'Unsigned', email: 'ben@example.com' })
+    const expired = seat({ givenName: 'Cal', familyName: 'Expired', email: 'cal@example.com', record: { comped: true } })
+    const gone = seat({ givenName: 'Dee', familyName: 'Cancelled', email: 'dee@example.com' })
+    mockSeats.mockResolvedValue([signed, signedAgain, unsigned, expired, gone])
+    mockGetSeat.mockImplementation(async (id: string) => (id === gone.bookingId ? { id, status: 'cancelled', startAt: PAILS.startAt, scheduleId: PAILS.scheduleId } : accepted()(id)))
+    mockRsvps.mockResolvedValue([])
+    mockHousehold.mockImplementation(async (contact: string) => (contact === 'ann@example.com' ? CURRENT : contact === 'cal@example.com' ? EXPIRED : null))
+    const rows = await squareClassFamilies(PAILS as any, NOW)
+    expect(rows).toEqual([
+      { name: 'Ann Signed', seats: 3, waiver: 'current' },
+      { name: 'Ben Unsigned', seats: 1, waiver: 'none' },
+      { name: 'Cal Expired', seats: 1, waiver: 'expired', comped: true },
+    ])
+  })
+
+  it('a seat Square couldn’t confirm stays on the list, marked unknown, never guessed', async () => {
+    const { squareClassFamilies } = await import('@lib/waiver-reminders')
+    const s = seat({ givenName: 'Eve', familyName: 'Unsure', email: 'eve@example.com' })
+    mockSeats.mockResolvedValue([s])
+    mockGetSeat.mockRejectedValue(new Error('Square down'))
+    mockRsvps.mockResolvedValue([])
+    mockHousehold.mockResolvedValue(CURRENT)
+    expect(await squareClassFamilies(PAILS as any, NOW)).toEqual([{ name: 'Eve Unsure', seats: 1, waiver: 'unknown' }])
+  })
+})
