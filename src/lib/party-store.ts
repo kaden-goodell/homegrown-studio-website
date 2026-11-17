@@ -328,6 +328,25 @@ export async function updatePartyRecord(
   throw new Error('Someone else changed this party at the same moment. Try again.')
 }
 
+/**
+ * Removes a party record that never took money: a private-event quote's
+ * party made for a payment that was then declined or whose time was taken.
+ * Refuses (throws, nothing removed) when the record has any charge or a
+ * payment in flight. True when removed; false when there was none.
+ * The host index may still name it (it only points; a missing party is skipped).
+ */
+export async function deletePartyRecord(id: string): Promise<boolean> {
+  assertClassWritesAllowed()
+  needId(id)
+  const json = await kv.get(id)
+  if (!json) return false
+  const cur = JSON.parse(json) as PartyRecord
+  if ((cur.charges?.length ?? 0) > 0 || cur.paying) throw new Error('A party that took a payment is never removed.')
+  await kv.delete(id)
+  logger.info('Party removed (no payment)', { bookingId: id })
+  return true
+}
+
 /** Constant-time check that the supplied token matches the party's host token (M2). */
 export function hostTokenValid(record: PartyRecord | null, token: string | null | undefined): boolean {
   if (!record || !token || typeof record.hostToken !== 'string' || !record.hostToken) return false
