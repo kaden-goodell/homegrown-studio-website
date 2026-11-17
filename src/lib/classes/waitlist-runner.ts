@@ -598,9 +598,19 @@ async function proceed(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, q: Qu
       referenceId: a.bookingId,
     })
   } catch (err) {
-    if (a.amountCents !== null || squareErrorCodes(err).includes('IDEMPOTENCY_KEY_REUSED')) {
+    if (a.amountCents !== null) {
       // This try may already have charged (an earlier run sent the charge). Keep the seat and ask again later.
       return unknownOutcome(ctx, entry, a, err)
+    }
+    if (squareErrorCodes(err).includes('IDEMPOTENCY_KEY_REUSED')) {
+      // Review (16 Nov 2026): the amount is written down before any charge is
+      // sent, and this try has none, so it never charged. Its order key was used
+      // for different lines (the price changed after a crash): let the seat go
+      // and start a fresh try (a new key) on the next pass, never stuck unclear.
+      logger.error('Waitlist order key used before, nothing charged — fresh try', { entryId: entry.id, n: a.n })
+      await letGoOf(cls.id, a.bookingId)
+      await backToWaiting(ctx, entry, a, 'error', 'The order changed since an earlier try that never charged. Nothing was charged; trying again.')
+      return 'next'
     }
     logger.error('Waitlist order failed — nobody charged', { entryId: entry.id, error: err instanceof Error ? err.message : String(err) })
     await letGoOf(cls.id, a.bookingId)

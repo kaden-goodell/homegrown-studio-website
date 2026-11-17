@@ -933,6 +933,27 @@ describe('money rules: never charge after close or leave, reuse keys until a fin
     expect(owners).toHaveBeenCalledWith('Jane Doe was charged $21.80 by the waitlist just before Potholder Looms was cancelled. They weren\'t told they\'re in. Open /admin › To decide › Waitlist charge on a cancelled class to refund them.')
   })
 
+  it('review: Square says the order key was used before, and this try never wrote an amount (so never charged) → a fresh try, not stuck unclear', async () => {
+    const cls = makeClass()
+    const other = await fill(cls)
+    await join(cls, 'Jane')
+    await release(cls.id, other)
+    const realOrder = h.square.createClassOrder.bind(h.square)
+    let first = true
+    h.square.createClassOrder = vi.fn(async (input: any) => {
+      if (first) { first = false; throw Object.assign(new Error('key reused'), { errors: [{ code: 'IDEMPOTENCY_KEY_REUSED' }] }) }
+      return realOrder(input)
+    })
+    await runWaitlist(cls.id, { reason: 'seat-freed' }, NOW)
+    // The first try ended plainly (not unclear) and a fresh one charged, once.
+    const after = (await entries(cls))[0]
+    expect(after.attempts[0].outcome).toBe('error')
+    expect(h.square.chargeSavedCardCalls).toHaveLength(1)
+    const keys = (h.square.createClassOrder as any).mock.calls.map((c: any[]) => c[0].idempotencyKey)
+    expect(new Set(keys).size).toBe(keys.length) // the fresh try uses a new key
+    expect((await entries(cls))[0].state).toBe('added')
+  })
+
   it('R4: the class is cancelled while the run builds the order → the class is read again before charging; nothing is charged', async () => {
     const cls = makeClass()
     const other = await fill(cls)
