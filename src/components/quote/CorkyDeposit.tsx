@@ -16,6 +16,7 @@ import PaymentForm from '@components/checkout/PaymentForm'
 import type { PaymentFormRef } from '@components/checkout/PaymentForm'
 import { attemptIdFor, forgetPendingAttempt, newAttemptId, rememberPendingAttempt } from '@lib/checkout-attempt'
 import { noteVisit, readVisitorId } from '@lib/quote/corky-visit-client'
+import { HELD_EVENT } from '@lib/quote/corky-page'
 
 export const BUTTON_LABEL = 'Hold December 12 · $1,500'
 export const TITLE = 'Hold December 12'
@@ -25,6 +26,7 @@ export const DONE_TITLE = 'You’re all set.'
 export const DONE_LINE = 'Your date is held. We’ll text you to confirm.'
 export const UNCLEAR_LINE = 'We’re checking on your payment. We’ll text you.'
 export const CARD_UNREADABLE = 'We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.'
+export const HELD_LINE = 'December 12 is held · Deposit paid'
 export const FILL_FIRST = 'Add your name, email and phone first.'
 const FALLBACK_ERROR = 'That didn’t go through. Nothing was charged. Please try again.'
 
@@ -33,10 +35,22 @@ const SHAPE = '150000'
 const AMOUNT = '1500.00'
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
-/** The night she picked on the page (set by the page's pick()), or null. */
+/** The night she picked on the page (set by corky-page.ts), or null. */
 export function currentNight(): string | null {
   const v = typeof document !== 'undefined' ? document.body.dataset.pick : undefined
   return v ? v : null
+}
+
+/** Monograms added on the page (only ever true with the tote night). */
+export function currentMonogram(): boolean {
+  return typeof document !== 'undefined' && document.body.dataset.monogram === 'true'
+}
+
+/** Tell the page the date is held, so it locks the night in (this page load; the server keeps it for reloads). */
+function announceHeld(night: string | null, monogram: boolean) {
+  try {
+    window.dispatchEvent(new CustomEvent(HELD_EVENT, { detail: { night, monogram } }))
+  } catch { /* never in the way */ }
 }
 
 type Field = 'firstName' | 'lastName' | 'email' | 'phone'
@@ -67,13 +81,23 @@ export default function CorkyDeposit() {
   const [error, setError] = useState<string | null>(null)
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
+  /** Paid already (this load, or found by the page on load from another device). */
+  const [held, setHeld] = useState(false)
   const paymentFormRef = useRef<PaymentFormRef>(null)
   const attemptId = useRef('')
-  const triggerRef = useRef<HTMLButtonElement>(null)
+  const triggerRef = useRef<HTMLElement | null>(null)
   const sheetRef = useRef<HTMLDivElement>(null)
   const firstFieldRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => setMounted(true), [])
+
+  // The page found the date already paid (reload, another device), or this sheet just paid.
+  useEffect(() => {
+    if (document.body.dataset.held === 'true') setHeld(true)
+    const on = () => setHeld(true)
+    window.addEventListener(HELD_EVENT, on)
+    return () => window.removeEventListener(HELD_EVENT, on)
+  }, [])
 
   // Open: lock the page behind, focus the first field. Close: focus goes back to the button.
   useEffect(() => {
@@ -175,7 +199,7 @@ export default function CorkyDeposit() {
           body: JSON.stringify({
             attemptId: attemptId.current, paymentToken: token, ...(verificationToken ? { verificationToken } : {}), sourceKind,
             firstName: contact.firstName.trim(), lastName: contact.lastName.trim(), email: contact.email.trim(), phone: contact.phone.trim(),
-            night: currentNight(), visitorId: readVisitorId(),
+            night: currentNight(), monogram: currentMonogram(), visitorId: readVisitorId(),
           }),
         })
       } catch {
@@ -187,6 +211,7 @@ export default function CorkyDeposit() {
       if (res.status === 200 && body?.data?.paid) {
         endAttempt()
         noteVisit('paid')
+        announceHeld(currentNight(), currentMonogram())
         setReceiptUrl(typeof body.data.receiptUrl === 'string' ? body.data.receiptUrl : null)
         setStage('done')
         return
@@ -308,10 +333,13 @@ export default function CorkyDeposit() {
   return (
     <>
       <style>{CSS}</style>
-      {stage === 'done' ? (
-        <button ref={triggerRef} type="button" className="cd-trigger held" onClick={openSheet}>December 12 is held ✓</button>
+      {held || stage === 'done' ? (
+        <div className="cd-held">
+          <p ref={(el) => { triggerRef.current = el }} tabIndex={-1} role="status">{HELD_LINE}</p>
+          {receiptUrl && !open && <a href={receiptUrl} target="_blank" rel="noopener noreferrer">See your receipt</a>}
+        </div>
       ) : (
-        <button ref={triggerRef} type="button" className="cd-trigger" onClick={openSheet} aria-haspopup="dialog">{BUTTON_LABEL}</button>
+        <button ref={(el) => { triggerRef.current = el }} type="button" className="cd-trigger" onClick={openSheet} aria-haspopup="dialog">{BUTTON_LABEL}</button>
       )}
       {open && mounted && createPortal(sheet, document.body)}
     </>
@@ -322,7 +350,9 @@ const CSS = `
 .cd-trigger { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 3.5rem; border: 0; border-radius: 999px; background: linear-gradient(180deg, #ecd9b4, #d9bf8e); color: #1f3329; font: inherit; font-weight: 600; font-size: 1.05rem; cursor: pointer; transition: transform 0.15s ease; box-shadow: 0 0.4rem 1.2rem rgba(0,0,0,0.25); }
 .cd-trigger:hover { transform: translateY(-1px); }
 .cd-trigger:focus-visible { outline: 3px solid #f1d7b6; outline-offset: 3px; }
-.cd-trigger.held { background: transparent; color: #ecd9b4; border: 1px solid rgba(216,189,138,0.7); box-shadow: none; }
+.cd-held { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 0.35rem; animation: cd-fade 0.6s ease-out both; }
+.cd-held p { margin: 0; width: 100%; display: flex; align-items: center; justify-content: center; min-height: 3.5rem; padding: 0 1rem; border: 1px solid rgba(216,189,138,0.7); border-radius: 999px; color: #ecd9b4; font-family: 'Playfair Display', serif; font-style: italic; font-size: 1.1rem; outline: none; }
+.cd-held a { color: #ecd9b4; font-size: 0.85rem; text-underline-offset: 3px; }
 
 .cd-scrim { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 1rem; background: rgba(23,36,30,0.55); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); animation: cd-fade 0.32s ease-out both; }
 .cd-sheet { position: relative; width: 100%; max-width: 27rem; max-height: calc(100dvh - 2rem); overflow-y: auto; overscroll-behavior: contain; background: #fffdf8; border-radius: 6px; padding: 0.55rem; box-shadow: 0 1.5rem 3.5rem rgba(20,32,26,0.35); color: #3f3a33; font-family: Inter, sans-serif; animation: cd-rise 0.42s cubic-bezier(.22,.7,.3,1) both; outline: none; }
@@ -363,7 +393,7 @@ const CSS = `
   .cd-frame { padding: 1.85rem 1rem 1.25rem; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cd-scrim, .cd-sheet, .cd-end { animation: none; }
+  .cd-scrim, .cd-sheet, .cd-end, .cd-held { animation: none; }
   .cd-trigger, .cd-x, .cd-btn, .cd-field input { transition: none; }
   .cd-trigger:hover { transform: none; }
 }

@@ -25,12 +25,15 @@ vi.mock('@lib/blob-store', async (importOriginal) => {
   return {
     ...real,
     makeKvStore: (name: string, dir: string) => (name !== 'quote-visits' ? real.makeKvStore(name, dir) : {
-      get: async (k: string) => m.rows.get(k) ?? null,
+      get: async (k: string) => { if (m.kvFail && k === 'corky-paid') throw new Error('blobs down'); return m.rows.get(k) ?? null },
       set: async (k: string, v: string) => { m.rows.set(k, v) },
       list: async (p?: string) => { if (m.kvFail) throw new Error('blobs down'); return [...m.rows.keys()].filter((k) => !p || k.startsWith(p)) },
       delete: async (k: string) => { m.rows.delete(k) },
       getWithMeta: async () => ({ value: null, etag: null }),
-      setIfMatch: async () => true,
+      setIfMatch: async (k: string, v: string, etag: string | null, exists: boolean) => {
+        if (!etag && !exists) { if (m.rows.has(k)) return false; m.rows.set(k, v); return true }
+        m.rows.set(k, v); return true
+      },
     }),
   }
 })
@@ -188,7 +191,7 @@ describe('POST /api/quote/corky-deposit.json', () => {
       seed(PHONE, 's1aaaaaaaa', { first: T0, device: 'iPhone', referrer: 'facebook.com', activeSeconds: 240, scroll: 80, events: [pick('tote', 30), pick('ornament', 50), pick('tote', 70)] })
       seed(LAPTOP, 's2aaaaaaaa', { first: T0 + 26 * 3600_000, device: 'Mac', activeSeconds: 300, scroll: 100, events: [pick('ornament', 20), { type: 'text', at: 90 }] })
       seed(PHONE, 's3aaaaaaaa', { first: T0 + 50 * 3600_000, device: 'iPhone', activeSeconds: 100, scroll: 60, events: [] })
-      seed(LAPTOP, 's4aaaaaaaa', { first: T0 + 51 * 3600_000, device: 'Mac', activeSeconds: 80, scroll: 100, events: [pick('tote', 10), { type: 'sheet', at: 40 }, { type: 'pay', at: 70 }] })
+      seed(LAPTOP, 's4aaaaaaaa', { first: T0 + 51 * 3600_000, device: 'Mac', activeSeconds: 80, scroll: 100, events: [pick('tote', 10), { type: 'monoOn', at: 20 }, { type: 'sheet', at: 40 }, { type: 'pay', at: 70 }] })
       m.rows.set('other-thing', '{}')
     }
 
@@ -204,11 +207,11 @@ describe('POST /api/quote/corky-deposit.json', () => {
 
     it('the email has every visit, her contact and the details', async () => {
       seedFourVisits()
-      await post(body({ firstName: 'Jessyca', lastName: 'Lope', email: 'jessyca@example.com', phone: '(256) 975-0563', night: 'Tote & Keychain Bar', visitorId: LAPTOP }))
+      await post(body({ firstName: 'Jessyca', lastName: 'Lope', email: 'jessyca@example.com', phone: '(256) 975-0563', night: 'Tote & Keychain Bar', monogram: true, visitorId: LAPTOP }))
       const mail = m.sendEmail.mock.calls[0][0]
-      expect(mail.subject).toBe('Deposit paid: Corky Child Care Collective, Dec 12 · Tote & Keychain Bar')
+      expect(mail.subject).toBe('Deposit paid: Corky Child Care Collective, Dec 12 · Tote & Keychain Bar + monograms')
       expect(mail.text).toContain('Jessyca Lope · (256) 975-0563 · jessyca@example.com')
-      expect(mail.text).toContain('Picked: Tote & Keychain Bar (the one with the $15 monogram offer)')
+      expect(mail.text).toContain('Picked: Tote & Keychain Bar + monograms ($15 more a guest, names due Fri, Nov 27)')
       expect(mail.text).toContain('Visits: 4 visits on 2 devices, first opened Mon Nov 16 9:02 AM')
       expect(mail.text).toContain('Time on page: 12 min in all · deepest scroll 100%')
       expect(mail.text).toContain('Nights tapped: Tote & Keychain Bar ×3, Ornament Bar ×2')
@@ -218,7 +221,7 @@ describe('POST /api/quote/corky-deposit.json', () => {
       expect(mail.text).toContain('- Mon Nov 16 9:02 AM · iPhone · 4 min · 80% scrolled · tapped Tote, Ornament, Tote')
       expect(mail.text).toContain('- Tue Nov 17 11:02 AM · Mac · 5 min · 100% scrolled · tapped Ornament · tapped Text us')
       expect(mail.text).toContain('- Wed Nov 18 11:02 AM · iPhone · 2 min · 60% scrolled · no taps')
-      expect(mail.text).toContain('- Wed Nov 18 12:02 PM · Mac · 1 min · 100% scrolled · tapped Tote · opened deposit · started paying')
+      expect(mail.text).toContain('- Wed Nov 18 12:02 PM · Mac · 1 min · 100% scrolled · tapped Tote · monograms on · opened deposit · started paying')
       expect(mail.html).toContain('Tote &amp; Keychain Bar')
     })
 
@@ -263,6 +266,77 @@ describe('POST /api/quote/corky-deposit.json', () => {
       m.bypass.on = true
       await post(body({ night: 'Ornament Bar', paymentToken: 'mock' }))
       expect(m.alert).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('monograms (the tote night’s add-on)', () => {
+    it('tote + monograms: the text, email and saved record say so; the deposit stays $1,500', async () => {
+      const res = await post(body({ night: 'Tote & Keychain Bar', monogram: true }))
+      expect(res.status).toBe(200)
+      expect(m.processPayment.mock.calls[0][0].amount).toBe(150000)
+      expect(m.alert.mock.calls[0][0]).toContain('Picked: Tote & Keychain Bar + monograms.')
+      const mail = m.sendEmail.mock.calls[0][0]
+      expect(mail.subject).toBe('Deposit paid: Corky Child Care Collective, Dec 12 · Tote & Keychain Bar + monograms')
+      expect(mail.text).toContain('Picked: Tote & Keychain Bar + monograms ($15 more a guest, names due Fri, Nov 27)')
+      expect(JSON.parse(m.rows.get('corky-paid')!)).toMatchObject({ night: 'Tote & Keychain Bar', monogram: true, firstName: 'Jessyca', receiptUrl: 'https://squareup.com/receipt/1' })
+    })
+
+    it('tote without monograms says so in the email', async () => {
+      await post(body({ night: 'Tote & Keychain Bar', monogram: false }))
+      expect(m.alert.mock.calls[0][0]).toContain('Picked: Tote & Keychain Bar.')
+      expect(m.sendEmail.mock.calls[0][0].text).toContain('Picked: Tote & Keychain Bar (no monograms)')
+    })
+
+    it.each([
+      ['another night', { night: 'Ornament Bar', monogram: true }],
+      ['no night', { night: null, monogram: true }],
+      ['not a real true', { night: 'Tote & Keychain Bar', monogram: 'yes' }],
+    ])('monograms with %s are ignored, never a blocked payment', async (_n, over) => {
+      const res = await post(body(over))
+      expect(res.status).toBe(200)
+      expect(m.alert.mock.calls[0][0]).not.toContain('monograms')
+      expect(JSON.parse(m.rows.get('corky-paid')!).monogram).toBe(false)
+    })
+
+    it('unclear payment text carries the monograms too', async () => {
+      m.processPayment.mockRejectedValue(new Error('socket hang up'))
+      await post(body({ night: 'Tote & Keychain Bar', monogram: true }))
+      expect(m.alert.mock.calls[0][0]).toMatch(/Picked: Tote & Keychain Bar \+ monograms\.$/)
+    })
+  })
+
+  describe('paid lock-in', () => {
+    it('a real payment saves corky-paid (create-only: an existing record is never replaced)', async () => {
+      await post(body({ night: 'Ornament Bar' }))
+      const first = m.rows.get('corky-paid')
+      expect(JSON.parse(first!)).toMatchObject({ night: 'Ornament Bar', monogram: false, paidAt: expect.any(String), firstName: 'Jessyca' })
+      const { savePaid } = await import('@lib/quote/corky-visits')
+      const { makeKvStore } = await import('@lib/blob-store')
+      expect(await savePaid({ night: 'Mosaics & Plant Bar', monogram: false, paidAt: 'x', firstName: 'Z', receiptUrl: null }, makeKvStore('quote-visits', 'quote-visits'))).toBe(false)
+      expect(m.rows.get('corky-paid')).toBe(first)
+    })
+
+    it('once paid, a second deposit is answered paid/already and never charged', async () => {
+      m.rows.set('corky-paid', JSON.stringify({ night: 'Ornament Bar', monogram: false, paidAt: '2026-11-18T15:02:00.000Z', firstName: 'Jessyca', receiptUrl: null }))
+      const res = await post(body({ night: 'Mosaics & Plant Bar' }))
+      expect(res).toEqual({ status: 200, json: { data: { paid: true, already: true } } })
+      expect(m.createOrder).not.toHaveBeenCalled()
+      expect(m.processPayment).not.toHaveBeenCalled()
+      expect(m.alert).not.toHaveBeenCalled()
+      expect(JSON.parse(m.rows.get('corky-paid')!).night).toBe('Ornament Bar')
+    })
+
+    it('a simulated payment writes no lock-in', async () => {
+      m.bypass.on = true
+      await post(body({ night: 'Ornament Bar', paymentToken: 'mock' }))
+      expect(m.rows.has('corky-paid')).toBe(false)
+    })
+
+    it('the paid record unreadable: the payment still goes through', async () => {
+      m.kvFail = true
+      const res = await post(body({ night: 'Ornament Bar' }))
+      expect(res.status).toBe(200)
+      expect(m.processPayment).toHaveBeenCalledTimes(1)
     })
   })
 })

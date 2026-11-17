@@ -12,6 +12,9 @@
 import { makeKvStore, type KvStore } from '@lib/blob-store'
 
 export const VISIT_PREFIX = 'corky-'
+/** Not visits (same store, same prefix; loadVisits skips them). */
+export const PAID_KEY = 'corky-paid'
+export const FIRST_OPEN_KEY = 'corky-first-open'
 export const visitStore = (): KvStore => makeKvStore('quote-visits', 'quote-visits')
 
 export const NIGHTS = [
@@ -25,7 +28,7 @@ export const MONOGRAM_NIGHT: NightId = 'tote'
 
 export const DEVICES = ['iPhone', 'iPad', 'Android', 'Mac', 'Windows', 'other'] as const
 export type Device = (typeof DEVICES)[number]
-export const EVENT_TYPES = ['pick', 'sheet', 'text', 'pay', 'paid'] as const
+export const EVENT_TYPES = ['pick', 'sheet', 'text', 'pay', 'paid', 'monoOn', 'monoOff'] as const
 export type EventType = (typeof EVENT_TYPES)[number]
 
 export const MAX_EVENTS = 50
@@ -121,7 +124,7 @@ export function visitKey(visitorId: string, sessionId: string): string {
 
 /** Every recorded page load, oldest first. Unreadable rows are skipped. */
 export async function loadVisits(kv: KvStore = visitStore()): Promise<Visit[]> {
-  const keys = (await kv.list(VISIT_PREFIX)).filter((k) => k.startsWith(VISIT_PREFIX))
+  const keys = (await kv.list(VISIT_PREFIX)).filter((k) => k.startsWith(VISIT_PREFIX) && k !== PAID_KEY && k !== FIRST_OPEN_KEY)
   const rows = await Promise.all(keys.map((k) => kv.get(k)))
   const out: Visit[] = []
   for (const r of rows) {
@@ -148,6 +151,8 @@ const studioDay = (ms: number) => new Date(ms).toLocaleDateString('en-US', { tim
 const minutes = (s: number) => (s < 60 ? '<1 min' : `${Math.round(s / 60)} min`)
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 const shortName = (id: NightId) => NIGHTS.find((n) => n.id === id)!.short
+/** Whether the monogram switch was left on in this visit. */
+const lastMono = (v: Visit) => [...v.events].reverse().find((e) => e.type === 'monoOn' || e.type === 'monoOff')?.type === 'monoOn'
 
 export interface VisitSummary {
   visits: number
@@ -187,18 +192,60 @@ export interface PaidFacts {
   email: string
   orderId: string
   night: string | null
+  /** Monograms added (only ever true with the tote night). */
+  monogram: boolean
   /** The browser that paid, to mark its visits. */
   visitorId: string | null
 }
 
 const TEXT_MAX = 300
 
+const pickedLabel = (f: PaidFacts) => `${f.night}${f.monogram ? ' + monograms' : ''}`
+
+/** The paid lock-in, kept so the page shows the date held on any device and a second deposit is refused. */
+export interface PaidRecord {
+  night: string | null
+  monogram: boolean
+  paidAt: string
+  firstName: string
+  receiptUrl: string | null
+}
+
+export async function readPaid(kv: KvStore = visitStore()): Promise<PaidRecord | null> {
+  const raw = await kv.get(PAID_KEY)
+  if (!raw) return null
+  try {
+    const r = JSON.parse(raw)
+    return r && typeof r.paidAt === 'string' ? (r as PaidRecord) : null
+  } catch {
+    return null
+  }
+}
+
+/** Create-only: the first payment's record stays. */
+export async function savePaid(rec: PaidRecord, kv: KvStore = visitStore()): Promise<boolean> {
+  return kv.setIfMatch(PAID_KEY, JSON.stringify(rec), null, false)
+}
+
+/** The first-open flag, set once ever (create-only, so two opens at once can't both win). */
+export async function claimFirstOpen(device: string, at: number, kv: KvStore = visitStore()): Promise<boolean> {
+  return kv.setIfMatch(FIRST_OPEN_KEY, JSON.stringify({ device, at: new Date(at).toISOString() }), null, false)
+}
+
+/** "Jessyca opened her Christmas quote: iPhone, Tue 9:14 AM." */
+export function firstOpenText(device: string, at: number): string {
+  const d = new Date(at)
+  const day = d.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'short' })
+  const time = d.toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' })
+  return `Jessyca opened her Christmas quote: ${device}, ${day} ${time}.`
+}
+
 /** The owners' text: ≤ 300 characters; the visit parts drop off the end first if it runs long. */
 export function paidText(f: PaidFacts, s: VisitSummary | null): string {
   const core = [
     'Deposit paid $1,500: Corky Child Care, Sat Dec 12.',
     `${f.who} ${f.phone}.`,
-    f.night ? `Picked: ${f.night}.` : 'No night picked yet.',
+    f.night ? `Picked: ${pickedLabel(f)}.` : 'No night picked yet.',
   ]
   const extra: string[] = []
   if (s) {
@@ -223,7 +270,9 @@ export function paidEmailLines(f: PaidFacts, s: VisitSummary | null): string[] {
     `${f.who} · ${f.phone} · ${f.email}`,
     `Square order ${f.orderId}`,
     '',
-    f.night ? `Picked: ${f.night}${nightByName(f.night)?.id === MONOGRAM_NIGHT ? ' (the one with the $15 monogram offer)' : ''}` : 'No night picked yet',
+    f.night
+      ? `Picked: ${pickedLabel(f)}${f.monogram ? ' ($15 more a guest, names due Fri, Nov 27)' : nightByName(f.night)?.id === MONOGRAM_NIGHT ? ' (no monograms)' : ''}`
+      : 'No night picked yet',
   ]
   if (!s) return lines
   lines.push('')
@@ -246,6 +295,7 @@ export function paidEmailLines(f: PaidFacts, s: VisitSummary | null): string[] {
     const taps = v.events.filter((e) => e.type === 'pick' && e.id).map((e) => shortName(e.id!))
     const did = [
       taps.length ? `tapped ${taps.join(', ')}` : 'no taps',
+      ...(v.events.some((e) => e.type === 'monoOn') ? [lastMono(v) ? 'monograms on' : 'monograms on then off'] : []),
       ...(v.events.some((e) => e.type === 'text') ? ['tapped Text us'] : []),
       ...(v.events.some((e) => e.type === 'sheet') ? ['opened deposit'] : []),
       ...(v.events.some((e) => e.type === 'paid') ? ['paid'] : v.events.some((e) => e.type === 'pay') ? ['started paying'] : []),

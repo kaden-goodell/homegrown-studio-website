@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react'
-import CorkyDeposit, { BUTTON_LABEL, TITLE, SUBLINE, DONE_TITLE, DONE_LINE, UNCLEAR_LINE } from '@components/quote/CorkyDeposit'
+import CorkyDeposit, { BUTTON_LABEL, TITLE, SUBLINE, DONE_TITLE, DONE_LINE, UNCLEAR_LINE, HELD_LINE } from '@components/quote/CorkyDeposit'
 
 // The real form loads Square's Web Payments SDK; stand in a ref that tokenizes and reports itself ready.
 const formProps: any[] = []
@@ -99,19 +99,25 @@ describe('CorkyDeposit', () => {
     const store = new Map([['hts-corky-visitor', 'aaaa1111-0000-0000-0000-000000000001']])
     vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v), clear: () => store.clear() })
     document.body.dataset.pick = 'Tote & Keychain Bar'
+    document.body.dataset.monogram = 'true'
     const seen: string[] = []
     const listen = (e: Event) => seen.push((e as CustomEvent).detail.type)
+    const held: unknown[] = []
+    const onHeld = (e: Event) => held.push((e as CustomEvent).detail)
     window.addEventListener('corky-visit', listen)
+    window.addEventListener('corky-held', onHeld)
     try {
       await openIt()
       fill()
       await pay()
       await screen.findByRole('heading', { name: DONE_TITLE })
-      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ night: 'Tote & Keychain Bar', visitorId: 'aaaa1111-0000-0000-0000-000000000001' })
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ night: 'Tote & Keychain Bar', monogram: true, visitorId: 'aaaa1111-0000-0000-0000-000000000001' })
       expect(seen).toEqual(['sheet', 'pay', 'paid'])
+      expect(held).toEqual([{ night: 'Tote & Keychain Bar', monogram: true }])
     } finally {
       window.removeEventListener('corky-visit', listen)
-      delete document.body.dataset.pick
+      window.removeEventListener('corky-held', onHeld)
+      for (const k of Object.keys(document.body.dataset)) delete document.body.dataset[k]
       localStorage.clear()
     }
     cleanup()
@@ -119,7 +125,36 @@ describe('CorkyDeposit', () => {
     fill()
     await pay()
     await screen.findByRole('heading', { name: DONE_TITLE })
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({ night: null, visitorId: null })
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({ night: null, monogram: false, visitorId: null })
+  })
+
+  it('already paid (found by the page): a calm held line, no pay button', async () => {
+    document.body.dataset.held = 'true'
+    try {
+      render(<CorkyDeposit />)
+      expect(await screen.findByText(HELD_LINE)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: BUTTON_LABEL })).not.toBeInTheDocument()
+    } finally {
+      delete document.body.dataset.held
+    }
+  })
+
+  it('the page’s held event (status found after load) switches to the held line', async () => {
+    render(<CorkyDeposit />)
+    expect(screen.getByRole('button', { name: BUTTON_LABEL })).toBeInTheDocument()
+    act(() => { window.dispatchEvent(new CustomEvent('corky-held', { detail: { night: null, monogram: false } })) })
+    expect(await screen.findByText(HELD_LINE)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: BUTTON_LABEL })).not.toBeInTheDocument()
+  })
+
+  it('a server "already paid" answer shows the all-set screen, then the held line', async () => {
+    answer = { status: 200, body: { data: { paid: true, already: true } } }
+    await openIt()
+    fill()
+    await pay()
+    expect(await screen.findByRole('heading', { name: DONE_TITLE })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(await screen.findByText(HELD_LINE)).toBeInTheDocument()
   })
 
   it('a wallet token pays straight away', async () => {

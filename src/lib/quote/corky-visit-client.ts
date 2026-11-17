@@ -8,6 +8,7 @@
  * Other parts of the page report through a window event:
  *   window.dispatchEvent(new CustomEvent('corky-visit', { detail: { type: 'sheet' } }))
  * ('sheet' | 'pay' | 'paid'; 'pay' is sent right away so the deposit text sees it).
+ * The monogram switch (#monogram) is logged as 'monoOn' / 'monoOff'.
  */
 
 const VISITOR_KEY = 'hts-corky-visitor'
@@ -109,7 +110,7 @@ export function startCorkyVisit(): void {
   document.querySelectorAll<HTMLElement>('.theme').forEach((card) =>
     card.addEventListener('click', () => {
       const id = card.dataset.id
-      if (!id) return
+      if (!id || card.getAttribute('aria-disabled') === 'true') return
       state.pick = id
       record('pick', id)
       soon()
@@ -118,6 +119,11 @@ export function startCorkyVisit(): void {
   document.getElementById('textpick')?.addEventListener('click', () => {
     record('text')
     send()
+  })
+  const mono = document.getElementById('monogram') as HTMLInputElement | null
+  mono?.addEventListener('change', () => {
+    record(mono.checked ? 'monoOn' : 'monoOff')
+    soon()
   })
   window.addEventListener('corky-visit', (e) => {
     const type = (e as CustomEvent<{ type?: string }>).detail?.type

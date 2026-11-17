@@ -11,10 +11,10 @@ import { alertOwners } from '@lib/owner-alert'
 import { emailsFor } from '@lib/notify-settings'
 import { sendEmail } from '@lib/email'
 import { createLogger } from '@lib/logger'
-import { isVisitId, loadVisits, nightByName, paidEmailLines, paidText, summarize, type PaidFacts, type VisitSummary } from '@lib/quote/corky-visits'
+import { isVisitId, loadVisits, MONOGRAM_NIGHT, nightByName, paidEmailLines, paidText, readPaid, savePaid, summarize, type PaidFacts, type VisitSummary } from '@lib/quote/corky-visits'
 
 /**
- * POST /api/quote/corky-deposit.json { attemptId, paymentToken, verificationToken?, sourceKind?, firstName, lastName, email, phone, night?, visitorId? }
+ * POST /api/quote/corky-deposit.json { attemptId, paymentToken, verificationToken?, sourceKind?, firstName, lastName, email, phone, night?, monogram?, visitorId? }
  *
  * The $1,500 deposit that holds Saturday, December 12 for the Corky Child
  * Care Collective (the one-off quote page /quote/corky-christmas). The amount
@@ -34,7 +34,13 @@ import { isVisitId, loadVisits, nightByName, paidEmailLines, paidText, summarize
  * three names on the page) and sums up her visits from the page's own visit
  * log (src/lib/quote/corky-visits.ts); the email has every visit. Building that
  * summary can never hold up or fail the payment answer: it times out and falls
- * back to the plain text.
+ * back to the plain text. `monogram` (the tote night's add-on) only counts with
+ * the tote night; the deposit stays $1,500 either way.
+ *
+ * Once a real deposit is paid it is kept as `corky-paid` in the 'quote-visits'
+ * store (create-only): the page locks the night in from it on any device
+ * (GET /api/quote/corky-status.json), and a second deposit is answered
+ * { paid: true, already: true } without charging. Simulated payments write nothing.
  */
 
 export const prerender = false
@@ -114,13 +120,29 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (!buyer) return fail(INVALID_MESSAGE, 400, 'invalid')
   const attemptId: string = body.attemptId
   const who = `${buyer.firstName} ${buyer.lastName}`
-  const night = nightByName(body.night)?.name ?? null
+  const nightRow = nightByName(body.night)
+  const night = nightRow?.name ?? null
+  // Only the tote night has monograms; anything else is ignored rather than blocking the payment.
+  const monogram = body.monogram === true && nightRow?.id === MONOGRAM_NIGHT
+  if (body.monogram === true && !monogram) logger.warn('Monograms sent without the tote night — ignored', { attemptId: body.attemptId, night })
   const visitorId = isVisitId(body.visitorId) ? body.visitorId : null
 
   // ── Simulated (local dev, previews with the payment bypass): no Square, no texts. ──
   if (paymentBypassEnabled(request)) {
     logger.warn('Payment bypassed (simulated Corky deposit)', { attemptId })
     return paidResponse(null, true)
+  }
+
+  // Already paid (another device, or a stale page): never a second deposit.
+  try {
+    const already = await readPaid()
+    if (already) {
+      logger.warn('Second Corky deposit refused — already paid', { attemptId, paidAt: already.paidAt })
+      return json({ data: { paid: true, already: true } }, 200)
+    }
+  } catch (err) {
+    // Can't read the paid record: carry on (the order's own idempotency still stops a retried double charge).
+    logger.error('Could not check whether the Corky deposit is already paid', { error: err instanceof Error ? err.message : String(err) })
   }
 
   if (typeof body.paymentToken !== 'string' || !body.paymentToken || body.paymentToken.length > 4000) return fail(STALE_MESSAGE, 400, 'invalid')
@@ -183,8 +205,13 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   }
 
   async function paid(receiptUrl: string | null, orderId: string): Promise<Response> {
-    logger.info('Corky deposit paid', { attemptId, orderId, night })
-    const facts: PaidFacts = { who, phone: buyer!.phone, email: buyer!.email, orderId, night, visitorId }
+    logger.info('Corky deposit paid', { attemptId, orderId, night, monogram })
+    try {
+      await savePaid({ night, monogram, paidAt: new Date().toISOString(), firstName: buyer!.firstName, receiptUrl })
+    } catch (err) {
+      logger.error('Corky deposit paid but the lock-in was not saved', { attemptId, orderId, error: err instanceof Error ? err.message : String(err) })
+    }
+    const facts: PaidFacts = { who, phone: buyer!.phone, email: buyer!.email, orderId, night, monogram, visitorId }
     const summary = await visitSummary()
     let text: string
     let lines: string[]
@@ -200,7 +227,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       alertOwners(text, 'booking-alerts'),
       (async () => sendEmail({
         to: await emailsFor('booking-alerts'),
-        subject: `Deposit paid: Corky Child Care Collective, Dec 12${night ? ` · ${night}` : ''}`,
+        subject: `Deposit paid: Corky Child Care Collective, Dec 12${night ? ` · ${night}${monogram ? ' + monograms' : ''}` : ''}`,
         text: lines.join('\n'),
         html: `<div style="font-family:sans-serif;line-height:1.5;">${lines.map((l) => (l ? `<div>${esc(l)}</div>` : '<br />')).join('')}</div>`,
       }))(),
@@ -212,7 +239,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     logger.error('CORKY DEPOSIT OUTCOME UNKNOWN — needs a person', {
       attemptId, orderId: o?.id ?? null, codes: squareErrorCodes(err), error: err instanceof Error ? err.message : String(err),
     })
-    await alertOwners(`Deposit unclear: Corky Child Care Collective, Dec 12, $1,500 (${who}, ${buyer!.phone}). Check Square${o ? ` for order ${o.id}` : ''}.${night ? ` Picked: ${night}.` : ''}`).catch(() => undefined)
+    await alertOwners(`Deposit unclear: Corky Child Care Collective, Dec 12, $1,500 (${who}, ${buyer!.phone}). Check Square${o ? ` for order ${o.id}` : ''}.${night ? ` Picked: ${night}${monogram ? ' + monograms' : ''}.` : ''}`).catch(() => undefined)
     return json({ why: 'checking', code: 'unknown_outcome' }, 202)
   }
 }

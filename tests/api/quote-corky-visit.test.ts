@@ -4,7 +4,14 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const m = vi.hoisted(() => ({ rows: new Map<string, string>(), fail: false }))
+const m = vi.hoisted(() => ({
+  rows: new Map<string, string>(), fail: false,
+  alert: vi.fn(), admin: false, preview: false, bypass: false,
+}))
+vi.mock('@lib/owner-alert', () => ({ alertOwners: (...a: any[]) => m.alert(...a) }))
+vi.mock('@lib/admin-auth', () => ({ adminAuthorized: async () => m.admin }))
+vi.mock('@lib/deploy-context', () => ({ isPreviewOrDev: () => m.preview }))
+vi.mock('@lib/dev-flags', () => ({ paymentBypassEnabled: () => m.bypass }))
 vi.mock('@lib/blob-store', async (importOriginal) => {
   const real = await importOriginal<typeof import('@lib/blob-store')>()
   return {
@@ -15,7 +22,11 @@ vi.mock('@lib/blob-store', async (importOriginal) => {
       list: async (p?: string) => [...m.rows.keys()].filter((k) => !p || k.startsWith(p)),
       delete: async (k: string) => { m.rows.delete(k) },
       getWithMeta: async () => ({ value: null, etag: null }),
-      setIfMatch: async () => true,
+      // Create-only like the real store: false when the key is already there.
+      setIfMatch: async (k: string, v: string, etag: string | null, exists: boolean) => {
+        if (!etag && !exists) { if (m.rows.has(k)) return false; m.rows.set(k, v); return true }
+        m.rows.set(k, v); return true
+      },
     }),
   }
 })
@@ -42,7 +53,13 @@ const stored = () => JSON.parse(m.rows.get(`corky-${VISITOR}-${SESSION}`)!)
 beforeEach(() => {
   m.rows.clear()
   m.fail = false
+  m.alert.mockReset()
+  m.alert.mockResolvedValue({ attempted: 1, sent: 1 })
+  m.admin = false
+  m.preview = false
+  m.bypass = false
 })
+const visitRows = () => [...m.rows.keys()].filter((k) => k !== 'corky-first-open')
 
 describe('POST /api/quote/corky-visit.json', () => {
   it('stores a clean record under corky-<visitor>-<session> and answers 204', async () => {
@@ -81,7 +98,7 @@ describe('POST /api/quote/corky-visit.json', () => {
     const first = stored().first
     await send(beacon({ activeSeconds: 10, scroll: 20, events: [], pick: null, device: 'other' }))
     const v = stored()
-    expect(m.rows.size).toBe(1)
+    expect(visitRows()).toHaveLength(1)
     expect(v.first).toBe(first)
     expect(v.activeSeconds).toBe(300)
     expect(v.scroll).toBe(90)
@@ -100,7 +117,7 @@ describe('POST /api/quote/corky-visit.json', () => {
     ['too big', JSON.stringify(beacon({ junk: 'x'.repeat(20_000) }))],
   ])('bad beacon (%s) → 400, nothing stored', async (_n, b) => {
     expect((await send(b)).status).toBe(400)
-    expect(m.rows.size).toBe(0)
+    expect(visitRows()).toHaveLength(0)
   })
 
   it('rate limit → 429 after 60 beacons in 10 minutes from one address', async () => {
@@ -124,5 +141,50 @@ describe('deviceKind (the page’s side)', () => {
     expect(deviceKind('Mozilla/5.0 (Linux; Android 14; Pixel 8)')).toBe('Android')
     expect(deviceKind('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe('Windows')
     expect(deviceKind('curl/8')).toBe('other')
+  })
+})
+
+describe('first open texts the owners once', () => {
+  const other = (n: number) => beacon({ visitorId: `vvvv${n}000-0000-0000-0000-000000000000`, sessionId: `ssss${n}000-0000-0000-0000-000000000000`, device: n === 1 ? 'iPhone' : 'Mac' })
+
+  it('the first open by a customer texts once, never again', async () => {
+    await send(other(1))
+    expect(m.alert).toHaveBeenCalledTimes(1)
+    expect(m.alert.mock.calls[0][0]).toMatch(/^Jessyca opened her Christmas quote: iPhone, (Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2}:\d{2} (AM|PM)\.$/)
+    expect(m.alert.mock.calls[0][1]).toBe('booking-alerts')
+    await send(other(1))
+    await send(other(2))
+    expect(m.alert).toHaveBeenCalledTimes(1)
+  })
+
+  it('two opens at the same moment: one text', async () => {
+    await Promise.all([send(other(1)), send(other(2)), send(other(3))])
+    expect(m.alert).toHaveBeenCalledTimes(1)
+  })
+
+  it('a signed-in owner opening it texts nothing and does not use up the first open', async () => {
+    m.admin = true
+    await send(other(1))
+    expect(m.alert).not.toHaveBeenCalled()
+    expect(m.rows.has('corky-first-open')).toBe(false)
+    m.admin = false
+    await send(other(2))
+    expect(m.alert).toHaveBeenCalledTimes(1)
+    expect(m.alert.mock.calls[0][0]).toContain(': Mac, ')
+  })
+
+  it.each([['local dev or a preview', 'preview'], ['the payment bypass', 'bypass']] as const)('no text on %s', async (_n, flag) => {
+    m[flag] = true
+    await send(other(1))
+    expect(m.alert).not.toHaveBeenCalled()
+    expect(m.rows.has('corky-first-open')).toBe(false)
+  })
+
+  it('the first-open flag is not counted as a visit', async () => {
+    const { loadVisits } = await import('@lib/quote/corky-visits')
+    const { makeKvStore } = await import('@lib/blob-store')
+    await send(other(1))
+    m.rows.set('corky-paid', JSON.stringify({ night: null, monogram: false, paidAt: '2026-11-17T00:00:00Z', firstName: 'J', receiptUrl: null }))
+    expect(await loadVisits(makeKvStore('quote-visits', 'quote-visits'))).toHaveLength(1)
   })
 })
