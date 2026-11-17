@@ -1,4 +1,5 @@
 import { PAYMENT_FORM_UNAVAILABLE, TEXT_US } from '@lib/checkout-messages'
+import { reportBookingTrouble, troubleKind } from '@lib/booking-trouble'
 import { trackBookingProblem, trackGiftCardToggle, type BookingKindForAnalytics } from '@lib/analytics'
 import {
   createElement,
@@ -208,6 +209,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
         } catch (err) {
           if (!cancelled) {
             trackBookingProblem(bookingKind, 'payment_form_failed', err instanceof Error ? err.message : 'config')
+            reportBookingTrouble(troubleKind(bookingKind), 'payment_form', err)
             setError(err instanceof Error ? err.message : 'Failed to load payment config')
           }
         } finally {
@@ -325,6 +327,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
         } catch (err) {
           if (!cancelled) {
             trackBookingProblem(bookingKind, 'payment_form_failed', err instanceof Error ? err.message : 'sdk')
+            reportBookingTrouble(troubleKind(bookingKind), 'payment_form', err)
             setError(err instanceof Error ? err.message : 'Failed to initialize payment SDK')
           }
         }

@@ -8,6 +8,8 @@ import { partyMessages } from '@lib/checkout-messages'
 import { bookParty, partyIdFor, IN_PROGRESS_MESSAGE, type BookInput } from '@lib/parties/checkout'
 import { getPartyRecord, type PartyCharge, type PartyRecord } from '@lib/party-store'
 import { recentPartyBySamePerson, recentPartyMessage, PARTY_ALREADY_BOOKED, PARTY_STILL_GOING_THROUGH } from '@lib/parties/same-person'
+import { watchBooking } from '@lib/booking-watch'
+import { formatSlotLabel } from '@lib/studio-time'
 
 /** Final review I19: what a customer reads when the request itself is off (never "Invalid request body"). */
 const WORDS = {
@@ -31,7 +33,7 @@ const WORDS = {
  * browser (`serviceVariationId`, `people`, `craft.{id,name,perHeadCents}`,
  * no `packageId`) books the default package.
  */
-export const POST: APIRoute = async ({ request, clientAddress }) => {
+const handle: APIRoute = async ({ request, clientAddress }) => {
   const open = await bookingsOpenNow(request, 'parties')
   if (open && rateLimited(`party-book:${clientAddress}`, 5, 60_000)) {
     return errorResponse(WORDS.slowDown, 429)
@@ -157,6 +159,14 @@ function bookedResponse(
 }
 
 /** A plain sentence for the customer, plus a code the booking panel can act on. */
+/** A failure on our side texts Kaden (src/lib/booking-watch.ts). */
+export const POST: APIRoute = watchBooking('party', handle, (body) => ({
+  who: [body?.customer?.firstName, body?.customer?.lastName].filter(Boolean).join(' '),
+  phone: body?.customer?.phone ? String(body.customer.phone) : undefined,
+  what: `a party${body?.craft?.name ? ` (${String(body.craft.name).slice(0, 60)})` : ''}${Number(body?.people) > 0 ? `, about ${Math.floor(Number(body.people))} guests` : ''}`,
+  when: body?.startTime && !Number.isNaN(Date.parse(String(body.startTime))) ? formatSlotLabel(String(body.startTime)) : undefined,
+}))
+
 function errorResponse(detail: string, status: number, code?: CheckoutErrorCode | 'in_progress' | 'recent_booking', extra?: Record<string, unknown>) {
   const resolved =
     code ?? (status === 400 ? 'invalid' : status === 409 ? 'slot_taken' : status === 402 ? 'card_declined' : 'unavailable')

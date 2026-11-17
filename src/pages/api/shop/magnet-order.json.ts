@@ -1,5 +1,6 @@
 // src/pages/api/shop/magnet-order.json.ts
 import type { APIRoute } from 'astro'
+import { watchBooking } from '@lib/booking-watch'
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
 import { shopConfig } from '@config/shop.config'
@@ -27,7 +28,7 @@ const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 /** One endpoint for every shop product: magnets (sets of 6) and framed silhouettes (each). */
-export const POST: APIRoute = async ({ request, clientAddress }) => {
+const handle: APIRoute = async ({ request, clientAddress }) => {
   const m = shopConfig.magnets
   const sil = shopConfig.silhouettes
   if (rateLimited(`magnet-order:${clientAddress}`, 5, 60_000)) return fail(429, 'Too many tries. Give it a minute.')
@@ -167,3 +168,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 
   return complete(order.id, payment)
 }
+
+/** A failure on our side texts Kaden (src/lib/booking-watch.ts). */
+export const POST: APIRoute = watchBooking('shop', handle, (body) => ({
+  who: String(body?.contact?.name ?? '').slice(0, 60),
+  phone: body?.contact?.phone ? String(body.contact.phone) : undefined,
+  what: `${body?.product === 'silhouettes' ? 'silhouettes' : 'photo magnets'}${body?.sets ? ` ×${Number(body.sets) || ''}` : ''}`,
+}))

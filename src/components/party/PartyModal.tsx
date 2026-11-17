@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useId, type FormEvent } from 'react'
+import { isForeignFailure, reportBookingTrouble } from '@lib/booking-trouble'
 import PaymentForm from '@components/checkout/PaymentForm'
 import type { PaymentFormRef } from '@components/checkout/PaymentForm'
 import BookingPanel, { PAYMENT_GOING_THROUGH } from '@components/shared/BookingPanel'
@@ -939,14 +940,16 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             ...(confirmRepeat.current ? { confirmRepeat: true } : {}),
           }),
         })
-      } catch {
+      } catch (err) {
         // The request left and nothing came back. It may have gone through.
+        reportBookingTrouble('party', 'booking_network', err)
         throw new Error(UNKNOWN_OUTCOME_MESSAGE)
       }
 
       if (!bookRes.ok) {
         const errData = await bookRes.json().catch(() => null)
         const failure = { status: bookRes.status, body: errData }
+        if (isForeignFailure(bookRes.status, errData)) reportBookingTrouble('party', 'booking_bad_answer', `HTTP ${bookRes.status}`)
         // We were told plainly what happened (declined, time taken, something
         // changed…): that attempt is over, and the next try is a new one.
         // "Still finishing your last try" is not an ending: the next try must
@@ -1950,6 +1953,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const showPackageChip = packageChoice && stepIdx > stepIndex('package', steps)
   return (
     <BookingPanel
+      troubleKind="party"
       title="Book a party"
       onRequestClose={requestClose}
       busy={processing ? PAYMENT_GOING_THROUGH : null}
