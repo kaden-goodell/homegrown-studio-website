@@ -15,6 +15,7 @@ export const POLICY_PATH = '/policies'
 export const POLICY_ANCHORS = {
   parties: 'parties',
   workshops: 'workshops',
+  privateEvents: 'private-events',
   closures: 'closures-and-refunds',
   records: 'records',
 } as const
@@ -103,6 +104,39 @@ export function policySectionsFor(f: PolicyFacts = CONFIG_POLICY_FACTS): PolicyS
           heading: 'Personalized crafts',
           body:
             'Made-to-order items (clearly marked when you book) can’t be changed or refunded once they’re made, regardless of the windows above.',
+        },
+      ],
+    },
+    {
+      id: POLICY_ANCHORS.privateEvents,
+      title: 'Private Events',
+      intro: 'Bigger groups and custom nights. Your quote spells out your deposit and dates. These are the usual terms.',
+      rules: [
+        {
+          heading: 'Your deposit saves your date.',
+          body: 'It comes off your total on the night.',
+        },
+        {
+          heading: 'If plans change,',
+          body:
+            'let us know at least 14 days before your event and we’ll refund your deposit in full. Inside 14 days, ' +
+            'we’ll have bought supplies and turned other groups away, so the deposit stays with us.',
+        },
+        {
+          heading: 'Need a different date?',
+          body:
+            'We’re happy to move your event once with at least 14 days’ notice, and your deposit moves with you to any night we have open. ' +
+            'If none of our open nights work for you, the deposit stays with us.',
+        },
+        {
+          heading: 'You only pay for who comes,',
+          body:
+            'at the per-guest price in your quote. Your deposit covers a minimum number of guests, also listed in your quote, ' +
+            'so if fewer can make it, it stays as is.',
+        },
+        {
+          heading: 'Made-to-order items',
+          body: 'like monograms are prepared ahead, so final names are due with your headcount and can’t change after that.',
         },
       ],
     },
