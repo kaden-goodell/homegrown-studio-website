@@ -5,13 +5,13 @@
  * buttons. Server only.
  */
 import { eventOnDay, type StudioEvent } from '@lib/events'
-import type { RosterChoices } from '@lib/seat-choices'
+import type { RosterChoices, SeatChoiceRecord } from '@lib/seat-choices'
 import { groupBookings, type BookingView } from './admin-actions'
 import { getClass } from './class-store'
 import { describeRequest } from './refunds'
 import { isWaiting, listRefundRequests } from './refund-requests'
 import { getLedger, setNames, takesSeat, type Ledger, type LedgerLine } from './seat-ledger'
-import { COUNTER_SALE_NO_NAME, holdsSeat, ownRosterChoices, sessionsOn } from './staff-view'
+import { COUNTER_SALE_NO_NAME, dayRecords, holdsSeat, ownRosterChoices, sessionsOn } from './staff-view'
 import { waitlistOrNull, isOnList } from './waitlist-store'
 import { policyWindows } from '@config/policy-content'
 
@@ -35,6 +35,8 @@ export interface RosterBooking extends BookingView {
 export interface OwnRoster {
   event: StudioEvent
   choices: RosterChoices
+  /** the day's bookings as seat records (who booked, how many seats), for guest seats */
+  records: SeatChoiceRecord[]
   bookings: RosterBooking[]
   /** ticket type id → label ("Adult"), for the refund panel */
   ticketLabels: Record<string, string>
@@ -73,6 +75,7 @@ export async function ownRoster(event: StudioEvent, day: string, signerEmails: s
   return {
     event: eventOnDay(event, day),
     choices: ownRosterChoices(cls, ledger, day, signerEmails, now),
+    records: dayRecords(cls, ledger, day),
     bookings,
     ticketLabels: Object.fromEntries(cls.content.ticketTypes.map((t) => [t.id, t.label])),
     waitlistWaiting: ((await waitlistOrNull(cls.id))?.entries ?? []).filter((e) => isOnList(e) && e.sessionIds.some((id) => today.has(id))).length,

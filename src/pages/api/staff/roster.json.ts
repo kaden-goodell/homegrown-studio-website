@@ -11,6 +11,9 @@ import { ownRoster, type OwnRoster } from '@lib/classes/staff-roster'
 import { getPartyRecord } from '@lib/party-store'
 import { crewPartyMoney, type CrewPartyMoney } from '@lib/parties/staff-money'
 import { agreementState } from '@lib/waiver-coverage'
+import { guestViewFor } from '@lib/guest-roster'
+import type { GuestSeatView } from '@lib/guest-links'
+import type { SeatChoiceRecord } from '@lib/seat-choices'
 
 export const prerender = false
 
@@ -140,25 +143,40 @@ export const GET: APIRoute = async ({ request, url }) => {
     let choices: RosterChoices | null | undefined = null
     // Our own classes: seats, picks and bookings come from the seat ledger, for this day's session.
     let own: OwnRoster | null = null
+    // The day's bookings (who booked, how many seats), for guest seats below.
+    let records: SeatChoiceRecord[] | null = null
     if (event.own) {
       try {
         own = await ownRoster(event, day, waivers.map((w) => w.adult.email))
         choices = own?.choices ?? undefined
+        records = own?.records ?? null
       } catch (err) {
         logger.error('Class seats read failed', { kind, id, error: err instanceof Error ? err.message : String(err) })
         choices = undefined
       }
     } else if (kind === 'workshop') {
       try {
+        records = await listSeatChoicesByEvent('workshop', id)
         choices = summarizeChoices(
           options,
-          await listSeatChoicesByEvent('workshop', id),
+          records,
           waivers.map((w) => w.adult.email),
           typeof event.capacity === 'number' && typeof event.seats === 'number' ? event.capacity - event.seats : null,
         )
       } catch (err) {
         logger.error('Seat picks read failed', { kind, id, error: err instanceof Error ? err.message : String(err) })
         choices = undefined
+      }
+    }
+
+    // Guest seats: who sits in a booker's extra seats (guest link or "With Shelby" at the door).
+    // Only a link; a failed read leaves it out and the cards say what they said before.
+    let guests: GuestSeatView | undefined
+    if (kind === 'workshop' && records) {
+      try {
+        guests = await guestViewFor(id, records, households.map((h) => ({ recordId: h.recordId, email: h.email, signer: h.signer })))
+      } catch (err) {
+        logger.error('Guest seats read failed', { kind, id, error: err instanceof Error ? err.message : String(err) })
       }
     }
 
@@ -181,6 +199,7 @@ export const GET: APIRoute = async ({ request, url }) => {
           summary: { households: households.length, people, childrenHereNow },
           households: responseHouseholds,
           choices,
+          ...(guests ? { guests } : {}),
           ...(own ? { bookings: own.bookings, ticketLabels: own.ticketLabels, ...(own.waitlistWaiting ? { waitlistWaiting: own.waitlistWaiting } : {}) } : {}),
           ...(partyMoney ? { partyMoney } : {}),
         },
