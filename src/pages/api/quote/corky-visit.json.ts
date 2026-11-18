@@ -8,7 +8,7 @@ import { alertOwners } from '@lib/owner-alert'
 import { createLogger } from '@lib/logger'
 
 /**
- * POST /api/quote/corky-visit.json — the visit beacon from /quote/corky-christmas
+ * POST /api/quote/corky-visit.json — the visit beacon from /for/corky
  * (src/lib/quote/corky-visit-client.ts). Body (sent as text/plain JSON by
  * navigator.sendBeacon): { visitorId, sessionId, device, referrer, activeSeconds,
  * scroll, events[], pick }. Everything is checked and clamped

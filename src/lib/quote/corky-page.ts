@@ -1,5 +1,5 @@
 /**
- * The page behaviour of /quote/corky-christmas (moved out of the page so it can
+ * The page behaviour of /for/corky (moved out of the page so it can
  * be tested): picking a night, the monogram add-on in the dark reserve card,
  * the "Text us your pick" message, and the paid lock-in.
  *
