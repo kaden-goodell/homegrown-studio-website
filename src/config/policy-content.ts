@@ -113,13 +113,13 @@ export function policySectionsFor(f: PolicyFacts = CONFIG_POLICY_FACTS): PolicyS
       intro: 'Bigger groups and custom nights. Your quote spells out your deposit and dates. These are the usual terms.',
       rules: [
         {
-          heading: 'Your deposit saves your date.',
+          heading: 'Your deposit saves your date',
           body: 'It comes off your total on the night.',
         },
         {
-          heading: 'If plans change,',
+          heading: 'If plans change',
           body:
-            'let us know at least 14 days before your event and we’ll refund your deposit in full. Inside 14 days, ' +
+            'Let us know at least 14 days before your event and we’ll refund your deposit in full. Inside 14 days, ' +
             'we’ll have bought supplies and turned other groups away, so the deposit stays with us.',
         },
         {
@@ -129,14 +129,14 @@ export function policySectionsFor(f: PolicyFacts = CONFIG_POLICY_FACTS): PolicyS
             'If none of our open nights work for you, the deposit stays with us.',
         },
         {
-          heading: 'You only pay for who comes,',
+          heading: 'You only pay for who comes',
           body:
-            'at the per-guest price in your quote. Your deposit covers a minimum number of guests, also listed in your quote, ' +
+            'It’s the per-guest price in your quote. Your deposit covers a minimum number of guests, also listed in your quote, ' +
             'so if fewer can make it, it stays as is.',
         },
         {
           heading: 'Made-to-order items',
-          body: 'like monograms are prepared ahead, so final names are due with your headcount and can’t change after that.',
+          body: 'Things like monograms are prepared ahead, so final names are due with your headcount and can’t change after that.',
         },
       ],
     },
