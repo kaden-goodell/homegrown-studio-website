@@ -5,7 +5,7 @@ import { createLogger } from '@lib/logger'
 /**
  * GET /api/quote/corky-status.json → { paid, night, monogram, paidAt }
  *
- * Whether Jessyca's $1,500 deposit is paid, so /for/corky locks
+ * Whether Jessyca's $1,500 deposit is paid, so /for/corky-christmas-2026 locks
  * her night in on any device and after a reload. No contact details. 503 when
  * the store can't be read (the page then just stays as it is).
  */

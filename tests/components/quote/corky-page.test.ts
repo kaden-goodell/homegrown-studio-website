@@ -1,5 +1,5 @@
 /**
- * The page behaviour of /for/corky (src/lib/quote/corky-page.ts)
+ * The page behaviour of /for/corky-christmas-2026 (src/lib/quote/corky-page.ts)
  * on a copy of the page's markup: picking, the monogram add-on, the text link,
  * and the paid lock-in.
  */

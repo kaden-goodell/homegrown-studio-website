@@ -17,7 +17,7 @@ import { isVisitId, loadVisits, MONOGRAM_NIGHT, nightByName, paidEmailLines, pai
  * POST /api/quote/corky-deposit.json { attemptId, paymentToken, verificationToken?, sourceKind?, firstName, lastName, email, phone, night?, monogram?, visitorId? }
  *
  * The $1,500 deposit that holds Saturday, December 12 for the Corky Child
- * Care Collective (the one-off quote page /for/corky). The amount
+ * Care Collective (the one-off quote page /for/corky-christmas-2026). The amount
  * is fixed here and never read from the page.
  *
  * Same money path as a party payment link (src/lib/parties/pay-balance.ts):

@@ -1,5 +1,5 @@
 /**
- * Browser side of Jessyca's visit log (/for/corky). Keeps a
+ * Browser side of Jessyca's visit log (/for/corky-christmas-2026). Keeps a
  * per-browser visitor id (localStorage) and a per-load session id, counts the
  * time the page is on screen, the deepest scroll, and what she taps, and sends
  * the running totals to /api/quote/corky-visit.json with sendBeacon: once on
