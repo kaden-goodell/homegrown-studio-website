@@ -306,6 +306,7 @@ export default function CorkyDeposit() {
               <button type="submit" className="cd-btn" disabled={!paymentReady || processing}>
                 {processing ? PAYING : !paymentReady ? 'Loading the payment form…' : 'Pay $1,500 deposit'}
               </button>
+              <p className="cd-agree">Paying means you agree to <a href="#details" onClick={() => close()}>the details</a> above.</p>
               {processing && <p role="status" className="cd-sr">{PAYING}</p>}
             </form>
           )}
@@ -373,6 +374,8 @@ const CSS = `
 .cd-field input[aria-invalid='true'] { border-color: #7d2530; }
 .cd-err { font-style: normal; font-size: 0.8rem; color: #7d2530; }
 .cd-why { margin: 0.7rem 0 1.2rem; font-size: 0.8rem; line-height: 1.45; color: #6f665b; }
+.cd-agree { margin: 0.6rem 0 0; text-align: center; font-size: 0.78rem; color: #6f665b; }
+.cd-agree a { color: #7d2530; }
 .cd-pay { padding-top: 1.15rem; border-top: 1px solid rgba(184,146,90,0.4); }
 .cd-alert { margin: 0.9rem 0 0; padding: 0.7rem 0.85rem; border-left: 2px solid #7d2530; background: rgba(125,37,48,0.05); font-size: 0.92rem; line-height: 1.45; color: #5c1c24; }
 .cd-btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 3.25rem; margin-top: 1.1rem; border: 0; border-radius: 999px; background: #1f3329; color: #f3e6cc; font: inherit; font-weight: 600; font-size: 1rem; cursor: pointer; transition: background 0.2s ease, opacity 0.2s ease; }
