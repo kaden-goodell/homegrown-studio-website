@@ -8,6 +8,7 @@ import { formatSlotLabel } from '@lib/studio-time'
 import { summarize } from '@lib/seo'
 import { PICKS_FINAL_LINE, seatPickLines, type SeatOption, type SeatPick } from '@lib/seat-options'
 import { withUtm } from '@lib/utm'
+import { guestLinkFor } from '@lib/guest-links'
 import type { Workshop } from '@providers/interfaces/workshop'
 
 const TZ = partyConfig.timezone
@@ -72,6 +73,7 @@ export async function sendWorkshopConfirmation(input: {
     ...(input.dueAtStudioCents !== undefined ? { dueAtStudioCents: input.dueAtStudioCents } : {}),
     receiptUrl: input.receiptUrl,
     waiverUrl,
+    ...guestLinkFor(origin, workshop.scheduleId, input.bookingId, input.seats),
     workshopUrl,
     directionsUrl: `https://maps.google.com/?q=${encodeURIComponent('Hometown Studio, 525 Hughes Rd, Suite F, Madison, AL 35758')}`,
     // A free seat has nothing to refund; ask them to free it up instead.

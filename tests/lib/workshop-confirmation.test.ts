@@ -68,4 +68,17 @@ describe('sendWorkshopConfirmation', () => {
     expect(sent).toBe(true)
     expect(sendEmail.mock.calls[0][0].waiverUrl).toBe('https://ourhometownstudio.com/waiver?workshop=sched_1&booking=clsbk_9&utm_source=email&utm_medium=email&utm_campaign=workshop_confirmation')
   })
+
+  it('guest link: 2+ seats get a signed link scoped to this class and booking; one seat gets none', async () => {
+    const { readGuestToken } = await import('@lib/guest-links')
+    await sendWorkshopConfirmation({ ...base, seats: 2, totalChargedCents: 8000 })
+    const u = new URL(sendEmail.mock.calls[0][0].guestWaiverUrl)
+    expect(u.pathname).toBe('/waiver')
+    expect(u.searchParams.get('workshop')).toBe('sched_1')
+    expect(u.searchParams.get('booking')).toBeNull()
+    expect(readGuestToken('sched_1', u.searchParams.get('guest'))).toBe('clsbk_9')
+
+    await sendWorkshopConfirmation(base)
+    expect(sendEmail.mock.calls[1][0].guestWaiverUrl).toBeUndefined()
+  })
 })

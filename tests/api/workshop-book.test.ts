@@ -186,6 +186,11 @@ describe('POST /api/workshops/book.json', () => {
       expect(mockCreateGuest.mock.calls[0][0]).toEqual({ givenName: 'Ada', familyName: 'Lovelace (guest 2 of 3)', note: 'Online seat 2 of 3 with Ada Lovelace <ada@example.com>, Kinusaiga.' })
       const { data } = await res.json()
       expect(data).toMatchObject({ bookingId: 'clsbk_1', seatsBooked: 3, seatsRequested: 3 })
+      // 2+ seats: the booked screen gets the guest sign link for this booking
+      const { readGuestToken } = await import('@lib/guest-links')
+      const gp = new URL(`https://x.test${data.guestWaiverPath}`)
+      expect(gp.pathname).toBe('/waiver')
+      expect(readGuestToken(gp.searchParams.get('workshop')!, gp.searchParams.get('guest'))).toBe('clsbk_1')
       expect(mockSaveSeatChoices.mock.calls[0][0]).toMatchObject({ seats: 3, squareBookingIds: ['clsbk_1', 'clsbk_2', 'clsbk_3'] })
       expect(mockRelease).not.toHaveBeenCalled()
     })
@@ -303,6 +308,8 @@ describe('POST /api/workshops/book.json', () => {
       })
       const { data } = await (await POST(ctx(body({ seats: 3, picks: undefined })))).json()
       expect(data).toMatchObject({ seatsBooked: 1, seatsRequested: 3 })
+      // only one seat stood: no guest link
+      expect(data.guestWaiverPath).toBeUndefined()
       expect(mockRelease.mock.calls.map((c) => c[0]).sort()).toEqual(['clsbk_2', 'clsbk_3'])
     })
 

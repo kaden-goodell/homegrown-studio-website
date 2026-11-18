@@ -24,6 +24,7 @@ const input = {
   googleCalendarUrl: 'https://calendar.google.com/calendar/render?action=TEMPLATE',
   icsContent: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR',
   bookingRef: 'clsbk_1',
+  guestWaiverUrl: 'https://ourhometownstudio.com/waiver?workshop=clssch_1&guest=clsbk_1.SIGNATURE',
 }
 
 let sendWorkshopConfirmationEmail: typeof import('@lib/email').sendWorkshopConfirmationEmail
@@ -85,11 +86,13 @@ describe('sendWorkshopConfirmationEmail', () => {
 
   it('asks companions to sign too, only when there are companions', async () => {
     await sendWorkshopConfirmationEmail(input)
-    expect(mockSendMail.mock.calls[0][0].text).toMatch(/Coming with friends\?/)
+    expect(mockSendMail.mock.calls[0][0].text).toMatch(/Bringing someone\?/)
 
-    await sendWorkshopConfirmationEmail({ ...input, seats: 1, totalChargedCents: 4000 })
+    const { guestWaiverUrl: _g, ...noGuest } = input
+    await sendWorkshopConfirmationEmail({ ...noGuest, seats: 1, totalChargedCents: 4000 })
     const solo = mockSendMail.mock.calls[1][0]
-    expect(solo.text).not.toMatch(/Coming with friends\?/)
+    expect(solo.text).not.toMatch(/Bringing someone\?/)
+    expect(solo.text).not.toContain('guest=')
     expect(solo.text).toContain('1 seat,')
     expect(solo.text).toContain('$40')
   })
@@ -180,12 +183,13 @@ describe('class email: friends and every date (final review I9, I21)', () => {
     const mail = mockSendMail.mock.calls[0][0]
     for (const body of [mail.html, mail.text]) {
       expect(body).not.toMatch(/Forward them this email/)
-      expect(body).toContain('Coming with friends? Send them this so they can sign too.')
+      expect(body).toContain('Bringing someone? Send them this link to sign their waiver.')
     }
-    // The note to pass on carries the sign link and no cancel link or receipt.
+    // The note to pass on carries the GUEST sign link (not the booker's own) and no cancel link or receipt.
     const text = String(mail.text)
-    const note = text.slice(text.indexOf('Coming with friends?'), text.indexOf('Everything you need'))
-    expect(note).toContain(input.waiverUrl)
+    const note = text.slice(text.indexOf('Bringing someone?'), text.indexOf('Everything you need'))
+    expect(note).toContain(input.guestWaiverUrl)
+    expect(note).not.toContain(input.waiverUrl)
     expect(note).not.toContain('/classes/cancel/')
     expect(note).not.toContain('receipt')
   })
@@ -204,5 +208,28 @@ describe('class email: friends and every date (final review I9, I21)', () => {
     await sendWorkshopConfirmationEmail(input)
     const text = String(mockSendMail.mock.calls[0][0].text)
     expect(text).not.toMatch(/^(When|Where|Directions|Seats|Your dates|Your picks|Receipt|Add to Google Calendar|Apple\/Outlook|Changing plans):/m)
+  })
+})
+
+describe('guest link (2+ seats)', () => {
+  it('the HTML links the guest page, never the booker\'s own sign link, in the friend box', async () => {
+    await sendWorkshopConfirmationEmail(input)
+    const html = String(mockSendMail.mock.calls[0][0].html)
+    const box = html.slice(html.indexOf('Bringing someone?'), html.indexOf('Everything you need'))
+    expect(box).toContain('guest=clsbk_1.SIGNATURE')
+    expect(box).not.toContain('booking=clsbk_1')
+  })
+
+  it('no guest link given: no friend box at all (never the booker\'s link in its place)', async () => {
+    const { guestWaiverUrl: _g, ...noGuest } = input
+    await sendWorkshopConfirmationEmail(noGuest)
+    const mail = mockSendMail.mock.calls[0][0]
+    for (const body of [mail.text, mail.html]) expect(body).not.toMatch(/Bringing someone\?|Coming with friends\?/)
+  })
+
+  it('one seat: no friend box even if a guest link is passed', async () => {
+    await sendWorkshopConfirmationEmail({ ...input, seats: 1 })
+    const mail = mockSendMail.mock.calls[0][0]
+    for (const body of [mail.text, mail.html]) expect(body).not.toContain('Bringing someone?')
   })
 })

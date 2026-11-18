@@ -56,5 +56,23 @@ describe('class confirmation email (M6)', () => {
     expect(url.startsWith('https://x.test/classes/cancel/')).toBe(true)
     expect(readCancelToken(url.split('/').pop())).toEqual({ classId: 'cls_conf1', bookingId: 'bkg_9' })
   })
-})
 
+  it('guest link: a booking with 2+ seats gets a signed link for its guests, a one-seat booking none', async () => {
+    const { readGuestToken } = await import('@lib/guest-links')
+    await sendClassConfirmation({
+      origin: 'https://x.test', bookingId: 'bkg_g2', cls, sessionIds: ['ses_1'], seats: 2, seatsLabel: '2 seats',
+      email: 'a@b.co', givenName: 'Ada', receiptUrl: null, totalChargedCents: 2000,
+    })
+    const u = new URL(sent.last.guestWaiverUrl)
+    expect(u.origin + u.pathname).toBe('https://x.test/waiver')
+    expect(u.searchParams.get('workshop')).toBe('cls_conf1')
+    expect(u.searchParams.get('booking')).toBeNull()
+    expect(readGuestToken('cls_conf1', u.searchParams.get('guest'))).toBe('bkg_g2')
+
+    await sendClassConfirmation({
+      origin: 'https://x.test', bookingId: 'bkg_g1', cls, sessionIds: ['ses_1'], seats: 1, seatsLabel: '1 seat',
+      email: 'a@b.co', givenName: 'Ada', receiptUrl: null, totalChargedCents: 1000,
+    })
+    expect(sent.last.guestWaiverUrl).toBeUndefined()
+  })
+})

@@ -94,6 +94,8 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   const [completed, setCompleted] = useState(false)
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null)
   const [bookingId, setBookingId] = useState<string | null>(null)
+  /** 2+ seats: the server's guest sign link for this booking (guest-links.ts). */
+  const [guestWaiverPath, setGuestWaiverPath] = useState<string | null>(null)
   const [emailSent, setEmailSent] = useState(false)
   const [emailCheck, setEmailCheck] = useState<EmailCheckData | null>(null)
   const [askToLeave, setAskToLeave] = useState(false)
@@ -293,6 +295,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
       if (!bookData?.data) throw new Error(UNKNOWN_OUTCOME_MESSAGE)
       setReceiptUrl(bookData.data.receiptUrl ?? null)
       setBookingId(bookData.data.bookingId ?? null)
+      setGuestWaiverPath(typeof bookData.data.guestWaiverPath === 'string' && bookData.data.guestWaiverPath.startsWith('/waiver?') ? bookData.data.guestWaiverPath : null)
       setEmailSent(bookData.data.emailSent === true)
       setEmailCheck(bookData.data.emailCheck ?? null)
       if (typeof bookData.data.totalChargedCents === 'number') setChargedCents(bookData.data.totalChargedCents)
@@ -394,11 +397,11 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
             <a href={waiverUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary" onClick={() => trackWaiverLinkClick('workshop_confirmation')}>
               Sign the agreement
             </a>
-            {seats > 1 && (
+            {seats > 1 && guestWaiverPath && (
               <div style={{ marginTop: '0.875rem' }}>
-                <p style={{ margin: '0 0 0.5rem' }}>Coming with friends? Send them this link so they can sign before they arrive.</p>
+                <p style={{ margin: '0 0 0.5rem' }}>Bringing someone? Send them this link to sign their waiver.</p>
                 <ShareLink
-                  url={waiverUrl}
+                  url={`${origin}${guestWaiverPath}`}
                   label="Send the link"
                   shareTitle={`${workshop.name} at ${STUDIO_ADDRESS.name}`}
                   shareText={`I booked us into ${workshop.name}, ${when}. Sign this before we go:`}

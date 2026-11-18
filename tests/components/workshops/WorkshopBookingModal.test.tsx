@@ -434,23 +434,30 @@ describe('WorkshopBookingModal — confirmation', () => {
     expect(screen.getByRole('link', { name: 'Sign the agreement' })).toHaveAttribute('href', expect.stringMatching(/\/waiver\?workshop=sched-1&booking=wkbk-1$/))
   })
 
-  it('gives someone who bought several seats a link to send their friends', async () => {
-    await bookedScreen(3)
-    expect(screen.getByText(/Coming with friends\?/)).toBeInTheDocument()
+  const GUEST = '/waiver?workshop=sched-1&guest=wkbk-1.SIG'
+
+  it('gives someone who bought several seats a guest link to send their friends', async () => {
+    await bookedScreen(3, booked({ guestWaiverPath: GUEST }))
+    expect(screen.getByText('Bringing someone? Send them this link to sign their waiver.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Send the link' })).toBeInTheDocument()
   })
 
   it('does not talk about friends to someone who bought one seat', async () => {
     await bookedScreen(1)
-    expect(screen.queryByText(/Coming with friends\?/)).toBeNull()
+    expect(screen.queryByText(/Bringing someone\?/)).toBeNull()
   })
 
-  it('copies the friends link and says so', async () => {
+  it('no guest link from the server: no friend box (never the booker\'s own link)', async () => {
+    await bookedScreen(2)
+    expect(screen.queryByText(/Bringing someone\?/)).toBeNull()
+  })
+
+  it('copies the guest link (not the booker\'s own) and says so', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     vi.stubGlobal('navigator', { clipboard: { writeText } })
-    await bookedScreen(2)
+    await bookedScreen(2, booked({ guestWaiverPath: GUEST }))
     fireEvent.click(screen.getByRole('button', { name: 'Send the link' }))
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/\/waiver\?workshop=sched-1&booking=wkbk-1$/)))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/\/waiver\?workshop=sched-1&guest=wkbk-1\.SIG$/)))
     expect(await screen.findByText('Link copied.')).toBeInTheDocument()
   })
 

@@ -516,8 +516,14 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
   /** Seats added at the door, paid at the register: say what's due instead of "paid". */
   dueAtStudioCents?: number
   receiptUrl: string | null
-  /** Participation agreement, carrying the booking id. Forwardable to companions. */
+  /** The booker's own participation agreement link, carrying the booking id. */
   waiverUrl: string
+  /**
+   * 2+ seats: the page a guest signs on (guest-links.ts), tying her agreement
+   * to this booking's seats. The friend box shows only with it, never with the
+   * booker's own link (a guest signing there reads as the booker signed).
+   */
+  guestWaiverUrl?: string
   /** Link back to this workshop, for bringing a friend. */
   workshopUrl: string
   directionsUrl: string
@@ -555,10 +561,12 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
   const several = !!input.sessionLines && input.sessionLines.length > 1
   // Final review I9: friends get a guest-safe note to pass on (when, where, the sign link), never this
   // email itself, which carries the booking's cancel link and receipt.
+  const guestUrl = input.seats > 1 ? input.guestWaiverUrl : undefined
+  const FRIEND_HEADING = 'Bringing someone? Send them this link to sign their waiver.'
   const friendNote = [
     `${input.workshopName}, ${several ? input.sessionLines!.join(', ') : `${input.whenLabel} (${input.timeRange})`}`,
     `Hometown Studio, ${address}`,
-    `Please sign the participation agreement before you come ${input.waiverUrl}`,
+    `Please sign the participation agreement before you come ${guestUrl ?? ''}`,
   ]
   // A class on several dates: Google's link holds one date only, so the attached invite (every date) is the way (I21).
   const calendarText = input.googleCalendarUrl
@@ -581,7 +589,7 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
     ...(summary ? [summary, ``] : []),
     `Please sign the participation agreement before you come. It takes a minute.`,
     input.waiverUrl,
-    ...(input.seats > 1 ? [``, `Coming with friends? Send them this so they can sign too.`, ...friendNote.map((l) => `  ${l}`)] : []),
+    ...(guestUrl ? [``, FRIEND_HEADING, ...friendNote.map((l) => `  ${l}`)] : []),
     ``,
     `Everything you need is here when you arrive. Just bring yourself.`,
     ...calendarText,
@@ -623,7 +631,7 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
     <a href="${esc(input.waiverUrl)}" style="display:inline-block;padding:11px 22px;background:#7a4a2e;color:#ffffff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">Sign the participation agreement &rarr;</a>
   </div>
   <p style="${MUTED}">It takes a minute, and saves you doing it at the door.</p>
-  ${input.seats > 1 ? `<div style="margin:12px 0 6px;padding:10px 12px;border:1px solid #e8e0d8;border-radius:8px;"><p style="${P}margin:0 0 4px;font-weight:600;">Coming with friends? Send them this so they can sign too.</p>${friendNote.slice(0, 2).map((l) => `<p style="${MUTED}margin:0 0 2px;">${esc(l)}</p>`).join('')}<p style="${MUTED}margin:0;">Please sign the participation agreement before you come <a href="${esc(input.waiverUrl)}" style="color:#7a4a2e;word-break:break-all;">${esc(input.waiverUrl)}</a></p></div>` : ''}
+  ${guestUrl ? `<div style="margin:12px 0 6px;padding:10px 12px;border:1px solid #e8e0d8;border-radius:8px;"><p style="${P}margin:0 0 4px;font-weight:600;">${esc(FRIEND_HEADING)}</p>${friendNote.slice(0, 2).map((l) => `<p style="${MUTED}margin:0 0 2px;">${esc(l)}</p>`).join('')}<p style="${MUTED}margin:0;">Please sign the participation agreement before you come <a href="${esc(guestUrl)}" style="color:#7a4a2e;word-break:break-all;">${esc(guestUrl)}</a></p></div>` : ''}
   <p style="${P}margin-top:12px;">Everything you need is here when you arrive. Just bring yourself.</p>
   ${input.googleCalendarUrl ? `<p style="margin:14px 0 2px;"><a href="${esc(input.googleCalendarUrl)}" style="${LINK}">Add to Google Calendar</a></p><p style="${MUTED}">On Apple or Outlook, open the attached invite.</p>` : input.icsContent ? `<p style="${MUTED}margin-top:14px;">Open the attached invite to add every date to your calendar.</p>` : ''}
   <p style="margin:14px 0 2px;font-size:14px;color:#3d3630;">Know someone who&rsquo;d love this?</p>

@@ -14,6 +14,7 @@ import { withUtm } from '@lib/utm'
 import { makeKvStore } from '@lib/blob-store'
 import type { ScheduledClass } from './types'
 import { cancelPathFor } from './self-cancel-token'
+import { guestLinkFor } from '@lib/guest-links'
 
 const sentKv = makeKvStore('class-confirmations', 'class-confirmations')
 
@@ -138,6 +139,7 @@ export async function sendClassConfirmation(input: {
     ...(input.dueAtStudioCents !== undefined ? { dueAtStudioCents: input.dueAtStudioCents } : {}),
     receiptUrl: input.receiptUrl,
     waiverUrl,
+    ...guestLinkFor(origin, cls.id, input.bookingId, input.seats),
     workshopUrl: classUrl,
     directionsUrl: `https://maps.google.com/?q=${encodeURIComponent('Hometown Studio, 525 Hughes Rd, Suite F, Madison, AL 35758')}`,
     // A free or not-yet-paid seat has nothing to refund; ask them to free it up instead.

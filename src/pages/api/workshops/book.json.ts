@@ -15,6 +15,7 @@ import { alertsLiveFor, raiseIncident } from '@lib/booking-alarms'
 import { formatMoney } from '@lib/money'
 import { formatSlotLabel } from '@lib/studio-time'
 import { sendWorkshopConfirmation } from '@lib/workshop-confirmation'
+import { guestLinkFor } from '@lib/guest-links'
 import { issueEmailFixTicket, onFileToAskAbout, type EmailFixTicket } from '@lib/email-fix'
 import { guestSeatName } from '@lib/guest-seats'
 import { seatsTaxCents } from '@lib/tax'
@@ -525,6 +526,8 @@ const handle: APIRoute = async ({ request, clientAddress, locals }) => {
         seatsBooked,
         seatsRequested: seats,
         ...(seatsLabel ? { ticketsLabel: seatsLabel } : {}),
+        // 2+ seats: the page the booker's guests sign on (ties them to this booking's seats).
+        ...(() => { const g = guestLinkFor('', workshop.scheduleId, booked.bookingId, seatsBooked).guestWaiverUrl; return g ? { guestWaiverPath: g } : {} })(),
         emailSent,
         // "Wrong email? Fix it" / "Which email is right?" on the booked screen.
         emailCheck: {
