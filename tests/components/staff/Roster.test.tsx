@@ -444,3 +444,36 @@ describe('Roster for one of our parties (stage 2 Task 13)', () => {
     expect(posts[0]).toMatchObject({ partyId: PARTY.id, chargeId: 'chg_1', cents: 30000, reason: 'Host is sick' })
   })
 })
+
+describe('Roster — guest seats ("With Shelby Taylor")', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+  const DOOR = { kind: 'workshop', id: 'clssch_door', title: 'Door Mat', startIso: '2026-10-20T23:00:00.000Z', days: ['2026-10-20'], dropOff: false, options: [] }
+  const shelby = household({ recordId: 'wvr_shelby', signer: 'Shelby Taylor', email: 'shelby@x.com', children: [], childCount: 0 })
+  const janea = household({ recordId: 'wvr_janea', signer: 'Janea Boyd', email: 'janea@x.com', children: [], childCount: 0 })
+  const choices = { totals: {}, byEmail: {}, seatsByEmail: { 'shelby@x.com': { seats: 2, comped: 0, atRegister: 0 } }, unmatched: [], seatsSold: null }
+
+  it('one tap posts the match (never money), then the cards show Janea as Shelby\'s guest and Shelby\'s seats used', async () => {
+    let attached = false
+    const posts: any[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init?: any) => {
+      const href = String(url)
+      if (href.includes('/api/staff/incidents.json')) return { ok: true, json: async () => ({ data: { incidents: [] } }) } as Response
+      if (href.includes('/api/staff/guest-seat.json')) {
+        posts.push(JSON.parse(init.body))
+        attached = true
+        return { ok: true, json: async () => ({ data: { guestOf: { bookingId: 'clsbk_shelby', bookerName: 'Shelby Taylor', seat: 2, of: 2 } } }) } as Response
+      }
+      const guests = attached
+        ? { guestOf: { wvr_janea: { bookingId: 'clsbk_shelby', bookerName: 'Shelby Taylor', seat: 2, of: 2 } }, matches: [], guestsByEmail: { 'shelby@x.com': ['Janea Boyd'] } }
+        : { guestOf: {}, matches: [{ bookingId: 'clsbk_shelby', bookerName: 'Shelby Taylor', open: 1 }], guestsByEmail: {} }
+      return { ok: true, json: async () => ({ data: { event: DOOR, day: '2026-10-20', summary: { households: 2, people: 2, childrenHereNow: 0 }, households: [shelby, janea], choices, guests } }) } as Response
+    })
+    render(<Roster staff={staff} onBack={vi.fn()} kind="workshop" id="clssch_door" />)
+    const btn = await screen.findByRole('button', { name: 'With Shelby Taylor · 1 seat open' })
+    expect(screen.queryByText(/No seat on record/)).toBeNull()
+    await act(async () => { fireEvent.click(btn) })
+    expect(posts).toEqual([{ kind: 'workshop', id: 'clssch_door', day: '2026-10-20', recordId: 'wvr_janea', action: 'attach', bookingId: 'clsbk_shelby' }])
+    expect(await screen.findByText('Shelby Taylor’s guest · seat 2 of 2')).toBeInTheDocument()
+    expect(screen.getByText('2 seats (paid) · 1 crafting · guest Janea Boyd')).toBeInTheDocument()
+  })
+})

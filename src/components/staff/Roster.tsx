@@ -14,6 +14,7 @@ import type { EventKind, StudioEvent } from '@lib/events'
 import type { IncidentRecord } from '@lib/incident-store'
 import { picksShort, prepOptions } from '@lib/seat-options'
 import type { RosterChoices } from '@lib/seat-choices'
+import type { GuestSeatView } from '@lib/guest-links'
 import RefundPanel, { AmountRefundPanel, STAFF_PARTY_REFUND, STAFF_REFUND, type WaitingRefund } from '@components/shared/RefundPanel'
 import type { CrewPartyMoney } from '@lib/parties/staff-money'
 import { formatMoney } from '@lib/money'
@@ -39,6 +40,8 @@ interface RosterData {
   partyMoney?: CrewPartyMoney
   /** Stage 4: people on this day's waitlist. */
   waitlistWaiting?: number
+  /** Classes: who sits in a booker's extra seats, and bookings with a guest seat still open. */
+  guests?: GuestSeatView
 }
 
 /**
@@ -288,6 +291,23 @@ export default function Roster({
       return { oneTimeCode: json.data.oneTimeCode, smsFailed: json.data.smsFailed }
     } catch {
       return { error: 'Couldn’t save — check wifi and try again.' }
+    }
+  }
+
+  /** "With Shelby Taylor" / "Not with Shelby": only a link to a seat already booked. Null = done, else the words to show. */
+  async function guestSeat(recordId: string, action: 'attach' | 'detach', bookingId?: string): Promise<string | null> {
+    if (!data) return null
+    try {
+      const res = await fetch('/api/staff/guest-seat.json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, id, day: data.day, recordId, action, ...(bookingId ? { bookingId } : {}) }),
+      })
+      const json = await res.json().catch(() => null)
+      await refresh()
+      return res.ok ? null : (json?.error ?? 'Couldn’t save that. Try again.')
+    } catch {
+      return 'Couldn’t save that. Check wifi and try again.'
     }
   }
 
@@ -587,7 +607,16 @@ export default function Roster({
           code belong to one day's roster, and carried straight over when staff
           switched days on a multi-day camp. */}
       {visibleHouseholds.map((h) => (
-        <HouseholdCard key={`${h.recordId}:${data.day}`} h={h} dropOff={event.dropOff} kind={kind} id={id} day={data.day} eventTitle={event.title} post={post} picks={choices?.byEmail[h.email.trim().toLowerCase()]} seats={kind === 'workshop' && choices ? (choices.seatsByEmail?.[h.email.trim().toLowerCase()] ?? { seats: 0, comped: 0, atRegister: 0 }) : undefined} />
+        <HouseholdCard key={`${h.recordId}:${data.day}`} h={h} dropOff={event.dropOff} kind={kind} id={id} day={data.day} eventTitle={event.title} post={post} picks={choices?.byEmail[h.email.trim().toLowerCase()]}
+          seats={kind === 'workshop' && choices ? (() => {
+            const em = h.email.trim().toLowerCase()
+            const own = choices.seatsByEmail?.[em] ?? { seats: 0, comped: 0, atRegister: 0 }
+            const guests = data.guests?.guestsByEmail[em]
+            return guests?.length ? { ...own, guests } : own
+          })() : undefined}
+          guest={data.guests?.guestOf[h.recordId]}
+          guestMatches={data.guests?.matches}
+          onGuest={(action, bookingId) => guestSeat(h.recordId, action, bookingId)} />
       ))}
 
       {choices && choices.unmatched.length > 0 && (

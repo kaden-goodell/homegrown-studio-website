@@ -223,6 +223,69 @@ describe('seats vs crafting', () => {
   })
 })
 
+describe('guest seats (a booker\'s friend who signed her own agreement)', () => {
+  const solo = (over: Partial<Household> = {}) => household({}, { signer: 'Janea Boyd', email: 'janea@x.com', children: [], childCount: 0, ...over })
+  const noSeat = { seats: 0, comped: 0, atRegister: 0 }
+  const cardWith = (h: Household, props: Record<string, any>) => {
+    const onGuest = vi.fn(async (..._a: any[]) => null as string | null)
+    render(<HouseholdCard h={h} dropOff={false} kind="workshop" id="clssch_door" day="2026-10-20" post={vi.fn(async () => ({})) as any} onGuest={onGuest} {...props} />)
+    return onGuest
+  }
+
+  it('shows the household as the booker\'s guest in its seat, with no warning', () => {
+    cardWith(solo(), { seats: noSeat, guest: { bookingId: 'b1', bookerName: 'Shelby Taylor', seat: 2, of: 2 } })
+    expect(screen.getByTestId('seats-line').textContent).toBe('Shelby Taylor’s guest · seat 2 of 2')
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByText(/No seat on record/)).toBeNull()
+    // the normal check-in is there
+    expect(screen.getByRole('button', { name: /✓ Here/ })).toBeInTheDocument()
+  })
+
+  it('"Not with Shelby" undoes the match', async () => {
+    const onGuest = cardWith(solo(), { seats: noSeat, guest: { bookingId: 'b1', bookerName: 'Shelby Taylor', seat: 2, of: 2 } })
+    fireEvent.click(screen.getByRole('button', { name: 'Not with Shelby' }))
+    await waitFor(() => expect(onGuest).toHaveBeenCalledWith('detach'))
+  })
+
+  it('a guest past the booking\'s seats shows as a guest with no seat, so staff notice', () => {
+    cardWith(solo(), { seats: noSeat, guest: { bookingId: 'b1', bookerName: 'Shelby Taylor', seat: null, of: 2 } })
+    expect(screen.getByRole('alert').textContent).toBe('Shelby Taylor’s guest, but Shelby’s 2 seats are already taken. Use Sell a seat or Comp a seat.')
+  })
+
+  it('no seat by name: a calm "someone\'s guest?" block with one button per booking with an open seat', async () => {
+    const onGuest = cardWith(solo(), { seats: noSeat, guestMatches: [
+      { bookingId: 'b1', bookerName: 'Shelby Taylor', open: 1 },
+      { bookingId: 'b2', bookerName: 'Amy Lee', open: 2 },
+    ] })
+    expect(screen.queryByText(/No seat on record/)).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByText('Not on a booking by name. Are they someone’s guest?')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'With Amy Lee · 2 seats open' })).toBeInTheDocument()
+    expect(screen.getByText('Not a guest? Use Sell a seat or Comp a seat.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'With Shelby Taylor · 1 seat open' }))
+    await waitFor(() => expect(onGuest).toHaveBeenCalledWith('attach', 'b1'))
+  })
+
+  it('shows the server\'s plain-words refusal on a tap that lost the seat', async () => {
+    const onGuest = cardWith(solo(), { seats: noSeat, guestMatches: [{ bookingId: 'b1', bookerName: 'Shelby Taylor', open: 1 }] })
+    onGuest.mockResolvedValueOnce('Shelby’s booking has no open seat left. Use Sell a seat or Comp a seat.')
+    fireEvent.click(screen.getByRole('button', { name: 'With Shelby Taylor · 1 seat open' }))
+    expect(await screen.findByText('Shelby’s booking has no open seat left. Use Sell a seat or Comp a seat.')).toBeInTheDocument()
+  })
+
+  it('no booking with an open seat: the old guidance, in plain words', () => {
+    cardWith(solo(), { seats: noSeat, guestMatches: [] })
+    expect(screen.getByRole('alert').textContent).toBe('No seat on record. If they didn’t book online, use Sell a seat or Comp a seat.')
+  })
+
+  it('the booker\'s card counts her guest against her seats (no "seat not used yet")', () => {
+    cardWith(solo({ signer: 'Shelby Taylor', email: 'shelby@x.com' }), { seats: { seats: 2, comped: 0, atRegister: 0, guests: ['Janea Boyd'] } })
+    expect(screen.getByTestId('seats-line').textContent).toBe('2 seats (paid) · 1 crafting · guest Janea Boyd')
+    expect(screen.queryByText(/not used yet/)).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+})
+
 describe('Agreement button', () => {
   it('opens the signed agreement from the card', () => {
     render(<HouseholdCard h={household()} dropOff={false} kind="workshop" id="clssch_x" day="2026-10-17" post={vi.fn(async () => ({}))} />)

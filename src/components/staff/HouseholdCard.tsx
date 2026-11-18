@@ -9,6 +9,7 @@ import WaiverNextSteps from '@components/staff/WaiverNextSteps'
 import type { EventKind } from '@lib/events'
 import type { AuthorizedPickup } from '@lib/waiver-store'
 import { picksShort, type SeatPick } from '@lib/seat-options'
+import type { GuestMatch, GuestOf } from '@lib/guest-links'
 import { trackStaffCheckinCompleted } from '@lib/analytics'
 import { posthogOperationalLogger } from '@lib/posthog-logger'
 
@@ -102,6 +103,9 @@ export default function HouseholdCard({
   post,
   picks,
   seats,
+  guest,
+  guestMatches,
+  onGuest,
   eventTitle = '',
 }: {
   h: Household
@@ -115,7 +119,13 @@ export default function HouseholdCard({
   /** This family's seat picks (classes with questions). Read-only: picks never change after booking. */
   picks?: SeatPick[]
   /** Seats this family paid for or was comped (from the booking record), when we have one. */
-  seats?: { seats: number; comped: number; atRegister?: number }
+  seats?: { seats: number; comped: number; atRegister?: number; guests?: string[] }
+  /** This household sits in someone else's booking (guest link, or matched at the door). */
+  guest?: GuestOf
+  /** Bookings in this class with an open guest seat: "With Shelby Taylor · 1 seat open". */
+  guestMatches?: GuestMatch[]
+  /** Tie this household to a booking's open seat, or take it off. Resolves to an error to show, or null. */
+  onGuest?: (action: 'attach' | 'detach', bookingId?: string) => Promise<string | null>
 }) {
   const people: Person[] = [
     { id: 'adult', icon: '👤', name: h.signer, sub: 'adult', allergies: h.adultAllergies, isChild: false },
@@ -132,6 +142,19 @@ export default function HouseholdCard({
   const signState: null | 'expired' | 'outdated' = serverSaysSign ?? (h.agreement ? (h.agreement === 'current' ? null : h.agreement) : expired ? 'expired' : null)
   /** One post at a time: a double tap on slow wifi never logs twice (M2). */
   const [busy, setBusy] = useState(false)
+  const [guestBusy, setGuestBusy] = useState(false)
+  const [guestErr, setGuestErr] = useState<string | null>(null)
+  async function guestAct(action: 'attach' | 'detach', bookingId?: string) {
+    if (!onGuest || guestBusy) return
+    setGuestErr(null)
+    setGuestBusy(true)
+    try {
+      const e = action === 'attach' ? await onGuest('attach', bookingId) : await onGuest('detach')
+      if (e) setGuestErr(e)
+    } finally {
+      setGuestBusy(false)
+    }
+  }
 
   const stateOf = (id: string): PersonState => {
     const p = presence[id]
@@ -275,7 +298,40 @@ export default function HouseholdCard({
         <div>
           <span style={{ fontWeight: 700, color: 'var(--color-dark)', fontSize: '1.2rem' }}>{h.signer}</span>
           <a href={`tel:${h.phone}`} style={{ display: 'block', fontSize: '0.875rem', color: 'var(--color-primary)', textDecoration: 'none' }}>📞 {h.phone}</a>
-          {seats && seats.seats === 0 && (
+          {seats && seats.seats === 0 && guest && (() => {
+            // In someone else's booking (guest link, or "With Shelby" at the door): one seat, theirs.
+            const bookerFirst = firstName(guest.bookerName)
+            const crafting = h.checkin.expected ? h.checkin.expected.length : people.length
+            const undo = onGuest && (
+              <button type="button" disabled={guestBusy} onClick={() => guestAct('detach')} style={{ background: 'none', border: 'none', padding: '0.35rem 0', minHeight: '2.25rem', color: 'var(--color-primary)', textDecoration: 'underline', fontSize: '0.875rem', cursor: 'pointer', opacity: guestBusy ? 0.5 : 1 }}>
+                Not with {bookerFirst}
+              </button>
+            )
+            if (guest.seat === null) {
+              return (
+                <>
+                  <p role="alert" data-testid="seats-line" style={{ margin: '0.15rem 0 0', fontSize: '0.875rem', fontWeight: 700, color: '#b45309' }}>
+                    {`${guest.bookerName}’s guest, but ${bookerFirst}’s ${guest.of} seat${guest.of === 1 ? ' is' : 's are'} already taken. Use Sell a seat or Comp a seat.`}
+                  </p>
+                  {undo}
+                </>
+              )
+            }
+            return (
+              <>
+                <p data-testid="seats-line" style={{ margin: '0.15rem 0 0', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+                  {`${guest.bookerName}’s guest · seat ${guest.seat} of ${guest.of}`}
+                </p>
+                {crafting > 1 && (
+                  <p role="alert" style={{ margin: '0.15rem 0 0', fontSize: '0.875rem', fontWeight: 700, color: '#b45309' }}>
+                    {crafting - 1} more crafting than seats. Use Sell a seat or Comp a seat for {crafting - 1 === 1 ? 'the extra one' : `the extra ${crafting - 1}`}.
+                  </p>
+                )}
+                {undo}
+              </>
+            )
+          })()}
+          {seats && seats.seats === 0 && !guest && !guestMatches?.length && (
             <p role="alert" data-testid="seats-line" style={{ margin: '0.15rem 0 0', fontSize: '0.875rem', fontWeight: 700, color: '#b45309' }}>
               No seat on record. If they didn’t book online, use Sell a seat or Comp a seat.
             </p>
@@ -283,6 +339,8 @@ export default function HouseholdCard({
           {seats && seats.seats > 0 && (() => {
             // Crafting = who they checked at sign-in; no checklist means everyone on the agreement.
             const crafting = h.checkin.expected ? h.checkin.expected.length : people.length
+            // Guests in this family's extra seats (guest link or "With …" at the door) use those seats.
+            const guests = seats.guests ?? []
             const atRegister = seats.atRegister ?? 0
             const paid = seats.seats - seats.comped - atRegister
             const parts = [
@@ -291,11 +349,11 @@ export default function HouseholdCard({
               ...(atRegister > 0 ? [{ n: atRegister, w: 'not paid yet' }] : []),
             ]
             const kindLabel = parts.length === 1 ? parts[0].w : parts.map((p) => `${p.n} ${p.w}`).join(', ')
-            const diff = crafting - seats.seats
+            const diff = crafting + guests.length - seats.seats
             return (
               <>
                 <p data-testid="seats-line" style={{ margin: '0.15rem 0 0', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>
-                  {seats.seats} seat{seats.seats === 1 ? '' : 's'} ({kindLabel}) · {crafting} crafting
+                  {seats.seats} seat{seats.seats === 1 ? '' : 's'} ({kindLabel}) · {crafting} crafting{guests.length > 0 ? ` · guest${guests.length === 1 ? '' : 's'} ${guests.join(', ')}` : ''}
                 </p>
                 {diff > 0 && (
                   <p role="alert" style={{ margin: '0.15rem 0 0', fontSize: '0.875rem', fontWeight: 700, color: '#b45309' }}>
@@ -316,6 +374,26 @@ export default function HouseholdCard({
         </div>
         <StatusPill status={status} hereCount={herePeople.length} total={people.length} dropOff={dropOff} />
       </div>
+
+      {/* No seat by name, but a booking here has an open guest seat: one tap ties them to it. */}
+      {seats && seats.seats === 0 && !guest && !!guestMatches?.length && (
+        <div data-testid="guest-match" style={{ marginTop: '0.6rem', padding: '0.65rem 0.75rem', borderRadius: '0.7rem', background: 'rgba(var(--color-primary-rgb),0.07)', display: 'grid', gap: '0.45rem' }}>
+          <p style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-dark)' }}>Not on a booking by name. Are they someone’s guest?</p>
+          {guestMatches.map((m) => (
+            <button
+              key={m.bookingId}
+              type="button"
+              disabled={guestBusy || !onGuest}
+              onClick={() => guestAct('attach', m.bookingId)}
+              style={{ ...btn(), width: '100%', minHeight: '3rem', fontSize: '1rem', fontWeight: 700, opacity: guestBusy ? 0.5 : 1 }}
+            >
+              {`With ${m.bookerName} · ${m.open} seat${m.open === 1 ? '' : 's'} open`}
+            </button>
+          ))}
+          <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-muted)' }}>Not a guest? Use Sell a seat or Comp a seat.</p>
+        </div>
+      )}
+      {guestErr && <p style={{ color: '#b91c1c', fontSize: '0.875rem', margin: '0.4rem 0 0', fontWeight: 600 }}>{guestErr}</p>}
 
       {/* Expired or older agreement (the only signature detail the card needs); the rest is in 📄 Agreement. */}
       {signState && (
