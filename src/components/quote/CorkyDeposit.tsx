@@ -1,5 +1,5 @@
 /**
- * The "Hold December 12 · $1,500" button on /for/corky, and the
+ * The "Hold December 12 · $1,500" button on /for/corky-christmas-2026, and the
  * small sheet that takes the deposit right there: name, email, phone, then
  * Square's payment form (Apple Pay / Google Pay / card).
  *
