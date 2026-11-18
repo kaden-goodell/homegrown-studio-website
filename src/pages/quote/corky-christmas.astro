@@ -32,6 +32,7 @@ const themes = [
     tint: '#f5ebe7', accent: '#7d2530',
     blurb: 'Mosaic coasters, trays and more, plus a succulent to take home.',
     leave: 'Most guests leave with 4 to 6 coasters and a potted succulent.',
+    ourPick: true,
     addon: '',
   },
   {
@@ -98,6 +99,7 @@ const themes = [
           <span class="pics">
             <img class="a" src={t.photos[0]} alt="" loading={i === 0 ? 'eager' : 'lazy'} />
             <img class="b" src={t.photos[1]} alt="" loading="lazy" />
+            {t.ourPick && <span class="ourpick">Our pick</span>}
             <span class="tick" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg></span>
           </span>
           <span class="tbody">
@@ -221,6 +223,7 @@ const themes = [
   .pics img { width: 100%; height: 12.5rem; object-fit: cover; display: block; }
   .pics .a { border-radius: 5px 0 0 5px; }
   .pics .b { border-radius: 0 5px 5px 0; }
+  .ourpick { position: absolute; top: 0.6rem; left: 0.6rem; z-index: 2; font-size: 0.68rem; font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase; color: #fffdf8; background: rgba(31,51,41,0.88); border: 1px solid rgba(216,189,138,0.7); padding: 0.4rem 0.7rem; border-radius: 999px; backdrop-filter: blur(4px); }
   .tick { position: absolute; top: 0.6rem; right: 0.6rem; width: 2rem; height: 2rem; border-radius: 50%; display: grid; place-items: center; background: rgba(255,253,249,0.9); color: transparent; border: 1.5px solid rgba(61,50,41,0.25); transition: all 0.15s ease; }
   .theme[aria-pressed='true'] .tick { background: var(--accent); border-color: var(--accent); color: #fff; }
 
