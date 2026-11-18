@@ -31,6 +31,7 @@ const themes = [
     haul: [img('mosaic-xmas.jpg'), img('succulents.jpg'), img('mosaic-xmas-trio.jpg'), img('plants.jpg')],
     tint: '#f5ebe7', accent: '#7d2530',
     blurb: 'Mosaic coasters, trays and more, plus a succulent to take home.',
+    leave: 'Most guests leave with 4 coasters and a potted succulent.',
     addon: '',
   },
   {
@@ -40,6 +41,7 @@ const themes = [
     haul: [img('totes.jpg'), img('scarf.jpg'), img('keychain-tree.jpg'), img('keychain-emma.jpg')],
     tint: '#f4ede0', accent: '#8a6a35',
     blurb: 'Totes, makeup bags and more. Cover yours in patches and charms, and make a keychain to go with it.',
+    leave: 'Everyone leaves with a finished bag and a keychain, often two.',
     addon: 'Want it monogrammed? $15 more per person.',
   },
   {
@@ -49,6 +51,7 @@ const themes = [
     haul: [img('orn-frame.jpg'), img('orn-harper.jpg'), img('orn-felt.jpg'), img('orn-gingerbread.jpg')],
     tint: '#e8eee9', accent: '#2b4a3a',
     blurb: 'A bunch of different ornaments to try, felted, stitched and painted. Take them all home.',
+    leave: 'Most guests make 3 or 4 ornaments.',
     addon: '',
   },
 ]
@@ -100,9 +103,10 @@ const themes = [
           <span class="tbody">
             <span class="tname">{t.name}</span>
             <span class="tblurb">{t.blurb}</span>
+            <span class="tleave">{t.leave}</span>
             {t.addon && <span class="taddon">{t.addon}</span>}
             <span class="haul">
-              <span class="haul-label">You take home</span>
+              <span class="haul-label">A few examples</span>
               <span class="haul-row">{t.haul.map((h) => <img src={h} alt="" loading="lazy" />)}</span>
             </span>
             <span class="tfoot"><span class="tprice">${PRICE}<small> a guest</small></span><span class="tpick">Pick this one</span></span>
@@ -233,6 +237,7 @@ const themes = [
   .haul-row img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 6px; border: 2px solid #fff; box-shadow: 0 0.25rem 0.6rem rgba(61,50,41,0.12); }
     .tname { font-family: 'Playfair Display', serif; font-style: italic; font-size: 1.6rem; line-height: 1.1; color: var(--accent); }
   .tblurb { font-size: 0.95rem; line-height: 1.5; color: var(--text); }
+  .tleave { font-size: 0.92rem; font-weight: 600; color: var(--accent); margin-top: -0.3rem; }
   .taddon { font-size: 0.8rem; font-style: italic; color: var(--brown); margin-top: -0.35rem; }
   .dots { border-bottom: 1.5px dotted var(--gold); transform: translateY(-0.25rem); }
   .tfoot { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #efe4d6; padding-top: 0.75rem; }
