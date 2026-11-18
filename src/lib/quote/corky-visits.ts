@@ -1,5 +1,5 @@
 /**
- * Jessyca's visits to /quote/corky-christmas, kept in our own small log so
+ * Jessyca's visits to /for/corky, kept in our own small log so
  * the deposit text can say what she picked and how she browsed (Kaden,
  * 17 Nov 2026). Privacy-light on purpose: a random per-browser id, the device
  * kind (never the full user agent), the referring site's domain, and what she
