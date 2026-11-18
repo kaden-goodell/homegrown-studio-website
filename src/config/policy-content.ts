@@ -29,6 +29,8 @@ export const policyWindows = {
   /** We confirm the expected headcount this many days before the party — for
    *  prep only; billing is on actual attendance with the minGuests floor. */
   partyHeadcountLockDays: 7,
+  /** Private events: cancel or move this many days (or more) ahead → deposit refunded or moved. */
+  privateEventNoticeDays: 14,
   /** Workshop cancellations this many hours (or more) ahead → full refund. */
   workshopRefundHours: 48,
   /** Refund arrival window shown to customers. */
@@ -110,33 +112,35 @@ export function policySectionsFor(f: PolicyFacts = CONFIG_POLICY_FACTS): PolicyS
     {
       id: POLICY_ANCHORS.privateEvents,
       title: 'Private Events',
-      intro: 'Bigger groups and custom nights. Your quote spells out your deposit and dates. These are the usual terms.',
+      intro:
+        'Your quote lists your deposit, per-guest price, guest minimum, and dates. ' +
+        'These are the standard terms unless your quote says otherwise.',
       rules: [
         {
-          heading: 'Your deposit saves your date',
-          body: 'It comes off your total on the night.',
+          heading: `Cancel ${W.privateEventNoticeDays}+ days before your event`,
+          body: 'Full refund of your deposit to your original payment method. Text us. No fee.',
         },
         {
-          heading: 'If plans change',
-          body:
-            'Let us know at least 14 days before your event and we’ll refund your deposit in full. Inside 14 days, ' +
-            'we’ll have bought supplies and turned other groups away, so the deposit stays with us.',
+          heading: `Cancel inside ${W.privateEventNoticeDays} days`,
+          body: 'Your deposit is non-refundable. By then we’ve bought supplies and held the date for you.',
         },
         {
-          heading: 'Need a different date?',
+          heading: 'Rescheduling',
           body:
-            'We’re happy to move your event once with at least 14 days’ notice, and your deposit moves with you to any night we have open. ' +
-            'If none of our open nights work for you, the deposit stays with us.',
+            `You can move your event once with at least ${W.privateEventNoticeDays} days’ notice, to any open date. ` +
+            'Your deposit moves with it. If no open date works for you, the deposit is non-refundable.',
         },
         {
-          heading: 'You only pay for who comes',
+          heading: 'Guest count',
           body:
-            'It’s the per-guest price in your quote. Your deposit covers a minimum number of guests, also listed in your quote, ' +
-            'so if fewer can make it, it stays as is.',
+            'You pay the per-guest price for whoever actually comes. Your deposit covers the guest minimum in your quote ' +
+            'and isn’t refunded if fewer guests attend.',
         },
         {
           heading: 'Made-to-order items',
-          body: 'Things like monograms are prepared ahead, so final names are due with your headcount and can’t change after that.',
+          body:
+            'Monograms and other personalized items are made ahead from your final list, due with your headcount. ' +
+            'They can’t be changed or refunded once they’re made.',
         },
       ],
     },
