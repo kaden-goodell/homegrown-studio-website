@@ -133,6 +133,17 @@ const themes = [
       </ol>
     </section>
 
+    <section class="details" id="details">
+      <p class="kicker center">The details</p>
+      <ul>
+        <li><b>Your deposit holds December 12.</b> The {DEPOSIT} comes off your total on the night.</li>
+        <li><b>Change of plans?</b> Cancel by Friday, November 27 for a full refund. After that, the deposit isn't refundable.</li>
+        <li><b>Need a different date?</b> You can move it once, by November 27, to any open date. Your deposit moves with you.</li>
+        <li><b>Pay for who comes.</b> On the night it's ${PRICE} for each guest. Your deposit covers the first 20, and it isn't refunded if fewer make it.</li>
+        <li id="monodetail" hidden><b>Monograms are stitched ahead of time,</b> so names can't change after November 27.</li>
+      </ul>
+    </section>
+
     <section class="reserve" data-price={PRICE}>
       <p class="kicker light">Let us know by Tue, Nov 24</p>
       <img class="sumimg" id="sumimg" src={img('mosaic.jpg')} alt="" hidden />
@@ -146,7 +157,7 @@ const themes = [
       <p class="sumnote" id="namesdue" hidden>Names due Fri, Nov 27.</p>
       <CorkyDeposit client:load />
       <a class="btn ghost" id="textpick" hidden href={'sms:+12564641710?&body=' + encodeURIComponent("Hi! It's Jessyca from the Corky Child Care Collective. For our Dec 12 night we'd like ")}>Text us your pick</a>
-      <p class="fine"><span id="monofine" hidden>Monograms get stitched ahead of time, so names can't change after that. </span><a href="/policies">Our policies</a></p>
+      <p class="fine"><span id="monofine" hidden>Monograms get stitched ahead of time, so names can't change after that. </span><a href="#details">The details</a></p>
     </section>
 
     <footer class="sign">
@@ -242,6 +253,12 @@ const themes = [
   .steps li::before { content: counter(s); width: 2.1rem; height: 2.1rem; border-radius: 50%; border: 1px dashed var(--gold); display: grid; place-items: center; font-family: 'Playfair Display', serif; font-style: italic; color: var(--brown); }
   .steps b { color: var(--ink); font-weight: 600; }
 
+  .details { width: 100%; margin-top: 2.25rem; display: flex; flex-direction: column; gap: 0.9rem; }
+  .details ul { list-style: none; margin: 0; padding: 1.1rem 1.25rem; background: rgba(255,253,248,0.75); border: 1px solid rgba(184,146,90,0.35); border-radius: 6px; display: flex; flex-direction: column; gap: 0.75rem; }
+  .details li { position: relative; padding-left: 1rem; font-size: 0.9rem; line-height: 1.5; color: var(--text); }
+  .details li::before { content: ''; position: absolute; left: 0; top: 0.6em; width: 0.35rem; height: 0.35rem; border-radius: 50%; background: var(--gold); }
+  .details li[hidden] { display: none; }
+  .details b { color: var(--ink); font-weight: 600; }
   .reserve { width: 100%; margin-top: 2.25rem; padding: 1.6rem 1.35rem; background: var(--pine); border-radius: 6px; display: flex; flex-direction: column; align-items: center; gap: 0.85rem; text-align: center; box-shadow: 0 1.1rem 2.75rem rgba(31,51,41,0.3); border: 1px solid rgba(184,146,90,0.45); outline: 1px solid rgba(184,146,90,0.25); outline-offset: -7px; }
   .reserve { --accent: #7a4a2e; }
   .sumimg { width: 4.5rem; height: 4.5rem; object-fit: cover; border: 0.3rem solid #fff; border-radius: 3px; transform: rotate(-3deg); box-shadow: 0 0.5rem 1.2rem rgba(0,0,0,0.35); }

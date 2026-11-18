@@ -88,6 +88,8 @@ export function initCorkyPage(doc: Document = document): () => void {
     namesDue.hidden = !mono
     const monoFine = doc.getElementById('monofine')
     if (monoFine) monoFine.hidden = !isTote(card)
+    const monoDetail = doc.getElementById('monodetail')
+    if (monoDetail) monoDetail.hidden = !mono
     if (body.dataset.locked === 'true') return
     if (card) text.setAttribute('href', STUDIO_SMS + encodeURIComponent(pickMessage(card.dataset.name!, mono)))
   }
