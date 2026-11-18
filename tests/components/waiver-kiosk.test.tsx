@@ -319,3 +319,19 @@ describe('WaiverFlow — kiosk mode (HOM-209)', () => {
     })
   })
 })
+
+describe('WaiverFlow — a booker\'s guest link', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it('sends the guest token with the signature, and never as the booker\'s booking id', async () => {
+    const fetchSpy = mockSignSuccess()
+    const { container } = render(<WaiverFlow kiosk returnTo="/staff" workshopId="clssch_door" eventTitle="Door Mat" guest="clsbk_shelby.SIG" />)
+    fillMinimalForm(container)
+    await act(async () => { fireEvent.click(screen.getByText(waiverContent.form.submitLabel)) })
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled())
+    const body = JSON.parse(String((fetchSpy.mock.calls.at(-1)![1] as RequestInit).body))
+    expect(body.guest).toBe('clsbk_shelby.SIG')
+    expect(body.workshopId).toBe('clssch_door')
+    expect(body.booking).toBeNull()
+  })
+})

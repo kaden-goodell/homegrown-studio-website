@@ -20,6 +20,8 @@ const rawWorkshopId = !rawPartyId ? (Astro.url.searchParams.get('workshop') ?? u
 // The per-seat Square booking id (workshops only) — carried through to the
 // RSVP as `ref.bookingId` so staff can trace a signature to its seat.
 const rawBooking = rawWorkshopId ? (Astro.url.searchParams.get('booking') ?? undefined) : undefined
+// A booker's guest link (guest-links.ts): checked on the server when they sign.
+const rawGuest = rawWorkshopId ? (Astro.url.searchParams.get('guest')?.slice(0, 200) ?? undefined) : undefined
 const { page } = waiverContent
 const subline = rawPartyId ? page.partySubline : page.subline
 
@@ -73,6 +75,6 @@ const noticeText = flow.notice
       </div>
     )}
 
-    {flow.showForm && <WaiverFlow client:load partyId={flow.partyId} partyLabel={flow.partyLabel} workshopId={flow.workshopId} eventTitle={flow.eventTitle} dropOff={flow.dropOff} booking={rawBooking} kiosk={kiosk} returnTo={returnTo} cafeWaitingId={cafeWaitingId} />}
+    {flow.showForm && <WaiverFlow client:load partyId={flow.partyId} partyLabel={flow.partyLabel} workshopId={flow.workshopId} eventTitle={flow.eventTitle} dropOff={flow.dropOff} booking={rawBooking} guest={rawGuest} kiosk={kiosk} returnTo={returnTo} cafeWaitingId={cafeWaitingId} />}
   </section>
 </Layout>

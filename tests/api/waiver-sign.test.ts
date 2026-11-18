@@ -8,6 +8,7 @@ vi.mock('@lib/rate-limit', () => ({
 
 vi.mock('@lib/reuse-token', () => ({
   verifyReuseToken: vi.fn().mockReturnValue(true),
+  signingSecret: () => 'test-secret',
 }))
 
 vi.mock('@lib/checkin-store', () => ({
@@ -173,7 +174,7 @@ describe('POST /api/waiver/sign.json', () => {
 
     // Re-mock after resetModules
     vi.mock('@lib/rate-limit', () => ({ rateLimited: vi.fn().mockReturnValue(false) }))
-    vi.mock('@lib/reuse-token', () => ({ verifyReuseToken: vi.fn().mockReturnValue(true) }))
+    vi.mock('@lib/reuse-token', () => ({ verifyReuseToken: vi.fn().mockReturnValue(true), signingSecret: () => 'test-secret' }))
     vi.mock('@lib/checkin-store', () => ({
       setExpected: vi.fn().mockResolvedValue(undefined),
       getCheckin: vi.fn().mockResolvedValue({ presence: {}, pickupCodeHash: null, expected: null, pickedUpBy: null, confirmedPickup: [], events: [] }),
@@ -529,6 +530,53 @@ describe('POST /api/waiver/sign.json', () => {
         }),
       )
       expect(mockUpsertWaiverInEventIndex).toHaveBeenCalledWith('workshop', 'wkbk-abc123', expect.any(Object), expect.any(String))
+    })
+
+    describe('guest link (a booker\'s friend signs through /waiver?workshop=…&guest=…)', () => {
+      const ev = () => `wkbk-guest${Math.random().toString(36).slice(2, 10)}`
+
+      it('fresh sign: the household is stored as that booking\'s guest, and the RSVP does NOT carry the booker\'s booking id', async () => {
+        const id = ev()
+        mockGetEvent.mockResolvedValue(workshopEvent({ id }))
+        const { guestToken, listGuestLinks } = await import('@lib/guest-links')
+        mockNewWaiverId.mockReturnValueOnce('wvr_janea')
+        const body = makeAdultBody({ workshopId: id, partyId: null, guest: guestToken(id, 'clsbk_shelby') })
+        const res = await POST(createMockContext(body))
+        expect(res.status).toBe(200)
+        expect(mockUpsertRsvp.mock.calls[0][0].ref).toBeUndefined()
+        const links = await listGuestLinks(id)
+        expect(links).toEqual([expect.objectContaining({ recordId: 'wvr_janea', bookingId: 'clsbk_shelby', via: 'link', by: null })])
+      })
+
+      it('returning signer (reuse) through the guest link is attached too', async () => {
+        const id = ev()
+        mockGetEvent.mockResolvedValue(workshopEvent({ id }))
+        mockGetWaiverRecord.mockResolvedValue(makeReuseSource({ id: 'wvr_back', validUntil: '2099-01-01T00:00:00.000Z', agreementVersion: 'v9' }))
+        const { guestToken, listGuestLinks } = await import('@lib/guest-links')
+        const res = await POST(createMockContext({ reuseRecordId: 'wvr_back', reuseToken: 't', workshopId: id, attending: ['adult'], guest: guestToken(id, 'clsbk_shelby') }))
+        expect(res.status).toBe(200)
+        expect((await listGuestLinks(id)).map((l) => l.recordId)).toEqual(['wvr_back'])
+      })
+
+      it('a token for another class, or a forged one, is ignored: the signature still saves, no guest link', async () => {
+        const id = ev()
+        mockGetEvent.mockResolvedValue(workshopEvent({ id }))
+        const { guestToken, listGuestLinks } = await import('@lib/guest-links')
+        for (const guest of [guestToken('wkbk-other1', 'clsbk_shelby'), 'clsbk_shelby.forgedforgedforgedforged', 'junk']) {
+          const res = await POST(createMockContext(makeAdultBody({ workshopId: id, partyId: null, guest })))
+          expect(res.status).toBe(200)
+        }
+        expect(await listGuestLinks(id)).toEqual([])
+      })
+
+      it('a failed sign stores no guest link', async () => {
+        const id = ev()
+        mockGetEvent.mockResolvedValue(workshopEvent({ id }))
+        const { guestToken, listGuestLinks } = await import('@lib/guest-links')
+        const res = await POST(createMockContext(makeAdultBody({ workshopId: id, partyId: null, signature: '', guest: guestToken(id, 'clsbk_shelby') })))
+        expect(res.status).toBe(400)
+        expect(await listGuestLinks(id)).toEqual([])
+      })
     })
 
     it('two households booking two different seats both attach to the same class', async () => {

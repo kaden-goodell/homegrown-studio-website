@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro'
 import { createHash } from 'node:crypto'
 import { providers } from '@config/providers'
+import { readGuestToken, attachGuest } from '@lib/guest-links'
 import { waiverContent, serializeAgreement, substantiveSince, compareVersions } from '@config/waiver-content'
 import {
   saveWaiverRecord,
@@ -657,20 +658,41 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       return bad('Invalid workshop ID.')
     }
 
+    // A booker's guest link (/waiver?workshop=…&guest=…): the booking this
+    // signer is a guest of. Anything we didn't sign for THIS class is ignored.
+    const guestOf = workshopId ? readGuestToken(workshopId, body.guest) : null
+
     // Returning-customer fast path.
     const reuseId = typeof body.reuseRecordId === 'string' ? body.reuseRecordId.trim() : ''
     const reuseToken = typeof body.reuseToken === 'string' ? body.reuseToken.trim() : ''
     if (reuseId) {
-      return reportSigned(request.url, true, partyId, workshopId,
-        await handleReuse(reuseId, reuseToken, partyId, workshopId, bookingId, body.attending, responsibleAdult, body.pickupUpdate, now, clientAddress, userAgent))
+      return reportSigned(request.url, true, partyId, workshopId, await linkGuest(workshopId, guestOf,
+        await handleReuse(reuseId, reuseToken, partyId, workshopId, bookingId, body.attending, responsibleAdult, body.pickupUpdate, now, clientAddress, userAgent)))
     }
 
-    return reportSigned(request.url, false, partyId, workshopId,
-      await handleFresh(body, partyId, workshopId, bookingId, responsibleAdult, now, clientAddress, userAgent))
+    return reportSigned(request.url, false, partyId, workshopId, await linkGuest(workshopId, guestOf,
+      await handleFresh(body, partyId, workshopId, bookingId, responsibleAdult, now, clientAddress, userAgent)))
   } catch (err) {
     logger.error('Waiver signing failed', { error: err instanceof Error ? err.message : String(err) })
     return bad('Something went wrong saving your signature — please try again or sign at the front desk.', 500)
   }
+}
+
+/**
+ * Signed through a booker's guest link: tie this household to that booking's
+ * seat, so the door shows "Shelby Taylor's guest". Only after a good sign, and
+ * it never fails one (the crew can still match them at check-in).
+ */
+async function linkGuest(workshopId: string | null, guestOf: string | null, res: Response): Promise<Response> {
+  if (!workshopId || !guestOf || res.status !== 200) return res
+  try {
+    const data = (await res.clone().json())?.data
+    const recordId = typeof data?.recordId === 'string' ? data.recordId : typeof data?.waiverId === 'string' ? data.waiverId : null
+    if (recordId) await attachGuest({ eventId: workshopId, bookingId: guestOf, recordId, via: 'link', by: null })
+  } catch (err) {
+    logger.error('Guest link not saved (signature is)', { workshopId, error: err instanceof Error ? err.message : String(err) })
+  }
+  return res
 }
 
 /** Counts only (how many people, for what): never names. */

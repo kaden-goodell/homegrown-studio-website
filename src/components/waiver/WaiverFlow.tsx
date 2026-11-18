@@ -26,6 +26,8 @@ interface Props {
   /** Present when opened from a workshop confirmation — the per-seat Square
    *  booking id, carried through to the RSVP as `ref.bookingId`. */
   booking?: string
+  /** A booker's guest link token (/waiver?workshop=…&guest=…), sent on to the sign API. */
+  guest?: string
   /** True on the shared staff iPad (`/waiver?kiosk=1`, HOM-209) — skips the
    *  returning-customer lookup, shows a disclosure bar, and swaps the
    *  confirmation for a minimal "hand it back" screen that auto-returns. */
@@ -93,7 +95,7 @@ function PartyLabelChip({ label }: { label: string }) {
   )
 }
 
-export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle, dropOff, booking, kiosk = false, returnTo = '/staff', cafeWaitingId }: Props) {
+export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle, dropOff, booking, guest, kiosk = false, returnTo = '/staff', cafeWaitingId }: Props) {
   const { form, confirmation, legalSections } = waiverContent
 
   // Analytics: which agreement this is — counts only, never names.
@@ -390,6 +392,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           partyId: partyId ?? null,
           workshopId: workshopId ?? null,
           booking: booking ?? null,
+          ...(guest ? { guest } : {}),
           // Who's making a craft — watchers come free and aren't counted here.
           attending: ['adult', ...minors.map((_, i) => `child:${i}`)].filter(formComing),
           responsibleAdult: kidsWithoutSigner ? effectiveResponsibleAdult(fullName) : '',
@@ -491,6 +494,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           partyId: partyId ?? null,
           workshopId: workshopId ?? null,
           booking: booking ?? null,
+          ...(guest ? { guest } : {}),
           attending: Object.entries(attending).filter(([, coming]) => coming).map(([id]) => id),
           responsibleAdult: returningKidsWithoutSigner ? effectiveResponsibleAdult(returning.firstName) : '',
           ...(showReturningPickup && returningPickupFilled
