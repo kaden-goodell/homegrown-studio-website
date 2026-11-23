@@ -31,10 +31,20 @@ export function liveChecks(site: string, ask: typeof fetch = fetch): Check[] {
     {
       name: 'Class list',
       run: async () => {
-        const res = await withTimeout(ask(`${site.replace(/\/$/, '')}/api/workshops.json`, { headers: { 'Cache-Control': 'no-cache' } }), 8000, 'Class list')
-        if (!res.ok) throw new Error(`answered ${res.status}`)
-        const body: any = await res.json().catch(() => null)
-        if (!body || !Array.isArray(body.workshops)) throw new Error('answer was not a class list')
+        // Asked twice before it counts: at night the site is asleep (keep-warm stops at 11 PM), and the first
+        // request only wakes it. Kaden, 22 Nov 2026: 2 AM "BOOKING CHECK FAILING … Class list took over 8s",
+        // then "Fixed" 15 minutes later, night after night.
+        const once = async () => {
+          const res = await withTimeout(ask(`${site.replace(/\/$/, '')}/api/workshops.json`, { headers: { 'Cache-Control': 'no-cache' } }), 8000, 'Class list')
+          if (!res.ok) throw new Error(`answered ${res.status}`)
+          const body: any = await res.json().catch(() => null)
+          if (!body || !Array.isArray(body.workshops)) throw new Error('answer was not a class list')
+        }
+        try {
+          await once()
+        } catch {
+          await once()
+        }
       },
     },
     {
@@ -70,7 +80,16 @@ export function liveChecks(site: string, ask: typeof fetch = fetch): Check[] {
 export interface WatchdogResult { ok: boolean; failed: string[]; strikes: number; texted: boolean }
 
 /** One run. Never throws. */
-export async function runWatchdog(checks: Check[], store: KvStore = makeKvStore(ALARM_STORE, ALARM_STORE)): Promise<WatchdogResult> {
+/**
+ * Failed runs in a row before Kaden is texted: 2 (30 minutes) by day; 4 (an hour) from 11 PM to 6 AM studio
+ * time, when nobody is booking and a slow wake-up shouldn't wake him. A real outage still texts within the hour.
+ */
+export function strikesNeeded(now: Date): number {
+  const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hour: 'numeric', hourCycle: 'h23' }).format(now))
+  return hour >= 23 || hour < 6 ? 4 : 2
+}
+
+export async function runWatchdog(checks: Check[], store: KvStore = makeKvStore(ALARM_STORE, ALARM_STORE), now: Date = new Date()): Promise<WatchdogResult> {
   const results = await Promise.allSettled(checks.map((c) => c.run()))
   const failed = results.flatMap((r, i) => (r.status === 'rejected' ? [`${checks[i].name}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`] : []))
   let strikes = 0
@@ -88,7 +107,7 @@ export async function runWatchdog(checks: Check[], store: KvStore = makeKvStore(
   await store.set(STRIKES_KEY, String(strikes)).catch((err) => logger.error('Watchdog strikes unwritable', { error: String(err) }))
   logger.error('Watchdog check failed', { strikes, failed })
   let texted = false
-  if (strikes >= 2) {
+  if (strikes >= strikesNeeded(now)) {
     texted = await raiseIncident({
       key: WATCHDOG_KEY,
       text: `BOOKING CHECK FAILING (${strikes} checks in a row): ${failed.join('; ').slice(0, 220)}. Customers may not be able to book. Open ourhometownstudio.com/workshops to look.`,
