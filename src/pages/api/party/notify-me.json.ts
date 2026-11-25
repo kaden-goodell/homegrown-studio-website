@@ -7,7 +7,7 @@ import { alertOwners } from '@lib/owner-alert'
 import { sendSignupConfirmationEmail } from '@lib/email'
 import { signupPromise } from '@lib/signup-promise'
 import { askedLine } from '@lib/signup-ledger'
-import { remember } from '@lib/short-memory'
+import { publicWorkshopList } from '@lib/workshop-snapshot'
 import { longDate } from '@lib/notify-context'
 import { OPENING_DATE } from '@config/opening'
 import { reportServerEvent } from '@lib/posthog-server'
@@ -117,7 +117,7 @@ async function promiseFor(interest: string) {
   if (/^workshop(-soon|-waitlist)?:/.test(interest)) {
     try {
       const list = await Promise.race([
-        remember('workshops:list', 30_000, () => providers.workshop.listWorkshops()),
+        publicWorkshopList(),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('slow')), 2500)),
       ])
       workshopNames = list.map((w) => w.name)

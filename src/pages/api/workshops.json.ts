@@ -8,7 +8,7 @@ import type { CutoffSettings } from '@lib/seat-options'
 import { resolvedPrice, type TicketType } from '@lib/ticket-types'
 import { createLogger } from '@lib/logger'
 import { movedToFor, withoutMoved } from '@lib/moved-classes'
-import { remember } from '@lib/short-memory'
+import { publicWorkshopList } from '@lib/workshop-snapshot'
 import { publicListHeaders } from '@lib/cache-headers'
 import { listClasses } from '@lib/classes/class-store'
 import { getLedgerForDisplay } from '@lib/classes/seat-ledger'
@@ -85,7 +85,8 @@ export const GET: APIRoute = async ({ request }) => {
   const wanted = new URL(request.url).searchParams.get('w') ?? ''
   let moved: { id: string; to: string } | null = null
   try {
-    let list = await remember('workshops:list', 30_000, () => providers.workshop.listWorkshops())
+    // The copy the 5-minute alerts job saves (fresh), else Square live: Square often takes 8+ seconds.
+    let list = await publicWorkshopList()
     if (/^[A-Za-z0-9_-]{6,64}$/.test(wanted) && !list.some((w) => w.id === wanted)) {
       list = await providers.workshop.listWorkshops()
     }

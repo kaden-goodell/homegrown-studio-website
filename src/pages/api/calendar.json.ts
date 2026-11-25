@@ -26,6 +26,7 @@ import type { ScheduledClass } from '@lib/classes/types'
 import { createLogger } from '@lib/logger'
 import { withoutMoved } from '@lib/moved-classes'
 import { remember } from '@lib/short-memory'
+import { publicWorkshopList } from '@lib/workshop-snapshot'
 import { publicListHeaders } from '@lib/cache-headers'
 import { isNotFound, onSandbox } from '@lib/parties/legacy-square'
 
@@ -102,7 +103,8 @@ export const GET: APIRoute = async ({ url, request }) => {
     return fallback
   }
   const [allWorkshops, allOpenStudioWindows, parties, ourClasses, studio, partySettings, partyBlocks] = await Promise.all([
-    remember('calendar:workshops', 30_000, () => providers.workshop.listWorkshops()).catch(
+    // The saved copy when fresh (src/lib/workshop-snapshot.ts), else Square live.
+    publicWorkshopList().catch(
       orElse('workshops fetch', [] as any[]),
     ),
     remember('calendar:open-studio', 60_000, loadOpenStudioWindows).catch(

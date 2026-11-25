@@ -3,7 +3,7 @@ import { providers } from '@config/providers'
 import { SITE_URL } from '@config/site-url'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
-import { remember } from '@lib/short-memory'
+import { publicWorkshopList } from '@lib/workshop-snapshot'
 import { movedToFor } from '@lib/moved-classes'
 import { reportServerEvent } from '@lib/posthog-server'
 import { sendClassLinkEmail, type ClassForEmail } from '@lib/class-link-email'
@@ -51,8 +51,9 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     if (OWN_CLASS_ID.test(classId)) {
       found = ownClassForEmail(await getClass(classId), new Date())
     } else {
-      const list = await remember('workshops:list', 30_000, () => providers.workshop.listWorkshops())
-      const square = list.find((w) => w.id === classId)
+      // The saved copy (a few minutes old at most); a class added since is looked for in Square live.
+      const square = (await publicWorkshopList()).find((w) => w.id === classId)
+        ?? (await providers.workshop.listWorkshops()).find((w) => w.id === classId)
       // A Square class whose seats moved to our own system: email the new class, never the old one.
       const to = square ? await movedToFor(square.scheduleId) : null
       found = to ? ownClassForEmail(await getClass(to), new Date()) : square
