@@ -115,3 +115,24 @@ describe('alarms through Pushover', () => {
     expect(texts).toEqual([])
   })
 })
+
+describe('quiet at night (Kaden, 24 Nov 2026): notes are silent 11 PM–6 AM studio time', () => {
+  it('a "Fixed" note at 2 AM is quiet (priority -1); the emergency before it still rings', async () => {
+    now = new Date('2026-11-24T08:00:00Z') // 2 AM CST
+    await raiseIncident({ key: 'watchdog', text: 'BOOKING CHECK FAILING: x.', autoResolve: true })
+    await resolveIncident('watchdog')
+    expect(pushes.map((p) => p.priority)).toEqual([2, -1])
+  })
+
+  it('a heads-up at 11:30 PM is quiet', async () => {
+    now = new Date('2026-11-24T05:30:00Z') // 11:30 PM CST
+    await raiseIncident({ key: 'rage:/book:x', text: 'RAGE TAPS on /book: x.', urgent: false, autoResolve: true })
+    expect(pushes[0].priority).toBe(-1)
+  })
+
+  it('from 6 AM notes are normal again', async () => {
+    now = new Date('2026-11-24T12:00:00Z') // 6 AM CST
+    await raiseIncident({ key: 'rage:/book:x', text: 'RAGE TAPS on /book: x.', urgent: false, autoResolve: true })
+    expect(pushes[0].priority).toBe(0)
+  })
+})

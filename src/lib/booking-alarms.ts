@@ -28,6 +28,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { makeKvStore, type KvStore } from '@lib/blob-store'
 import { createLogger } from '@lib/logger'
 import { quoConfigured, sendQuoText } from '@lib/quo'
+import { studioNight } from '@lib/quiet-hours'
 import { cancelPushoverReceipt, EMERGENCY_EXPIRE_SECONDS, sendPushover, type PushoverMessage, type PushoverResult } from '@lib/pushover'
 import { SITE_URL } from '@config/site-url'
 import {
@@ -159,7 +160,8 @@ async function deliver(content: string, opts: { urgent: boolean; ack?: string })
     pushed = await d().push({
       title: titleOf(content),
       message: content,
-      priority: opts.urgent ? 2 : 0,
+      // Notes (Fixed, Still happening, heads-ups) arrive silently at night; emergencies always ring.
+      priority: opts.urgent ? 2 : studioNight(d().now()) ? -1 : 0,
       ...(opts.ack ? { url: opts.ack, urlTitle: 'Got it (stop the alarm)' } : {}),
     })
   } catch (err) {

@@ -12,6 +12,7 @@ import { createLogger } from '@lib/logger'
 import { makeKvStore, type KvStore } from '@lib/blob-store'
 import { ALARM_STORE } from '@config/alerts'
 import { raiseIncident, resolveIncident } from '@lib/booking-alarms'
+import { studioNight } from '@lib/quiet-hours'
 
 const logger = createLogger('watchdog')
 export const WATCHDOG_KEY = 'watchdog'
@@ -85,8 +86,7 @@ export interface WatchdogResult { ok: boolean; failed: string[]; strikes: number
  * time, when nobody is booking and a slow wake-up shouldn't wake him. A real outage still texts within the hour.
  */
 export function strikesNeeded(now: Date): number {
-  const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hour: 'numeric', hourCycle: 'h23' }).format(now))
-  return hour >= 23 || hour < 6 ? 4 : 2
+  return studioNight(now) ? 4 : 2
 }
 
 export async function runWatchdog(checks: Check[], store: KvStore = makeKvStore(ALARM_STORE, ALARM_STORE), now: Date = new Date()): Promise<WatchdogResult> {

@@ -8,6 +8,8 @@
  *               Used for urgent incidents (a booking broke, money unclear,
  *               site down). Carries our signed "Got it" link.
  *   priority 0  normal: heads-ups (rage taps), "Fixed", "Still happening".
+ *   priority -1 quiet: those same notes from 11 PM to 6 AM studio time
+ *               (no sound or vibration; waiting in the morning).
  *
  * Keys come from the site setup: PUSHOVER_APP_TOKEN (the app) and
  * PUSHOVER_USER_KEY (Kaden's account). Never logged. Never throws: the caller
@@ -36,7 +38,7 @@ export function pushoverConfigured(): boolean {
 export interface PushoverMessage {
   title: string
   message: string
-  priority: 0 | 2
+  priority: -1 | 0 | 2
   url?: string
   urlTitle?: string
   sound?: string

@@ -43,6 +43,13 @@ describe('sendPushover', () => {
     expect(calls[0].body.has('retry')).toBe(false)
   })
 
+  it('a quiet note (priority -1, night) is sent as -1 with no retry or expire', async () => {
+    await sendPushover({ title: 'Fixed', message: 'ok', priority: -1 })
+    expect(calls[0].body.get('priority')).toBe('-1')
+    expect(calls[0].body.has('retry')).toBe(false)
+    expect(calls[0].body.has('expire')).toBe(false)
+  })
+
   it('not set up → not sent, nothing called', async () => {
     delete process.env.PUSHOVER_USER_KEY
     expect(await sendPushover({ title: 't', message: 'm', priority: 2 })).toEqual({ sent: false })
