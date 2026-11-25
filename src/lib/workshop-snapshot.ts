@@ -25,7 +25,7 @@ import type { Workshop } from '@providers/interfaces/workshop'
 const logger = createLogger('workshop-snapshot')
 const KEY = 'list'
 /** A saved copy older than this is not used: the list asks Square live. */
-export const SNAPSHOT_FRESH_MS = 15 * 60_000
+export const SNAPSHOT_FRESH_MS = 25 * 60_000
 /** How long the alerts job waits for Square before giving up on this refresh. */
 export const REFRESH_TIMEOUT_MS = 25_000
 /** A slow store read gives up and asks Square live instead. */

@@ -37,11 +37,17 @@ describe('POST /api/jobs/alerts-tick.json — the saved class list', () => {
     expect((await res.json()).data.snapshot).toEqual({ saved: true, count: 3 })
   })
 
-  it('refreshes on the ticks between watchdog turns too', async () => {
+  it('refreshes every 10 minutes: on :10, not on :05 (between watchdog turns)', async () => {
+    vi.setSystemTime(new Date('2026-11-24T20:10:30Z'))
+    await tick()
+    expect(mockRefresh).toHaveBeenCalledTimes(1)
+    mockRefresh.mockClear()
     vi.setSystemTime(new Date('2026-11-24T20:05:30Z'))
     const res = await tick()
-    expect(mockRefresh).toHaveBeenCalledTimes(1)
-    expect((await res.json()).data.watchdog).toBeNull()
+    expect(mockRefresh).not.toHaveBeenCalled()
+    const data = (await res.json()).data
+    expect(data.watchdog).toBeNull()
+    expect(data.snapshot).toBeNull()
   })
 
   it('a refresh that throws never fails the tick; the watchdog still runs', async () => {

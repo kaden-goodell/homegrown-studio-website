@@ -46,9 +46,15 @@ export function watchdogDue(now: Date, every = WATCHDOG_EVERY_MINUTES): boolean 
 export const POST: APIRoute = async ({ request }) => {
   if (!allowed(request)) return json({ error: 'Unauthorized' }, 401)
   // Square's class list is saved first, so the robot customer (and every visitor) reads the copy.
-  const [swept, snapshot] = await Promise.all([sweepIncidents(), refreshSnapshot()])
+  // Every other tick (10 minutes) to keep Netlify compute down; the copy counts as fresh for 25 minutes.
+  const [swept, snapshot] = await Promise.all([sweepIncidents(), snapshotDue(new Date()) ? refreshSnapshot() : Promise.resolve(null)])
   const watchdog = watchdogDue(new Date()) ? await runWatchdog(liveChecks(SITE_URL)) : null
   return json({ data: { swept, snapshot, watchdog } }, 200)
+}
+
+/** Refresh on the 10-minute marks (the tick runs every 5). */
+export function snapshotDue(now: Date): boolean {
+  return Math.floor(now.getUTCMinutes() / 5) % 2 === 0
 }
 
 /** Never throws: a failed refresh keeps the saved copy and never fails the tick. */

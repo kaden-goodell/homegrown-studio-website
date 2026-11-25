@@ -61,8 +61,8 @@ describe('GET /api/workshops.json — the saved copy', () => {
     expect(res.headers.get('Cache-Control')).not.toContain('no-store')
   })
 
-  it('asks Square live once the copy is over 15 minutes old', async () => {
-    vi.setSystemTime(new Date('2026-11-24T20:15:00.000Z'))
+  it('asks Square live once the copy is 25 minutes old', async () => {
+    vi.setSystemTime(new Date('2026-11-24T20:25:00.000Z'))
     const { body } = await get()
     expect(body.workshops.map((w: any) => w.id)).toEqual(['live'])
     expect(mockListWorkshops).toHaveBeenCalledTimes(1)
