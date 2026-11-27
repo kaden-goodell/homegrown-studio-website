@@ -20,7 +20,7 @@ function mount() {
       <p id="sum">$75 a guest · 40 to 50 guests</p>
       <p id="monohint">Monograms on the tote night, +$15 a guest</p>
       <label id="monorow" hidden><input type="checkbox" id="monogram" /><span id="monolabel">Add monograms · +$15 a guest</span></label>
-      <p id="namesdue" hidden>Names due Fri, Nov 27.</p>
+      <p id="namesdue" hidden>Names due Sat, Dec 5.</p>
       <a id="textpick" href="sms:+12564641710">Text us your pick</a>
     </section>`
 }

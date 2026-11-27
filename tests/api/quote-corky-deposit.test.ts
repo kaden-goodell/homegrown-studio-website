@@ -211,7 +211,7 @@ describe('POST /api/quote/corky-deposit.json', () => {
       const mail = m.sendEmail.mock.calls[0][0]
       expect(mail.subject).toBe('Deposit paid: Corky Child Care Collective, Dec 12 · Tote & Keychain Bar + monograms')
       expect(mail.text).toContain('Jessyca Lope · (256) 975-0563 · jessyca@example.com')
-      expect(mail.text).toContain('Picked: Tote & Keychain Bar + monograms ($15 more a guest, names due Fri, Nov 27)')
+      expect(mail.text).toContain('Picked: Tote & Keychain Bar + monograms ($15 more a guest, names due Sat, Dec 5)')
       expect(mail.text).toContain('Visits: 4 visits on 2 devices, first opened Mon Nov 16 9:02 AM')
       expect(mail.text).toContain('Time on page: 12 min in all · deepest scroll 100%')
       expect(mail.text).toContain('Nights tapped: Tote & Keychain Bar ×3, Ornament Bar ×2')
@@ -277,7 +277,7 @@ describe('POST /api/quote/corky-deposit.json', () => {
       expect(m.alert.mock.calls[0][0]).toContain('Picked: Tote & Keychain Bar + monograms.')
       const mail = m.sendEmail.mock.calls[0][0]
       expect(mail.subject).toBe('Deposit paid: Corky Child Care Collective, Dec 12 · Tote & Keychain Bar + monograms')
-      expect(mail.text).toContain('Picked: Tote & Keychain Bar + monograms ($15 more a guest, names due Fri, Nov 27)')
+      expect(mail.text).toContain('Picked: Tote & Keychain Bar + monograms ($15 more a guest, names due Sat, Dec 5)')
       expect(JSON.parse(m.rows.get('corky-paid')!)).toMatchObject({ night: 'Tote & Keychain Bar', monogram: true, firstName: 'Jessyca', receiptUrl: 'https://squareup.com/receipt/1' })
     })
 

@@ -271,7 +271,7 @@ export function paidEmailLines(f: PaidFacts, s: VisitSummary | null): string[] {
     `Square order ${f.orderId}`,
     '',
     f.night
-      ? `Picked: ${pickedLabel(f)}${f.monogram ? ' ($15 more a guest, names due Fri, Nov 27)' : nightByName(f.night)?.id === MONOGRAM_NIGHT ? ' (no monograms)' : ''}`
+      ? `Picked: ${pickedLabel(f)}${f.monogram ? ' ($15 more a guest, names due Sat, Dec 5)' : nightByName(f.night)?.id === MONOGRAM_NIGHT ? ' (no monograms)' : ''}`
       : 'No night picked yet',
   ]
   if (!s) return lines
